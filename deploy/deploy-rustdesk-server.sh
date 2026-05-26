@@ -6,6 +6,8 @@ COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
 PUBLIC_HOST="${PUBLIC_HOST:-43.154.197.96}"
 KQ_RELAY_SERVER="${KQ_RELAY_SERVER:-${PUBLIC_HOST}:21117}"
 KQ_SERVER_KEY="${KQ_SERVER_KEY:-_}"
+KQ_HBBS_PUBLIC_KEY="${KQ_HBBS_PUBLIC_KEY:-}"
+KQ_HBBS_SECRET_KEY="${KQ_HBBS_SECRET_KEY:-}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -44,6 +46,35 @@ docker_exec_read() {
   "${SUDO[@]}" docker exec "${container}" sh -c "test -s '${path}' && cat '${path}'" 2>/dev/null || true
 }
 
+validate_key_pair_env() {
+  if [[ -z "${KQ_HBBS_PUBLIC_KEY}" && -z "${KQ_HBBS_SECRET_KEY}" ]]; then
+    return
+  fi
+  if [[ -z "${KQ_HBBS_PUBLIC_KEY}" || -z "${KQ_HBBS_SECRET_KEY}" ]]; then
+    echo "KQ_HBBS_PUBLIC_KEY and KQ_HBBS_SECRET_KEY must be set together." >&2
+    exit 1
+  fi
+  if ! printf '%s' "${KQ_HBBS_PUBLIC_KEY}" | base64 -d >/dev/null 2>&1; then
+    echo "KQ_HBBS_PUBLIC_KEY is not valid base64." >&2
+    exit 1
+  fi
+  if ! printf '%s' "${KQ_HBBS_SECRET_KEY}" | base64 -d >/dev/null 2>&1; then
+    echo "KQ_HBBS_SECRET_KEY is not valid base64." >&2
+    exit 1
+  fi
+}
+
+seed_server_key_pair() {
+  validate_key_pair_env
+  if [[ -z "${KQ_HBBS_PUBLIC_KEY}" ]]; then
+    return
+  fi
+  echo "Seeding hbbs/hbbr key pair from environment."
+  printf '%s\n' "${KQ_HBBS_PUBLIC_KEY}" | "${SUDO[@]}" tee "${INSTALL_DIR}/data/id_ed25519.pub" >/dev/null
+  printf '%s\n' "${KQ_HBBS_SECRET_KEY}" | "${SUDO[@]}" tee "${INSTALL_DIR}/data/id_ed25519" >/dev/null
+  "${SUDO[@]}" chmod 600 "${INSTALL_DIR}/data/id_ed25519"
+}
+
 extract_public_key() {
   local key
   key="$(docker_exec_read kq-remote-link-hbbs /root/id_ed25519.pub)"
@@ -69,6 +100,7 @@ fi
 
 "${SUDO[@]}" mkdir -p "${INSTALL_DIR}/data"
 "${SUDO[@]}" cp "${SOURCE_COMPOSE}" "${INSTALL_DIR}/rustdesk-server.compose.yml"
+seed_server_key_pair
 cd "${INSTALL_DIR}"
 
 open_firewall_ports() {

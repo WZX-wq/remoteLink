@@ -52,6 +52,24 @@ if required containers, listeners, or the public key are missing.
 required for private-server client packaging because the Windows client needs
 the generated `hbbs` public key in its signed `custom.txt`.
 
+If you want the client package to be built before the first server run,
+pre-generate the hbbs/hbbr key pair:
+
+```powershell
+.\scripts\new-kq-server-key-pair.ps1
+```
+
+Then add the printed values to the runner environment or repository secrets:
+
+| Variable | Value |
+| --- | --- |
+| `KQ_HBBS_PUBLIC_KEY` | Generated public key; also used as the client `ServerKey` |
+| `KQ_HBBS_SECRET_KEY` | Generated secret key; keep private |
+
+When both variables are present, the deploy script seeds
+`/www/wwwroot/KQromoteLink/data/id_ed25519.pub` and `id_ed25519` before
+starting `hbbs`/`hbbr`.
+
 ## Manual SSH Workflow
 
 Open **Actions -> Deploy RustDesk Server -> Run workflow**, then fill:

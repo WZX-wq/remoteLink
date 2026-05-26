@@ -79,6 +79,25 @@ INSTALL_DIR=/www/wwwroot/KQromoteLink ./deploy/export-hbbs-public-key.sh
 The deploy and health-check scripts also run the same export logic
 automatically and fail if no public key can be found.
 
+For repeatable client packaging, generate the hbbs/hbbr key pair before
+deployment:
+
+```powershell
+.\scripts\new-kq-server-key-pair.ps1
+```
+
+Keep the generated secret key outside git. Provide the two values to the Gitea
+runner environment or repository secrets as:
+
+```bash
+KQ_HBBS_PUBLIC_KEY=<generated public key>
+KQ_HBBS_SECRET_KEY=<generated secret key>
+```
+
+When both variables are present, `deploy/deploy-rustdesk-server.sh` writes them
+to `/www/wwwroot/KQromoteLink/data/id_ed25519.pub` and
+`/www/wwwroot/KQromoteLink/data/id_ed25519` before starting containers.
+
 The deploy script also tries to open local firewall rules for
 `tcp/21115-21119` and `udp/21116`. Cloud security groups still need to allow the
 same ports.
