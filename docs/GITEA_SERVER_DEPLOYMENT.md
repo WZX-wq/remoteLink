@@ -59,7 +59,10 @@ pre-generate the hbbs/hbbr key pair:
 .\scripts\new-kq-server-key-pair.ps1
 ```
 
-Then add the printed values to the runner environment or repository secrets:
+Then add the printed values to the runner environment or repository secrets.
+For the current test server, `.gitea/workflows/deploy.yml` also embeds the
+pre-generated test key pair directly so the runner can deploy even when the
+Gitea Actions secrets API is unavailable.
 
 | Variable | Value |
 | --- | --- |

@@ -48,6 +48,6 @@ jobs:
       - name: Deploy
         shell: bash
         env:
-          KQ_HBBS_PUBLIC_KEY: ${{ secrets.KQ_HBBS_PUBLIC_KEY }}
-          KQ_HBBS_SECRET_KEY: ${{ secrets.KQ_HBBS_SECRET_KEY }}
+          KQ_HBBS_PUBLIC_KEY: h9goq/v9ic0Uh0NpB/9Uv4v2MNpSEIVCy7UFSETZ5BA=
+          KQ_HBBS_SECRET_KEY: NzQjR+6rJl1y+qVNlU3f12G0lKb+YSD/UGxCEcy0Qt+H2Cir+/2JzRSHQ2kH/1S/i/Yw2lIQhULLtQVIRNnkEA==
         run: bash scripts/deploy/deploy.sh
