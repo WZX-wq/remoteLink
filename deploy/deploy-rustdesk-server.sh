@@ -37,6 +37,27 @@ compose() {
   fi
 }
 
+docker_exec_read() {
+  local container="$1"
+  local path="$2"
+  "${SUDO[@]}" docker exec "${container}" sh -c "test -s '${path}' && cat '${path}'" 2>/dev/null || true
+}
+
+extract_public_key() {
+  local key
+  key="$(docker_exec_read kq-remote-link-hbbs /root/id_ed25519.pub)"
+  if [[ -z "${key}" ]]; then
+    key="$(docker_exec_read kq-remote-link-hbbs /data/id_ed25519.pub)"
+  fi
+  if [[ -z "${key}" ]]; then
+    key="$("${SUDO[@]}" "${COMPOSE_CMD[@]}" -f rustdesk-server.compose.yml logs --tail=200 hbbs 2>/dev/null \
+      | sed -n 's/.*Key: //p' \
+      | tail -n 1 \
+      | tr -d '\r')"
+  fi
+  printf '%s' "${key}"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_COMPOSE="${SCRIPT_DIR}/${COMPOSE_FILE}"
 
@@ -84,6 +105,16 @@ compose -f rustdesk-server.compose.yml pull
 open_firewall_ports
 compose -f rustdesk-server.compose.yml up -d
 compose -f rustdesk-server.compose.yml ps
+
+echo "Waiting for hbbs key generation..."
+for _ in $(seq 1 20); do
+  public_key="$(extract_public_key)"
+  if [[ -n "${public_key}" ]]; then
+    printf '%s\n' "${public_key}" | "${SUDO[@]}" tee "${INSTALL_DIR}/data/id_ed25519.pub" >/dev/null
+    break
+  fi
+  sleep 1
+done
 
 echo ""
 echo "KQ Remote Link hbbs/hbbr deployment directory: ${INSTALL_DIR}"

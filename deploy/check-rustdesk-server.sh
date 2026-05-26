@@ -40,6 +40,27 @@ require_container() {
   fi
 }
 
+docker_exec_read() {
+  local container="$1"
+  local path="$2"
+  "${SUDO[@]}" docker exec "${container}" sh -c "test -s '${path}' && cat '${path}'" 2>/dev/null || true
+}
+
+extract_public_key() {
+  local key
+  key="$(docker_exec_read kq-remote-link-hbbs /root/id_ed25519.pub)"
+  if [[ -z "${key}" ]]; then
+    key="$(docker_exec_read kq-remote-link-hbbs /data/id_ed25519.pub)"
+  fi
+  if [[ -z "${key}" ]]; then
+    key="$("${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=200 hbbs 2>/dev/null \
+      | sed -n 's/.*Key: //p' \
+      | tail -n 1 \
+      | tr -d '\r')"
+  fi
+  printf '%s' "${key}"
+}
+
 list_listeners() {
   if command -v ss >/dev/null 2>&1; then
     "${SUDO[@]}" ss -lntup
@@ -107,8 +128,16 @@ echo "== hbbs public key =="
 if [[ -s "${INSTALL_DIR}/data/id_ed25519.pub" ]]; then
   "${SUDO[@]}" cat "${INSTALL_DIR}/data/id_ed25519.pub"
 else
-  echo "Missing ${INSTALL_DIR}/data/id_ed25519.pub" >&2
-  exit 1
+  public_key="$(extract_public_key)"
+  if [[ -n "${public_key}" ]]; then
+    "${SUDO[@]}" mkdir -p "${INSTALL_DIR}/data"
+    printf '%s\n' "${public_key}" | "${SUDO[@]}" tee "${INSTALL_DIR}/data/id_ed25519.pub" >/dev/null
+    "${SUDO[@]}" cat "${INSTALL_DIR}/data/id_ed25519.pub"
+  else
+    echo "Missing ${INSTALL_DIR}/data/id_ed25519.pub and no key was found in the hbbs container or logs." >&2
+    echo "Try: docker exec kq-remote-link-hbbs sh -c 'find /root /data -maxdepth 1 -type f -name id_ed25519.pub -print -exec cat {} \\;'" >&2
+    exit 1
+  fi
 fi
 
 echo ""
