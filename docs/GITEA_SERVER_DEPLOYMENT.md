@@ -107,3 +107,12 @@ Then verify server connectivity from a client-side network:
   -RendezvousServer "43.154.197.96:21116" `
   -RelayServer "43.154.197.96:21117"
 ```
+
+When operations sends back the `hbbs` public key, validate it before packaging:
+
+```powershell
+.\scripts\test-kq-server.ps1 `
+  -RendezvousServer "43.154.197.96:21116" `
+  -RelayServer "43.154.197.96:21117" `
+  -ServerKey "<hbbs public key>"
+```

@@ -166,6 +166,10 @@ client-side network:
   -RelayServer "43.154.197.96:21117"
 ```
 
+After operations returns `/www/wwwroot/KQromoteLink/data/id_ed25519.pub`, pass
+it as `-ServerKey` to validate the key format before building a private-client
+package.
+
 Or read the values from a generated custom-client JSON:
 
 ```powershell

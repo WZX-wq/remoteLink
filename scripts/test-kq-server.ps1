@@ -3,6 +3,7 @@ param(
     [string]$RendezvousServer,
     [string]$RelayServer,
     [string]$ApiServer,
+    [string]$ServerKey,
     [int]$TimeoutMs = 3000,
     [string]$ReportPath,
     [switch]$NoReport
@@ -27,6 +28,9 @@ if ($ConfigJson) {
     }
     if (-not $ApiServer) {
         $ApiServer = $settings."api-server"
+    }
+    if (-not $ServerKey) {
+        $ServerKey = $settings."key"
     }
 }
 
@@ -124,6 +128,23 @@ function Test-Http($Name, $Url) {
     }
 }
 
+function Test-ServerKey($Name, $Key) {
+    if ([string]::IsNullOrWhiteSpace($Key) -or $Key -match "PASTE_|<|>") {
+        Add-Check $Name "WARN" "Server key is required for private-server client packaging. Ask ops to return: cat /www/wwwroot/KQromoteLink/data/id_ed25519.pub"
+        return
+    }
+    try {
+        $bytes = [Convert]::FromBase64String($Key.Trim())
+        if ($bytes.Length -eq 32) {
+            Add-Check $Name "PASS" "Valid 32-byte base64 RustDesk server public key"
+        } else {
+            Add-Check $Name "FAIL" "Expected 32 decoded bytes, got $($bytes.Length)"
+        }
+    } catch {
+        Add-Check $Name "FAIL" "Server key is not valid base64: $($_.Exception.Message)"
+    }
+}
+
 $hbbs = Split-HostPort $RendezvousServer 21116
 $hbbr = Split-HostPort $RelayServer 21117
 
@@ -134,6 +155,7 @@ Test-TcpPort "tcp:hbbs" $hbbs.Host $hbbs.Port
 Test-UdpSend "udp:hbbs" $hbbs.Host $hbbs.Port
 Test-TcpPort "tcp:hbbr" $hbbr.Host $hbbr.Port
 Test-Http "http:api-server" $ApiServer
+Test-ServerKey "server-key:hbbs-public-key" $ServerKey
 
 $failed = @($results | Where-Object { $_.Status -eq "FAIL" })
 $report = New-Object System.Collections.Generic.List[string]
@@ -145,6 +167,11 @@ $report.Add("- RelayServer: $RelayServer")
 if ($ApiServer) {
     $report.Add("- ApiServer: $ApiServer")
 }
+if ($ServerKey) {
+    $report.Add("- ServerKeyProvided: yes")
+} else {
+    $report.Add("- ServerKeyProvided: no")
+}
 $report.Add("")
 $report.Add("| Status | Check | Detail |")
 $report.Add("| --- | --- | --- |")
@@ -154,6 +181,11 @@ foreach ($result in $results) {
 }
 $report.Add("")
 $report.Add("UDP checks cannot prove hole punching by themselves. Always finish with a two-client connection test.")
+$report.Add("For private-server client packaging, the hbbs public key is required. On the server, read it with:")
+$report.Add("")
+$report.Add('```bash')
+$report.Add("cat /www/wwwroot/KQromoteLink/data/id_ed25519.pub")
+$report.Add('```')
 
 if (-not $NoReport) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ReportPath) | Out-Null
