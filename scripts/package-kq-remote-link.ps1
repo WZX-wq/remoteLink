@@ -219,6 +219,7 @@ New-Item -ItemType Directory -Path (Join-Path $stage "deploy") | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo "deploy\rustdesk-server.compose.yml") -Destination (Join-Path $stage "deploy\rustdesk-server.compose.yml")
 Copy-Item -LiteralPath (Join-Path $repo "deploy\deploy-rustdesk-server.sh") -Destination (Join-Path $stage "deploy\deploy-rustdesk-server.sh")
 Copy-Item -LiteralPath (Join-Path $repo "deploy\check-rustdesk-server.sh") -Destination (Join-Path $stage "deploy\check-rustdesk-server.sh")
+Copy-Item -LiteralPath (Join-Path $repo "deploy\export-hbbs-public-key.sh") -Destination (Join-Path $stage "deploy\export-hbbs-public-key.sh")
 Copy-Item -LiteralPath (Join-Path $repo "deploy\custom-client.example.json") -Destination (Join-Path $stage "deploy\custom-client.example.json")
 
 if (Test-Path (Join-Path $repo ".gitea\workflows\deploy-rustdesk-server.yml")) {
@@ -237,6 +238,7 @@ $packageScripts = @(
     "new-kq-custom-client-config.ps1",
     "new-kq-manual-test-report.ps1",
     "new-kq-private-server-client-package.ps1",
+    "new-kq-server-key-pair.ps1",
     "new-kq-server-port-request.ps1",
     "new-kq-two-pc-acceptance.ps1",
     "package-kq-remote-link.ps1",
@@ -284,12 +286,14 @@ try {
         "deploy\rustdesk-server.compose.yml",
         "deploy\deploy-rustdesk-server.sh",
         "deploy\check-rustdesk-server.sh",
+        "deploy\export-hbbs-public-key.sh",
         ".gitea\workflows\deploy.yml",
         ".gitea\workflows\deploy-rustdesk-server.yml",
         "scripts\deploy\deploy.sh",
         "scripts\collect-kq-diagnostics.ps1",
         "scripts\new-kq-manual-test-report.ps1",
         "scripts\new-kq-private-server-client-package.ps1",
+        "scripts\new-kq-server-key-pair.ps1",
         "scripts\new-kq-server-port-request.ps1",
         "scripts\new-kq-two-pc-acceptance.ps1",
         "scripts\run-kq-smoke-suite.ps1",

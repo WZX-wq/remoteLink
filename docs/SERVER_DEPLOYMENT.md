@@ -58,7 +58,9 @@ standard Gitea path for this repository is:
 - Public host: `43.154.197.96`
 
 This compose file uses Docker host networking, matching RustDesk's OSS server
-deployment path for Linux. The server key pair is stored under `deploy/data`.
+deployment path for Linux. `hbbs` and `hbbr` run with `-k _`, so RustDesk
+manages a persistent server key pair instead of running without a usable
+private-server key. The server key pair is stored under `deploy/data`.
 After the first start, copy the public key from:
 
 ```text
@@ -66,6 +68,35 @@ After the first start, copy the public key from:
 ```
 
 Put that value into `deploy/custom-client.example.json` as `key`.
+
+If the key file is missing after containers are already running, export it from
+the container or `hbbs` logs:
+
+```bash
+INSTALL_DIR=/www/wwwroot/KQromoteLink ./deploy/export-hbbs-public-key.sh
+```
+
+The deploy and health-check scripts also run the same export logic
+automatically and fail if no public key can be found.
+
+For repeatable client packaging, generate the hbbs/hbbr key pair before
+deployment:
+
+```powershell
+.\scripts\new-kq-server-key-pair.ps1
+```
+
+Keep the generated secret key outside git. Provide the two values to the Gitea
+runner environment or repository secrets as:
+
+```bash
+KQ_HBBS_PUBLIC_KEY=<generated public key>
+KQ_HBBS_SECRET_KEY=<generated secret key>
+```
+
+When both variables are present, `deploy/deploy-rustdesk-server.sh` writes them
+to `/www/wwwroot/KQromoteLink/data/id_ed25519.pub` and
+`/www/wwwroot/KQromoteLink/data/id_ed25519` before starting containers.
 
 The deploy script also tries to open local firewall rules for
 `tcp/21115-21119` and `udp/21116`. Cloud security groups still need to allow the

@@ -45,6 +45,7 @@ jobs:
             deploy/rustdesk-server.compose.yml \
             deploy/deploy-rustdesk-server.sh \
             deploy/check-rustdesk-server.sh \
+            deploy/export-hbbs-public-key.sh \
             "${{ inputs.user }}@${{ inputs.host }}:${{ inputs.install_dir }}/incoming/"
 
       - name: Deploy hbbs/hbbr
@@ -52,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/kq_deploy_key -p "${{ inputs.port }}" "${{ inputs.user }}@${{ inputs.host }}" \
-            "cd '${{ inputs.install_dir }}/incoming' && chmod +x deploy-rustdesk-server.sh && INSTALL_DIR='${{ inputs.install_dir }}' ./deploy-rustdesk-server.sh"
+            "cd '${{ inputs.install_dir }}/incoming' && chmod +x deploy-rustdesk-server.sh && INSTALL_DIR='${{ inputs.install_dir }}' KQ_HBBS_PUBLIC_KEY='${{ secrets.KQ_HBBS_PUBLIC_KEY }}' KQ_HBBS_SECRET_KEY='${{ secrets.KQ_HBBS_SECRET_KEY }}' ./deploy-rustdesk-server.sh"
 
       - name: Check hbbs/hbbr
         shell: bash
