@@ -3,6 +3,8 @@ set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/kq-remote-link-server}"
 COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
+PUBLIC_HOST="${PUBLIC_HOST:-43.154.197.96}"
+KQ_RELAY_SERVER="${KQ_RELAY_SERVER:-${PUBLIC_HOST}:21117}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -26,6 +28,14 @@ else
   echo "docker compose or docker-compose is required on the target server" >&2
   exit 1
 fi
+
+compose() {
+  if [[ "${#SUDO[@]}" -eq 0 ]]; then
+    KQ_RELAY_SERVER="${KQ_RELAY_SERVER}" "${COMPOSE_CMD[@]}" "$@"
+  else
+    "${SUDO[@]}" env "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}" "${COMPOSE_CMD[@]}" "$@"
+  fi
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_COMPOSE="${SCRIPT_DIR}/${COMPOSE_FILE}"
@@ -69,10 +79,11 @@ open_firewall_ports() {
   echo "No supported local firewall tool was found; verify tcp/21115-21119 and udp/21116 manually."
 }
 
-"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f rustdesk-server.compose.yml pull
+echo "Using RustDesk relay server: ${KQ_RELAY_SERVER}"
+compose -f rustdesk-server.compose.yml pull
 open_firewall_ports
-"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f rustdesk-server.compose.yml up -d
-"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f rustdesk-server.compose.yml ps
+compose -f rustdesk-server.compose.yml up -d
+compose -f rustdesk-server.compose.yml ps
 
 echo ""
 echo "KQ Remote Link hbbs/hbbr deployment directory: ${INSTALL_DIR}"

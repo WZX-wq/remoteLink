@@ -1,6 +1,8 @@
 param(
     [switch]$SkipPortablePack = $true,
-    [string]$ToolsRoot = "C:\kq-remote-link-tools"
+    [string]$ToolsRoot = "C:\kq-remote-link-tools",
+    [string]$CustomClientPublicKey = $env:KQ_CUSTOM_CLIENT_PUBKEY,
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,12 +16,14 @@ $buildArgs = @()
 if ($SkipPortablePack) {
     $buildArgs += "-SkipPortablePack"
 }
+$adminNoPause = if ($NoPause) { '$true' } else { '$false' }
 
 $adminCommand = @"
 `$ErrorActionPreference = 'Stop'
 Set-Location '$repo'
 `$env:Path = '$ToolsRoot\flutter\bin;$ToolsRoot\cmake\bin;$ToolsRoot\ninja;' + `$env:USERPROFILE + '\.cargo\bin;' + `$env:Path
 `$env:VCPKG_ROOT = '$ToolsRoot\vcpkg'
+`$env:KQ_CUSTOM_CLIENT_PUBKEY = '$CustomClientPublicKey'
 Start-Transcript -Path '$log' -Force
 try {
     & '$build' $($buildArgs -join ' ')
@@ -32,7 +36,9 @@ try {
 } finally {
     Stop-Transcript
     Write-Host ''
-    Read-Host 'Press Enter to close this Administrator window'
+    if (-not $adminNoPause) {
+        Read-Host 'Press Enter to close this Administrator window'
+    }
 }
 "@
 
