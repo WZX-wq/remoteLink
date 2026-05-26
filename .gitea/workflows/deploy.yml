@@ -1,0 +1,48 @@
+name: Deploy KQ Remote Link Server
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: linux:host
+    env:
+      PROJECT_NAME: KQromoteLink
+      INSTALL_DIR: /www/wwwroot/KQromoteLink
+      PUBLIC_HOST: 43.154.197.96
+    steps:
+      - name: Checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+
+      - name: Validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f deploy/rustdesk-server.compose.yml
+          test -f deploy/deploy-rustdesk-server.sh
+          test -f deploy/check-rustdesk-server.sh
+          test -f scripts/deploy/deploy.sh
+          bash -n deploy/deploy-rustdesk-server.sh
+          bash -n deploy/check-rustdesk-server.sh
+          bash -n scripts/deploy/deploy.sh
+          if docker compose version >/dev/null 2>&1; then
+            docker compose -f deploy/rustdesk-server.compose.yml config >/dev/null
+          elif command -v docker-compose >/dev/null 2>&1; then
+            docker-compose -f deploy/rustdesk-server.compose.yml config >/dev/null
+          else
+            echo "docker compose is not installed on this runner; deploy step will fail if the target host also lacks it."
+          fi
+
+      - name: Deploy
+        shell: bash
+        run: bash scripts/deploy/deploy.sh

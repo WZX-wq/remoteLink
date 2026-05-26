@@ -1,0 +1,62 @@
+name: Deploy RustDesk Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Target server host or IP"
+        required: true
+      user:
+        description: "SSH user"
+        required: true
+        default: "root"
+      port:
+        description: "SSH port"
+        required: true
+        default: "22"
+      install_dir:
+        description: "Remote install directory"
+        required: true
+        default: "/opt/kq-remote-link-server"
+
+jobs:
+  deploy:
+    runs-on: linux:host
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.KQ_DEPLOY_SSH_KEY }}" > ~/.ssh/kq_deploy_key
+          chmod 600 ~/.ssh/kq_deploy_key
+          ssh-keyscan -p "${{ inputs.port }}" "${{ inputs.host }}" >> ~/.ssh/known_hosts
+
+      - name: Upload deployment files
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/kq_deploy_key -p "${{ inputs.port }}" "${{ inputs.user }}@${{ inputs.host }}" \
+            "mkdir -p '${{ inputs.install_dir }}/incoming'"
+          scp -i ~/.ssh/kq_deploy_key -P "${{ inputs.port }}" \
+            deploy/rustdesk-server.compose.yml \
+            deploy/deploy-rustdesk-server.sh \
+            deploy/check-rustdesk-server.sh \
+            "${{ inputs.user }}@${{ inputs.host }}:${{ inputs.install_dir }}/incoming/"
+
+      - name: Deploy hbbs/hbbr
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/kq_deploy_key -p "${{ inputs.port }}" "${{ inputs.user }}@${{ inputs.host }}" \
+            "cd '${{ inputs.install_dir }}/incoming' && chmod +x deploy-rustdesk-server.sh && INSTALL_DIR='${{ inputs.install_dir }}' ./deploy-rustdesk-server.sh"
+
+      - name: Check hbbs/hbbr
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/kq_deploy_key -p "${{ inputs.port }}" "${{ inputs.user }}@${{ inputs.host }}" \
+            "cd '${{ inputs.install_dir }}/incoming' && chmod +x check-rustdesk-server.sh && INSTALL_DIR='${{ inputs.install_dir }}' ./check-rustdesk-server.sh"

@@ -1,0 +1,12 @@
+[package]
+name = "custom_client_signer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+serde_json = "1.0"
+sodiumoxide = "0.2"
+
+[workspace]

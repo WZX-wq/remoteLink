@@ -1,0 +1,13 @@
+{
+  "app-name": "KQ Remote Link",
+  "default-settings": {
+    "custom-rendezvous-server": "43.154.197.96:21116",
+    "relay-server": "43.154.197.96:21117",
+    "api-server": "",
+    "key": "PASTE_HBBS_PUBLIC_KEY_HERE",
+    "hide-server-settings": "Y"
+  },
+  "override-settings": {
+    "allow-deep-link-server-settings": "N"
+  }
+}
