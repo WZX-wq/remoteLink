@@ -45,6 +45,7 @@ jobs:
             deploy/rustdesk-server.compose.yml \
             deploy/deploy-rustdesk-server.sh \
             deploy/check-rustdesk-server.sh \
+            deploy/export-hbbs-public-key.sh \
             "${{ inputs.user }}@${{ inputs.host }}:${{ inputs.install_dir }}/incoming/"
 
       - name: Deploy hbbs/hbbr

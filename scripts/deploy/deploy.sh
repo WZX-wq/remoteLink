@@ -24,8 +24,12 @@ require_file() {
 require_file "${SOURCE_DIR}/deploy/rustdesk-server.compose.yml"
 require_file "${SOURCE_DIR}/deploy/deploy-rustdesk-server.sh"
 require_file "${SOURCE_DIR}/deploy/check-rustdesk-server.sh"
+require_file "${SOURCE_DIR}/deploy/export-hbbs-public-key.sh"
 
-chmod +x "${SOURCE_DIR}/deploy/deploy-rustdesk-server.sh" "${SOURCE_DIR}/deploy/check-rustdesk-server.sh"
+chmod +x \
+  "${SOURCE_DIR}/deploy/deploy-rustdesk-server.sh" \
+  "${SOURCE_DIR}/deploy/check-rustdesk-server.sh" \
+  "${SOURCE_DIR}/deploy/export-hbbs-public-key.sh"
 
 echo ""
 echo "== Deploy hbbs/hbbr =="
