@@ -116,6 +116,11 @@ a standalone `tools/custom_client_signer` utility so you can generate your own
 signing key and sign the JSON template without pulling in the full RustDesk app
 package.
 
+Private server fields are written to both `default-settings` and
+`override-settings`. This is intentional: `override-settings` wins over any
+existing user config such as a previously saved public RustDesk server, so
+upgrades and test machines keep using the packaged private hbbs/hbbr.
+
 Generate a key pair:
 
 ```powershell

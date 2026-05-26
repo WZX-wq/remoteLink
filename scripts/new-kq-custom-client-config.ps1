@@ -62,6 +62,11 @@ $config = [ordered]@{
         "hide-server-settings" = $HideServerSettings
     }
     "override-settings" = [ordered]@{
+        "custom-rendezvous-server" = $RendezvousServer
+        "relay-server" = $RelayServer
+        "api-server" = $ApiServer
+        "key" = $ServerKey
+        "hide-server-settings" = $HideServerSettings
         "allow-deep-link-server-settings" = "N"
     }
 }
