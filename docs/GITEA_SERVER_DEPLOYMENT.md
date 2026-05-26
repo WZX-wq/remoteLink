@@ -48,6 +48,10 @@ On push to `main` or `master`, the workflow validates the shell scripts and
 compose file, runs `scripts/deploy/deploy.sh`, starts `hbbs`/`hbbr`, and fails
 if required containers, listeners, or the public key are missing.
 
+`hbbs` and `hbbr` are started with RustDesk's managed key mode (`-k _`). This is
+required for private-server client packaging because the Windows client needs
+the generated `hbbs` public key in its signed `custom.txt`.
+
 ## Manual SSH Workflow
 
 Open **Actions -> Deploy RustDesk Server -> Run workflow**, then fill:
@@ -63,6 +67,8 @@ The workflow uploads:
 
 - `deploy/rustdesk-server.compose.yml`
 - `deploy/deploy-rustdesk-server.sh`
+- `deploy/export-hbbs-public-key.sh`
+- `deploy/check-rustdesk-server.sh`
 
 It then starts `hbbs` and `hbbr` on the server.
 
@@ -86,6 +92,13 @@ The workflow logs print the `hbbs` public key from:
 
 ```text
 /www/wwwroot/KQromoteLink/data/id_ed25519.pub
+```
+
+If operations needs to recover the key from a running server manually, run:
+
+```bash
+cd /www/wwwroot/KQromoteLink
+./incoming/export-hbbs-public-key.sh
 ```
 
 Use that key when generating the private-server client package:

@@ -23,6 +23,14 @@ else
   exit 1
 fi
 
+compose() {
+  if [[ "${#SUDO[@]}" -eq 0 ]]; then
+    KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+  else
+    "${SUDO[@]}" env "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+  fi
+}
+
 cd "${INSTALL_DIR}"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -36,7 +44,7 @@ require_container() {
   running="$("${SUDO[@]}" docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null || true)"
   if [[ "${running}" != "true" ]]; then
     echo "container is not running: ${name}" >&2
-    "${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps || true
+    compose -f "${COMPOSE_FILE}" ps || true
     exit 1
   fi
 }
@@ -54,7 +62,7 @@ extract_public_key() {
     key="$(docker_exec_read kq-remote-link-hbbs /data/id_ed25519.pub)"
   fi
   if [[ -z "${key}" ]]; then
-    key="$("${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=200 hbbs 2>/dev/null \
+    key="$(compose -f "${COMPOSE_FILE}" logs --tail=200 hbbs 2>/dev/null \
       | sed -n 's/.*Key: //p' \
       | tail -n 1 \
       | tr -d '\r')"
@@ -109,7 +117,7 @@ warn_listener() {
 }
 
 echo "== Containers =="
-KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps
+compose -f "${COMPOSE_FILE}" ps
 
 require_container kq-remote-link-hbbs
 require_container kq-remote-link-hbbr
@@ -143,7 +151,7 @@ fi
 
 echo ""
 echo "== Recent logs =="
-"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=60 hbbs hbbr
+compose -f "${COMPOSE_FILE}" logs --tail=60 hbbs hbbr
 
 echo ""
 echo "hbbs/hbbr health check passed."
