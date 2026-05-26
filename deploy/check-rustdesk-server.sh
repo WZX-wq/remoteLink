@@ -4,6 +4,15 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/kq-remote-link-server}"
 COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
 
+if [[ "${EUID}" -eq 0 ]]; then
+  SUDO=()
+elif command -v sudo >/dev/null 2>&1; then
+  SUDO=(sudo)
+else
+  echo "This script must run as root or with sudo available." >&2
+  exit 1
+fi
+
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD=(docker compose)
 elif command -v docker-compose >/dev/null 2>&1; then
@@ -23,19 +32,19 @@ fi
 require_container() {
   local name="$1"
   local running
-  running="$(sudo docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null || true)"
+  running="$("${SUDO[@]}" docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null || true)"
   if [[ "${running}" != "true" ]]; then
     echo "container is not running: ${name}" >&2
-    sudo "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps || true
+    "${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps || true
     exit 1
   fi
 }
 
 list_listeners() {
   if command -v ss >/dev/null 2>&1; then
-    sudo ss -lntup
+    "${SUDO[@]}" ss -lntup
   elif command -v netstat >/dev/null 2>&1; then
-    sudo netstat -lntup
+    "${SUDO[@]}" netstat -lntup
   else
     return 1
   fi
@@ -78,7 +87,7 @@ warn_listener() {
 }
 
 echo "== Containers =="
-sudo "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps
+"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps
 
 require_container kq-remote-link-hbbs
 require_container kq-remote-link-hbbr
@@ -96,7 +105,7 @@ warn_listener tcp 21119
 echo ""
 echo "== hbbs public key =="
 if [[ -s "${INSTALL_DIR}/data/id_ed25519.pub" ]]; then
-  sudo cat "${INSTALL_DIR}/data/id_ed25519.pub"
+  "${SUDO[@]}" cat "${INSTALL_DIR}/data/id_ed25519.pub"
 else
   echo "Missing ${INSTALL_DIR}/data/id_ed25519.pub" >&2
   exit 1
@@ -104,7 +113,7 @@ fi
 
 echo ""
 echo "== Recent logs =="
-sudo "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=60 hbbs hbbr
+"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=60 hbbs hbbr
 
 echo ""
 echo "hbbs/hbbr health check passed."
