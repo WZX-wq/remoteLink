@@ -43,7 +43,7 @@ compose() {
 docker_exec_read() {
   local container="$1"
   local path="$2"
-  "${SUDO[@]}" docker exec "${container}" sh -c "test -s '${path}' && cat '${path}'" 2>/dev/null || true
+  "${SUDO[@]}" docker exec "${container}" cat "${path}" 2>/dev/null || true
 }
 
 validate_key_pair_env() {
@@ -77,6 +77,13 @@ seed_server_key_pair() {
 
 extract_public_key() {
   local key
+  if [[ -s "${INSTALL_DIR}/data/id_ed25519.pub" ]]; then
+    key="$("${SUDO[@]}" cat "${INSTALL_DIR}/data/id_ed25519.pub" 2>/dev/null || true)"
+    if printf '%s' "${key}" | base64 -d >/dev/null 2>&1; then
+      printf '%s' "${key}"
+      return
+    fi
+  fi
   key="$(docker_exec_read kq-remote-link-hbbs /root/id_ed25519.pub)"
   if [[ -z "${key}" ]]; then
     key="$(docker_exec_read kq-remote-link-hbbs /data/id_ed25519.pub)"
@@ -137,13 +144,13 @@ echo "Using RustDesk relay server: ${KQ_RELAY_SERVER}"
 echo "Using RustDesk server key mode: managed key pair"
 compose -f rustdesk-server.compose.yml pull
 open_firewall_ports
-compose -f rustdesk-server.compose.yml up -d
+compose -f rustdesk-server.compose.yml up -d --force-recreate
 compose -f rustdesk-server.compose.yml ps
 
 echo "Waiting for hbbs key generation..."
 for _ in $(seq 1 20); do
   public_key="$(extract_public_key)"
-  if [[ -n "${public_key}" ]]; then
+  if [[ -n "${public_key}" ]] && printf '%s' "${public_key}" | base64 -d >/dev/null 2>&1; then
     printf '%s\n' "${public_key}" | "${SUDO[@]}" tee "${INSTALL_DIR}/data/id_ed25519.pub" >/dev/null
     break
   fi

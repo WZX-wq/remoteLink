@@ -52,11 +52,18 @@ require_container() {
 docker_exec_read() {
   local container="$1"
   local path="$2"
-  "${SUDO[@]}" docker exec "${container}" sh -c "test -s '${path}' && cat '${path}'" 2>/dev/null || true
+  "${SUDO[@]}" docker exec "${container}" cat "${path}" 2>/dev/null || true
 }
 
 extract_public_key() {
   local key
+  if [[ -s "${INSTALL_DIR}/data/id_ed25519.pub" ]]; then
+    key="$("${SUDO[@]}" cat "${INSTALL_DIR}/data/id_ed25519.pub" 2>/dev/null || true)"
+    if printf '%s' "${key}" | base64 -d >/dev/null 2>&1; then
+      printf '%s' "${key}"
+      return
+    fi
+  fi
   key="$(docker_exec_read kq-remote-link-hbbs /root/id_ed25519.pub)"
   if [[ -z "${key}" ]]; then
     key="$(docker_exec_read kq-remote-link-hbbs /data/id_ed25519.pub)"

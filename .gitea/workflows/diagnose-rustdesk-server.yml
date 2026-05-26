@@ -1,0 +1,51 @@
+name: Diagnose KQ RustDesk Server
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - diagnose-rustdesk-server
+
+jobs:
+  diagnose:
+    runs-on: linux
+    env:
+      INSTALL_DIR: /www/wwwroot/KQromoteLink
+    steps:
+      - name: Diagnose
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== host =="
+          hostname
+          id
+          date -Is
+          echo ""
+          echo "== install dir =="
+          ls -la "${INSTALL_DIR}" || true
+          ls -la "${INSTALL_DIR}/data" || true
+          echo ""
+          echo "== public key =="
+          if test -s "${INSTALL_DIR}/data/id_ed25519.pub"; then
+            cat "${INSTALL_DIR}/data/id_ed25519.pub"
+          else
+            echo "missing ${INSTALL_DIR}/data/id_ed25519.pub"
+          fi
+          echo ""
+          echo "== compose ps =="
+          cd "${INSTALL_DIR}"
+          if docker compose version >/dev/null 2>&1; then
+            docker compose -f rustdesk-server.compose.yml ps || true
+          else
+            docker-compose -f rustdesk-server.compose.yml ps || true
+          fi
+          echo ""
+          echo "== listeners =="
+          ss -lntup | awk 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/' || true
+          echo ""
+          echo "== recent logs =="
+          if docker compose version >/dev/null 2>&1; then
+            docker compose -f rustdesk-server.compose.yml logs --tail=200 hbbs hbbr || true
+          else
+            docker-compose -f rustdesk-server.compose.yml logs --tail=200 hbbs hbbr || true
+          fi
