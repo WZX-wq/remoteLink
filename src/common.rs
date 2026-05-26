@@ -1050,6 +1050,9 @@ pub fn get_api_server(api: String, custom: String) -> String {
     if Config::no_register_device() {
         return "".to_owned();
     }
+    if api.is_empty() && !custom.is_empty() {
+        return "".to_owned();
+    }
     let mut res = get_api_server_(api, custom);
     if res.ends_with('/') {
         res.pop();
