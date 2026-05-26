@@ -2087,6 +2087,7 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 
 pub fn load_custom_client() {
     *config::APP_NAME.write().unwrap() = KQ_APP_NAME.to_owned();
+    apply_kq_remote_link_defaults();
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
@@ -2106,6 +2107,25 @@ pub fn load_custom_client() {
         };
         read_custom_client(&data.trim());
     }
+}
+
+fn apply_kq_remote_link_defaults() {
+    let mut overwrite_settings = config::OVERWRITE_SETTINGS.write().unwrap();
+    overwrite_settings.insert(
+        keys::OPTION_CUSTOM_RENDEZVOUS_SERVER.to_owned(),
+        "43.154.197.96:21116".to_owned(),
+    );
+    overwrite_settings.insert(
+        keys::OPTION_RELAY_SERVER.to_owned(),
+        "43.154.197.96:21117".to_owned(),
+    );
+    overwrite_settings.insert(keys::OPTION_API_SERVER.to_owned(), "".to_owned());
+    overwrite_settings.insert(keys::OPTION_KEY.to_owned(), "".to_owned());
+    overwrite_settings.insert(keys::OPTION_HIDE_SERVER_SETTINGS.to_owned(), "Y".to_owned());
+    overwrite_settings.insert(
+        keys::OPTION_ALLOW_DEEP_LINK_SERVER_SETTINGS.to_owned(),
+        "N".to_owned(),
+    );
 }
 
 fn read_custom_client_advanced_settings(
