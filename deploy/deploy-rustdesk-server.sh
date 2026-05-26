@@ -5,6 +5,7 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/kq-remote-link-server}"
 COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
 PUBLIC_HOST="${PUBLIC_HOST:-43.154.197.96}"
 KQ_RELAY_SERVER="${KQ_RELAY_SERVER:-${PUBLIC_HOST}:21117}"
+KQ_SERVER_KEY="${KQ_SERVER_KEY:-_}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -31,9 +32,9 @@ fi
 
 compose() {
   if [[ "${#SUDO[@]}" -eq 0 ]]; then
-    KQ_RELAY_SERVER="${KQ_RELAY_SERVER}" "${COMPOSE_CMD[@]}" "$@"
+    KQ_RELAY_SERVER="${KQ_RELAY_SERVER}" KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   else
-    "${SUDO[@]}" env "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}" "${COMPOSE_CMD[@]}" "$@"
+    "${SUDO[@]}" env "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}" "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   fi
 }
 
@@ -101,6 +102,7 @@ open_firewall_ports() {
 }
 
 echo "Using RustDesk relay server: ${KQ_RELAY_SERVER}"
+echo "Using RustDesk server key mode: managed key pair"
 compose -f rustdesk-server.compose.yml pull
 open_firewall_ports
 compose -f rustdesk-server.compose.yml up -d

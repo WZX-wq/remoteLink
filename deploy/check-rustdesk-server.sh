@@ -3,6 +3,7 @@ set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/kq-remote-link-server}"
 COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
+KQ_SERVER_KEY="${KQ_SERVER_KEY:-_}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -108,7 +109,7 @@ warn_listener() {
 }
 
 echo "== Containers =="
-"${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps
+KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${SUDO[@]}" "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" ps
 
 require_container kq-remote-link-hbbs
 require_container kq-remote-link-hbbr
