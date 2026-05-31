@@ -12,13 +12,16 @@ customImageQualityWidget(
     required Function(double)? setQuality,
     required Function(double)? setFps,
     required bool showFps,
-    required bool showMoreQuality}) {
+    required bool showMoreQuality,
+    double maxFps = kMaxFps,
+    String? fpsCaption}) {
   if (initQuality < kMinQuality ||
       initQuality > (showMoreQuality ? kMaxMoreQuality : kMaxQuality)) {
     initQuality = kDefaultQuality;
   }
-  if (initFps < kMinFps || initFps > kMaxFps) {
-    initFps = kDefaultFps;
+  final effectiveMaxFps = maxFps.clamp(kMinFps, kMaxFps).toDouble();
+  if (initFps < kMinFps || initFps > effectiveMaxFps) {
+    initFps = kDefaultFps.clamp(kMinFps, effectiveMaxFps).toDouble();
   }
   final qualityValue = initQuality.obs;
   final fpsValue = initFps.obs;
@@ -119,8 +122,8 @@ customImageQualityWidget(
                   child: Slider(
                     value: fpsValue.value,
                     min: kMinFps,
-                    max: kMaxFps,
-                    divisions: ((kMaxFps - kMinFps) / 5).round(),
+                    max: effectiveMaxFps,
+                    divisions: ((effectiveMaxFps - kMinFps) / 5).round(),
                     onChanged: setFps == null
                         ? null
                         : (double value) async {
@@ -143,6 +146,17 @@ customImageQualityWidget(
                     ))
               ],
             )),
+      if (showFps && fpsCaption != null && fpsCaption.isNotEmpty)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            fpsCaption,
+            style: TextStyle(
+              color: Theme.of(Get.context!).textTheme.bodySmall?.color,
+              fontSize: 12,
+            ),
+          ).paddingOnly(left: 12),
+        ),
     ],
   );
 }
@@ -172,10 +186,14 @@ customImageQualitySetting() {
       setFps: isFpsFixed
           ? null
           : (v) {
-              bind.mainSetUserDefaultOption(key: fpsKey, value: v.toString());
+              bind.mainSetUserDefaultOption(
+                  key: fpsKey,
+                  value: gFFI.userModel.clampRemoteFps(v).toString());
             },
       showFps: true,
-      showMoreQuality: true);
+      showMoreQuality: true,
+      maxFps: gFFI.userModel.remoteMaxFps.toDouble(),
+      fpsCaption: gFFI.userModel.remoteEntitlementHint);
 }
 
 List<Widget> ServerConfigImportExportWidgets(

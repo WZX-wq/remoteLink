@@ -17,7 +17,6 @@ import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:scroll_pos/scroll_pos.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
@@ -27,6 +26,10 @@ const double _kTabBarHeight = kDesktopRemoteTabBarHeight;
 const double _kIconSize = 18;
 const double _kDividerIndent = 10;
 const double _kActionIconSize = 12;
+const _kqInk = Color(0xFF10243E);
+const _kqMuted = Color(0xFF5D7190);
+const _kqPrimary = Color(0xFF1277D9);
+const _kqLine = Color(0xFFD4E8FA);
 
 class TabInfo {
   final String key; // Notice: cm use client_id.toString() as key
@@ -247,6 +250,7 @@ class DesktopTab extends StatefulWidget {
   // Right click tab menu
   final TabMenuBuilder? tabMenuBuilder;
   final Widget? tail;
+  final VoidCallback? onAccountBadgeTap;
   final Future<bool> Function()? onWindowCloseButton;
   final TabBuilder? tabBuilder;
   final LabelGetter? labelGetter;
@@ -272,6 +276,7 @@ class DesktopTab extends StatefulWidget {
     this.pageViewBuilder,
     this.tabMenuBuilder,
     this.tail,
+    this.onAccountBadgeTap,
     this.onWindowCloseButton,
     this.tabBuilder,
     this.labelGetter,
@@ -307,6 +312,7 @@ class _DesktopTabState extends State<DesktopTab>
       widget.pageViewBuilder;
   TabMenuBuilder? get tabMenuBuilder => widget.tabMenuBuilder;
   Widget? get tail => widget.tail;
+  VoidCallback? get onAccountBadgeTap => widget.onAccountBadgeTap;
   Future<bool> Function()? get onWindowCloseButton =>
       widget.onWindowCloseButton;
   TabBuilder? get tabBuilder => widget.tabBuilder;
@@ -681,6 +687,7 @@ class _DesktopTabState extends State<DesktopTab>
           showClose: showClose,
           onClose: onWindowCloseButton,
           labelGetter: labelGetter,
+          onAccountBadgeTap: onAccountBadgeTap,
         ).paddingOnly(left: 10)
       ],
     );
@@ -697,6 +704,7 @@ class WindowActionPanel extends StatefulWidget {
   final bool showClose;
   final Widget? tail;
   final Future<bool> Function()? onClose;
+  final VoidCallback? onAccountBadgeTap;
 
   final RxList<String> invisibleTabKeys;
   final LabelGetter? labelGetter;
@@ -712,6 +720,7 @@ class WindowActionPanel extends StatefulWidget {
       this.showMaximize = true,
       this.showClose = true,
       this.onClose,
+      this.onAccountBadgeTap,
       this.labelGetter})
       : super(key: key);
 
@@ -753,7 +762,7 @@ class WindowActionPanelState extends State<WindowActionPanel> {
             return Offstage();
           }
         }),
-        if (widget.isMainWindow) const _AccountBadge(),
+        if (widget.isMainWindow) _AccountBadge(onTap: widget.onAccountBadgeTap),
         if (widget.tail != null) widget.tail!,
         if (!kUseCompatibleUiMode)
           Row(
@@ -826,32 +835,54 @@ class _KqTitleBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (showLogo)
-          SvgPicture.asset(
-            'assets/kq_toolbox_icon.svg',
-            width: 18,
-            height: 18,
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.only(left: 6, right: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _kqLine.withOpacity(0.78)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showLogo)
+            Container(
+              width: 26,
+              height: 26,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: _kqLine),
+              ),
+              child: Image.asset(
+                'assets/icon.png',
+                fit: BoxFit.contain,
+              ),
+            ),
+          const SizedBox(width: 8),
+          const Text(
+            '鲲穹远程桌面',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _kqInk,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
           ),
-        const SizedBox(width: 6),
-        const Text(
-          '鲲穹工具箱',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _AccountBadge extends StatelessWidget {
-  const _AccountBadge();
+  final VoidCallback? onTap;
+
+  const _AccountBadge({this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -859,38 +890,57 @@ class _AccountBadge extends StatelessWidget {
       final isLogin = gFFI.userModel.userName.value.isNotEmpty;
       final label = isLogin ? gFFI.userModel.displayNameOrUserName : '登录';
       return Tooltip(
-        message: isLogin ? translate('Logout') : '使用鲲穹账号登录',
+        message: onTap == null
+            ? (isLogin ? translate('Logout') : '使用鲲穹账号登录')
+            : '账户中心',
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: () => isLogin ? logOutConfirmDialog() : loginDialog(),
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap ?? () => isLogin ? logOutConfirmDialog() : loginDialog(),
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 180),
-            height: 30,
+            constraints: const BoxConstraints(maxWidth: 210),
+            height: 34,
             padding: const EdgeInsets.only(left: 5, right: 12),
-            margin: const EdgeInsets.only(left: 6, right: 6),
+            margin: const EdgeInsets.only(left: 8, right: 8),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border.all(
-                color: Theme.of(context).dividerColor.withOpacity(0.45),
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFFFFFFFF),
+                  Color(0xFFEAF6FF),
+                ],
               ),
-              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _kqLine),
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: [
+                BoxShadow(
+                  color: _kqPrimary.withOpacity(0.1),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
+                ),
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 _AccountAvatar(isLogin: isLogin),
-                const SizedBox(width: 6),
+                const SizedBox(width: 7),
                 Flexible(
                   child: Text(
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).textTheme.bodyMedium?.color,
+                      fontWeight: FontWeight.w800,
+                      color: _kqInk,
+                      letterSpacing: 0,
                     ),
                   ),
+                ),
+                const SizedBox(width: 5),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 16,
+                  color: _kqMuted.withOpacity(0.82),
                 ),
               ],
             ),
@@ -915,14 +965,18 @@ class _AccountAvatar extends StatelessWidget {
         isLogin ? buildAvatarWidget(avatar: avatar, size: 20) : null;
     return ClipOval(
       child: Container(
-        width: 20,
-        height: 20,
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: _kqPrimary.withOpacity(0.12),
+          border: Border.all(color: Colors.white, width: 1.5),
+          shape: BoxShape.circle,
+        ),
         child: avatarWidget ??
             Icon(
               Icons.person,
               size: 16,
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+              color: _kqPrimary.withOpacity(0.8),
             ),
       ),
     );

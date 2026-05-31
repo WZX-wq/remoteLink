@@ -99,6 +99,29 @@ pub const SEC30: Duration = Duration::from_secs(30);
 pub const VIDEO_QUEUE_SIZE: usize = 120;
 const MAX_DECODE_FAIL_COUNTER: usize = 3;
 
+const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
+const KQ_FREE_MAX_FPS: i32 = 30;
+const KQ_MEMBER_MAX_FPS: i32 = 60;
+
+#[inline]
+fn kq_member_active() -> bool {
+    LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
+}
+
+#[inline]
+fn kq_max_remote_fps() -> i32 {
+    if kq_member_active() {
+        KQ_MEMBER_MAX_FPS
+    } else {
+        KQ_FREE_MAX_FPS
+    }
+}
+
+#[inline]
+fn clamp_kq_remote_fps(fps: i32) -> i32 {
+    fps.clamp(5, kq_max_remote_fps())
+}
+
 #[cfg(target_os = "linux")]
 pub const LOGIN_MSG_DESKTOP_NOT_INITED: &str = "Desktop env is not inited";
 pub const LOGIN_MSG_DESKTOP_SESSION_NOT_READY: &str = "Desktop session not ready";
@@ -121,16 +144,41 @@ pub const LOGIN_SCREEN_WAYLAND: &str = "Wayland login screen is not supported";
 #[cfg(target_os = "linux")]
 pub const SCRAP_UBUNTU_HIGHER_REQUIRED: &str = "ubuntu-21-04-required";
 #[cfg(target_os = "linux")]
-pub const SCRAP_OTHER_VERSION_OR_X11_REQUIRED: &str =
-    "wayland-requires-higher-linux-version";
+pub const SCRAP_OTHER_VERSION_OR_X11_REQUIRED: &str = "wayland-requires-higher-linux-version";
 #[cfg(target_os = "linux")]
-pub const SCRAP_XDP_PORTAL_UNAVAILABLE: &str =
-    "xdp-portal-unavailable";
+pub const SCRAP_XDP_PORTAL_UNAVAILABLE: &str = "xdp-portal-unavailable";
 pub const SCRAP_X11_REQUIRED: &str = "x11 expected";
 pub const SCRAP_X11_REF_URL: &str = "https://rustdesk.com/docs/en/manual/linux/#x11-required";
 
 #[cfg(not(target_os = "linux"))]
 pub const AUDIO_BUFFER_MS: usize = 3000;
+
+fn use_rendezvous_token(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+
+    // KQ's first usable private deployment uses the OSS hbbs/hbbr protocol
+    // directly. The Kunqiong login token belongs to the app account layer; sending
+    // it to OSS hbbs makes the client attempt secure_tcp, but OSS hbbs does not
+    // start that key exchange on the punch-hole TCP path.
+    let custom_server = Config::get_option(keys::OPTION_CUSTOM_RENDEZVOUS_SERVER);
+    let api_server = Config::get_option(keys::OPTION_API_SERVER);
+    custom_server.is_empty() || !api_server.is_empty()
+}
+
+fn rendezvous_token<'a>(token: &'a str) -> &'a str {
+    if use_rendezvous_token(token) {
+        token
+    } else {
+        ""
+    }
+}
+
+fn kq_force_relay_enabled() -> bool {
+    crate::get_app_name() == crate::common::KQ_APP_NAME
+        && !Config::get_option(keys::OPTION_RELAY_SERVER).is_empty()
+}
 
 #[cfg(feature = "flutter")]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -418,13 +466,21 @@ impl Client {
         let mut is_local = false;
         let mut feedback = 0;
         use hbb_common::protobuf::Enum;
-        let nat_type = if interface.is_force_relay() {
+        let force_relay = interface.is_force_relay();
+        log::info!(
+            "connection policy for {}: force_relay={}, relay_server={}",
+            peer,
+            force_relay,
+            Config::get_option(keys::OPTION_RELAY_SERVER)
+        );
+        let nat_type = if force_relay {
             NatType::SYMMETRIC
         } else {
             NatType::from_i32(my_nat_type).unwrap_or(NatType::UNKNOWN_NAT)
         };
 
-        if !key.is_empty() && !token.is_empty() {
+        let rz_token = rendezvous_token(&token);
+        if !key.is_empty() && !rz_token.is_empty() {
             // mainly for the security of token
             secure_tcp(&mut socket, &key)
                 .await
@@ -445,6 +501,36 @@ impl Client {
         }
         // Stop UDP NAT test task if still running
         stop_udp_tx.map(|tx| tx.send(()));
+        let configured_relay_server = Config::get_option(keys::OPTION_RELAY_SERVER);
+        if force_relay && !configured_relay_server.is_empty() {
+            log::info!(
+                "force relay is enabled for {}; requesting relay directly via {}",
+                peer,
+                configured_relay_server
+            );
+            let (conn, pk) = Self::request_forced_relay(
+                &peer,
+                configured_relay_server,
+                &rendezvous_server,
+                &key,
+                &token,
+                conn_type,
+            )
+            .await
+            .with_context(|| "Failed to request direct relay connection")?;
+            interface.update_direct(Some(false));
+            return Ok((
+                (
+                    conn,
+                    false,
+                    pk,
+                    None,
+                    if use_ws() { "WebSocket" } else { "Relay" },
+                ),
+                (feedback, rendezvous_server),
+                false,
+            ));
+        }
         let mut msg_out = RendezvousMessage::new();
         let mut ipv6 = if crate::get_ipv6_punch_enabled() {
             if let Some((socket, addr)) = crate::get_ipv6_socket().await {
@@ -459,13 +545,13 @@ impl Client {
         let punch_type = if udp_nat_port > 0 { "UDP" } else { "TCP" };
         msg_out.set_punch_hole_request(PunchHoleRequest {
             id: peer.to_owned(),
-            token: token.to_owned(),
+            token: rz_token.to_owned(),
             nat_type: nat_type.into(),
             licence_key: key.to_owned(),
             conn_type: conn_type.into(),
             version: crate::VERSION.to_owned(),
             udp_port: udp_nat_port as _,
-            force_relay: interface.is_force_relay(),
+            force_relay,
             socket_addr_v6: ipv6.1.unwrap_or_default(),
             ..Default::default()
         });
@@ -574,7 +660,7 @@ impl Client {
                         feedback = rr.feedback;
                         log::info!("{:?} used to establish {typ} connection", start.elapsed());
                         let pk =
-                            Self::secure_connection(&peer, signed_id_pk, &key, &mut conn).await?;
+                            Self::secure_connection(&peer, &signed_id_pk, &key, &mut conn).await?;
                         return Ok((
                             (conn, typ == "IPv6", pk, kcp, typ),
                             (feedback, rendezvous_server),
@@ -741,10 +827,48 @@ impl Client {
             start.elapsed(),
             punch_type
         );
-        let res = Self::secure_connection(peer_id, signed_id_pk, key, &mut conn).await;
+        let res = Self::secure_connection(peer_id, &signed_id_pk, key, &mut conn).await;
         let pk: Option<Vec<u8>> = match res {
             Ok(pk) => pk,
             Err(e) => {
+                let err_text = e.to_string();
+                let retry_via_relay = direct
+                    && !relay_server.is_empty()
+                    && (err_text.contains("10054")
+                        || err_text.contains("104")
+                        || err_text.to_lowercase().contains("deadline")
+                        || err_text.to_lowercase().contains("reset"));
+                if retry_via_relay {
+                    log::warn!(
+                        "Direct secure handshake failed for {} via {}: {}; retrying with relay",
+                        peer_id,
+                        punch_type,
+                        err_text
+                    );
+                    conn = Self::request_relay(
+                        peer_id,
+                        relay_server.to_owned(),
+                        rendezvous_server,
+                        !signed_id_pk.is_empty(),
+                        key,
+                        token,
+                        conn_type,
+                    )
+                    .await
+                    .map_err(|re| {
+                        anyhow!(
+                            "Failed to connect via relay server after direct handshake failure: {}; relay error: {}",
+                            err_text,
+                            re
+                        )
+                    })?;
+                    typ = "Relay";
+                    direct = false;
+                    let pk = Self::secure_connection(peer_id, &signed_id_pk, key, &mut conn)
+                        .await
+                        .map_err(|re| anyhow!("Failed to secure relay connection: {}", re))?;
+                    return Ok((conn, direct, pk, kcp, typ));
+                }
                 // this direct is mainly used by on_establish_connection_error, so we update it here before bail
                 interface.update_direct(Some(direct));
                 bail!(e);
@@ -757,7 +881,7 @@ impl Client {
     /// Establish secure connection with the server.
     async fn secure_connection(
         peer_id: &str,
-        signed_id_pk: Vec<u8>,
+        signed_id_pk: &[u8],
         key: &str,
         conn: &mut Stream,
     ) -> ResultType<Option<Vec<u8>>> {
@@ -833,6 +957,168 @@ impl Client {
         Ok(option_pk)
     }
 
+    /// Request a relay connection and actively try pairing with hbbr even if
+    /// hbbs closes the rendezvous socket before forwarding RelayResponse back.
+    async fn request_forced_relay(
+        peer: &str,
+        relay_server: String,
+        rendezvous_server: &str,
+        key: &str,
+        token: &str,
+        conn_type: ConnType,
+    ) -> ResultType<(Stream, Option<Vec<u8>>)> {
+        let rz_token = rendezvous_token(token);
+        let relay_response_timeout = CONNECT_TIMEOUT.min(1_500);
+        let relay_pair_timeout = CONNECT_TIMEOUT.min(3_000);
+        let mut last_error = "Timeout".to_owned();
+
+        for i in 1..=8 {
+            let mut socket = match connect_tcp(rendezvous_server, CONNECT_TIMEOUT).await {
+                Ok(socket) => socket,
+                Err(err) => {
+                    last_error = format!("Failed to connect to rendezvous server: {err}");
+                    log::warn!("#{} forced relay failed for {}: {}", i, peer, last_error);
+                    hbb_common::sleep(0.25).await;
+                    continue;
+                }
+            };
+
+            if !key.is_empty() && !rz_token.is_empty() {
+                if let Err(err) = secure_tcp(&mut socket, key).await {
+                    last_error = format!("Failed to secure rendezvous connection: {err}");
+                    log::warn!("#{} forced relay failed for {}: {}", i, peer, last_error);
+                    hbb_common::sleep(0.25).await;
+                    continue;
+                }
+            }
+
+            let ipv4 = socket.local_addr().is_ipv4();
+            let uuid = Uuid::new_v4().to_string();
+            let mut selected_uuid = uuid.clone();
+            let mut selected_relay_server = relay_server.clone();
+            let mut msg_out = RendezvousMessage::new();
+            log::info!(
+                "#{} forced relay attempt, id: {}, uuid: {}, relay_server: {}, secure: {}",
+                i,
+                peer,
+                uuid,
+                relay_server,
+                !key.is_empty(),
+            );
+            msg_out.set_request_relay(RequestRelay {
+                id: peer.to_owned(),
+                token: rz_token.to_owned(),
+                uuid: uuid.clone(),
+                relay_server: relay_server.clone(),
+                secure: !key.is_empty(),
+                ..Default::default()
+            });
+            if let Err(err) = socket.send(&msg_out).await {
+                last_error = format!("Failed to send relay request: {err}");
+                log::warn!("#{} forced relay failed for {}: {}", i, peer, last_error);
+                hbb_common::sleep(0.25).await;
+                continue;
+            }
+
+            match crate::get_next_nonkeyexchange_msg(&mut socket, Some(relay_response_timeout))
+                .await
+            {
+                Some(mut msg_in) => match msg_in.union.take() {
+                    Some(rendezvous_message::Union::RelayResponse(rs)) => {
+                        if !rs.refuse_reason.is_empty() {
+                            log::warn!(
+                                "#{} forced relay refused for {}: {}",
+                                i,
+                                peer,
+                                rs.refuse_reason
+                            );
+                            last_error = rs.refuse_reason;
+                            hbb_common::sleep(0.25).await;
+                            continue;
+                        }
+                        if !rs.uuid.is_empty() {
+                            selected_uuid = rs.uuid;
+                        }
+                        if !rs.relay_server.is_empty() {
+                            selected_relay_server = rs.relay_server;
+                        }
+                        log::info!("#{} forced relay received RelayResponse for {}", i, peer);
+                    }
+                    Some(other) => {
+                        log::warn!(
+                            "#{} forced relay expected RelayResponse for {}, got {:?}; trying hbbr pairing anyway",
+                            i,
+                            peer,
+                            other
+                        );
+                    }
+                    None => {
+                        log::warn!(
+                            "#{} forced relay got empty response for {}; trying hbbr pairing anyway",
+                            i,
+                            peer
+                        );
+                    }
+                },
+                None => {
+                    log::warn!(
+                        "#{} forced relay did not receive RelayResponse for {}; trying hbbr pairing anyway",
+                        i,
+                        peer
+                    );
+                }
+            }
+
+            let mut conn = match Self::create_relay(
+                peer,
+                selected_uuid,
+                selected_relay_server,
+                key,
+                conn_type,
+                ipv4,
+            )
+            .await
+            {
+                Ok(conn) => conn,
+                Err(err) => {
+                    last_error = format!("Failed to connect to relay server: {err}");
+                    log::warn!("#{} forced relay failed for {}: {}", i, peer, last_error);
+                    hbb_common::sleep(0.25).await;
+                    continue;
+                }
+            };
+
+            match hbb_common::timeout(
+                relay_pair_timeout,
+                Self::secure_connection(peer, &[], key, &mut conn),
+            )
+            .await
+            {
+                Ok(Ok(pk)) => {
+                    log::info!("#{} forced relay paired with {}", i, peer);
+                    return Ok((conn, pk));
+                }
+                Ok(Err(err)) => {
+                    last_error = err.to_string();
+                    log::warn!(
+                        "#{} forced relay pairing failed for {}: {}",
+                        i,
+                        peer,
+                        last_error
+                    );
+                }
+                Err(_) => {
+                    last_error = "Timed out waiting for forced relay pairing".to_owned();
+                    log::warn!("#{} forced relay pairing timed out for {}", i, peer);
+                }
+            }
+
+            hbb_common::sleep(0.25).await;
+        }
+
+        bail!(last_error)
+    }
+
     /// Request a relay connection to the server.
     async fn request_relay(
         peer: &str,
@@ -846,14 +1132,16 @@ impl Client {
         let mut succeed = false;
         let mut uuid = "".to_owned();
         let mut ipv4 = true;
+        let rz_token = rendezvous_token(token);
 
-        for i in 1..=3 {
+        let relay_response_timeout = CONNECT_TIMEOUT.min(3_000);
+        for i in 1..=8 {
             // use different socket due to current hbbs implementation requiring different nat address for each attempt
             let mut socket = connect_tcp(rendezvous_server, CONNECT_TIMEOUT)
                 .await
                 .with_context(|| "Failed to connect to rendezvous server")?;
 
-            if !key.is_empty() && !token.is_empty() {
+            if !key.is_empty() && !rz_token.is_empty() {
                 // mainly for the security of token
                 secure_tcp(&mut socket, key).await?;
             }
@@ -871,7 +1159,7 @@ impl Client {
             );
             msg_out.set_request_relay(RequestRelay {
                 id: peer.to_owned(),
-                token: token.to_owned(),
+                token: rz_token.to_owned(),
                 uuid: uuid.clone(),
                 relay_server: relay_server.clone(),
                 secure,
@@ -880,16 +1168,61 @@ impl Client {
             socket.send(&msg_out).await?;
 
             if let Some(msg_in) =
-                crate::get_next_nonkeyexchange_msg(&mut socket, Some(CONNECT_TIMEOUT)).await
+                crate::get_next_nonkeyexchange_msg(&mut socket, Some(relay_response_timeout)).await
             {
-                if let Some(rendezvous_message::Union::RelayResponse(rs)) = msg_in.union {
-                    if !rs.refuse_reason.is_empty() {
-                        bail!(rs.refuse_reason);
+                let response_name = match &msg_in.union {
+                    Some(rendezvous_message::Union::RelayResponse(_)) => "RelayResponse",
+                    Some(rendezvous_message::Union::PunchHoleResponse(_)) => "PunchHoleResponse",
+                    Some(rendezvous_message::Union::RegisterPeerResponse(_)) => {
+                        "RegisterPeerResponse"
                     }
-                    succeed = true;
-                    break;
+                    Some(rendezvous_message::Union::RegisterPkResponse(_)) => "RegisterPkResponse",
+                    Some(rendezvous_message::Union::ConfigureUpdate(_)) => "ConfigureUpdate",
+                    Some(rendezvous_message::Union::TestNatResponse(_)) => "TestNatResponse",
+                    Some(rendezvous_message::Union::KeyExchange(_)) => "KeyExchange",
+                    Some(_) => "Other",
+                    None => "None",
+                };
+                log::info!(
+                    "#{} request relay response for {}: {}",
+                    i,
+                    peer,
+                    response_name
+                );
+                match msg_in.union {
+                    Some(rendezvous_message::Union::RelayResponse(rs)) => {
+                        if !rs.refuse_reason.is_empty() {
+                            log::warn!(
+                                "#{} request relay refused for {}: {}",
+                                i,
+                                peer,
+                                rs.refuse_reason
+                            );
+                            bail!(rs.refuse_reason);
+                        }
+                        succeed = true;
+                        break;
+                    }
+                    Some(other) => {
+                        log::warn!(
+                            "#{} request relay expected RelayResponse for {}, got {:?}",
+                            i,
+                            peer,
+                            other
+                        );
+                    }
+                    None => {
+                        log::warn!("#{} request relay got empty response for {}", i, peer);
+                    }
                 }
+            } else {
+                log::warn!(
+                    "#{} request relay timed out waiting for RelayResponse for {}",
+                    i,
+                    peer
+                );
             }
+            hbb_common::sleep(0.25).await;
         }
         if !succeed {
             bail!("Timeout");
@@ -1850,8 +2183,10 @@ impl LoginConfigHandler {
         self.session_id = sid;
         self.supported_encoding = Default::default();
         self.restarting_remote_device = false;
+        let force_always_relay = "force-always-relay";
         self.force_relay =
-            config::option2bool("force-always-relay", &self.get_option("force-always-relay"))
+            config::option2bool(force_always_relay, &self.get_option(force_always_relay))
+                || Config::get_bool_option(force_always_relay)
                 || force_relay
                 || use_ws()
                 || Config::is_proxy();
@@ -2265,6 +2600,7 @@ impl LoginConfigHandler {
                 if !allow_more && custom_fps > 30 {
                     custom_fps = 30;
                 }
+                custom_fps = clamp_kq_remote_fps(custom_fps);
                 msg.custom_fps = custom_fps;
                 *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
             }
@@ -2457,6 +2793,7 @@ impl LoginConfigHandler {
     /// * `fps` - The given fps.
     /// * `save_config` - Save the config.
     pub fn set_custom_fps(&mut self, fps: i32, save_config: bool) -> Message {
+        let fps = clamp_kq_remote_fps(fps);
         let mut misc = Misc::new();
         misc.set_option(OptionMessage {
             custom_fps: fps,
@@ -2655,16 +2992,15 @@ impl LoginConfigHandler {
         };
         let mut avatar = get_builtin_option(keys::OPTION_AVATAR);
         if avatar.is_empty() {
-            avatar = serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option(
-                "user_info",
-            ))
-            .ok()
-            .and_then(|x| {
-                x.get("avatar")
-                    .and_then(|x| x.as_str())
-                    .map(|x| x.trim().to_owned())
-            })
-            .unwrap_or_default();
+            avatar =
+                serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option("user_info"))
+                    .ok()
+                    .and_then(|x| {
+                        x.get("avatar")
+                            .and_then(|x| x.as_str())
+                            .map(|x| x.trim().to_owned())
+                    })
+                    .unwrap_or_default();
         }
         avatar = resolve_avatar_url(avatar);
         let mut display_name = get_builtin_option(keys::OPTION_DISPLAY_NAME);
@@ -3421,11 +3757,7 @@ async fn consume_local_switch_sides_uuid(id: &str, uuid: &Uuid) -> bool {
         return false;
     }
     match conn.next_timeout(1000).await {
-        Ok(Some(crate::ipc::Data::SwitchSidesUuid(
-            returned_uuid,
-            returned_id,
-            Some(true),
-        ))) => {
+        Ok(Some(crate::ipc::Data::SwitchSidesUuid(returned_uuid, returned_id, Some(true)))) => {
             returned_uuid == uuid && returned_id == id
         }
         _ => false,
@@ -3703,6 +4035,8 @@ pub trait Interface: Send + Clone + 'static + Sized {
 
     fn is_force_relay(&self) -> bool {
         self.get_lch().read().unwrap().force_relay
+            || Config::get_bool_option("force-always-relay")
+            || kq_force_relay_enabled()
     }
 
     fn swap_modifier_mouse(&self, _msg: &mut hbb_common::protos::message::MouseEvent) {}
@@ -3944,6 +4278,7 @@ pub async fn hc_connection(
     rendezvous_server: String,
     token: &str,
 ) -> Option<tokio::sync::mpsc::UnboundedSender<()>> {
+    let token = rendezvous_token(token);
     if feedback == 0 || rendezvous_server.is_empty() || token.is_empty() {
         return None;
     }

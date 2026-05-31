@@ -8,6 +8,13 @@ KQ_RELAY_SERVER="${KQ_RELAY_SERVER:-${PUBLIC_HOST}:21117}"
 KQ_SERVER_KEY="${KQ_SERVER_KEY:-_}"
 KQ_HBBS_PUBLIC_KEY="${KQ_HBBS_PUBLIC_KEY:-}"
 KQ_HBBS_SECRET_KEY="${KQ_HBBS_SECRET_KEY:-}"
+KQ_ENABLE_API="${KQ_ENABLE_API:-Y}"
+KQ_API_PORT="${KQ_API_PORT:-21120}"
+KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH:-/kq-api}"
+[[ "${KQ_API_PUBLIC_PATH}" == /* ]] || KQ_API_PUBLIC_PATH="/${KQ_API_PUBLIC_PATH}"
+KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH%/}"
+KQ_PUBLIC_API_URL="${KQ_PUBLIC_API_URL:-http://${PUBLIC_HOST}${KQ_API_PUBLIC_PATH}/api}"
+COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -34,9 +41,9 @@ fi
 
 compose() {
   if [[ "${#SUDO[@]}" -eq 0 ]]; then
-    KQ_RELAY_SERVER="${KQ_RELAY_SERVER}" KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+    COMPOSE_PROFILES="${COMPOSE_PROFILES}" KQ_RELAY_SERVER="${KQ_RELAY_SERVER}" KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   else
-    "${SUDO[@]}" env "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}" "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+    "${SUDO[@]}" env "COMPOSE_PROFILES=${COMPOSE_PROFILES}" "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}" "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   fi
 }
 
@@ -99,6 +106,8 @@ extract_public_key() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_COMPOSE="${SCRIPT_DIR}/${COMPOSE_FILE}"
+SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SOURCE_API="${SOURCE_ROOT}/server"
 
 if [[ ! -f "${SOURCE_COMPOSE}" ]]; then
   echo "compose file not found: ${SOURCE_COMPOSE}" >&2
@@ -110,19 +119,75 @@ fi
 seed_server_key_pair
 cd "${INSTALL_DIR}"
 
+write_compose_env() {
+  local env_file="${INSTALL_DIR}/.env"
+  local missing=()
+  for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
+    if [[ -z "${!name:-}" ]]; then
+      missing+=("${name}")
+    fi
+  done
+  if [[ "${#missing[@]}" -gt 0 && ! -s "${env_file}" ]]; then
+    echo "KQ API is enabled but database env is missing: ${missing[*]}" >&2
+    echo "Set these as Gitea secrets or create ${env_file} on the server." >&2
+    return 1
+  fi
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    {
+      printf 'KQ_API_PORT=%s\n' "${KQ_API_PORT}"
+      printf 'KQ_API_PUBLIC_PATH=%s\n' "${KQ_API_PUBLIC_PATH}"
+      printf 'KQ_PUBLIC_API_URL=%s\n' "${KQ_PUBLIC_API_URL}"
+      printf 'KQ_DB_HOST=%s\n' "${KQ_DB_HOST}"
+      printf 'KQ_DB_PORT=%s\n' "${KQ_DB_PORT:-3306}"
+      printf 'KQ_DB_USER=%s\n' "${KQ_DB_USER}"
+      printf 'KQ_DB_PASSWORD=%s\n' "${KQ_DB_PASSWORD}"
+      printf 'KQ_DB_NAME=%s\n' "${KQ_DB_NAME:-kq_remote_link}"
+      printf 'KQ_SUBSITE_NAME=%s\n' "${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}"
+      printf 'KQ_API_WEB_BASE_URL=%s\n' "${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}"
+    } | "${SUDO[@]}" tee "${env_file}" >/dev/null
+    "${SUDO[@]}" chmod 600 "${env_file}"
+  fi
+}
+
+prepare_api_service() {
+  if [[ "${KQ_ENABLE_API}" != "Y" ]]; then
+    echo "KQ API deployment disabled."
+    return
+  fi
+  if [[ ! -f "${SOURCE_API}/package.json" ]]; then
+    echo "KQ API source not found: ${SOURCE_API}" >&2
+    return 1
+  fi
+  write_compose_env
+  echo "Preparing KQ API service files."
+  "${SUDO[@]}" rm -rf "${INSTALL_DIR}/api"
+  "${SUDO[@]}" mkdir -p "${INSTALL_DIR}/api"
+  "${SUDO[@]}" cp -R "${SOURCE_API}/." "${INSTALL_DIR}/api/"
+  "${SUDO[@]}" rm -rf "${INSTALL_DIR}/api/node_modules"
+  COMPOSE_PROFILES="api"
+}
+
+prepare_api_service
+
 open_firewall_ports() {
   if command -v firewall-cmd >/dev/null 2>&1 && "${SUDO[@]}" firewall-cmd --state >/dev/null 2>&1; then
     "${SUDO[@]}" firewall-cmd --permanent --add-port=21115-21119/tcp
     "${SUDO[@]}" firewall-cmd --permanent --add-port=21116/udp
+    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+      "${SUDO[@]}" firewall-cmd --permanent --add-port="${KQ_API_PORT}/tcp"
+    fi
     "${SUDO[@]}" firewall-cmd --reload
-    echo "firewalld allowed tcp/21115-21119 and udp/21116"
+    echo "firewalld allowed tcp/21115-21119, udp/21116${COMPOSE_PROFILES:+, and tcp/${KQ_API_PORT}}"
     return
   fi
 
   if command -v ufw >/dev/null 2>&1 && "${SUDO[@]}" ufw status 2>/dev/null | grep -qi "Status: active"; then
     "${SUDO[@]}" ufw allow 21115:21119/tcp
     "${SUDO[@]}" ufw allow 21116/udp
-    echo "ufw allowed tcp/21115-21119 and udp/21116"
+    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+      "${SUDO[@]}" ufw allow "${KQ_API_PORT}/tcp"
+    fi
+    echo "ufw allowed tcp/21115-21119, udp/21116${COMPOSE_PROFILES:+, and tcp/${KQ_API_PORT}}"
     return
   fi
 
@@ -131,20 +196,90 @@ open_firewall_ports() {
       "${SUDO[@]}" iptables -C INPUT -p tcp --dport "${port}" -j ACCEPT 2>/dev/null \
         || "${SUDO[@]}" iptables -I INPUT -p tcp --dport "${port}" -j ACCEPT
     done
+    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+      "${SUDO[@]}" iptables -C INPUT -p tcp --dport "${KQ_API_PORT}" -j ACCEPT 2>/dev/null \
+        || "${SUDO[@]}" iptables -I INPUT -p tcp --dport "${KQ_API_PORT}" -j ACCEPT
+    fi
     "${SUDO[@]}" iptables -C INPUT -p udp --dport 21116 -j ACCEPT 2>/dev/null \
       || "${SUDO[@]}" iptables -I INPUT -p udp --dport 21116 -j ACCEPT
-    echo "iptables allowed tcp/21115-21119 and udp/21116"
+    echo "iptables allowed tcp/21115-21119, udp/21116${COMPOSE_PROFILES:+, and tcp/${KQ_API_PORT}}"
     return
   fi
 
-  echo "No supported local firewall tool was found; verify tcp/21115-21119 and udp/21116 manually."
+    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+      echo "No supported local firewall tool was found; verify tcp/21115-21119, tcp/${KQ_API_PORT}, and udp/21116 manually."
+    else
+      echo "No supported local firewall tool was found; verify tcp/21115-21119 and udp/21116 manually."
+    fi
+}
+
+configure_api_reverse_proxy() {
+  if [[ "${COMPOSE_PROFILES}" != "api" ]]; then
+    return
+  fi
+  if ! command -v nginx >/dev/null 2>&1; then
+    echo "nginx is not installed; KQ API remains local on 127.0.0.1:${KQ_API_PORT}."
+    echo "Public API URL needs tcp/${KQ_API_PORT} opened or a manual reverse proxy to ${KQ_PUBLIC_API_URL}."
+    return
+  fi
+
+  local conf_dir=""
+  for candidate in /etc/nginx/conf.d /www/server/panel/vhost/nginx; do
+    if [[ -d "${candidate}" ]]; then
+      conf_dir="${candidate}"
+      break
+    fi
+  done
+  if [[ -z "${conf_dir}" ]]; then
+    echo "No nginx conf.d directory found; public API reverse proxy was not installed."
+    return
+  fi
+
+  local conf_file="${conf_dir}/kq-remote-link-api.conf"
+  echo "Installing KQ API nginx reverse proxy: ${KQ_PUBLIC_API_URL}"
+  "${SUDO[@]}" tee "${conf_file}" >/dev/null <<NGINX
+# Managed by KQ Remote Link deploy script.
+server {
+    listen 80;
+    server_name ${PUBLIC_HOST};
+
+    location ^~ ${KQ_API_PUBLIC_PATH}/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+        proxy_connect_timeout 5s;
+        proxy_pass http://127.0.0.1:${KQ_API_PORT}/;
+    }
+}
+NGINX
+
+  local nginx_test
+  if ! nginx_test="$("${SUDO[@]}" nginx -t 2>&1)"; then
+    printf '%s\n' "${nginx_test}"
+    echo "nginx config test failed; removing ${conf_file}."
+    "${SUDO[@]}" rm -f "${conf_file}"
+    return 1
+  fi
+  printf '%s\n' "${nginx_test}"
+  if printf '%s\n' "${nginx_test}" | grep -qi 'conflicting server name'; then
+    echo "nginx reported a conflicting server_name. If public API health still returns 404, add this location to the existing vhost for ${PUBLIC_HOST}:"
+    echo "  location ^~ ${KQ_API_PUBLIC_PATH}/ { proxy_pass http://127.0.0.1:${KQ_API_PORT}/; }"
+  fi
+  "${SUDO[@]}" nginx -s reload 2>/dev/null || "${SUDO[@]}" systemctl reload nginx 2>/dev/null || true
 }
 
 echo "Using RustDesk relay server: ${KQ_RELAY_SERVER}"
 echo "Using RustDesk server key mode: managed key pair"
-compose -f rustdesk-server.compose.yml pull
+compose -f rustdesk-server.compose.yml pull hbbs hbbr
 open_firewall_ports
+if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+  compose -f rustdesk-server.compose.yml build api
+fi
 compose -f rustdesk-server.compose.yml up -d --force-recreate
+configure_api_reverse_proxy
 compose -f rustdesk-server.compose.yml ps
 
 echo "Waiting for hbbs key generation..."
@@ -162,6 +297,9 @@ echo "KQ Remote Link hbbs/hbbr deployment directory: ${INSTALL_DIR}"
 echo "Open firewall/security-group ports:"
 echo "  TCP 21115, 21116, 21117, 21118, 21119"
 echo "  UDP 21116"
+if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+  echo "  TCP ${KQ_API_PORT} (KQ account/data API)"
+fi
 
 if [[ -f "${INSTALL_DIR}/data/id_ed25519.pub" ]]; then
   echo ""

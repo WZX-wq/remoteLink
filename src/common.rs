@@ -54,7 +54,7 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
-pub const KQ_APP_NAME: &str = "KQ Remote Link";
+pub const KQ_APP_NAME: &str = "鲲穹远程桌面";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";
@@ -1822,7 +1822,7 @@ pub async fn get_key(sync: bool) -> String {
         let mut options = crate::ipc::get_options_async().await;
         options.remove("key").unwrap_or_default()
     };
-    if key.is_empty() {
+    if key.is_empty() && Config::get_option(keys::OPTION_CUSTOM_RENDEZVOUS_SERVER).is_empty() {
         key = config::RS_PUB_KEY.to_owned();
     }
     key
@@ -1945,7 +1945,7 @@ async fn secure_tcp_impl(conn: &mut Stream, key: &str, log_on_success: bool) -> 
     // as WebSocket Secure (wss://) already provides transport layer encryption.
     // This doesn't affect the end-to-end encryption between clients,
     // it only avoids redundant encryption between client and server.
-    if use_ws() {
+    if use_ws() || key.is_empty() {
         return Ok(());
     }
     let rs_pk = get_rs_pk(key);
@@ -2120,12 +2120,37 @@ fn apply_kq_remote_link_defaults() {
         "43.154.197.96:21117".to_owned(),
     );
     overwrite_settings.insert(keys::OPTION_API_SERVER.to_owned(), "".to_owned());
-    overwrite_settings.insert(keys::OPTION_KEY.to_owned(), "".to_owned());
+    overwrite_settings.insert(
+        keys::OPTION_KEY.to_owned(),
+        "h9goq/v9ic0Uh0NpB/9Uv4v2MNpSEIVCy7UFSETZ5BA=".to_owned(),
+    );
+    overwrite_settings.insert(keys::OPTION_DISABLE_UDP.to_owned(), "N".to_owned());
+    overwrite_settings.insert(keys::OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
+    overwrite_settings.insert("force-always-relay".to_owned(), "Y".to_owned());
+    overwrite_settings.insert(keys::OPTION_HIDE_WEBSOCKET_SETTINGS.to_owned(), "Y".to_owned());
     overwrite_settings.insert(keys::OPTION_HIDE_SERVER_SETTINGS.to_owned(), "Y".to_owned());
     overwrite_settings.insert(
         keys::OPTION_ALLOW_DEEP_LINK_SERVER_SETTINGS.to_owned(),
         "N".to_owned(),
     );
+    drop(overwrite_settings);
+
+    config::OVERWRITE_LOCAL_SETTINGS
+        .write()
+        .unwrap()
+        .insert("local-ip-addr".to_owned(), "".to_owned());
+
+    config::BUILTIN_SETTINGS
+        .write()
+        .unwrap()
+        .insert(keys::OPTION_REGISTER_DEVICE.to_owned(), "N".to_owned());
+    config::BUILTIN_SETTINGS
+        .write()
+        .unwrap()
+        .insert(
+            "kq-project-api-server".to_owned(),
+            "http://43.154.197.96/kq-api/api".to_owned(),
+        );
 }
 
 fn read_custom_client_advanced_settings(

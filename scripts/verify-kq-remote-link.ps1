@@ -67,7 +67,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $directWorkflow = Get-Content .\.gitea\workflows\deploy.yml -Raw -Encoding UTF8
-    foreach ($needle in @("runs-on: linux:host", "scripts/deploy/deploy.sh", "/www/wwwroot/KQromoteLink", "43.154.197.96", "bash -n")) {
+    foreach ($needle in @("runs-on: linux:host", "scripts/deploy/deploy.sh", "/www/wwwroot/KQromoteLink", "43.154.197.96", "bash -n", "secrets.KQ_HBBS_PUBLIC_KEY", "secrets.KQ_HBBS_SECRET_KEY")) {
         if ($directWorkflow -notmatch [regex]::Escape($needle)) {
             throw "Gitea direct deploy workflow is missing $needle"
         }
@@ -84,7 +84,7 @@ Invoke-Step "Server deployment template check" {
 Invoke-Step "Kunqiong desktop branding source check" {
     $tabbar = Get-Content .\flutter\lib\desktop\widgets\tabbar_widget.dart -Raw -Encoding UTF8
     $login = Get-Content .\flutter\lib\common\widgets\login.dart -Raw -Encoding UTF8
-    $brandText = [string]::Concat([char]0x9CB2, [char]0x7A79, [char]0x5DE5, [char]0x5177, [char]0x7BB1)
+    $brandText = [string]::Concat([char]0x9CB2, [char]0x7A79, [char]0x8FDC, [char]0x7A0B, [char]0x684C, [char]0x9762)
     $loginText = [string]::Concat(
         [char]0x4F7F,
         [char]0x7528,
@@ -98,7 +98,7 @@ Invoke-Step "Kunqiong desktop branding source check" {
     if ($tabbar -notmatch $brandText) {
         throw "Desktop title bar brand text was not found."
     }
-    if ($tabbar -notmatch "kq_toolbox_icon\.svg") {
+    if ($tabbar -notmatch "assets/icon\.png") {
         throw "Desktop title bar icon asset was not found."
     }
     if ($login -notmatch $loginText) {
@@ -167,7 +167,7 @@ Invoke-Step "Custom client signer smoke check" {
         $jsonPath = Join-Path $smokeDir "custom-client-smoke.json"
         $customTxtPath = Join-Path $smokeDir "custom.txt"
         $config = [ordered]@{
-            "app-name" = "KQ Remote Link"
+            "app-name" = $brandText
             "default-settings" = [ordered]@{
                 "custom-rendezvous-server" = "127.0.0.1:21116"
                 "relay-server" = "127.0.0.1:21117"

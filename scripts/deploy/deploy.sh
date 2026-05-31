@@ -37,7 +37,13 @@ INSTALL_DIR="${INSTALL_DIR}" "${SOURCE_DIR}/deploy/deploy-rustdesk-server.sh"
 
 echo ""
 echo "== Check hbbs/hbbr =="
-INSTALL_DIR="${INSTALL_DIR}" "${SOURCE_DIR}/deploy/check-rustdesk-server.sh"
+CHECK_COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
+if [[ "${KQ_ENABLE_API:-Y}" == "Y" ]]; then
+  if [[ -n "${KQ_DB_HOST:-}" || -s "${INSTALL_DIR}/.env" ]]; then
+    CHECK_COMPOSE_PROFILES="api"
+  fi
+fi
+INSTALL_DIR="${INSTALL_DIR}" COMPOSE_PROFILES="${CHECK_COMPOSE_PROFILES}" "${SOURCE_DIR}/deploy/check-rustdesk-server.sh"
 
 echo ""
 echo "Private RustDesk server is ready."
@@ -45,3 +51,6 @@ echo "Public host: ${PUBLIC_HOST}"
 echo "Client rendezvous server: ${PUBLIC_HOST}:21116"
 echo "Client relay server: ${PUBLIC_HOST}:21117"
 echo "Server key file: ${INSTALL_DIR}/data/id_ed25519.pub"
+if [[ "${CHECK_COMPOSE_PROFILES}" == "api" ]]; then
+  echo "KQ API: ${KQ_PUBLIC_API_URL:-http://${PUBLIC_HOST}/kq-api/api}"
+fi

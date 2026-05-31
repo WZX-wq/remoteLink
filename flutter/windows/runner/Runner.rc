@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "Kunqiong" "\0"
-            VALUE "FileDescription", "KQ Remote Link Desktop" "\0"
+            VALUE "FileDescription", "鲲穹远程桌面" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "kq-remote-link" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 Kunqiong. All rights reserved." "\0"
             VALUE "OriginalFilename", "kq-remote-link.exe" "\0"
-            VALUE "ProductName", "KQ Remote Link" "\0"
+            VALUE "ProductName", "鲲穹远程桌面" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

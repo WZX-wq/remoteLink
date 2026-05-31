@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - diagnose-rustdesk-server
+      - diagnose-rustdesk-server-*
 
 jobs:
   diagnose:
@@ -36,16 +37,25 @@ jobs:
           cd "${INSTALL_DIR}"
           if docker compose version >/dev/null 2>&1; then
             docker compose -f rustdesk-server.compose.yml ps || true
+            docker compose -f rustdesk-server.compose.yml images || true
           else
             docker-compose -f rustdesk-server.compose.yml ps || true
+            docker-compose -f rustdesk-server.compose.yml images || true
           fi
+          echo ""
+          echo "== container inspect =="
+          docker inspect kq-remote-link-hbbs kq-remote-link-hbbr \
+            --format '{{.Name}} image={{.Config.Image}} cmd={{json .Config.Cmd}} state={{.State.Status}} started={{.State.StartedAt}}' || true
           echo ""
           echo "== listeners =="
           ss -lntup | awk 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/' || true
           echo ""
+          echo "== active rustdesk server connections =="
+          ss -ntup | awk 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/' || true
+          echo ""
           echo "== recent logs =="
           if docker compose version >/dev/null 2>&1; then
-            docker compose -f rustdesk-server.compose.yml logs --tail=200 hbbs hbbr || true
+            docker compose -f rustdesk-server.compose.yml logs --tail=500 hbbs hbbr || true
           else
-            docker-compose -f rustdesk-server.compose.yml logs --tail=200 hbbs hbbr || true
+            docker-compose -f rustdesk-server.compose.yml logs --tail=500 hbbs hbbr || true
           fi

@@ -4,7 +4,7 @@ version = "1.4.6"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
-description = "KQ Remote Link Desktop"
+description = "鲲穹远程桌面"
 default-run = "rustdesk"
 rust-version = "1.75"
 
@@ -214,8 +214,8 @@ libxdo-sys = { path = "libs/libxdo-sys-stub" }
 
 [package.metadata.winres]
 LegalCopyright = "Copyright (C) 2026 Kunqiong. All rights reserved."
-ProductName = "KQ Remote Link"
-FileDescription = "KQ Remote Link Desktop"
+ProductName = "鲲穹远程桌面"
+FileDescription = "鲲穹远程桌面"
 OriginalFilename = "kq-remote-link.exe"
 
 [target.'cfg(target_os="windows")'.build-dependencies]
@@ -232,7 +232,7 @@ hound = "3.5"
 docopt = "1.1"
 
 [package.metadata.bundle]
-name = "KQ Remote Link"
+name = "鲲穹远程桌面"
 identifier = "com.kunqiong.kqremotelink"
 icon = ["res/32x32.png", "res/128x128.png", "res/128x128@2x.png"]
 osx_minimum_system_version = "10.14"

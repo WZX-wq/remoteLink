@@ -52,6 +52,38 @@ use crate::keyboard;
 use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
+const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
+const KQ_FREE_MAX_LONG_EDGE: i32 = 1280;
+const KQ_FREE_MAX_SHORT_EDGE: i32 = 720;
+const KQ_MEMBER_MAX_LONG_EDGE: i32 = 1920;
+const KQ_MEMBER_MAX_SHORT_EDGE: i32 = 1080;
+
+#[inline]
+fn kq_remote_resolution_cap() -> (i32, i32) {
+    if LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y" {
+        (KQ_MEMBER_MAX_LONG_EDGE, KQ_MEMBER_MAX_SHORT_EDGE)
+    } else {
+        (KQ_FREE_MAX_LONG_EDGE, KQ_FREE_MAX_SHORT_EDGE)
+    }
+}
+
+#[inline]
+fn clamp_kq_remote_resolution(width: i32, height: i32) -> (i32, i32) {
+    if width <= 0 || height <= 0 {
+        return (width, height);
+    }
+    let (max_long, max_short) = kq_remote_resolution_cap();
+    let long = width.max(height);
+    let short = width.min(height);
+    if long <= max_long && short <= max_short {
+        return (width, height);
+    }
+    let scale = (max_long as f64 / long as f64).min(max_short as f64 / short as f64);
+    (
+        ((width as f64 * scale).round() as i32).max(1),
+        ((height as f64 * scale).round() as i32).max(1),
+    )
+}
 
 #[derive(Clone, Default)]
 pub struct Session<T: InvokeUiSession> {
@@ -1540,6 +1572,7 @@ impl<T: InvokeUiSession> Session<T> {
 
     #[inline]
     pub fn change_resolution(&self, display: i32, width: i32, height: i32) {
+        let (width, height) = clamp_kq_remote_resolution(width, height);
         *self.last_change_display.lock().unwrap() =
             ChangeDisplayRecord::new(display, width, height);
         self.do_change_resolution(display, width, height);

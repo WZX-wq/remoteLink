@@ -52,8 +52,17 @@ $customTxtPath = Resolve-RepoPath $OutputCustomTxt
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $jsonPath) | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $customTxtPath) | Out-Null
 
+$kqAppName = [string]::Concat([char[]]@(
+    0x9CB2,
+    0x7A79,
+    0x8FDC,
+    0x7A0B,
+    0x684C,
+    0x9762
+))
+
 $config = [ordered]@{
-    "app-name" = "KQ Remote Link"
+    "app-name" = $kqAppName
     "default-settings" = [ordered]@{
         "custom-rendezvous-server" = $RendezvousServer
         "relay-server" = $RelayServer

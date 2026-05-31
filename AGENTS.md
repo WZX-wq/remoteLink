@@ -60,3 +60,9 @@
 * Do not refactor unrelated code.
 * Do not make formatting-only changes.
 * Keep naming/style consistent with nearby code.
+
+## CodeGraph Workflow
+
+* Use CodeGraph during development for impact analysis and code navigation.
+* Before non-trivial changes, run `codegraph sync` if the index is stale, then use `codegraph status`, `codegraph query`, `codegraph context`, `codegraph callers`, `codegraph callees`, or `codegraph impact` to identify related code.
+* Treat CodeGraph as supporting evidence; still verify behavior with source inspection, builds, tests, and runtime checks.

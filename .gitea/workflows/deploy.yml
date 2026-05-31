@@ -9,7 +9,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: linux
+    runs-on: linux:host
     env:
       PROJECT_NAME: KQromoteLink
       INSTALL_DIR: /www/wwwroot/KQromoteLink
@@ -33,10 +33,16 @@ jobs:
           test -f deploy/check-rustdesk-server.sh
           test -f deploy/export-hbbs-public-key.sh
           test -f scripts/deploy/deploy.sh
+          test -f server/package.json
+          test -f server/src/index.js
+          test -f server/Dockerfile
           bash -n deploy/deploy-rustdesk-server.sh
           bash -n deploy/check-rustdesk-server.sh
           bash -n deploy/export-hbbs-public-key.sh
           bash -n scripts/deploy/deploy.sh
+          if command -v node >/dev/null 2>&1; then
+            node --check server/src/index.js
+          fi
           if docker compose version >/dev/null 2>&1; then
             docker compose -f deploy/rustdesk-server.compose.yml config >/dev/null
           elif command -v docker-compose >/dev/null 2>&1; then
@@ -48,6 +54,15 @@ jobs:
       - name: Deploy
         shell: bash
         env:
-          KQ_HBBS_PUBLIC_KEY: h9goq/v9ic0Uh0NpB/9Uv4v2MNpSEIVCy7UFSETZ5BA=
-          KQ_HBBS_SECRET_KEY: NzQjR+6rJl1y+qVNlU3f12G0lKb+YSD/UGxCEcy0Qt+H2Cir+/2JzRSHQ2kH/1S/i/Yw2lIQhULLtQVIRNnkEA==
+          KQ_HBBS_PUBLIC_KEY: ${{ secrets.KQ_HBBS_PUBLIC_KEY }}
+          KQ_HBBS_SECRET_KEY: ${{ secrets.KQ_HBBS_SECRET_KEY }}
+          KQ_ENABLE_API: "Y"
+          KQ_API_PORT: ${{ secrets.KQ_API_PORT }}
+          KQ_API_PUBLIC_PATH: /kq-api
+          KQ_PUBLIC_API_URL: http://43.154.197.96/kq-api/api
+          KQ_DB_HOST: ${{ secrets.KQ_DB_HOST }}
+          KQ_DB_PORT: ${{ secrets.KQ_DB_PORT }}
+          KQ_DB_USER: ${{ secrets.KQ_DB_USER }}
+          KQ_DB_PASSWORD: ${{ secrets.KQ_DB_PASSWORD }}
+          KQ_DB_NAME: ${{ secrets.KQ_DB_NAME }}
         run: bash scripts/deploy/deploy.sh

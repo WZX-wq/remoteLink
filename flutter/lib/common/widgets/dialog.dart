@@ -1891,17 +1891,21 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
   initFps = fpsOption == null
       ? kDefaultFps
       : double.tryParse(fpsOption) ?? kDefaultFps;
-  if (initFps < kMinFps || initFps > kMaxFps) {
-    initFps = kDefaultFps;
+  final maxFps = gFFI.userModel.remoteMaxFps.toDouble();
+  if (initFps < kMinFps || initFps > maxFps) {
+    initFps = gFFI.userModel.clampRemoteFps(kDefaultFps).toDouble();
   }
 
   final content = customImageQualityWidget(
       initQuality: initQuality,
       initFps: initFps,
       setQuality: (v) => setCustomValues(quality: v),
-      setFps: (v) => setCustomValues(fps: v),
+      setFps: (v) =>
+          setCustomValues(fps: gFFI.userModel.clampRemoteFps(v).toDouble()),
       showFps: !hideFps,
-      showMoreQuality: !hideMoreQuality);
+      showMoreQuality: !hideMoreQuality,
+      maxFps: maxFps,
+      fpsCaption: gFFI.userModel.remoteEntitlementHint);
   msgBoxCommon(ffi.dialogManager, 'Custom Image Quality', content, [btnClose]);
 }
 

@@ -46,17 +46,17 @@ class KqOauth {
         state: state,
       );
 
-      final launched =
-          await launchUrl(authUri, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        throw KqOauthException('Unable to open the authorization page.');
+      final authBrowser = await _openAuthorization(authUri);
+      try {
+        final code = await _waitForCallback(server, state);
+        await authBrowser?.close();
+        final body = await _exchangeToken(code);
+        final response = _toLoginResponse(body);
+        await _storeLogin(response, body);
+        return response;
+      } finally {
+        await authBrowser?.close();
       }
-
-      final code = await _waitForCallback(server, state);
-      final body = await _exchangeToken(code);
-      final response = _toLoginResponse(body);
-      await _storeLogin(response, body);
-      return response;
     } finally {
       await server.close(force: true);
       if (identical(_activeServer, server)) {
@@ -86,6 +86,30 @@ class KqOauth {
             'Unable to listen on localhost:6613. Please close the app using that port and try again.');
       }
     }
+  }
+
+  static Future<_ManagedAuthBrowser?> _openAuthorization(Uri authUri) async {
+    Object? managedBrowserError;
+    if (Platform.isWindows) {
+      try {
+        final browser = await _ManagedAuthBrowser.start(authUri);
+        if (browser != null) {
+          return browser;
+        }
+      } catch (err) {
+        managedBrowserError = err;
+      }
+    }
+
+    final launched =
+        await launchUrl(authUri, mode: LaunchMode.externalApplication);
+    if (!launched) {
+      final detail = managedBrowserError == null
+          ? ''
+          : ' Managed browser error: $managedBrowserError';
+      throw KqOauthException('Unable to open the authorization page.$detail');
+    }
+    return null;
   }
 
   static Future<String> _waitForCallback(
@@ -255,10 +279,44 @@ class KqOauth {
 
   static String _callbackHtml(bool success, String? error) {
     final escape = const HtmlEscape().convert;
-    final title = escape(success ? 'Login successful' : 'Login failed');
-    final detail = escape(success
-        ? 'You can return to the remote desktop client.'
-        : (error == null || error.isEmpty ? 'Authorization failed.' : error));
+    if (success) {
+      return '''
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>登录成功</title>
+    <script>
+      function closePage() {
+        try { window.opener = null; } catch (_) {}
+        window.open('', '_self');
+        window.close();
+      }
+      function showFallback() {
+        var el = document.getElementById('fallback');
+        if (el) el.style.display = 'block';
+      }
+      window.addEventListener('load', function() {
+        closePage();
+        setTimeout(closePage, 100);
+        setTimeout(closePage, 400);
+        setTimeout(closePage, 900);
+        setTimeout(showFallback, 1200);
+      });
+    </script>
+  </head>
+  <body style="font-family:sans-serif;padding:24px;color:#1f2937;">
+    <div id="fallback" style="display:none;">
+      <h2 style="margin:0 0 12px;font-size:20px;">登录成功</h2>
+      <p style="margin:0;font-size:14px;">鲲穹远程桌面已完成登录，正在关闭此页面。</p>
+    </div>
+  </body>
+</html>
+''';
+    }
+    final title = escape('Login failed');
+    final detail = escape(
+        error == null || error.isEmpty ? 'Authorization failed.' : error);
     return '''
 <!doctype html>
 <html>
@@ -266,9 +324,144 @@ class KqOauth {
   <body style="font-family: sans-serif; padding: 32px;">
     <h2>$title</h2>
     <p>$detail</p>
-    <script>setTimeout(function(){ window.close(); }, 1200);</script>
   </body>
 </html>
 ''';
+  }
+}
+
+class _ManagedAuthBrowser {
+  final Process _process;
+  final Directory _profileDir;
+  bool _closed = false;
+
+  _ManagedAuthBrowser._(this._process, this._profileDir);
+
+  static Future<_ManagedAuthBrowser?> start(Uri authUri) async {
+    final browserPath = _findBrowserPath();
+    if (browserPath == null) {
+      return null;
+    }
+
+    final profileDir = await Directory.systemTemp.createTemp('kq_oauth_');
+    try {
+      final process = await Process.start(browserPath, [
+        '--user-data-dir=${profileDir.path}',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-sync',
+        '--app=${authUri.toString()}',
+        '--window-size=980,760',
+      ]);
+      unawaited(process.stdout.drain<void>());
+      unawaited(process.stderr.drain<void>());
+      return _ManagedAuthBrowser._(process, profileDir);
+    } catch (_) {
+      await _deleteProfileDir(profileDir);
+      rethrow;
+    }
+  }
+
+  Future<void> close() async {
+    if (_closed) {
+      return;
+    }
+    _closed = true;
+
+    if (Platform.isWindows) {
+      await _terminateWindowsBrowserProcesses();
+    } else {
+      _process.kill();
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await _deleteProfileDir(_profileDir);
+  }
+
+  Future<void> _terminateWindowsBrowserProcesses() async {
+    final profilePath = _profileDir.path.replaceAll("'", "''");
+    final script = "\$profile = '$profilePath'; "
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { \$_.CommandLine -and \$_.CommandLine.Contains(\$profile) } | "
+        "ForEach-Object { Invoke-CimMethod -InputObject \$_ -MethodName Terminate | Out-Null }";
+    try {
+      await Process.run('powershell', [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ]).timeout(const Duration(seconds: 3));
+    } catch (err) {
+      _logCleanupFailure('terminate by profile', err);
+    }
+
+    try {
+      await Process.run('taskkill', [
+        '/PID',
+        _process.pid.toString(),
+        '/T',
+        '/F',
+      ]).timeout(const Duration(seconds: 3));
+    } catch (err) {
+      _logCleanupFailure('terminate by pid', err);
+    }
+  }
+
+  static String? _findBrowserPath() {
+    final env = Platform.environment;
+    final candidates = <String?>[
+      _joinPath(env['ProgramFiles(x86)'],
+          ['Microsoft', 'Edge', 'Application', 'msedge.exe']),
+      _joinPath(env['PROGRAMFILES(X86)'],
+          ['Microsoft', 'Edge', 'Application', 'msedge.exe']),
+      _joinPath(env['ProgramFiles'],
+          ['Microsoft', 'Edge', 'Application', 'msedge.exe']),
+      _joinPath(env['PROGRAMFILES'],
+          ['Microsoft', 'Edge', 'Application', 'msedge.exe']),
+      _joinPath(env['LOCALAPPDATA'],
+          ['Microsoft', 'Edge', 'Application', 'msedge.exe']),
+      _joinPath(env['ProgramFiles'],
+          ['Google', 'Chrome', 'Application', 'chrome.exe']),
+      _joinPath(env['PROGRAMFILES'],
+          ['Google', 'Chrome', 'Application', 'chrome.exe']),
+      _joinPath(env['ProgramFiles(x86)'],
+          ['Google', 'Chrome', 'Application', 'chrome.exe']),
+      _joinPath(env['PROGRAMFILES(X86)'],
+          ['Google', 'Chrome', 'Application', 'chrome.exe']),
+      _joinPath(env['LOCALAPPDATA'],
+          ['Google', 'Chrome', 'Application', 'chrome.exe']),
+    ];
+
+    for (final candidate in candidates) {
+      if (candidate != null && File(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  static String? _joinPath(String? root, List<String> parts) {
+    if (root == null || root.isEmpty) {
+      return null;
+    }
+    return ([root, ...parts]).join(Platform.pathSeparator);
+  }
+
+  static Future<void> _deleteProfileDir(Directory dir) async {
+    try {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    } catch (err) {
+      _logCleanupFailure('delete profile', err);
+    }
+  }
+
+  static void _logCleanupFailure(String action, Object error) {
+    try {
+      stderr.writeln('KQ OAuth browser cleanup failed ($action): $error');
+    } catch (_) {
+      // Nothing else to do; cleanup logging must not affect login.
+    }
   }
 }

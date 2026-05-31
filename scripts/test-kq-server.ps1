@@ -67,7 +67,21 @@ function Test-TcpPort($Name, $HostName, $Port) {
     $client = New-Object System.Net.Sockets.TcpClient
     try {
         $task = $client.ConnectAsync($HostName, $Port)
-        if (-not $task.Wait($TimeoutMs)) {
+        $completed = $false
+        try {
+            $completed = $task.Wait($TimeoutMs)
+        } catch {
+            $inner = $_.Exception.InnerException
+            if ($inner -and $inner.InnerException) {
+                Add-Check $Name "FAIL" $inner.InnerException.Message
+            } elseif ($inner) {
+                Add-Check $Name "FAIL" $inner.Message
+            } else {
+                Add-Check $Name "FAIL" $_.Exception.Message
+            }
+            return
+        }
+        if (-not $completed) {
             Add-Check $Name "FAIL" "TCP ${HostName}:${Port} timed out after ${TimeoutMs}ms"
             return
         }
@@ -116,12 +130,12 @@ function Test-Http($Name, $Url) {
         return
     }
     try {
-        $response = Invoke-WebRequest -Uri $Url -Method Head -TimeoutSec ([Math]::Max(1, [int][Math]::Ceiling($TimeoutMs / 1000))) -UseBasicParsing
+        $response = Invoke-WebRequest -Uri $Url -Method Get -TimeoutSec ([Math]::Max(1, [int][Math]::Ceiling($TimeoutMs / 1000))) -UseBasicParsing
         Add-Check $Name "PASS" "HTTP $($response.StatusCode)"
     } catch {
         $status = $_.Exception.Response.StatusCode.value__
         if ($status) {
-            Add-Check $Name "WARN" "HTTP returned $status; endpoint is reachable but may not support HEAD"
+            Add-Check $Name "FAIL" "HTTP GET returned $status"
         } else {
             Add-Check $Name "FAIL" $_.Exception.Message
         }

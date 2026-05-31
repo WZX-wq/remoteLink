@@ -38,23 +38,39 @@ fn main() {
     if !common::global_init() {
         return;
     }
-    use clap::App;
+    common::load_custom_client();
+    use clap::{Arg, Command};
     use hbb_common::log;
-    let args = format!(
-        "-p, --port-forward=[PORT-FORWARD-OPTIONS] 'Format: remote-id:local-port:remote-port[:remote-host]'
-        -c, --connect=[REMOTE_ID] 'test only'
-        -k, --key=[KEY] ''
-       -s, --server=[] 'Start server'",
-    );
-    let matches = App::new("rustdesk")
+    let matches = Command::new("rustdesk")
         .version(crate::VERSION)
         .author("Purslane Ltd<info@rustdesk.com>")
         .about("RustDesk command line tool")
-        .args_from_usage(&args)
+        .arg(
+            Arg::new("port-forward")
+                .short('p')
+                .long("port-forward")
+                .num_args(1)
+                .help("Format: remote-id:local-port:remote-port[:remote-host]"),
+        )
+        .arg(
+            Arg::new("connect")
+                .short('c')
+                .long("connect")
+                .num_args(1)
+                .help("test only"),
+        )
+        .arg(Arg::new("key").short('k').long("key").num_args(1))
+        .arg(
+            Arg::new("server")
+                .short('s')
+                .long("server")
+                .num_args(0..=1)
+                .help("Start server"),
+        )
         .get_matches();
     use hbb_common::{config::LocalConfig, env_logger::*};
     init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info"));
-    if let Some(p) = matches.value_of("port-forward") {
+    if let Some(p) = matches.get_one::<String>("port-forward") {
         let options: Vec<String> = p.split(":").map(|x| x.to_owned()).collect();
         if options.len() < 3 {
             log::error!("Wrong port-forward options");
@@ -80,7 +96,10 @@ fn main() {
         }
         common::test_rendezvous_server();
         common::test_nat_type();
-        let key = matches.value_of("key").unwrap_or("").to_owned();
+        let key = matches
+            .get_one::<String>("key")
+            .map(|x| x.to_owned())
+            .unwrap_or_default();
         let token = LocalConfig::get_option("access_token");
         cli::start_one_port_forward(
             options[0].clone(),
@@ -90,13 +109,16 @@ fn main() {
             key,
             token,
         );
-    } else if let Some(p) = matches.value_of("connect") {
+    } else if let Some(p) = matches.get_one::<String>("connect") {
         common::test_rendezvous_server();
         common::test_nat_type();
-        let key = matches.value_of("key").unwrap_or("").to_owned();
+        let key = matches
+            .get_one::<String>("key")
+            .map(|x| x.to_owned())
+            .unwrap_or_default();
         let token = LocalConfig::get_option("access_token");
         cli::connect_test(p, key, token);
-    } else if let Some(p) = matches.value_of("server") {
+    } else if matches.contains_id("server") {
         log::info!("id={}", hbb_common::config::Config::get_id());
         crate::start_server(true, false);
     }

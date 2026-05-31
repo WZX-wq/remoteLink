@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:get/get.dart';
 import 'platform_model.dart';
 // ignore: depend_on_referenced_packages
@@ -255,11 +257,37 @@ class Peers extends ChangeNotifier {
     if (evt['ids'] != null) {
       restPeerIds = (evt['ids'] as String).split(',');
     }
+    if (loadEvent == 'load_recent_peers') {
+      final limit = KqProjectApi.recentHistoryLimit;
+      if (peers.length > limit) {
+        peers = peers.sublist(0, limit);
+      }
+      restPeerIds = [];
+    }
 
     for (var peer in peers) {
       final state = onlineStates[peer.id];
       peer.online = state != null && state != false;
     }
+    event = UpdateEvent.load;
+    notifyListeners();
+    if (loadEvent == 'load_recent_peers') {
+      unawaited(_syncRecentPeersWithDatabase(onlineStates));
+    }
+  }
+
+  Future<void> _syncRecentPeersWithDatabase(
+      Map<String, bool> onlineStates) async {
+    final localPeers = peers.map((peer) => Peer.copy(peer)).toList();
+    await KqProjectApi.syncRecentPeers(localPeers);
+    final remotePeers = await KqProjectApi.fetchConnectionHistory();
+    if (remotePeers.isEmpty) return;
+    for (final peer in remotePeers) {
+      final state = onlineStates[peer.id];
+      peer.online = state != null && state != false;
+    }
+    peers = remotePeers;
+    restPeerIds = [];
     event = UpdateEvent.load;
     notifyListeners();
   }

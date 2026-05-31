@@ -5,12 +5,12 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 
@@ -34,20 +34,10 @@ class OnlineStatusWidget extends StatefulWidget {
 /// State for the connection page.
 class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcStopped = Get.find<RxBool>(tag: 'stop-service');
-  final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
 
   double get em => 14.0;
   double? get height => bind.isIncomingOnly() ? null : em * 3;
-
-  void onUsePublicServerGuide() {
-    const url = "https://rustdesk.com/pricing";
-    canLaunchUrlString(url).then((can) {
-      if (can) {
-        launchUrlString(url);
-      }
-    });
-  }
 
   @override
   void initState() {
@@ -66,76 +56,57 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   @override
   Widget build(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
+    final q = KqTheme.of(context);
     startServiceWidget() => Offstage(
           offstage: !_svcStopped.value,
           child: InkWell(
-                  onTap: () async {
-                    await start_service(true);
-                  },
-                  child: Text(translate("Start service"),
-                      style: TextStyle(
-                          decoration: TextDecoration.underline, fontSize: em)))
-              .marginOnly(left: em),
+              onTap: () async {
+                await start_service(true);
+              },
+              child: Text(translate("Start service"),
+                  style: TextStyle(
+                    decoration: TextDecoration.underline,
+                    fontSize: em,
+                    color: q.primaryDeep,
+                    fontWeight: FontWeight.w700,
+                  ))).marginOnly(left: em),
         );
 
-    setupServerWidget() => Flexible(
-          child: Offstage(
-            offstage: !(!_svcStopped.value &&
-                stateGlobal.svcStatus.value == SvcStatus.ready &&
-                _svcIsUsingPublicServer.value),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(', ', style: TextStyle(fontSize: em)),
-                Flexible(
-                  child: InkWell(
-                    onTap: onUsePublicServerGuide,
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            translate('setup_server_tip'),
-                            style: TextStyle(
-                                decoration: TextDecoration.underline,
-                                fontSize: em),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              ],
-            ),
-          ),
-        );
-
-    basicWidget() => Row(
+    basicWidget() {
+      final statusColor = _statusColor(q);
+      return Container(
+        margin: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: q.panelStrong.withOpacity(q.isDark ? 0.78 : 0.86),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: q.line.withOpacity(0.9)),
+        ),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
-              height: 8,
-              width: 8,
+              height: 10,
+              width: 10,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: _svcStopped.value ||
-                        stateGlobal.svcStatus.value == SvcStatus.connecting
-                    ? kColorWarn
-                    : (stateGlobal.svcStatus.value == SvcStatus.ready
-                        ? Color.fromARGB(255, 50, 190, 166)
-                        : Color.fromARGB(255, 224, 79, 95)),
+                borderRadius: BorderRadius.circular(99),
+                color: statusColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: statusColor.withOpacity(0.35),
+                    blurRadius: 10,
+                    spreadRadius: 1,
+                  ),
+                ],
               ),
-            ).marginSymmetric(horizontal: em),
-            Container(
-              width: isIncomingOnly ? 226 : null,
-              child: _buildConnStatusMsg(),
             ),
-            // stop
+            const SizedBox(width: 10),
+            Expanded(child: _buildConnStatusMsg(context, q)),
             if (!isIncomingOnly) startServiceWidget(),
-            // ready && public
-            // No need to show the guide if is custom client.
-            if (!isIncomingOnly) setupServerWidget(),
           ],
-        );
+        ),
+      );
+    }
 
     return Container(
       height: height,
@@ -153,17 +124,68 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     ).paddingOnly(right: isIncomingOnly ? 8 : 0);
   }
 
-  _buildConnStatusMsg() {
+  Color _statusColor(KqTheme q) {
+    if (_svcStopped.value ||
+        stateGlobal.svcStatus.value == SvcStatus.connecting) {
+      return q.warning;
+    }
+    return stateGlobal.svcStatus.value == SvcStatus.ready
+        ? q.online
+        : q.offline;
+  }
+
+  String _safeStatusTitle() {
+    if (_svcStopped.value) return translate("Service is not running");
+    if (stateGlobal.svcStatus.value == SvcStatus.connecting) {
+      return translate("connecting_status");
+    }
+    if (stateGlobal.svcStatus.value == SvcStatus.notReady) {
+      return translate("not_ready_status");
+    }
+    return translate('Ready');
+  }
+
+  String _safeStatusDetail() {
+    if (_svcStopped.value) return '远程连接暂不可用';
+    if (stateGlobal.svcStatus.value == SvcStatus.connecting) {
+      return '正在建立安全连接';
+    }
+    if (stateGlobal.svcStatus.value == SvcStatus.ready) {
+      return '安全中继已就绪';
+    }
+    return '请检查网络或服务状态';
+  }
+
+  _buildConnStatusMsg(BuildContext context, KqTheme q) {
     widget.onSvcStatusChanged?.call();
-    return Text(
-      _svcStopped.value
-          ? translate("Service is not running")
-          : stateGlobal.svcStatus.value == SvcStatus.connecting
-              ? translate("connecting_status")
-              : stateGlobal.svcStatus.value == SvcStatus.notReady
-                  ? translate("not_ready_status")
-                  : translate('Ready'),
-      style: TextStyle(fontSize: em),
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _safeStatusTitle(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: q.ink,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            height: 1.05,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _safeStatusDetail(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: q.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            height: 1.1,
+          ),
+        ),
+      ],
     );
   }
 
@@ -180,7 +202,6 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     } else {
       stateGlobal.svcStatus.value = SvcStatus.notReady;
     }
-    _svcIsUsingPublicServer.value = await bind.mainIsUsingPublicServer();
     try {
       stateGlobal.videoConnCount.value = status['video_conn_count'] as int;
     } catch (_) {}
@@ -304,24 +325,29 @@ class _ConnectionPageState extends State<ConnectionPage>
   @override
   Widget build(BuildContext context) {
     final isOutgoingOnly = bind.isOutgoingOnly();
-    return Column(
-      children: [
-        Expanded(
-            child: Column(
-          children: [
-            Row(
-              children: [
-                Flexible(child: _buildRemoteIDTextField(context)),
-              ],
-            ).marginOnly(top: 22),
-            SizedBox(height: 12),
-            Divider().paddingOnly(right: 12),
-            Expanded(child: PeerTabPage()),
-          ],
-        ).paddingOnly(left: 12.0)),
-        if (!isOutgoingOnly) const Divider(height: 1),
-        if (!isOutgoingOnly) OnlineStatusWidget()
-      ],
+    final q = KqTheme.of(context);
+    return Container(
+      color: Colors.transparent,
+      child: Column(
+        children: [
+          Expanded(
+              child: Column(
+            children: [
+              Row(
+                children: [
+                  Flexible(child: _buildRemoteIDTextField(context)),
+                ],
+              ).marginOnly(top: 22),
+              const SizedBox(height: 12),
+              Divider(height: 1, color: q.line).paddingOnly(right: 14),
+              const Expanded(child: PeerTabPage()),
+            ],
+          ).paddingOnly(left: 12.0)),
+          if (!isOutgoingOnly) Divider(height: 1, color: q.line),
+          if (!isOutgoingOnly)
+            const OnlineStatusWidget().marginSymmetric(vertical: 10)
+        ],
+      ),
     );
   }
 
@@ -341,13 +367,28 @@ class _ConnectionPageState extends State<ConnectionPage>
   /// UI for the remote ID TextField.
   /// Search for a peer.
   Widget _buildRemoteIDTextField(BuildContext context) {
+    final q = KqTheme.of(context);
     var w = Container(
       width: 320 + 20 * 2,
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: q.panelGradient,
+        ),
+        borderRadius: const BorderRadius.all(Radius.circular(16)),
+        border: Border.all(color: q.line),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow,
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       child: Ink(
+        color: Colors.transparent,
         child: Column(
           children: [
             getConnectionPageTitle(context, false).marginOnly(bottom: 15),
@@ -416,17 +457,33 @@ class _ConnectionPageState extends State<ConnectionPage>
                           enableSuggestions: false,
                           keyboardType: TextInputType.visiblePassword,
                           focusNode: fieldFocusNode,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'WorkSans',
                             fontSize: 22,
                             height: 1.4,
+                            color: q.ink,
+                            fontWeight: FontWeight.w800,
                           ),
                           maxLines: 1,
-                          cursorColor:
-                              Theme.of(context).textTheme.titleLarge?.color,
+                          cursorColor: q.primary,
                           decoration: InputDecoration(
-                              filled: false,
+                              filled: true,
+                              fillColor: q.field,
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: q.line),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    BorderSide(color: q.primary, width: 1.4),
+                              ),
                               counterText: '',
+                              hintStyle: TextStyle(
+                                color: q.muted,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
                               hintText: _idInputFocused.value
                                   ? null
                                   : translate('Enter Remote ID'),
@@ -466,17 +523,19 @@ class _ConnectionPageState extends State<ConnectionPage>
                       alignment: Alignment.topLeft,
                       child: Container(
                           decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 5,
-                                spreadRadius: 1,
+                                color: q.shadow,
+                                blurRadius: 18,
+                                offset: const Offset(0, 10),
                               ),
                             ],
                           ),
                           child: ClipRRect(
-                              borderRadius: BorderRadius.circular(5),
+                              borderRadius: BorderRadius.circular(12),
                               child: Material(
+                                color: q.panelStrong,
                                 elevation: 4,
                                 child: ConstrainedBox(
                                   constraints: BoxConstraints(
@@ -516,8 +575,17 @@ class _ConnectionPageState extends State<ConnectionPage>
               padding: const EdgeInsets.only(top: 13.0),
               child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 SizedBox(
-                  height: 28.0,
+                  height: 34.0,
                   child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: q.primary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
                     onPressed: () {
                       onConnect();
                     },
@@ -526,11 +594,12 @@ class _ConnectionPageState extends State<ConnectionPage>
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  height: 28.0,
-                  width: 28.0,
+                  height: 34.0,
+                  width: 34.0,
                   decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                    borderRadius: BorderRadius.circular(8),
+                    color: q.field,
+                    border: Border.all(color: q.line),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Center(
                     child: StatefulBuilder(
@@ -540,9 +609,10 @@ class _ConnectionPageState extends State<ConnectionPage>
                               child: _menuOpen.value
                                   ? Transform.rotate(
                                       angle: pi,
-                                      child: Icon(IconFont.more, size: 14),
+                                      child: Icon(IconFont.more,
+                                          size: 14, color: q.ink),
                                     )
-                                  : Icon(IconFont.more, size: 14),
+                                  : Icon(IconFont.more, size: 14, color: q.ink),
                               onTapDown: (e) {
                                 offset = e.globalPosition;
                               },

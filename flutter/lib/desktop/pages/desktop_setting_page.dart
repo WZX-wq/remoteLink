@@ -17,12 +17,13 @@ import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/models/user_model.dart';
 import 'package:flutter_hbb/plugin/manager.dart';
 import 'package:flutter_hbb/plugin/widgets/desktop_settings.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
@@ -404,17 +405,12 @@ class _General extends StatefulWidget {
 }
 
 class _GeneralState extends State<_General> {
-  final RxBool serviceStop =
-      isWeb ? RxBool(false) : Get.find<RxBool>(tag: 'stop-service');
-  RxBool serviceBtnEnabled = true.obs;
-
   @override
   Widget build(BuildContext context) {
     final scrollController = ScrollController();
     return ListView(
       controller: scrollController,
       children: [
-        if (!isWeb) service(),
         theme(),
         _Card(title: 'Language', children: [language()]),
         if (!isWeb) hwcodec(),
@@ -451,34 +447,6 @@ class _GeneralState extends State<_General> {
           label: 'Follow System',
           onChanged: isOptFixed ? null : onChanged),
     ]);
-  }
-
-  Widget service() {
-    if (bind.isOutgoingOnly()) {
-      return const Offstage();
-    }
-
-    final hideStopService =
-        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
-
-    return Obx(() {
-      if (hideStopService && !serviceStop.value) {
-        return const Offstage();
-      }
-
-      return _Card(title: 'Service', children: [
-        _Button(serviceStop.value ? 'Start' : 'Stop', () {
-          () async {
-            serviceBtnEnabled.value = false;
-            await start_service(serviceStop.value);
-            // enable the button after 1 second
-            Future.delayed(const Duration(seconds: 1), () {
-              serviceBtnEnabled.value = true;
-            });
-          }();
-        }, enabled: serviceBtnEnabled.value)
-      ]);
-    });
   }
 
   Widget other() {
@@ -798,9 +766,10 @@ class _GeneralState extends State<_General> {
         initialKey: currentKey,
         onChanged: (key) async {
           await bind.mainSetLocalOption(key: kCommConfKeyLang, value: key);
+          if (!isWeb) await bind.mainChangeLanguage(lang: key);
           if (isWeb) reloadCurrentWindow();
           if (!isWeb) reloadAllWindows();
-          if (!isWeb) bind.mainChangeLanguage(lang: key);
+          setState(() {});
         },
         enabled: !isOptFixed,
       ).marginOnly(left: _kContentHMargin);
@@ -2022,81 +1991,935 @@ class _AccountState extends State<_Account> {
     return ListView(
       controller: scrollController,
       children: [
-        _Card(title: 'Account', children: [accountAction(), useInfo()]),
+        _Card(title: '账户', children: [
+          Obx(() {
+            if (gFFI.userModel.userName.value.isEmpty) {
+              return _signedOutPanel(context);
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _profilePanel(context),
+                _membershipPanel(context).marginOnly(top: 12),
+                _quotaPanel(context).marginOnly(top: 12),
+                _accountActions(context).marginOnly(top: 12),
+              ],
+            );
+          }).marginOnly(left: _kContentHMargin, right: _kContentHMargin),
+        ]),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
   }
 
-  Widget accountAction() {
-    return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty
-            ? 'Login'
-            : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})',
-        () => {
-              gFFI.userModel.userName.value.isEmpty
-                  ? loginDialog()
-                  : logOutConfirmDialog()
-            }));
+  Widget _signedOutPanel(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: colors.primary.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.person_outline, color: colors.primary, size: 30),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '登录鲲穹账号',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '登录后可同步账户资料，后续会员、设备额度和增值权益也会在这里展示。',
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          ElevatedButton(
+            onPressed: loginDialog,
+            child: const Text('立即登录'),
+          ),
+        ],
+      ),
+    );
   }
 
-  Widget useInfo() {
-    return Obx(() => Offstage(
-          offstage: gFFI.userModel.userName.value.isEmpty,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Builder(builder: (context) {
-              final avatarWidget = _buildUserAvatar();
-              return Row(
-                children: [
-                  if (avatarWidget != null) avatarWidget,
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          gFFI.userModel.displayNameOrUserName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+  Widget _profilePanel(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final userInfo = UserModel.getLocalUserInfo() ?? {};
+    final email = (userInfo['email'] ?? '').toString();
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _buildUserAvatar(context),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        gFFI.userModel.displayNameOrUserName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
                         ),
-                        const SizedBox(height: 2),
-                        SelectionArea(
-                          child: Text(
-                            '@${gFFI.userModel.userName.value}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color:
-                                  Theme.of(context).textTheme.bodySmall?.color,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
+                    ),
+                    if (gFFI.userModel.isAdmin.value)
+                      _tag(context, '管理员', Icons.verified_user_outlined)
+                          .marginOnly(left: 8),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SelectionArea(
+                  child: Text(
+                    '@${gFFI.userModel.userName.value}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).textTheme.bodySmall?.color,
+                    ),
+                  ),
+                ),
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  SelectionArea(
+                    child: Text(
+                      email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodySmall?.color,
+                      ),
                     ),
                   ),
                 ],
-              );
-            }),
+              ],
+            ),
           ),
-        )).marginOnly(left: 18, top: 16);
+          const SizedBox(width: 16),
+          _membershipBadge(context),
+        ],
+      ),
+    );
   }
 
-  Widget? _buildUserAvatar() {
-    // Resolve relative avatar path at display time
+  Widget _membershipPanel(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final user = gFFI.userModel;
+    final isMember = user.isMember.value;
+    final expireAt = user.memberExpireAt.value.trim();
+    final lastError = user.memberLastError.value.trim();
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isMember
+              ? [
+                  colors.primary.withOpacity(0.18),
+                  colors.tertiary.withOpacity(0.10),
+                ]
+              : [
+                  colors.surfaceContainerHighest,
+                  colors.primary.withOpacity(0.06),
+                ],
+        ),
+        border: Border.all(
+          color: isMember
+              ? colors.primary.withOpacity(0.32)
+              : colors.primary.withOpacity(0.16),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: colors.primary.withOpacity(isMember ? 0.20 : 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.workspace_premium_outlined,
+                color: colors.primary, size: 28),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        isMember ? '会员权益已生效' : '当前为基础版',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (user.isRefreshingMembership.value)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ).marginOnly(left: 8),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  user.remoteEntitlementHint,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ),
+                if (isMember && expireAt.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '会员有效期至 $expireAt',
+                    style: TextStyle(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ] else if (!isMember && lastError.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '会员状态未确认：$lastError',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.error,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              FilledButton.icon(
+                onPressed: _showMemberRechargeDialog,
+                icon: const Icon(Icons.workspace_premium_outlined, size: 16),
+                label: Text(isMember ? '续费会员' : '开通会员'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: user.isRefreshingMembership.value
+                    ? null
+                    : () => gFFI.userModel.refreshMembership(showError: true),
+                icon: user.isRefreshingMembership.value
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh, size: 16),
+                label: const Text('刷新权益'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quotaPanel(BuildContext context) {
+    final user = gFFI.userModel;
+    return Row(
+      children: [
+        Expanded(
+          child: _metricTile(
+            context,
+            icon: Icons.high_quality_outlined,
+            label: '最高画质',
+            value: user.remoteResolutionLabel,
+            caption: user.isMember.value ? '会员高清远控' : '基础清晰度上限',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _metricTile(
+            context,
+            icon: Icons.speed_outlined,
+            label: '最高帧率',
+            value: '${user.remoteMaxFps} FPS',
+            caption: user.isMember.value ? '更流畅的远程操作' : '免费用户帧率上限',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _metricTile(
+            context,
+            icon: Icons.workspace_premium_outlined,
+            label: '当前档位',
+            value: user.membershipName,
+            caption: user.isMember.value ? '会员权益已解锁' : '可升级至 1080p/60',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _accountActions(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '账户操作',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).textTheme.bodyMedium?.color,
+              ),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: gFFI.userModel.isRefreshingMembership.value
+                ? null
+                : () async {
+                    gFFI.userModel.refreshCurrentUser();
+                    await gFFI.userModel.refreshMembership(showError: true);
+                  },
+            icon: gFFI.userModel.isRefreshingMembership.value
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh, size: 16),
+            label: const Text('刷新资料'),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: logOutConfirmDialog,
+            icon: const Icon(Icons.logout, size: 16),
+            label: const Text('退出登录'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colors.error,
+              foregroundColor: colors.onError,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showMemberRechargeDialog() async {
+    final user = gFFI.userModel;
+    if (!user.isLogin) {
+      showToast('请先登录鲲穹账号');
+      return;
+    }
+    if (user.memberPackages.isEmpty) {
+      await user.refreshMembership(showError: true);
+    }
+    final packages = user.memberPackages.toList();
+    if (packages.isEmpty) {
+      showToast('暂未获取到可购买的会员套餐');
+      return;
+    }
+    if (!mounted) return;
+
+    KqMemberPackage selectedPackage = packages.first;
+    int payType = 1;
+    KqMemberOrder? order;
+    bool creatingOrder = false;
+    bool dialogAlive = true;
+    String statusText = '';
+    Timer? pollTimer;
+
+    Future<void> openAlipayCheckout(KqMemberOrder order) async {
+      if (order.alipaySubmitHtml.trim().isEmpty) {
+        return;
+      }
+      final file = File(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}kq_member_${order.orderNo}.html');
+      await file.writeAsString(order.alipaySubmitHtml, encoding: utf8);
+      await launchUrl(file.uri, mode: LaunchMode.externalApplication);
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void startPolling(KqMemberOrder nextOrder) {
+              pollTimer?.cancel();
+              var tick = 0;
+              pollTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+                tick += 1;
+                if (tick > 60) {
+                  timer.cancel();
+                  if (dialogAlive) {
+                    setDialogState(() => statusText = '支付状态确认超时，可稍后刷新权益');
+                  }
+                  return;
+                }
+                unawaited(() async {
+                  try {
+                    final status =
+                        await user.checkMemberOrder(nextOrder.orderNo);
+                    if (!dialogAlive) return;
+                    if (status.isPaid) {
+                      timer.cancel();
+                      await user.refreshMembership();
+                      if (!dialogAlive) return;
+                      setDialogState(() => statusText = '支付成功，会员权益已刷新');
+                      Navigator.of(dialogContext).pop();
+                      showToast('会员权益已生效');
+                    } else {
+                      setDialogState(() => statusText = '等待支付确认...');
+                    }
+                  } catch (e) {
+                    if (dialogAlive) {
+                      setDialogState(() => statusText = e.toString());
+                    }
+                  }
+                }());
+              });
+            }
+
+            Future<void> createOrder() async {
+              if (creatingOrder) return;
+              setDialogState(() {
+                creatingOrder = true;
+                order = null;
+                statusText = '正在创建订单...';
+              });
+              try {
+                final nextOrder = await user.createMemberOrder(
+                  packageId: selectedPackage.id,
+                  payType: payType,
+                );
+                if (!dialogAlive) return;
+                setDialogState(() {
+                  order = nextOrder;
+                  statusText = payType == 1 ? '请使用微信扫码支付' : '已打开支付宝收银台';
+                });
+                if (payType == 2) {
+                  await openAlipayCheckout(nextOrder);
+                }
+                startPolling(nextOrder);
+              } catch (e) {
+                if (!dialogAlive) return;
+                setDialogState(() => statusText = e.toString());
+                showToast(e.toString());
+              } finally {
+                if (dialogAlive) {
+                  setDialogState(() => creatingOrder = false);
+                }
+              }
+            }
+
+            final colors = Theme.of(context).colorScheme;
+            return AlertDialog(
+              titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+              contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 10),
+              actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+              title: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.workspace_premium_outlined,
+                        color: colors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      '开通鲲穹会员',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 700,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '会员解锁 1080p / 60 FPS，免费用户保留 720p / 30 FPS。',
+                        style: TextStyle(
+                          color: Theme.of(context).textTheme.bodySmall?.color,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: packages
+                            .map(
+                              (item) => _memberPackageTile(
+                                context,
+                                package: item,
+                                selected: item.id == selectedPackage.id,
+                                onTap: () => setDialogState(() {
+                                  selectedPackage = item;
+                                  order = null;
+                                  statusText = '';
+                                  pollTimer?.cancel();
+                                }),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Text(
+                            '支付方式',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color:
+                                  Theme.of(context).textTheme.bodyMedium?.color,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ChoiceChip(
+                            selected: payType == 1,
+                            label: const Text('微信扫码'),
+                            avatar: const Icon(Icons.qr_code_2, size: 17),
+                            onSelected: (_) => setDialogState(() {
+                              payType = 1;
+                              order = null;
+                              statusText = '';
+                              pollTimer?.cancel();
+                            }),
+                          ),
+                          const SizedBox(width: 8),
+                          ChoiceChip(
+                            selected: payType == 2,
+                            label: const Text('支付宝'),
+                            avatar: const Icon(Icons.open_in_browser, size: 17),
+                            onSelected: (_) => setDialogState(() {
+                              payType = 2;
+                              order = null;
+                              statusText = '';
+                              pollTimer?.cancel();
+                            }),
+                          ),
+                        ],
+                      ),
+                      if (order != null) ...[
+                        const SizedBox(height: 16),
+                        _memberOrderPanel(context, order!),
+                      ],
+                      if (statusText.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          statusText,
+                          style: TextStyle(
+                            color: statusText.contains('失败') ||
+                                    statusText.contains('错误') ||
+                                    statusText.contains('请先登录')
+                                ? colors.error
+                                : colors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('关闭'),
+                ),
+                FilledButton.icon(
+                  onPressed: creatingOrder ? null : createOrder,
+                  icon: creatingOrder
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.payment, size: 16),
+                  label: Text(creatingOrder ? '创建中' : '生成支付订单'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      dialogAlive = false;
+      pollTimer?.cancel();
+    });
+  }
+
+  Widget _memberPackageTile(
+    BuildContext context, {
+    required KqMemberPackage package,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: 128,
+        height: 126,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.primary.withOpacity(0.12)
+              : colors.surfaceContainerHighest,
+          border: Border.all(
+            color: selected
+                ? colors.primary.withOpacity(0.62)
+                : Theme.of(context).dividerColor,
+            width: selected ? 1.4 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    package.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                if (selected)
+                  Icon(Icons.check_circle, size: 17, color: colors.primary),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              package.priceLabel,
+              style: TextStyle(
+                color: colors.primary,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              package.durationLabel,
+              style: TextStyle(
+                color: Theme.of(context).textTheme.bodySmall?.color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              package.benefitText.isEmpty
+                  ? '1080p / 60 FPS'
+                  : package.benefitText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Theme.of(context).textTheme.bodySmall?.color,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _memberOrderPanel(BuildContext context, KqMemberOrder order) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: colors.primary.withOpacity(0.20)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 150,
+            height: 150,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _memberOrderPayCode(order),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  order.packageName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '订单号 ${order.orderNo}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '应付 ¥${order.payAmount.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    color: colors.primary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  order.payType == 1 ? '微信扫码后会自动确认权益' : '请在打开的支付宝页面完成支付',
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _memberOrderPayCode(KqMemberOrder order) {
+    final image = order.qrcodeImgUrl.trim();
+    if (image.startsWith('data:image')) {
+      final comma = image.indexOf(',');
+      if (comma > 0) {
+        try {
+          return Image.memory(
+            base64Decode(image.substring(comma + 1)),
+            width: 132,
+            height: 132,
+            fit: BoxFit.contain,
+          );
+        } catch (_) {
+          // Fallback to generated QR code below.
+        }
+      }
+    }
+    if (image.startsWith('http://') || image.startsWith('https://')) {
+      return Image.network(
+        image,
+        width: 132,
+        height: 132,
+        fit: BoxFit.contain,
+      );
+    }
+    if (order.codeUrl.trim().isNotEmpty) {
+      return QrImageView(
+        data: order.codeUrl.trim(),
+        version: QrVersions.auto,
+        size: 132,
+      );
+    }
+    return const Icon(Icons.open_in_browser, size: 46);
+  }
+
+  Widget _buildUserAvatar(BuildContext context) {
     final avatar =
         bind.mainResolveAvatarUrl(avatar: gFFI.userModel.avatar.value);
+    final fallback = Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.person,
+        size: 36,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
     return buildAvatarWidget(
-      avatar: avatar,
-      size: 44,
+          avatar: avatar,
+          size: 64,
+          fallback: fallback,
+        ) ??
+        fallback;
+  }
+
+  Widget _membershipBadge(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final isMember = gFFI.userModel.isMember.value;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: (isMember ? colors.primary : colors.secondary).withOpacity(0.10),
+        border: Border.all(
+          color:
+              (isMember ? colors.primary : colors.secondary).withOpacity(0.22),
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isMember
+                ? Icons.workspace_premium_outlined
+                : Icons.lock_outline_rounded,
+            size: 15,
+            color: isMember ? colors.primary : colors.secondary,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            gFFI.userModel.membershipName,
+            style: TextStyle(
+              color: isMember ? colors.primary : colors.secondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricTile(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String value,
+    required String caption,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      height: 112,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: colors.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            caption,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tag(BuildContext context, String label, IconData icon) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: colors.primary.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: colors.primary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: colors.primary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2355,26 +3178,19 @@ class _AboutState extends State<_About> {
   @override
   Widget build(BuildContext context) {
     return futureBuilder(future: () async {
-      final license = await bind.mainGetLicense();
       final version = await bind.mainGetVersion();
       final buildDate = await bind.mainGetBuildDate();
-      final fingerprint = await bind.mainGetFingerprint();
       return {
-        'license': license,
         'version': version,
         'buildDate': buildDate,
-        'fingerprint': fingerprint
       };
     }(), hasData: (data) {
-      final license = data['license'].toString();
       final version = data['version'].toString();
       final buildDate = data['buildDate'].toString();
-      final fingerprint = data['fingerprint'].toString();
-      const linkStyle = TextStyle(decoration: TextDecoration.underline);
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: '鲲穹远程桌面', children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2387,53 +3203,6 @@ class _AboutState extends State<_About> {
               SelectionArea(
                   child: Text('${translate('Build Date')}: $buildDate')
                       .marginSymmetric(vertical: 4.0)),
-              if (!isWeb)
-                SelectionArea(
-                    child: Text('${translate('Fingerprint')}: $fingerprint')
-                        .marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
-                  },
-                  child: Text(
-                    translate('Privacy Statement'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://rustdesk.com');
-                  },
-                  child: Text(
-                    translate('Website'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
-              Container(
-                decoration: const BoxDecoration(color: Color(0xFF2c8cff)),
-                padding:
-                    const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
-                child: SelectionArea(
-                    child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Ltd.\n$license',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          Text(
-                            translate('Slogan_tip'),
-                            style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
-                          )
-                        ],
-                      ),
-                    ),
-                  ],
-                )),
-              ).marginSymmetric(vertical: 4.0)
             ],
           ).marginOnly(left: _kContentHMargin)
         ]),

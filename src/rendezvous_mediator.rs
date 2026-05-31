@@ -337,8 +337,11 @@ impl RendezvousMediator {
                         Config::set_key_confirmed(false);
                         Config::set_host_key_confirmed(&self.host_prefix, false);
                     }
+                    Ok(result) => {
+                        log::error!("RegisterPkResponse result: {:?}", result);
+                    }
                     _ => {
-                        log::error!("unknown RegisterPkResponse");
+                        log::error!("unknown RegisterPkResponse: {}", rpr.result.value());
                     }
                 }
                 if rpr.keep_alive > 0 {

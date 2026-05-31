@@ -1,4 +1,24 @@
 services:
+  api:
+    build:
+      context: ./api
+    container_name: kq-remote-link-api
+    environment:
+      KQ_API_HOST: 0.0.0.0
+      KQ_API_PORT: ${KQ_API_PORT:-21120}
+      KQ_PUBLIC_API_URL: ${KQ_PUBLIC_API_URL:-http://43.154.197.96/kq-api/api}
+      KQ_DB_HOST: ${KQ_DB_HOST:-}
+      KQ_DB_PORT: ${KQ_DB_PORT:-3306}
+      KQ_DB_USER: ${KQ_DB_USER:-}
+      KQ_DB_PASSWORD: ${KQ_DB_PASSWORD:-}
+      KQ_DB_NAME: ${KQ_DB_NAME:-kq_remote_link}
+      KQ_SUBSITE_NAME: ${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}
+      KQ_API_WEB_BASE_URL: ${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}
+    network_mode: host
+    restart: unless-stopped
+    profiles:
+      - api
+
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: kq-remote-link-hbbs

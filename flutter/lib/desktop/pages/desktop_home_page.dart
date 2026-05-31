@@ -6,6 +6,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -60,20 +61,169 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
+    final q = KqTheme.of(context);
     return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
-      ],
+        child: Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: q.pageGradient,
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(child: _KqHomeBackdrop(theme: q)),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              isIncomingOnly ? 12 : 18,
+              16,
+              18,
+              16,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                buildLeftPane(context),
+                if (!isIncomingOnly) const SizedBox(width: 18),
+                if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+              ],
+            ),
+          ),
+        ],
+      ),
     ));
   }
 
   Widget _buildBlock({required Widget child}) {
     return buildRemoteBlock(
         block: _block, mask: true, use: canBeBlocked, child: child);
+  }
+
+  Widget buildKqHero(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: q.panelGradient,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: q.panelStrong,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: q.iconBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: q.primary.withOpacity(q.isDark ? 0.24 : 0.16),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Image.asset('assets/icon.png', fit: BoxFit.contain),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '鲲穹远程桌面',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '私有安全中继',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Obx(() {
+            final ready = !svcStopped.value &&
+                stateGlobal.svcStatus.value == SvcStatus.ready;
+            final connecting =
+                stateGlobal.svcStatus.value == SvcStatus.connecting;
+            final color = ready
+                ? const Color(0xFF18A884)
+                : connecting
+                    ? const Color(0xFFE09B27)
+                    : const Color(0xFFD95067);
+            final text = ready
+                ? translate('Ready')
+                : connecting
+                    ? translate('connecting_status')
+                    : translate('not_ready_status');
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.09),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: color.withOpacity(0.24)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   Widget buildLeftPane(BuildContext context) {
@@ -86,11 +236,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           alignment: Alignment.center,
           child: loadPowered(context),
         ),
-      Align(
-        alignment: Alignment.center,
-        child: loadLogo(),
-      ),
-      buildTip(context),
+      buildKqHero(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
       FutureBuilder<Widget>(
@@ -128,11 +274,24 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ]);
     }
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final q = KqTheme.of(context);
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
-        color: Theme.of(context).colorScheme.background,
+        width: isIncomingOnly ? 292.0 : 292.0,
+        decoration: BoxDecoration(
+          color: q.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: q.line.withOpacity(q.isDark ? 0.9 : 0.8)),
+          boxShadow: [
+            BoxShadow(
+              color: q.shadow,
+              blurRadius: 30,
+              offset: const Offset(0, 16),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
             Column(
@@ -149,8 +308,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             if (isOutgoingOnly)
               Positioned(
-                bottom: 6,
-                left: 12,
+                bottom: 14,
+                left: 18,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: InkWell(
@@ -181,74 +340,99 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   buildRightPane(BuildContext context) {
+    final q = KqTheme.of(context);
     return Container(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: ConnectionPage(),
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.72 : 0.74),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: q.line.withOpacity(0.82)),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow,
+            blurRadius: 34,
+            offset: const Offset(0, 18),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: const ConnectionPage(),
     );
   }
 
   buildIDBoard(BuildContext context) {
     final model = gFFI.serverModel;
+    final q = KqTheme.of(context);
     return Container(
-      margin: const EdgeInsets.only(left: 20, right: 11),
-      height: 57,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+      decoration: BoxDecoration(
+        color: q.panelStrong,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow,
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 2,
-            decoration: const BoxDecoration(color: MyTheme.accent),
-          ).marginOnly(top: 5),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 25,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          translate("ID"),
-                          style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.color
-                                  ?.withOpacity(0.5)),
-                        ).marginOnly(top: 5),
-                        buildPopupMenu(context)
-                      ],
+          Row(
+            children: [
+              _KqSmallIcon(icon: Icons.fingerprint_rounded),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  translate("ID"),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: q.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              buildPopupMenu(context),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onDoubleTap: () {
+                    Clipboard.setData(ClipboardData(text: model.serverId.text));
+                    showToast(translate("Copied"));
+                  },
+                  child: AnimatedBuilder(
+                    animation: model.serverId,
+                    builder: (context, _) => Text(
+                      model.serverId.text.isEmpty ? '--' : model.serverId.text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.ink,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
                     ),
                   ),
-                  Flexible(
-                    child: GestureDetector(
-                      onDoubleTap: () {
-                        Clipboard.setData(
-                            ClipboardData(text: model.serverId.text));
-                        showToast(translate("Copied"));
-                      },
-                      child: TextFormField(
-                        controller: model.serverId,
-                        readOnly: true,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.only(top: 10, bottom: 10),
-                        ),
-                        style: TextStyle(
-                          fontSize: 22,
-                        ),
-                      ).workaroundFreezeLinuxMint(),
-                    ),
-                  )
-                ],
+                ),
               ),
-            ),
+              IconButton(
+                tooltip: translate('Copy'),
+                splashRadius: 18,
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                color: q.primary,
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: model.serverId.text));
+                  showToast(translate("Copied"));
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -257,6 +441,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Widget buildPopupMenu(BuildContext context) {
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final q = KqTheme.of(context);
     RxBool hover = false.obs;
     return InkWell(
       onTap: DesktopTabPage.onAddSetting,
@@ -264,14 +449,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         message: translate('Settings'),
         child: Obx(
           () => CircleAvatar(
-            radius: 15,
-            backgroundColor: hover.value
-                ? Theme.of(context).scaffoldBackgroundColor
-                : Theme.of(context).colorScheme.background,
+            radius: 16,
+            backgroundColor:
+                hover.value ? q.primary.withOpacity(0.12) : q.surfaceSoft,
             child: Icon(
               Icons.more_vert_outlined,
               size: 20,
-              color: hover.value ? textColor : textColor?.withOpacity(0.5),
+              color: hover.value ? q.primary : textColor?.withOpacity(0.55),
             ),
           ),
         ),
@@ -294,92 +478,100 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     RxBool refreshHover = false.obs;
     RxBool editHover = false.obs;
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final q = KqTheme.of(context);
     final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
     return Container(
-      margin: EdgeInsets.only(left: 20.0, right: 16, top: 13, bottom: 13),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Container(
-            width: 2,
-            height: 52,
-            decoration: BoxDecoration(color: MyTheme.accent),
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+      decoration: BoxDecoration(
+        color: q.panelStrong,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow,
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AutoSizeText(
-                    translate("One-time Password"),
-                    style: TextStyle(
-                        fontSize: 14, color: textColor?.withOpacity(0.5)),
-                    maxLines: 1,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _KqSmallIcon(icon: Icons.password_rounded),
+              const SizedBox(width: 8),
+              Expanded(
+                child: AutoSizeText(
+                  translate("One-time Password"),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: q.muted,
+                    fontWeight: FontWeight.w700,
                   ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onDoubleTap: () {
-                            if (showOneTime) {
-                              Clipboard.setData(
-                                  ClipboardData(text: model.serverPasswd.text));
-                              showToast(translate("Copied"));
-                            }
-                          },
-                          child: TextFormField(
-                            controller: model.serverPasswd,
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              contentPadding:
-                                  EdgeInsets.only(top: 14, bottom: 10),
-                            ),
-                            style: TextStyle(fontSize: 15),
-                          ).workaroundFreezeLinuxMint(),
-                        ),
-                      ),
-                      if (showOneTime)
-                        AnimatedRotationWidget(
-                          onPressed: () => bind.mainUpdateTemporaryPassword(),
-                          child: Tooltip(
-                            message: translate('Refresh Password'),
-                            child: Obx(() => RotatedBox(
-                                quarterTurns: 2,
-                                child: Icon(
-                                  Icons.refresh,
-                                  color: refreshHover.value
-                                      ? textColor
-                                      : Color(0xFFDDDDDD),
-                                  size: 22,
-                                ))),
-                          ),
-                          onHover: (value) => refreshHover.value = value,
-                        ).marginOnly(right: 8, top: 4),
-                      if (!bind.isDisableSettings())
-                        InkWell(
-                          child: Tooltip(
-                            message: translate('Change Password'),
-                            child: Obx(
-                              () => Icon(
-                                Icons.edit,
-                                color: editHover.value
-                                    ? textColor
-                                    : Color(0xFFDDDDDD),
-                                size: 22,
-                              ).marginOnly(right: 8, top: 4),
-                            ),
-                          ),
-                          onTap: () => DesktopSettingPage.switch2page(
-                              SettingsTabKey.safety),
-                          onHover: (value) => editHover.value = value,
-                        ),
-                    ],
+                  maxLines: 1,
+                ),
+              ),
+              if (showOneTime)
+                AnimatedRotationWidget(
+                  onPressed: () => bind.mainUpdateTemporaryPassword(),
+                  child: Tooltip(
+                    message: translate('Refresh Password'),
+                    child: Obx(() => Icon(
+                          Icons.refresh_rounded,
+                          color: refreshHover.value
+                              ? q.primary
+                              : textColor?.withOpacity(0.45),
+                          size: 20,
+                        )),
                   ),
-                ],
+                  onHover: (value) => refreshHover.value = value,
+                ).marginOnly(right: 4),
+              if (!bind.isDisableSettings())
+                InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  child: Tooltip(
+                    message: translate('Change Password'),
+                    child: Obx(
+                      () => Icon(
+                        Icons.edit_rounded,
+                        color: editHover.value
+                            ? q.primary
+                            : textColor?.withOpacity(0.45),
+                        size: 19,
+                      ).paddingAll(4),
+                    ),
+                  ),
+                  onTap: () =>
+                      DesktopSettingPage.switch2page(SettingsTabKey.safety),
+                  onHover: (value) => editHover.value = value,
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onDoubleTap: () {
+              if (showOneTime) {
+                Clipboard.setData(ClipboardData(text: model.serverPasswd.text));
+                showToast(translate("Copied"));
+              }
+            },
+            child: AnimatedBuilder(
+              animation: model.serverPasswd,
+              builder: (context, _) => Text(
+                model.serverPasswd.text.isEmpty
+                    ? '--'
+                    : model.serverPasswd.text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: q.ink,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
               ),
             ),
           ),
@@ -458,6 +650,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});
+    }
+    if (bind.isCustomClient()) {
+      return Container();
     }
 
     if (isWindows && !bind.isDisableInstallation()) {
@@ -610,8 +805,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
                 colors: [
-                  Color.fromARGB(255, 226, 66, 188),
-                  Color.fromARGB(255, 244, 114, 124),
+                  Color.fromARGB(255, 58, 146, 232),
+                  Color.fromARGB(255, 121, 199, 250),
                 ],
               )),
               padding: EdgeInsets.all(20),
@@ -767,7 +962,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     bool isChattyMethod(String methodName) {
       switch (methodName) {
-        case kWindowBumpMouse: return true;
+        case kWindowBumpMouse:
+          return true;
       }
 
       return false;
@@ -776,7 +972,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
       if (!isChattyMethod(call.method)) {
         debugPrint(
-          "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+            "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
       }
       if (call.method == kWindowMainWindowOnTop) {
         windowOnTop(null);
@@ -811,9 +1007,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           connToken: call.arguments['connToken'],
         );
       } else if (call.method == kWindowBumpMouse) {
-        return RdPlatformChannel.instance.bumpMouse(
-          dx: call.arguments['dx'],
-          dy: call.arguments['dy']);
+        return RdPlatformChannel.instance
+            .bumpMouse(dx: call.arguments['dx'], dy: call.arguments['dy']);
       } else if (call.method == kWindowEventMoveTabToNewWindow) {
         final args = call.arguments.split(',');
         int? windowId;
@@ -905,6 +1100,74 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ),
     );
   }
+}
+
+class _KqSmallIcon extends StatelessWidget {
+  final IconData icon;
+
+  const _KqSmallIcon({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: q.primary.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: q.primary.withOpacity(0.2)),
+      ),
+      child: Icon(icon, size: 16, color: q.primary),
+    );
+  }
+}
+
+class _KqHomeBackdrop extends StatelessWidget {
+  final KqTheme theme;
+
+  const _KqHomeBackdrop({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _KqHomeBackdropPainter(theme));
+  }
+}
+
+class _KqHomeBackdropPainter extends CustomPainter {
+  final KqTheme theme;
+
+  const _KqHomeBackdropPainter(this.theme);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color =
+          (theme.isDark ? const Color(0xFF365A7B) : const Color(0xFFBBDDF6))
+              .withOpacity(theme.isDark ? 0.14 : 0.18)
+      ..strokeWidth = 1;
+    const step = 44.0;
+    for (double x = 0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final diagonalPaint = Paint()
+      ..color = theme.primary.withOpacity(theme.isDark ? 0.1 : 0.08)
+      ..strokeWidth = 1.4;
+    for (double x = -size.height; x < size.width; x += 180) {
+      canvas.drawLine(
+        Offset(x, size.height),
+        Offset(x + size.height, 0),
+        diagonalPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
@@ -1104,8 +1367,8 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
             }
             close();
           },
-          buttonStyle: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.red)),
+          buttonStyle:
+              ButtonStyle(backgroundColor: WidgetStatePropertyAll(Colors.red)),
         );
         final okButton = dialogButton(
           "OK",

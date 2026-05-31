@@ -23,6 +23,7 @@ import 'package:provider/provider.dart';
 import 'package:pull_down_button/pull_down_button.dart';
 
 import '../../common.dart';
+import '../../common/kq_theme.dart';
 import '../../models/platform_model.dart';
 
 class PeerTabPage extends StatefulWidget {
@@ -110,17 +111,17 @@ class _PeerTabPageState extends State<PeerTabPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Obx(() => SizedBox(
-              height: 32,
+              height: 44,
               child: Container(
+                margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
                 padding: stateGlobal.isPortrait.isTrue
-                    ? EdgeInsets.symmetric(horizontal: 2)
-                    : null,
+                    ? const EdgeInsets.symmetric(horizontal: 2)
+                    : const EdgeInsets.symmetric(horizontal: 4),
                 child: selectionWrap(Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Expanded(
-                        child: visibleContextMenuListener(
-                            _createSwitchBar(context))),
+                    visibleContextMenuListener(_createSwitchBar(context)),
+                    const Spacer(),
                     if (stateGlobal.isPortrait.isTrue)
                       ..._portraitRightActions(context)
                     else
@@ -128,7 +129,7 @@ class _PeerTabPageState extends State<PeerTabPage>
                   ],
                 )),
               ),
-            ).paddingOnly(right: stateGlobal.isPortrait.isTrue ? 0 : 12)),
+            )),
         _createPeersView(),
       ],
     );
@@ -136,57 +137,41 @@ class _PeerTabPageState extends State<PeerTabPage>
 
   Widget _createSwitchBar(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
-    var counter = -1;
-    return ReorderableListView(
-        buildDefaultDragHandles: false,
-        onReorder: model.reorder,
-        scrollDirection: Axis.horizontal,
-        physics: NeverScrollableScrollPhysics(),
-        children: model.visibleEnabledOrderedIndexs.map((t) {
-          final selected = model.currentTab == t;
-          final color = selected
-              ? MyTheme.tabbar(context).selectedTextColor
-              : MyTheme.tabbar(context).unSelectedTextColor
-            ?..withOpacity(0.5);
-          final hover = false.obs;
-          final deco = BoxDecoration(
-              color: Theme.of(context).colorScheme.background,
-              borderRadius: BorderRadius.circular(6));
-          final decoBorder = BoxDecoration(
-              border: Border(
-            bottom: BorderSide(width: 2, color: color!),
-          ));
-          counter += 1;
-          return ReorderableDragStartListener(
-              key: ValueKey(t),
-              index: counter,
-              child: Obx(() => Tooltip(
-                    preferBelow: false,
-                    message: model.tabTooltip(t),
-                    onTriggered: isMobile ? mobileShowTabVisibilityMenu : null,
-                    child: InkWell(
-                      child: Container(
-                        decoration: (hover.value
-                            ? (selected ? decoBorder : deco)
-                            : (selected ? decoBorder : null)),
-                        child: Icon(model.tabIcon(t), color: color)
-                            .paddingSymmetric(horizontal: 4),
-                      ).paddingSymmetric(horizontal: 4),
-                      onTap: isOptionFixed(kOptionPeerTabIndex)
-                          ? null
-                          : () async {
-                              await handleTabSelection(t);
-                              await bind.setLocalFlutterOption(
-                                  k: kOptionPeerTabIndex, v: t.toString());
-                            },
-                      onHover: (value) => hover.value = value,
-                    ),
-                  )));
-        }).toList());
+    final q = KqTheme.of(context);
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.82 : 0.72),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.history_rounded,
+            color: q.primary,
+            size: 17,
+          ),
+          const SizedBox(width: 7),
+          Text(
+            model.tabTooltip(model.currentTab),
+            style: TextStyle(
+              color: q.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _createPeersView() {
     final model = Provider.of<PeerTabModel>(context);
+    final q = KqTheme.of(context);
     Widget child;
     if (model.visibleEnabledOrderedIndexs.isEmpty) {
       child = visibleContextMenuListener(Row(
@@ -204,8 +189,26 @@ class _PeerTabPageState extends State<PeerTabPage>
       }
     }
     return Expanded(
-        child: child.marginSymmetric(
-            vertical: (isDesktop || isWebDesktop) ? 12.0 : 6.0));
+      child: Container(
+        margin: EdgeInsets.fromLTRB(
+          14,
+          (isDesktop || isWebDesktop) ? 12.0 : 6.0,
+          14,
+          14,
+        ),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: q.workSurfaceGradient,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: q.line),
+        ),
+        child: child,
+      ),
+    );
   }
 
   Widget _createRefresh(
@@ -668,6 +671,7 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     return drawer
         ? _buildSearchBar()
         : _hoverAction(
@@ -681,24 +685,23 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
             },
             child: Icon(
               Icons.search_rounded,
-              color: Theme.of(context).hintColor,
+              color: q.muted,
             ));
   }
 
   Widget _buildSearchBar() {
+    final q = KqTheme.of(context);
     RxBool focused = false.obs;
     FocusNode focusNode = FocusNode();
     focusNode.addListener(() {
       focused.value = focusNode.hasFocus;
-      peerSearchTextController.selection = TextSelection(
-          baseOffset: 0,
-          extentOffset: peerSearchTextController.value.text.length);
     });
     return Obx(() => Container(
           width: stateGlobal.isPortrait.isTrue ? 120 : 140,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.background,
-            borderRadius: BorderRadius.circular(6),
+            color: q.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: q.line),
           ),
           child: Row(
             children: [
@@ -707,7 +710,7 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                   children: [
                     Icon(
                       Icons.search_rounded,
-                      color: Theme.of(context).hintColor,
+                      color: q.muted,
                     ).marginSymmetric(horizontal: 4),
                     Expanded(
                       child: TextField(
@@ -726,14 +729,13 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                             ?.withOpacity(0.5),
                         cursorHeight: 18,
                         cursorWidth: 1,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14, color: q.ink),
                         decoration: InputDecoration(
                           contentPadding:
                               const EdgeInsets.symmetric(vertical: 6),
                           hintText:
                               focused.value ? null : translate("Search ID"),
-                          hintStyle: TextStyle(
-                              fontSize: 14, color: Theme.of(context).hintColor),
+                          hintStyle: TextStyle(fontSize: 14, color: q.muted),
                           border: InputBorder.none,
                           isDense: true,
                         ),
@@ -754,7 +756,7 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                           message: translate('Close'),
                           child: Icon(
                             Icons.close,
-                            color: Theme.of(context).hintColor,
+                            color: q.muted,
                           )),
                     ),
                   ],
@@ -965,9 +967,11 @@ class RefreshWidgetState extends State<RefreshWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     final deco = BoxDecoration(
-      color: Theme.of(context).colorScheme.background,
-      borderRadius: BorderRadius.circular(6),
+      color: q.surface,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: q.line),
     );
     return AnimatedRotation(
         turns: turns,
@@ -1007,9 +1011,11 @@ Widget _hoverAction(
     RxBool? hoverableWhenfalse,
     EdgeInsetsGeometry padding = const EdgeInsets.all(4.0)}) {
   final hover = false.obs;
+  final q = KqTheme.of(context);
   final deco = BoxDecoration(
-    color: Theme.of(context).colorScheme.background,
-    borderRadius: BorderRadius.circular(6),
+    color: q.surface,
+    borderRadius: BorderRadius.circular(10),
+    border: Border.all(color: q.line),
   );
   return Tooltip(
     message: toolTip,

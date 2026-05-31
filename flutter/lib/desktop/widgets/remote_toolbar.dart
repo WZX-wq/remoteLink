@@ -1607,18 +1607,21 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     if (pi.currentDisplay == kAllDisplayValue) {
       return;
     }
+    final requested = gFFI.userModel.clampRemoteResolution(w, h);
+    final targetW = requested.width;
+    final targetH = requested.height;
     await bind.sessionChangeResolution(
       sessionId: ffi.sessionId,
       display: pi.currentDisplay,
-      width: w,
-      height: h,
+      width: targetW,
+      height: targetH,
     );
     Future.delayed(Duration(seconds: 3), () async {
       final rect = ffiModel.rect;
       if (rect == null) {
         return;
       }
-      if (w == rect.width.toInt() && h == rect.height.toInt()) {
+      if (targetW == rect.width.toInt() && targetH == rect.height.toInt()) {
         if (await widget.screenAdjustor.isWindowCanBeAdjusted()) {
           widget.screenAdjustor.doAdjustWindow(context);
         }
@@ -1632,6 +1635,8 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     if (display == null) {
       return Offstage();
     }
+    final allowed = gFFI.userModel.isRemoteResolutionAllowed(
+        display.originalWidth, display.originalHeight);
     if (!resolutions.any((e) =>
         e.width == display.originalWidth &&
         e.height == display.originalHeight)) {
@@ -1640,11 +1645,14 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     return Offstage(
       offstage: !showOriginalBtn,
       child: MenuButton(
-        onPressed: () =>
-            _changeResolution(display.originalWidth, display.originalHeight),
+        onPressed: allowed
+            ? () =>
+                _changeResolution(display.originalWidth, display.originalHeight)
+            : null,
         ffi: widget.ffi,
-        child: Text(
-            '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight}'),
+        child: Text(allowed
+            ? '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight}'
+            : '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight} (${gFFI.userModel.remoteResolutionLabel} 上限)'),
       ),
     );
   }
@@ -1710,14 +1718,20 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     ).workaroundFreezeLinuxMint();
   }
 
-  List<Widget> _supportedResolutionMenuButtons() => resolutions
-      .map((e) => RdoMenuButton(
+  List<Widget> _supportedResolutionMenuButtons() => resolutions.map((e) {
+        final allowed =
+            gFFI.userModel.isRemoteResolutionAllowed(e.width, e.height);
+        final label = allowed
+            ? '${e.width}x${e.height}'
+            : '${e.width}x${e.height} (${gFFI.userModel.remoteResolutionLabel} 上限)';
+        return RdoMenuButton(
           value: '${e.width}x${e.height}',
           groupValue: _groupValue,
-          onChanged: (String? value) => _onChanged(value),
+          onChanged: allowed ? (String? value) => _onChanged(value) : null,
           ffi: widget.ffi,
-          child: Text('${e.width}x${e.height}')))
-      .toList();
+          child: Text(label),
+        );
+      }).toList();
 
   Resolution? _getBestFitResolution() {
     if (_localResolution == null) {
@@ -1725,12 +1739,15 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     }
 
     if (ffiModel.isVirtualDisplayResolution) {
-      return _localResolution!;
+      final clamped = gFFI.userModel.clampRemoteResolution(
+          _localResolution!.width, _localResolution!.height);
+      return Resolution(clamped.width, clamped.height);
     }
 
     for (final r in resolutions) {
       if (r.width == _localResolution!.width &&
-          r.height == _localResolution!.height) {
+          r.height == _localResolution!.height &&
+          gFFI.userModel.isRemoteResolutionAllowed(r.width, r.height)) {
         return r;
       }
     }

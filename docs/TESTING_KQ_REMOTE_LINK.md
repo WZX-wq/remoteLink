@@ -136,7 +136,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\new-kq-two-pc-acceptance.ps1 
 ## 单机启动检查
 
 1. 双击 `rustdesk.exe`。
-2. 确认窗口标题为 `KQ Remote Link`。
+2. 确认窗口标题为 `鲲穹远程桌面`。
 3. 确认主界面能显示本机 ID、一次性密码和远程 ID 输入框。
 4. 被控端建议点击界面中的安装/启用服务按钮，并按 UAC 提示授权。未安装服务时，UAC 界面、锁屏界面和部分系统级控制能力会受限。
 

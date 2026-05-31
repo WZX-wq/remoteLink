@@ -109,17 +109,19 @@ $kqLoginButton = [string]::Concat([char[]]@(
     0x767B,
     0x5F55
 ))
-$kqTitleBrand = [string]::Concat([char[]]@(
+$kqAppName = [string]::Concat([char[]]@(
     0x9CB2,
     0x7A79,
-    0x5DE5,
-    0x5177,
-    0x7BB1
+    0x8FDC,
+    0x7A0B,
+    0x684C,
+    0x9762
 ))
+$kqTitleBrand = $kqAppName
 $exeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stagedRelease "rustdesk.exe")).Hash.ToLowerInvariant()
 $dllHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stagedRelease "librustdesk.dll")).Hash.ToLowerInvariant()
 $manifest = [ordered]@{
-    "appName" = "KQ Remote Link"
+    "appName" = $kqAppName
     "packageName" = $PackageName
     "generatedAt" = (Get-Date).ToString("o")
     "release" = [ordered]@{
@@ -136,7 +138,7 @@ $manifest = [ordered]@{
     }
     "ui" = [ordered]@{
         "titleBrandText" = $kqTitleBrand
-        "titleBrandIcon" = "assets/kq_toolbox_icon.svg"
+        "titleBrandIcon" = "assets/icon.png"
     }
     "manualVerificationRequired" = @(
         "real Kunqiong OAuth account login",
@@ -334,8 +336,8 @@ if ($LaunchSmokeTest) {
         if ($process.HasExited) {
             throw "Smoke test failed: rustdesk.exe exited early."
         }
-        if ($process.MainWindowTitle -ne "KQ Remote Link") {
-            throw "Smoke test failed: expected window title 'KQ Remote Link', got '$($process.MainWindowTitle)'."
+        if ($process.MainWindowTitle -ne $kqAppName) {
+            throw "Smoke test failed: expected window title '$kqAppName', got '$($process.MainWindowTitle)'."
         }
         if (-not $process.Responding) {
             throw "Smoke test failed: process is not responding."

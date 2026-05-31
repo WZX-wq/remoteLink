@@ -78,17 +78,40 @@ $kqLoginButton = [string]::Concat([char[]]@(
     0x767B,
     0x5F55
 ))
-$kqTitleBrand = [string]::Concat([char[]]@(
+$kqAppName = [string]::Concat([char[]]@(
     0x9CB2,
     0x7A79,
-    0x5DE5,
-    0x5177,
-    0x7BB1
+    0x8FDC,
+    0x7A0B,
+    0x684C,
+    0x9762
 ))
+$kqTitleBrand = $kqAppName
+
+function Test-BuiltInPrivateServerDefaults {
+    $source = ".\src\common.rs"
+    if (-not (Test-Path $source)) {
+        Add-Check "private-server:built-in-defaults" "SKIP" "Source file not available: $source"
+        return
+    }
+    $content = Get-Content $source -Raw -Encoding UTF8
+    $required = @(
+        "43.154.197.96:21116",
+        "43.154.197.96:21117",
+        "h9goq/v9ic0Uh0NpB/9Uv4v2MNpSEIVCy7UFSETZ5BA="
+    )
+    $missing = @($required | Where-Object { $content -notmatch [regex]::Escape($_) })
+    if ($missing.Count -eq 0) {
+        Add-Check "private-server:built-in-defaults" "PASS" "client defaults point to private hbbs/hbbr"
+    } else {
+        Add-Check "private-server:built-in-defaults" "FAIL" "Missing defaults: $($missing -join ', ')"
+    }
+}
+
 $manifestPath = Join-Path $repo "KQ_RELEASE_MANIFEST.json"
 if (Test-Path $manifestPath) {
     $manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($manifest.appName -eq "KQ Remote Link") {
+    if ($manifest.appName -eq $kqAppName) {
         Add-Check "manifest:app-name" "PASS" $manifest.appName
     } else {
         Add-Check "manifest:app-name" "FAIL" "Unexpected appName: $($manifest.appName)"
@@ -103,7 +126,7 @@ if (Test-Path $manifestPath) {
     } else {
         Add-Check "manifest:ui-title-brand" "FAIL" "Unexpected title brand text"
     }
-    if ($manifest.ui.titleBrandIcon -eq "assets/kq_toolbox_icon.svg") {
+    if ($manifest.ui.titleBrandIcon -eq "assets/icon.png") {
         Add-Check "manifest:ui-title-icon" "PASS" $manifest.ui.titleBrandIcon
     } else {
         Add-Check "manifest:ui-title-icon" "FAIL" "Unexpected title brand icon"
@@ -127,14 +150,15 @@ if (Test-Path $manifestPath) {
         Add-Check "manifest:rustdesk.exe-sha256" "FAIL" "Hash mismatch"
     }
 } else {
-    Test-SourceContains ".\Cargo.toml" "KQ Remote Link" "branding:CARGO"
-    Test-SourceContains ".\src\common.rs" "KQ Remote Link" "branding:common"
+    Test-SourceContains ".\Cargo.toml" $kqAppName "branding:CARGO"
+    Test-SourceContains ".\src\common.rs" $kqAppName "branding:common"
     Test-SourceContains ".\flutter\lib\common\widgets\login.dart" $kqLoginButton "oauth:login-button"
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" $kqTitleBrand "ui:title-brand"
-    Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "assets/kq_toolbox_icon.svg" "ui:title-icon"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "assets/icon.png" "ui:title-icon"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "https://login.kunqiongai.com/authorize.html" "oauth:authorize-url"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "https://login.kunqiongai.com/api/oauth/token" "oauth:token-url"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "http://localhost:6613/oauth/callback" "oauth:redirect-uri"
+    Test-BuiltInPrivateServerDefaults
 }
 
 $customTxt = Join-Path $release.Path "custom.txt"
@@ -169,7 +193,7 @@ if (Test-Path $customTxt) {
                 Add-Check "custom-client:signature" "WARN" "zip Release\custom.txt exists; pass -CustomClientPublicKey to verify it"
             }
         } else {
-            Add-Check "custom-client:signature" "WARN" "No custom.txt in release or zip; client will use default/public server settings"
+            Add-Check "custom-client:signature" "SKIP" "No custom.txt in release or zip; using built-in private server defaults"
         }
     } finally {
         $archiveForCustom.Dispose()
@@ -178,7 +202,7 @@ if (Test-Path $customTxt) {
         }
     }
 } else {
-    Add-Check "custom-client:signature" "WARN" "No custom.txt in release; client will use default/public server settings"
+    Add-Check "custom-client:signature" "SKIP" "No custom.txt in release; using built-in private server defaults"
 }
 
 if ($PackageZip) {
@@ -247,12 +271,12 @@ if ($LaunchSmokeTest) {
             $process.Refresh()
             if ($process.HasExited) {
                 Add-Check "smoke:launch" "FAIL" "rustdesk.exe exited early"
-            } elseif ($process.MainWindowTitle -ne "KQ Remote Link") {
+            } elseif ($process.MainWindowTitle -ne $kqAppName) {
                 Add-Check "smoke:launch" "FAIL" "Unexpected title: $($process.MainWindowTitle)"
             } elseif (-not $process.Responding) {
                 Add-Check "smoke:launch" "FAIL" "Process is not responding"
             } else {
-                Add-Check "smoke:launch" "PASS" "Window title is KQ Remote Link"
+                Add-Check "smoke:launch" "PASS" "Window title is $kqAppName"
             }
         } finally {
             Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force

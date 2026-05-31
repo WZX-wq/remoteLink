@@ -1273,8 +1273,14 @@ pub fn lock_screen() {
 }
 
 const IS1: &str = "{54E86BC2-6C85-41F3-A9EB-1A94AC9B1F93}_is1";
+const KQ_INNO_IS1: &str = "{D0B24C8B-7E7E-4B2C-9A38-0B2026052701}_is1";
+const KQ_LEGACY_UNINSTALL_KEY: &str = "KQRemoteLink";
 
 fn get_subkey(name: &str, wow: bool) -> String {
+    get_hklm_uninstall_subkey(name, wow)
+}
+
+fn get_hklm_uninstall_subkey(name: &str, wow: bool) -> String {
     let tmp = format!(
         "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
         name
@@ -1286,19 +1292,25 @@ fn get_subkey(name: &str, wow: bool) -> String {
     }
 }
 
+fn get_hkcu_uninstall_subkey(name: &str) -> String {
+    format!(
+        "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        name
+    )
+}
+
 fn get_valid_subkey() -> String {
-    let subkey = get_subkey(IS1, false);
-    if !get_reg_of(&subkey, "InstallLocation").is_empty() {
-        return subkey;
-    }
-    let subkey = get_subkey(IS1, true);
-    if !get_reg_of(&subkey, "InstallLocation").is_empty() {
-        return subkey;
-    }
     let app_name = crate::get_app_name();
-    let subkey = get_subkey(&app_name, true);
-    if !get_reg_of(&subkey, "InstallLocation").is_empty() {
-        return subkey;
+    for subkey in [
+        get_hkcu_uninstall_subkey(KQ_INNO_IS1),
+        get_hkcu_uninstall_subkey(KQ_LEGACY_UNINSTALL_KEY),
+        get_subkey(IS1, false),
+        get_subkey(IS1, true),
+        get_subkey(&app_name, true),
+    ] {
+        if !get_reg_of(&subkey, "InstallLocation").is_empty() {
+            return subkey;
+        }
     }
     return get_subkey(&app_name, false);
 }
@@ -1413,7 +1425,22 @@ fn get_install_info_with_subkey(subkey: String) -> (String, String, String, Stri
         "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\{}",
         crate::get_app_name()
     );
-    let exe = format!("{}\\{}.exe", path, crate::get_app_name());
+    let mut exe = format!("{}\\{}.exe", path, crate::get_app_name());
+    let display_icon = get_reg_of(&subkey, "DisplayIcon");
+    let display_icon_exe = display_icon
+        .trim()
+        .trim_matches('"')
+        .trim_end_matches(",0")
+        .trim_matches('"')
+        .to_owned();
+    if !display_icon_exe.is_empty() && Path::new(&display_icon_exe).is_file() {
+        exe = display_icon_exe;
+    } else {
+        let rustdesk_exe = format!("{}\\rustdesk.exe", path);
+        if Path::new(&rustdesk_exe).is_file() {
+            exe = rustdesk_exe;
+        }
+    }
     (subkey, path, start_menu, exe)
 }
 
@@ -1931,7 +1958,7 @@ pub fn add_recent_document(path: &str) {
 
 pub fn is_installed() -> bool {
     let (_, _, _, exe) = get_install_info();
-    std::fs::metadata(exe).is_ok()
+    std::fs::metadata(exe).is_ok() || is_current_kq_inno_exe()
 }
 
 pub fn get_reg(name: &str) -> String {
@@ -1940,13 +1967,36 @@ pub fn get_reg(name: &str) -> String {
 }
 
 fn get_reg_of(subkey: &str, name: &str) -> String {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    if let Ok(tmp) = hklm.open_subkey(subkey.replace("HKEY_LOCAL_MACHINE\\", "")) {
+    let (root, path) = if let Some(path) = subkey.strip_prefix("HKEY_CURRENT_USER\\") {
+        (RegKey::predef(HKEY_CURRENT_USER), path.to_owned())
+    } else {
+        (
+            RegKey::predef(HKEY_LOCAL_MACHINE),
+            subkey.replace("HKEY_LOCAL_MACHINE\\", ""),
+        )
+    };
+    if let Ok(tmp) = root.open_subkey(path) {
         if let Ok(v) = tmp.get_value(name) {
             return v;
         }
     }
     "".to_owned()
+}
+
+fn is_current_kq_inno_exe() -> bool {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return false;
+    };
+    let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") else {
+        return false;
+    };
+    let install_exe = PathBuf::from(local_app_data)
+        .join(KQ_LEGACY_UNINSTALL_KEY)
+        .join("rustdesk.exe");
+    current_exe
+        .to_string_lossy()
+        .eq_ignore_ascii_case(&install_exe.to_string_lossy())
+        && install_exe.is_file()
 }
 
 fn get_public_base_dir() -> PathBuf {

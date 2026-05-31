@@ -3,6 +3,7 @@
 .vscode
 .idea
 .DS_Store
+*.log
 .env
 libsciter-gtk.so
 src/ui/inline.rs
@@ -47,6 +48,7 @@ lib/generated_bridge.dart
 # vscode devcontainer
 .gitconfig
 .vscode-server/
+node_modules/
 .ssh
 .devcontainer/.*
 # build cache in examples

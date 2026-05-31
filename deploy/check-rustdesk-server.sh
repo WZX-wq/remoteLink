@@ -4,6 +4,12 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/kq-remote-link-server}"
 COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
 KQ_SERVER_KEY="${KQ_SERVER_KEY:-_}"
+KQ_API_PORT="${KQ_API_PORT:-21120}"
+KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH:-/kq-api}"
+[[ "${KQ_API_PUBLIC_PATH}" == /* ]] || KQ_API_PUBLIC_PATH="/${KQ_API_PUBLIC_PATH}"
+KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH%/}"
+KQ_PUBLIC_API_URL="${KQ_PUBLIC_API_URL:-http://43.154.197.96${KQ_API_PUBLIC_PATH}/api}"
+COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -25,9 +31,9 @@ fi
 
 compose() {
   if [[ "${#SUDO[@]}" -eq 0 ]]; then
-    KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+    COMPOSE_PROFILES="${COMPOSE_PROFILES}" KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   else
-    "${SUDO[@]}" env "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+    "${SUDO[@]}" env "COMPOSE_PROFILES=${COMPOSE_PROFILES}" "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   fi
 }
 
@@ -128,16 +134,32 @@ compose -f "${COMPOSE_FILE}" ps
 
 require_container kq-remote-link-hbbs
 require_container kq-remote-link-hbbr
+if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+  require_container kq-remote-link-api
+fi
 
 echo ""
 echo "== Listening ports =="
-list_listeners | awk 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/'
+list_listeners | awk -v api=":${KQ_API_PORT}" 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/ || $0 ~ api'
 require_listener tcp 21115
 require_listener tcp 21116
 require_listener udp 21116
 require_listener tcp 21117
 warn_listener tcp 21118
 warn_listener tcp 21119
+if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+  require_listener tcp "${KQ_API_PORT}"
+  if command -v curl >/dev/null 2>&1; then
+    echo ""
+    echo "== KQ API health =="
+    curl -fsS "http://127.0.0.1:${KQ_API_PORT}/api/health"
+    echo ""
+    echo ""
+    echo "== KQ API public health =="
+    curl -fsS "${KQ_PUBLIC_API_URL%/}/health"
+    echo ""
+  fi
+fi
 
 echo ""
 echo "== hbbs public key =="

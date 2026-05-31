@@ -71,7 +71,15 @@ function Redact-Line($Line) {
 }
 
 $release = Resolve-Path $ReleaseDir
-$appData = Join-Path $env:APPDATA "KQ Remote Link"
+$appName = [string]::Concat([char[]]@(
+    0x9CB2,
+    0x7A79,
+    0x8FDC,
+    0x7A0B,
+    0x684C,
+    0x9762
+))
+$appData = Join-Path $env:APPDATA $appName
 $configDir = Join-Path $appData "config"
 $logDir = Join-Path $appData "log"
 
@@ -111,7 +119,7 @@ if (Test-Path $configDir) {
         Select-Object FullName, Length, LastWriteTime
     Write-Text "config\inventory.txt" ($configFiles | Format-Table -AutoSize | Out-String)
 
-    foreach ($name in @("KQ Remote Link2.toml", "KQ Remote Link_local.toml")) {
+    foreach ($name in @("${appName}2.toml", "${appName}_local.toml")) {
         $path = Join-Path $configDir $name
         if (Test-Path $path) {
             $redacted = Get-Content $path -Encoding UTF8 | ForEach-Object { Redact-Line $_ }
