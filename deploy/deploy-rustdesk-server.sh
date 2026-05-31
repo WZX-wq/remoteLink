@@ -223,11 +223,14 @@ configure_api_reverse_proxy() {
     return
   fi
 
+  local conf_dirs=()
   local conf_dir=""
-  for candidate in /etc/nginx/conf.d /www/server/panel/vhost/nginx; do
+  for candidate in /www/server/panel/vhost/nginx /etc/nginx/conf.d /etc/nginx/sites-enabled /etc/nginx/sites-available; do
     if [[ -d "${candidate}" ]]; then
-      conf_dir="${candidate}"
-      break
+      conf_dirs+=("${candidate}")
+      if [[ -z "${conf_dir}" ]]; then
+        conf_dir="${candidate}"
+      fi
     fi
   done
   if [[ -z "${conf_dir}" ]]; then
@@ -235,39 +238,124 @@ configure_api_reverse_proxy() {
     return
   fi
 
-  local conf_file="${conf_dir}/kq-remote-link-api.conf"
+  local include_file="${conf_dir}/kq-remote-link-api-location.inc"
   echo "Installing KQ API nginx reverse proxy: ${KQ_PUBLIC_API_URL}"
-  "${SUDO[@]}" tee "${conf_file}" >/dev/null <<NGINX
+  "${SUDO[@]}" tee "${include_file}" >/dev/null <<NGINX
+# Managed by KQ Remote Link deploy script.
+location ^~ ${KQ_API_PUBLIC_PATH}/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+    proxy_pass http://127.0.0.1:${KQ_API_PORT}/;
+}
+NGINX
+
+  local existing_conf=""
+  local public_host_regex="${PUBLIC_HOST//./\\.}"
+  for dir in "${conf_dirs[@]}"; do
+    while IFS= read -r file; do
+      if "${SUDO[@]}" grep -Eq "server_name[[:space:]][^;]*${public_host_regex}([[:space:];]|$)" "${file}"; then
+        existing_conf="${file}"
+        break
+      fi
+    done < <(find "${dir}" -maxdepth 1 -type f -name '*.conf' 2>/dev/null | sort)
+    [[ -n "${existing_conf}" ]] && break
+  done
+
+  if [[ -z "${existing_conf}" ]]; then
+    for dir in "${conf_dirs[@]}"; do
+      while IFS= read -r file; do
+        if "${SUDO[@]}" grep -Eqi 'gitea|proxy_pass[[:space:]]+http://127\.0\.0\.1:3000|proxy_pass[[:space:]]+http://127\.0\.0\.1:3001' "${file}"; then
+          existing_conf="${file}"
+          break
+        fi
+      done < <(find "${dir}" -maxdepth 1 -type f -name '*.conf' 2>/dev/null | sort)
+      [[ -n "${existing_conf}" ]] && break
+    done
+  fi
+
+  insert_nginx_include() {
+    local target_conf="$1"
+    local marker="# KQ_REMOTE_LINK_API_INCLUDE"
+    if "${SUDO[@]}" grep -Fq "${marker}" "${target_conf}"; then
+      echo "Existing nginx vhost already includes KQ API location: ${target_conf}"
+      return 0
+    fi
+
+    local tmp_file
+    tmp_file="$(mktemp)"
+    if ! "${SUDO[@]}" awk -v include_line="    include ${include_file}; ${marker}" '
+      BEGIN { in_server = 0; depth = 0; inserted = 0 }
+      {
+        line = $0
+        if (!inserted && !in_server && line ~ /^[[:space:]]*server[[:space:]]*\{/) {
+          in_server = 1
+          depth = 1
+          print line
+          next
+        }
+        if (in_server) {
+          open_line = line
+          close_line = line
+          opens = gsub(/\{/, "{", open_line)
+          closes = gsub(/\}/, "}", close_line)
+          if (!inserted && depth == 1 && line ~ /^[[:space:]]*\}/) {
+            print include_line
+            inserted = 1
+          }
+          print line
+          depth += opens - closes
+          if (depth <= 0) {
+            in_server = 0
+          }
+          next
+        }
+        print line
+      }
+      END { if (!inserted) exit 42 }
+    ' "${target_conf}" > "${tmp_file}"; then
+      rm -f "${tmp_file}"
+      echo "Could not insert KQ API location into ${target_conf}." >&2
+      return 1
+    fi
+
+    "${SUDO[@]}" cp "${target_conf}" "${target_conf}.bak.$(date +%Y%m%d%H%M%S)"
+    "${SUDO[@]}" cp "${tmp_file}" "${target_conf}"
+    rm -f "${tmp_file}"
+    echo "Inserted KQ API location into existing nginx vhost: ${target_conf}"
+  }
+
+  local dedicated_conf="${conf_dir}/kq-remote-link-api.conf"
+  for dir in "${conf_dirs[@]}"; do
+    "${SUDO[@]}" rm -f "${dir}/kq-remote-link-api.conf"
+  done
+
+  if [[ -n "${existing_conf}" ]]; then
+    insert_nginx_include "${existing_conf}"
+  else
+    echo "No existing nginx vhost was matched; installing a dedicated KQ API vhost."
+    "${SUDO[@]}" tee "${dedicated_conf}" >/dev/null <<NGINX
 # Managed by KQ Remote Link deploy script.
 server {
     listen 80;
     server_name ${PUBLIC_HOST};
 
-    location ^~ ${KQ_API_PUBLIC_PATH}/ {
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 30s;
-        proxy_connect_timeout 5s;
-        proxy_pass http://127.0.0.1:${KQ_API_PORT}/;
-    }
+    include ${include_file};
 }
 NGINX
+  fi
 
   local nginx_test
   if ! nginx_test="$("${SUDO[@]}" nginx -t 2>&1)"; then
     printf '%s\n' "${nginx_test}"
-    echo "nginx config test failed; removing ${conf_file}."
-    "${SUDO[@]}" rm -f "${conf_file}"
+    echo "nginx config test failed; remove the managed KQ API include or restore the backup printed above."
     return 1
   fi
   printf '%s\n' "${nginx_test}"
-  if printf '%s\n' "${nginx_test}" | grep -qi 'conflicting server name'; then
-    echo "nginx reported a conflicting server_name. If public API health still returns 404, add this location to the existing vhost for ${PUBLIC_HOST}:"
-    echo "  location ^~ ${KQ_API_PUBLIC_PATH}/ { proxy_pass http://127.0.0.1:${KQ_API_PORT}/; }"
-  fi
   "${SUDO[@]}" nginx -s reload 2>/dev/null || "${SUDO[@]}" systemctl reload nginx 2>/dev/null || true
 }
 
