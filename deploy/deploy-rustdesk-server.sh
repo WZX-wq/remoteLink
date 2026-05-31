@@ -173,21 +173,15 @@ open_firewall_ports() {
   if command -v firewall-cmd >/dev/null 2>&1 && "${SUDO[@]}" firewall-cmd --state >/dev/null 2>&1; then
     "${SUDO[@]}" firewall-cmd --permanent --add-port=21115-21119/tcp
     "${SUDO[@]}" firewall-cmd --permanent --add-port=21116/udp
-    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-      "${SUDO[@]}" firewall-cmd --permanent --add-port="${KQ_API_PORT}/tcp"
-    fi
     "${SUDO[@]}" firewall-cmd --reload
-    echo "firewalld allowed tcp/21115-21119, udp/21116${COMPOSE_PROFILES:+, and tcp/${KQ_API_PORT}}"
+    echo "firewalld allowed tcp/21115-21119 and udp/21116"
     return
   fi
 
   if command -v ufw >/dev/null 2>&1 && "${SUDO[@]}" ufw status 2>/dev/null | grep -qi "Status: active"; then
     "${SUDO[@]}" ufw allow 21115:21119/tcp
     "${SUDO[@]}" ufw allow 21116/udp
-    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-      "${SUDO[@]}" ufw allow "${KQ_API_PORT}/tcp"
-    fi
-    echo "ufw allowed tcp/21115-21119, udp/21116${COMPOSE_PROFILES:+, and tcp/${KQ_API_PORT}}"
+    echo "ufw allowed tcp/21115-21119 and udp/21116"
     return
   fi
 
@@ -196,21 +190,13 @@ open_firewall_ports() {
       "${SUDO[@]}" iptables -C INPUT -p tcp --dport "${port}" -j ACCEPT 2>/dev/null \
         || "${SUDO[@]}" iptables -I INPUT -p tcp --dport "${port}" -j ACCEPT
     done
-    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-      "${SUDO[@]}" iptables -C INPUT -p tcp --dport "${KQ_API_PORT}" -j ACCEPT 2>/dev/null \
-        || "${SUDO[@]}" iptables -I INPUT -p tcp --dport "${KQ_API_PORT}" -j ACCEPT
-    fi
     "${SUDO[@]}" iptables -C INPUT -p udp --dport 21116 -j ACCEPT 2>/dev/null \
       || "${SUDO[@]}" iptables -I INPUT -p udp --dport 21116 -j ACCEPT
-    echo "iptables allowed tcp/21115-21119, udp/21116${COMPOSE_PROFILES:+, and tcp/${KQ_API_PORT}}"
+    echo "iptables allowed tcp/21115-21119 and udp/21116"
     return
   fi
 
-    if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-      echo "No supported local firewall tool was found; verify tcp/21115-21119, tcp/${KQ_API_PORT}, and udp/21116 manually."
-    else
-      echo "No supported local firewall tool was found; verify tcp/21115-21119 and udp/21116 manually."
-    fi
+  echo "No supported local firewall tool was found; verify tcp/21115-21119 and udp/21116 manually."
 }
 
 configure_api_reverse_proxy() {
@@ -219,7 +205,7 @@ configure_api_reverse_proxy() {
   fi
   if ! command -v nginx >/dev/null 2>&1; then
     echo "nginx is not installed; KQ API remains local on 127.0.0.1:${KQ_API_PORT}."
-    echo "Public API URL needs tcp/${KQ_API_PORT} opened or a manual reverse proxy to ${KQ_PUBLIC_API_URL}."
+    echo "Public API URL needs a manual reverse proxy to ${KQ_PUBLIC_API_URL}."
     return
   fi
 
@@ -386,7 +372,7 @@ echo "Open firewall/security-group ports:"
 echo "  TCP 21115, 21116, 21117, 21118, 21119"
 echo "  UDP 21116"
 if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-  echo "  TCP ${KQ_API_PORT} (KQ account/data API)"
+  echo "KQ API listens on 127.0.0.1:${KQ_API_PORT} and is published through ${KQ_PUBLIC_API_URL}."
 fi
 
 if [[ -f "${INSTALL_DIR}/data/id_ed25519.pub" ]]; then

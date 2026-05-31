@@ -4,7 +4,7 @@ services:
       context: ./api
     container_name: kq-remote-link-api
     environment:
-      KQ_API_HOST: 0.0.0.0
+      KQ_API_HOST: 127.0.0.1
       KQ_API_PORT: ${KQ_API_PORT:-21120}
       KQ_PUBLIC_API_URL: ${KQ_PUBLIC_API_URL:-http://43.154.197.96/kq-api/api}
       KQ_DB_HOST: ${KQ_DB_HOST:-}

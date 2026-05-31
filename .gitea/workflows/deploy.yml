@@ -43,13 +43,18 @@ jobs:
           if command -v node >/dev/null 2>&1; then
             node --check server/src/index.js
           fi
+          compose_tmp="$(mktemp -d)"
+          cp deploy/rustdesk-server.compose.yml "${compose_tmp}/rustdesk-server.compose.yml"
+          mkdir -p "${compose_tmp}/api"
+          cp -R server/. "${compose_tmp}/api/"
           if docker compose version >/dev/null 2>&1; then
-            docker compose -f deploy/rustdesk-server.compose.yml config >/dev/null
+            (cd "${compose_tmp}" && docker compose -f rustdesk-server.compose.yml config >/dev/null)
           elif command -v docker-compose >/dev/null 2>&1; then
-            docker-compose -f deploy/rustdesk-server.compose.yml config >/dev/null
+            (cd "${compose_tmp}" && docker-compose -f rustdesk-server.compose.yml config >/dev/null)
           else
             echo "docker compose is not installed on this runner; deploy step will fail if the target host also lacks it."
           fi
+          rm -rf "${compose_tmp}"
 
       - name: Deploy
         shell: bash
