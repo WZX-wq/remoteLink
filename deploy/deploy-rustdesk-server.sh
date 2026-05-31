@@ -158,7 +158,12 @@ prepare_api_service() {
     echo "KQ API source not found: ${SOURCE_API}" >&2
     return 1
   fi
-  write_compose_env
+  if ! write_compose_env; then
+    echo "KQ API deployment skipped because database configuration is incomplete."
+    echo "hbbs/hbbr deployment will continue so remote desktop service can stay available."
+    COMPOSE_PROFILES=""
+    return 0
+  fi
   echo "Preparing KQ API service files."
   "${SUDO[@]}" rm -rf "${INSTALL_DIR}/api"
   "${SUDO[@]}" mkdir -p "${INSTALL_DIR}/api"
