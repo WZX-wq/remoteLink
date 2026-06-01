@@ -245,6 +245,12 @@ write_compose_env() {
       printf 'KQ_DB_USER=%s\n' "${KQ_DB_USER}"
       printf 'KQ_DB_PASSWORD=%s\n' "${KQ_DB_PASSWORD}"
       printf 'KQ_DB_NAME=%s\n' "${KQ_DB_NAME:-kq_remote_link}"
+      if [[ -n "${KQ_DB_ROOT_PASSWORD:-}" ]]; then
+        printf 'KQ_DB_ROOT_PASSWORD=%s\n' "${KQ_DB_ROOT_PASSWORD}"
+      fi
+      if [[ -n "${KQ_DB_CREATE_DATABASE:-}" ]]; then
+        printf 'KQ_DB_CREATE_DATABASE=%s\n' "${KQ_DB_CREATE_DATABASE}"
+      fi
       printf 'KQ_SUBSITE_NAME=%s\n' "${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}"
       printf 'KQ_API_WEB_BASE_URL=%s\n' "${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}"
     } | "${SUDO[@]}" tee "${env_file}" >/dev/null
@@ -459,6 +465,7 @@ echo "Using RustDesk server key mode: managed key pair"
 compose -f rustdesk-server.compose.yml pull hbbs hbbr
 open_firewall_ports
 if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+  compose -f rustdesk-server.compose.yml pull db
   compose -f rustdesk-server.compose.yml build api
 fi
 compose -f rustdesk-server.compose.yml up -d --force-recreate

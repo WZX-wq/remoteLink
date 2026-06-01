@@ -57,6 +57,12 @@ function toBool(value) {
   return ['1', 'true', 'yes', 'y', 'on'].includes(text);
 }
 
+function envIsDisabled(value) {
+  return ['0', 'false', 'no', 'n', 'off'].includes(
+    String(value ?? '').trim().toLowerCase(),
+  );
+}
+
 function normalizeUserPayload(data, token) {
   const source = data?.user && typeof data.user === 'object' ? data.user : data;
   const externalUserId = String(
@@ -137,17 +143,19 @@ async function loadUserContext(req) {
 
 async function ensureDatabase() {
   assertIdentifier(config.db.database, 'KQ_DB_NAME');
-  const server = await mysql.createConnection({
-    host: config.db.host,
-    port: config.db.port,
-    user: config.db.user,
-    password: config.db.password,
-    multipleStatements: false,
-  });
-  await server.query(
-    `CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
-  );
-  await server.end();
+  if (!envIsDisabled(process.env.KQ_DB_CREATE_DATABASE)) {
+    const server = await mysql.createConnection({
+      host: config.db.host,
+      port: config.db.port,
+      user: config.db.user,
+      password: config.db.password,
+      multipleStatements: false,
+    });
+    await server.query(
+      `CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    );
+    await server.end();
+  }
 
   pool = mysql.createPool({
     host: config.db.host,

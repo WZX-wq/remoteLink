@@ -1,4 +1,33 @@
 services:
+  db:
+    image: mysql:8.4
+    container_name: kq-remote-link-db
+    environment:
+      MYSQL_DATABASE: ${KQ_DB_NAME:-kq_remote_link}
+      MYSQL_USER: ${KQ_DB_USER:-kq_remote_link}
+      MYSQL_PASSWORD: ${KQ_DB_PASSWORD:?KQ_DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${KQ_DB_ROOT_PASSWORD:-kq_remote_link_local_root_password}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "127.0.0.1:${KQ_DB_PORT:-23306}:3306"
+    volumes:
+      - kq_remote_link_mysql:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    profiles:
+      - api
+
   api:
     build:
       context: ./api
@@ -12,6 +41,9 @@ services:
       KQ_SUBSITE_NAME: ${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}
       KQ_API_WEB_BASE_URL: ${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}
     network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     profiles:
       - api
@@ -35,3 +67,6 @@ services:
       - ./data:/root
     network_mode: host
     restart: unless-stopped
+
+volumes:
+  kq_remote_link_mysql:

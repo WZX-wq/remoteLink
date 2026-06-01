@@ -49,10 +49,11 @@ jobs:
           cp -R server/. "${compose_tmp}/api/"
           cat > "${compose_tmp}/.env" <<'ENV'
           KQ_DB_HOST=127.0.0.1
-          KQ_DB_PORT=3306
-          KQ_DB_USER=kq
+          KQ_DB_PORT=23306
+          KQ_DB_USER=kq_remote_link
           KQ_DB_PASSWORD=kq
           KQ_DB_NAME=kq_remote_link
+          KQ_DB_CREATE_DATABASE=N
           ENV
           if docker compose version >/dev/null 2>&1; then
             (cd "${compose_tmp}" && docker compose -f rustdesk-server.compose.yml config >/dev/null)
