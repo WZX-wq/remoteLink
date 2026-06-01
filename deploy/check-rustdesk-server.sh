@@ -138,6 +138,17 @@ warn_listener() {
   fi
 }
 
+require_runtime() {
+  local service="$1"
+  local container="$2"
+  if command -v systemctl >/dev/null 2>&1 \
+      && systemctl list-unit-files "${service}" >/dev/null 2>&1 \
+      && systemctl is-active --quiet "${service}"; then
+    return
+  fi
+  require_container "${container}"
+}
+
 wait_for_api_health() {
   if ! command -v curl >/dev/null 2>&1; then
     require_listener tcp "${KQ_API_PORT}"
@@ -203,8 +214,8 @@ wait_for_api_health() {
 echo "== Containers =="
 compose -f "${COMPOSE_FILE}" ps
 
-require_container kq-remote-link-hbbs
-require_container kq-remote-link-hbbr
+require_runtime kq-remote-link-hbbs.service kq-remote-link-hbbs
+require_runtime kq-remote-link-hbbr.service kq-remote-link-hbbr
 if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
   require_container kq-remote-link-api
 fi
@@ -241,7 +252,12 @@ fi
 
 echo ""
 echo "== Recent logs =="
-compose -f "${COMPOSE_FILE}" logs --tail=60 hbbs hbbr
+if command -v systemctl >/dev/null 2>&1 \
+    && systemctl list-unit-files kq-remote-link-hbbs.service >/dev/null 2>&1; then
+  "${SUDO[@]}" journalctl --no-pager -u kq-remote-link-hbbs.service -u kq-remote-link-hbbr.service -n 120 || true
+else
+  compose -f "${COMPOSE_FILE}" logs --tail=60 hbbs hbbr
+fi
 
 echo ""
 echo "hbbs/hbbr health check passed."

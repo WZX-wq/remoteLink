@@ -535,12 +535,30 @@ install_systemd_runtime_services() {
     return 1
   fi
 
+  local hbbs_bin="${INSTALL_DIR}/bin/hbbs"
+  local hbbr_bin="${INSTALL_DIR}/bin/hbbr"
+  "${SUDO[@]}" mkdir -p "${INSTALL_DIR}/bin"
+  if [[ ! -x "${hbbs_bin}" || ! -x "${hbbr_bin}" ]]; then
+    echo "Extracting RustDesk server binaries from rustdesk/rustdesk-server:latest."
+    local hbbs_path hbbr_path cid
+    hbbs_path="$("${SUDO[@]}" docker run --rm --entrypoint sh rustdesk/rustdesk-server:latest -c 'command -v hbbs' 2>/dev/null || true)"
+    hbbr_path="$("${SUDO[@]}" docker run --rm --entrypoint sh rustdesk/rustdesk-server:latest -c 'command -v hbbr' 2>/dev/null || true)"
+    if [[ -z "${hbbs_path}" || -z "${hbbr_path}" ]]; then
+      echo "Could not locate hbbs/hbbr inside rustdesk/rustdesk-server:latest." >&2
+      return 1
+    fi
+    cid="$("${SUDO[@]}" docker create --entrypoint sh rustdesk/rustdesk-server:latest -c true)"
+    "${SUDO[@]}" docker cp "${cid}:${hbbs_path}" "${hbbs_bin}"
+    "${SUDO[@]}" docker cp "${cid}:${hbbr_path}" "${hbbr_bin}"
+    "${SUDO[@]}" docker rm -f "${cid}" >/dev/null 2>&1 || true
+    "${SUDO[@]}" chmod 755 "${hbbs_bin}" "${hbbr_bin}"
+  fi
+
   echo "Installing KQ Remote Link systemd runtime services."
   "${SUDO[@]}" tee /etc/systemd/system/kq-remote-link-hbbr.service >/dev/null <<SERVICE
 [Unit]
 Description=KQ Remote Link hbbr relay server
-Requires=docker.service
-After=docker.service network-online.target
+After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
@@ -548,10 +566,8 @@ StartLimitIntervalSec=0
 Restart=always
 RestartSec=5
 TimeoutStartSec=0
-ExecStartPre=-${docker_bin} rm -f kq-remote-link-hbbr
-ExecStart=${docker_bin} run --name kq-remote-link-hbbr --network host -v ${INSTALL_DIR}/data:/root rustdesk/rustdesk-server:latest hbbr
-ExecStop=${docker_bin} stop -t 10 kq-remote-link-hbbr
-ExecStopPost=-${docker_bin} rm -f kq-remote-link-hbbr
+WorkingDirectory=${INSTALL_DIR}/data
+ExecStart=${hbbr_bin}
 
 [Install]
 WantedBy=multi-user.target
@@ -560,8 +576,8 @@ SERVICE
   "${SUDO[@]}" tee /etc/systemd/system/kq-remote-link-hbbs.service >/dev/null <<SERVICE
 [Unit]
 Description=KQ Remote Link hbbs rendezvous server
-Requires=docker.service kq-remote-link-hbbr.service
-After=docker.service network-online.target kq-remote-link-hbbr.service
+Requires=kq-remote-link-hbbr.service
+After=network-online.target kq-remote-link-hbbr.service
 Wants=network-online.target
 StartLimitIntervalSec=0
 
@@ -569,10 +585,8 @@ StartLimitIntervalSec=0
 Restart=always
 RestartSec=5
 TimeoutStartSec=0
-ExecStartPre=-${docker_bin} rm -f kq-remote-link-hbbs
-ExecStart=${docker_bin} run --name kq-remote-link-hbbs --network host -v ${INSTALL_DIR}/data:/root rustdesk/rustdesk-server:latest hbbs -r ${KQ_RELAY_SERVER}
-ExecStop=${docker_bin} stop -t 10 kq-remote-link-hbbs
-ExecStopPost=-${docker_bin} rm -f kq-remote-link-hbbs
+WorkingDirectory=${INSTALL_DIR}/data
+ExecStart=${hbbs_bin} -r ${KQ_RELAY_SERVER}
 
 [Install]
 WantedBy=multi-user.target
@@ -649,6 +663,26 @@ if [[ -d api && -s .env ]] \
   profiles="api"
 fi
 
+required_services=(kq-remote-link-hbbr.service kq-remote-link-hbbs.service)
+if [[ "\${profiles}" == "api" ]]; then
+  required_services+=(kq-remote-link-api.service)
+fi
+
+if command -v systemctl >/dev/null 2>&1 \
+    && systemctl list-unit-files kq-remote-link-hbbs.service >/dev/null 2>&1; then
+  missing_services=()
+  for service in "\${required_services[@]}"; do
+    if ! systemctl is-active --quiet "\${service}"; then
+      missing_services+=("\${service}")
+    fi
+  done
+  if [[ "\${#missing_services[@]}" -eq 0 ]]; then
+    exit 0
+  fi
+  systemctl start "\${missing_services[@]}" || true
+  exit 0
+fi
+
 required=(kq-remote-link-hbbr kq-remote-link-hbbs)
 if [[ "\${profiles}" == "api" ]]; then
   required+=(kq-remote-link-api)
@@ -663,16 +697,6 @@ for container in "\${required[@]}"; do
 done
 
 if [[ "\${#missing[@]}" -eq 0 ]]; then
-  exit 0
-fi
-
-if command -v systemctl >/dev/null 2>&1 \
-    && systemctl list-unit-files kq-remote-link-hbbs.service >/dev/null 2>&1; then
-  systemctl start kq-remote-link-hbbr.service || true
-  systemctl start kq-remote-link-hbbs.service || true
-  if [[ "\${profiles}" == "api" ]]; then
-    systemctl start kq-remote-link-api.service || true
-  fi
   exit 0
 fi
 
@@ -756,6 +780,7 @@ else
     compose -f rustdesk-server.compose.yml up -d --force-recreate
   fi
 fi
+"${SUDO[@]}" docker rm -f kq-remote-link-hbbs kq-remote-link-hbbr >/dev/null 2>&1 || true
 install_runtime_watchdog
 configure_api_reverse_proxy
 compose -f rustdesk-server.compose.yml ps
