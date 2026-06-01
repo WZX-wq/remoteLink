@@ -38,15 +38,15 @@ class _CallbackServer {
 
 class KqOauth {
   static HttpServer? _activeServer;
+  static _ManagedAuthBrowser? _activeBrowser;
   static Future<LoginResponse>? _activeLogin;
 
   static bool get isActive =>
       bind.mainGetLocalOption(key: kKqOauthProviderKey) == kKqOauthProvider;
 
   static Future<LoginResponse> login() async {
-    final activeLogin = _activeLogin;
-    if (activeLogin != null) {
-      return activeLogin;
+    if (_activeLogin != null) {
+      await _cancelActiveLogin();
     }
     final loginFuture = _loginOnce();
     _activeLogin = loginFuture;
@@ -72,6 +72,7 @@ class KqOauth {
       );
 
       final authBrowser = await _openAuthorization(authUri);
+      _activeBrowser = authBrowser;
       try {
         final code = await _waitForCallbackOrBrowserClose(
             callback.server, state, authBrowser);
@@ -82,6 +83,9 @@ class KqOauth {
         return response;
       } finally {
         await authBrowser?.close();
+        if (identical(_activeBrowser, authBrowser)) {
+          _activeBrowser = null;
+        }
       }
     } finally {
       await callback.server.close(force: true);
@@ -92,10 +96,25 @@ class KqOauth {
   }
 
   static void cancel() {
+    unawaited(_cancelActiveLogin());
+  }
+
+  static Future<void> _cancelActiveLogin() async {
     final server = _activeServer;
+    final browser = _activeBrowser;
     _activeServer = null;
+    _activeBrowser = null;
     _activeLogin = null;
-    server?.close(force: true);
+    if (browser != null) {
+      unawaited(browser.close());
+    }
+    try {
+      if (server != null) {
+        await server.close(force: true).timeout(const Duration(seconds: 1));
+      }
+    } catch (_) {
+      // A stale callback server should never block a fresh login attempt.
+    }
   }
 
   static Future<_CallbackServer> _bindCallbackServer() async {
@@ -433,13 +452,13 @@ class _ManagedAuthBrowser {
   }
 
   Future<void> _waitForWindowsUserClose() async {
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
     while (!_closed) {
       final isRunning = await _hasWindowsBrowserProcesses();
       if (!isRunning) {
         return;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
     }
   }
 
