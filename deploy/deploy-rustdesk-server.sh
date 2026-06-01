@@ -108,6 +108,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_COMPOSE="${SCRIPT_DIR}/${COMPOSE_FILE}"
 SOURCE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SOURCE_API="${SOURCE_ROOT}/server"
+KQ_API_ENV_ENC_FILE="${KQ_API_ENV_ENC_FILE:-${SOURCE_ROOT}/deploy/kq-api.env.enc}"
+KQ_API_ENV_PRIVATE_KEY="${INSTALL_DIR}/api-env-private.pem"
+KQ_API_ENV_PUBLIC_KEY="${INSTALL_DIR}/api-env-public.pem"
 
 if [[ ! -f "${SOURCE_COMPOSE}" ]]; then
   echo "compose file not found: ${SOURCE_COMPOSE}" >&2
@@ -118,6 +121,84 @@ fi
 "${SUDO[@]}" cp "${SOURCE_COMPOSE}" "${INSTALL_DIR}/rustdesk-server.compose.yml"
 seed_server_key_pair
 cd "${INSTALL_DIR}"
+
+print_api_env_public_key() {
+  if [[ -s "${KQ_API_ENV_PUBLIC_KEY}" ]]; then
+    echo "KQ_API_ENV_PUBLIC_KEY_BEGIN"
+    "${SUDO[@]}" sed 's/\r$//' "${KQ_API_ENV_PUBLIC_KEY}"
+    echo "KQ_API_ENV_PUBLIC_KEY_END"
+  fi
+}
+
+ensure_api_env_key_pair() {
+  if [[ -s "${KQ_API_ENV_PRIVATE_KEY}" && -s "${KQ_API_ENV_PUBLIC_KEY}" ]]; then
+    print_api_env_public_key
+    return 0
+  fi
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "openssl is required to generate/decrypt the encrypted KQ API env file." >&2
+    return 1
+  fi
+
+  echo "Generating server-local KQ API env encryption key pair."
+  "${SUDO[@]}" openssl genrsa -out "${KQ_API_ENV_PRIVATE_KEY}" 4096 >/dev/null 2>&1
+  "${SUDO[@]}" chmod 600 "${KQ_API_ENV_PRIVATE_KEY}"
+  "${SUDO[@]}" openssl rsa -in "${KQ_API_ENV_PRIVATE_KEY}" -pubout -out "${KQ_API_ENV_PUBLIC_KEY}" >/dev/null 2>&1
+  "${SUDO[@]}" chmod 644 "${KQ_API_ENV_PUBLIC_KEY}"
+  print_api_env_public_key
+}
+
+decrypt_api_env_file() {
+  local env_file="${INSTALL_DIR}/.env"
+  if [[ -n "${KQ_DB_HOST:-}" && -n "${KQ_DB_USER:-}" && -n "${KQ_DB_PASSWORD:-}" ]]; then
+    return 0
+  fi
+  if [[ -s "${env_file}" ]]; then
+    return 0
+  fi
+
+  if [[ ! -s "${KQ_API_ENV_ENC_FILE}" ]]; then
+    ensure_api_env_key_pair || true
+    echo "No encrypted KQ API env file found at ${KQ_API_ENV_ENC_FILE}; database-backed API will be skipped until it is added."
+    return 0
+  fi
+  ensure_api_env_key_pair
+
+  local cipher_file plain_file
+  cipher_file="$(mktemp)"
+  plain_file="$(mktemp)"
+  trap 'rm -f "${cipher_file}" "${plain_file}"' RETURN
+
+  if ! base64 -d "${KQ_API_ENV_ENC_FILE}" > "${cipher_file}" 2>/dev/null; then
+    echo "Could not base64-decode encrypted KQ API env file: ${KQ_API_ENV_ENC_FILE}" >&2
+    return 1
+  fi
+
+  if ! "${SUDO[@]}" openssl pkeyutl -decrypt -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
+      -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+      -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
+    if ! "${SUDO[@]}" openssl pkeyutl -decrypt -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
+        -pkeyopt rsa_padding_mode:oaep \
+        -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
+      if ! "${SUDO[@]}" openssl rsautl -decrypt -oaep -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
+          -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
+        echo "Could not decrypt ${KQ_API_ENV_ENC_FILE} with the server-local private key." >&2
+        return 1
+      fi
+    fi
+  fi
+
+  for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
+    if ! grep -Eq "^${name}=" "${plain_file}"; then
+      echo "Decrypted KQ API env is missing ${name}." >&2
+      return 1
+    fi
+  done
+
+  "${SUDO[@]}" cp "${plain_file}" "${env_file}"
+  "${SUDO[@]}" chmod 600 "${env_file}"
+  echo "Installed decrypted KQ API env to ${env_file}."
+}
 
 write_compose_env() {
   local env_file="${INSTALL_DIR}/.env"
@@ -158,6 +239,7 @@ prepare_api_service() {
     echo "KQ API source not found: ${SOURCE_API}" >&2
     return 1
   fi
+  decrypt_api_env_file
   if ! write_compose_env; then
     echo "KQ API deployment skipped because database configuration is incomplete."
     echo "hbbs/hbbr deployment will continue so remote desktop service can stay available."

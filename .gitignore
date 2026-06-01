@@ -5,6 +5,9 @@
 .DS_Store
 *.log
 .env
+deploy/kq-api.env
+deploy/kq-api.env.*
+!deploy/kq-api.env.enc
 libsciter-gtk.so
 src/ui/inline.rs
 extractor
