@@ -182,10 +182,10 @@ decrypt_api_env_file() {
   local cipher_file plain_file
   cipher_file="$(mktemp)"
   plain_file="$(mktemp)"
-  trap 'rm -f "${cipher_file}" "${plain_file}"' RETURN
 
   if ! base64 -d "${KQ_API_ENV_ENC_FILE}" > "${cipher_file}" 2>/dev/null; then
     echo "Could not base64-decode encrypted KQ API env file: ${KQ_API_ENV_ENC_FILE}" >&2
+    rm -f "${cipher_file}" "${plain_file}"
     return 1
   fi
 
@@ -198,6 +198,7 @@ decrypt_api_env_file() {
       if ! "${SUDO[@]}" openssl rsautl -decrypt -oaep -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
           -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
         echo "Could not decrypt ${KQ_API_ENV_ENC_FILE} with the server-local private key." >&2
+        rm -f "${cipher_file}" "${plain_file}"
         return 1
       fi
     fi
@@ -206,12 +207,14 @@ decrypt_api_env_file() {
   for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
     if ! grep -Eq "^${name}=.+" "${plain_file}"; then
       echo "Decrypted KQ API env is missing ${name}." >&2
+      rm -f "${cipher_file}" "${plain_file}"
       return 1
     fi
   done
 
   "${SUDO[@]}" cp "${plain_file}" "${env_file}"
   "${SUDO[@]}" chmod 600 "${env_file}"
+  rm -f "${cipher_file}" "${plain_file}"
   echo "Installed decrypted KQ API env to ${env_file}."
 }
 
