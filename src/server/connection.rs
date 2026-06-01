@@ -4996,6 +4996,9 @@ impl Connection {
     }
 
     fn get_auto_disconenct_timer() -> Option<(Instant, u64)> {
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            return None;
+        }
         if Config::get_option("allow-auto-disconnect") == "Y" {
             let mut minute: u64 = Config::get_option("auto-disconnect-timeout")
                 .parse()
