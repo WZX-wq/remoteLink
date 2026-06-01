@@ -130,6 +130,16 @@ print_api_env_public_key() {
   fi
 }
 
+env_file_has_required_db_config() {
+  local env_file="$1"
+  [[ -s "${env_file}" ]] || return 1
+  for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
+    if ! grep -Eq "^${name}=.+" "${env_file}"; then
+      return 1
+    fi
+  done
+}
+
 ensure_api_env_key_pair() {
   local should_print="${1:-Y}"
   if [[ -s "${KQ_API_ENV_PRIVATE_KEY}" && -s "${KQ_API_ENV_PUBLIC_KEY}" ]]; then
@@ -158,7 +168,7 @@ decrypt_api_env_file() {
   if [[ -n "${KQ_DB_HOST:-}" && -n "${KQ_DB_USER:-}" && -n "${KQ_DB_PASSWORD:-}" ]]; then
     return 0
   fi
-  if [[ -s "${env_file}" ]]; then
+  if env_file_has_required_db_config "${env_file}"; then
     return 0
   fi
 
@@ -194,7 +204,7 @@ decrypt_api_env_file() {
   fi
 
   for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
-    if ! grep -Eq "^${name}=" "${plain_file}"; then
+    if ! grep -Eq "^${name}=.+" "${plain_file}"; then
       echo "Decrypted KQ API env is missing ${name}." >&2
       return 1
     fi
@@ -213,7 +223,11 @@ write_compose_env() {
       missing+=("${name}")
     fi
   done
-  if [[ "${#missing[@]}" -gt 0 && ! -s "${env_file}" ]]; then
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    if env_file_has_required_db_config "${env_file}"; then
+      echo "Using existing server-side KQ API .env with required database keys."
+      return 0
+    fi
     echo "KQ API is enabled but database env is missing: ${missing[*]}" >&2
     echo "Set these as Gitea secrets or create ${env_file} on the server." >&2
     return 1
