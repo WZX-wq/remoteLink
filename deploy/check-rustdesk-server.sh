@@ -5,6 +5,7 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/kq-remote-link-server}"
 COMPOSE_FILE="${COMPOSE_FILE:-rustdesk-server.compose.yml}"
 KQ_SERVER_KEY="${KQ_SERVER_KEY:-_}"
 KQ_API_PORT="${KQ_API_PORT:-21120}"
+KQ_API_HEALTH_TIMEOUT="${KQ_API_HEALTH_TIMEOUT:-60}"
 KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH:-/kq-api}"
 [[ "${KQ_API_PUBLIC_PATH}" == /* ]] || KQ_API_PUBLIC_PATH="/${KQ_API_PUBLIC_PATH}"
 KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH%/}"
@@ -35,6 +36,14 @@ compose() {
   else
     "${SUDO[@]}" env "COMPOSE_PROFILES=${COMPOSE_PROFILES}" "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
   fi
+}
+
+api_logs() {
+  echo ""
+  echo "== KQ API logs =="
+  compose -f "${COMPOSE_FILE}" logs --tail=160 api 2>/dev/null \
+    || "${SUDO[@]}" docker logs --tail=160 kq-remote-link-api 2>/dev/null \
+    || true
 }
 
 cd "${INSTALL_DIR}"
@@ -129,6 +138,68 @@ warn_listener() {
   fi
 }
 
+wait_for_api_health() {
+  if ! command -v curl >/dev/null 2>&1; then
+    require_listener tcp "${KQ_API_PORT}"
+    return
+  fi
+
+  echo ""
+  echo "== KQ API health =="
+  local local_url="http://127.0.0.1:${KQ_API_PORT}/api/health"
+  local deadline=$((SECONDS + KQ_API_HEALTH_TIMEOUT))
+  local response_file
+  local api_ready=N
+  response_file="$(mktemp)"
+  while (( SECONDS < deadline )); do
+    if [[ "$("${SUDO[@]}" docker inspect -f '{{.State.Running}}' kq-remote-link-api 2>/dev/null || true)" != "true" ]]; then
+      echo "KQ API container stopped before becoming healthy." >&2
+      api_logs
+      rm -f "${response_file}"
+      exit 1
+    fi
+
+    if curl -fsS "${local_url}" -o "${response_file}" 2>/dev/null; then
+      cat "${response_file}"
+      echo ""
+      api_ready=Y
+      break
+    fi
+    sleep 2
+  done
+
+  if [[ "${api_ready}" == "Y" ]]; then
+    rm -f "${response_file}"
+  elif ! curl -fsS "${local_url}" -o /tmp/kq-api-health.json 2>/dev/null; then
+    echo "KQ API did not become healthy on ${local_url} within ${KQ_API_HEALTH_TIMEOUT}s." >&2
+    list_listeners | awk -v api=":${KQ_API_PORT}" 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/ || $0 ~ api' || true
+    api_logs
+    rm -f "${response_file}" /tmp/kq-api-health.json
+    exit 1
+  else
+    cat /tmp/kq-api-health.json
+    echo ""
+    rm -f "${response_file}" /tmp/kq-api-health.json
+  fi
+
+  echo ""
+  echo "== KQ API public health =="
+  local public_deadline=$((SECONDS + 20))
+  while (( SECONDS < public_deadline )); do
+    if curl -fsS "${KQ_PUBLIC_API_URL%/}/health" -o /tmp/kq-api-public-health.json 2>/dev/null; then
+      cat /tmp/kq-api-public-health.json
+      echo ""
+      rm -f /tmp/kq-api-public-health.json
+      return
+    fi
+    sleep 2
+  done
+
+  echo "KQ API local health passed, but public health failed: ${KQ_PUBLIC_API_URL%/}/health" >&2
+  rm -f /tmp/kq-api-public-health.json
+  exit 1
+}
+
 echo "== Containers =="
 compose -f "${COMPOSE_FILE}" ps
 
@@ -148,17 +219,7 @@ require_listener tcp 21117
 warn_listener tcp 21118
 warn_listener tcp 21119
 if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-  require_listener tcp "${KQ_API_PORT}"
-  if command -v curl >/dev/null 2>&1; then
-    echo ""
-    echo "== KQ API health =="
-    curl -fsS "http://127.0.0.1:${KQ_API_PORT}/api/health"
-    echo ""
-    echo ""
-    echo "== KQ API public health =="
-    curl -fsS "${KQ_PUBLIC_API_URL%/}/health"
-    echo ""
-  fi
+  wait_for_api_health
 fi
 
 echo ""
