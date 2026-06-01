@@ -523,7 +523,40 @@ if [[ -d api && -s .env ]] \
   profiles="api"
 fi
 
-COMPOSE_PROFILES="\${profiles}" "\${COMPOSE_CMD[@]}" -f "\${COMPOSE_FILE}" up -d
+required=(kq-remote-link-hbbr kq-remote-link-hbbs)
+if [[ "\${profiles}" == "api" ]]; then
+  required+=(kq-remote-link-api)
+fi
+
+missing=()
+for container in "\${required[@]}"; do
+  running="\$(docker inspect -f '{{.State.Running}}' "\${container}" 2>/dev/null || true)"
+  if [[ "\${running}" != "true" ]]; then
+    missing+=("\${container}")
+  fi
+done
+
+if [[ "\${#missing[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+need_compose_up=N
+existing=()
+for container in "\${missing[@]}"; do
+  if docker inspect "\${container}" >/dev/null 2>&1; then
+    existing+=("\${container}")
+  else
+    need_compose_up=Y
+  fi
+done
+
+if [[ "\${#existing[@]}" -gt 0 ]]; then
+  docker start "\${existing[@]}" || need_compose_up=Y
+fi
+
+if [[ "\${need_compose_up}" == "Y" ]]; then
+  COMPOSE_PROFILES="\${profiles}" "\${COMPOSE_CMD[@]}" -f "\${COMPOSE_FILE}" up -d
+fi
 WATCHDOG
   "${SUDO[@]}" chmod 755 "${watchdog_script}"
 
