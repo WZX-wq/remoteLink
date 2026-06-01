@@ -131,8 +131,11 @@ print_api_env_public_key() {
 }
 
 ensure_api_env_key_pair() {
+  local should_print="${1:-Y}"
   if [[ -s "${KQ_API_ENV_PRIVATE_KEY}" && -s "${KQ_API_ENV_PUBLIC_KEY}" ]]; then
-    print_api_env_public_key
+    if [[ "${should_print}" == "Y" ]]; then
+      print_api_env_public_key
+    fi
     return 0
   fi
   if ! command -v openssl >/dev/null 2>&1; then
@@ -145,7 +148,9 @@ ensure_api_env_key_pair() {
   "${SUDO[@]}" chmod 600 "${KQ_API_ENV_PRIVATE_KEY}"
   "${SUDO[@]}" openssl rsa -in "${KQ_API_ENV_PRIVATE_KEY}" -pubout -out "${KQ_API_ENV_PUBLIC_KEY}" >/dev/null 2>&1
   "${SUDO[@]}" chmod 644 "${KQ_API_ENV_PUBLIC_KEY}"
-  print_api_env_public_key
+  if [[ "${should_print}" == "Y" ]]; then
+    print_api_env_public_key
+  fi
 }
 
 decrypt_api_env_file() {
@@ -158,11 +163,11 @@ decrypt_api_env_file() {
   fi
 
   if [[ ! -s "${KQ_API_ENV_ENC_FILE}" ]]; then
-    ensure_api_env_key_pair || true
+    ensure_api_env_key_pair Y || true
     echo "No encrypted KQ API env file found at ${KQ_API_ENV_ENC_FILE}; database-backed API will be skipped until it is added."
     return 0
   fi
-  ensure_api_env_key_pair
+  ensure_api_env_key_pair N
 
   local cipher_file plain_file
   cipher_file="$(mktemp)"
