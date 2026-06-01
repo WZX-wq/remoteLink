@@ -40,10 +40,24 @@ else
 fi
 
 compose() {
+  local env_args=(
+    "COMPOSE_PROFILES=${COMPOSE_PROFILES}"
+    "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}"
+    "KQ_SERVER_KEY=${KQ_SERVER_KEY}"
+  )
+  local name
+  for name in \
+    KQ_API_PORT KQ_API_PUBLIC_PATH KQ_PUBLIC_API_URL KQ_SUBSITE_NAME KQ_API_WEB_BASE_URL \
+    KQ_DB_HOST KQ_DB_PORT KQ_DB_USER KQ_DB_PASSWORD KQ_DB_ROOT_PASSWORD KQ_DB_NAME KQ_DB_CREATE_DATABASE; do
+    if [[ -n "${!name:-}" ]]; then
+      env_args+=("${name}=${!name}")
+    fi
+  done
+
   if [[ "${#SUDO[@]}" -eq 0 ]]; then
-    COMPOSE_PROFILES="${COMPOSE_PROFILES}" KQ_RELAY_SERVER="${KQ_RELAY_SERVER}" KQ_SERVER_KEY="${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+    env "${env_args[@]}" "${COMPOSE_CMD[@]}" "$@"
   else
-    "${SUDO[@]}" env "COMPOSE_PROFILES=${COMPOSE_PROFILES}" "KQ_RELAY_SERVER=${KQ_RELAY_SERVER}" "KQ_SERVER_KEY=${KQ_SERVER_KEY}" "${COMPOSE_CMD[@]}" "$@"
+    "${SUDO[@]}" env "${env_args[@]}" "${COMPOSE_CMD[@]}" "$@"
   fi
 }
 
@@ -258,6 +272,21 @@ write_compose_env() {
   fi
 }
 
+load_compose_env_file() {
+  local env_file="${INSTALL_DIR}/.env"
+  [[ -s "${env_file}" ]] || return 0
+
+  local line name value
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "${line}" || "${line}" == \#* || "${line}" != *=* ]] && continue
+    name="${line%%=*}"
+    value="${line#*=}"
+    [[ "${name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    export "${name}=${value}"
+  done < <("${SUDO[@]}" cat "${env_file}" 2>/dev/null || true)
+}
+
 prepare_api_service() {
   if [[ "${KQ_ENABLE_API}" != "Y" ]]; then
     echo "KQ API deployment disabled."
@@ -274,6 +303,7 @@ prepare_api_service() {
     COMPOSE_PROFILES=""
     return 0
   fi
+  load_compose_env_file
   echo "Preparing KQ API service files."
   "${SUDO[@]}" rm -rf "${INSTALL_DIR}/api"
   "${SUDO[@]}" mkdir -p "${INSTALL_DIR}/api"
