@@ -536,6 +536,16 @@ pub fn core_main() -> Option<Vec<String>> {
                 println!("Installation and administrative privileges required!");
             }
             return None;
+        } else if args[0] == "--local-option" {
+            if args.len() == 2 {
+                println!(
+                    "{}",
+                    hbb_common::config::LocalConfig::get_option(&args[1])
+                );
+            } else if args.len() == 3 {
+                crate::ui_interface::set_local_option(args[1].clone(), args[2].clone());
+            }
+            return None;
         } else if args[0] == "--assign" {
             if config::Config::no_register_device() {
                 println!("Cannot assign an unregistrable device!");

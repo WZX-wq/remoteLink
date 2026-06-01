@@ -144,11 +144,34 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: startup
 
 [Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option lang {code:SelectedAppLanguage}"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-service"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent; Tasks: launch
 
 [UninstallRun]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated
+
+[Code]
+function SelectedAppLanguage(Param: String): String;
+var
+  Lang: String;
+begin
+  Lang := ActiveLanguage;
+  if Lang = 'chinesesimp' then
+    Result := 'zh-cn'
+  else if Lang = 'english' then
+    Result := 'en'
+  else if Lang = 'french' then
+    Result := 'fr'
+  else if Lang = 'russian' then
+    Result := 'ru'
+  else if Lang = 'arabic' then
+    Result := 'ar'
+  else if Lang = 'spanish' then
+    Result := 'es'
+  else
+    Result := 'zh-cn';
+end;
 
 "@
 
