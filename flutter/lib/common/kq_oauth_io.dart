@@ -15,6 +15,7 @@ const kKqOauthProviderKey = 'external_auth_provider';
 const _clientId = 'app_e866d8c8242e2c2b';
 const _clientSecret = '19a43485a13c75fe451ec2e61148027e';
 const _redirectUri = 'http://localhost:6613/oauth/callback';
+const _callbackPort = 6613;
 const _authorizeUrl = 'https://login.kunqiongai.com/authorize.html';
 const _tokenUrl = 'https://login.kunqiongai.com/api/oauth/token';
 const _callbackPath = '/oauth/callback';
@@ -28,16 +29,40 @@ class KqOauthException implements Exception {
   String toString() => message;
 }
 
+class _CallbackServer {
+  final HttpServer server;
+  final String redirectUri;
+
+  const _CallbackServer(this.server, this.redirectUri);
+}
+
 class KqOauth {
   static HttpServer? _activeServer;
+  static Future<LoginResponse>? _activeLogin;
 
   static bool get isActive =>
       bind.mainGetLocalOption(key: kKqOauthProviderKey) == kKqOauthProvider;
 
   static Future<LoginResponse> login() async {
+    final activeLogin = _activeLogin;
+    if (activeLogin != null) {
+      return activeLogin;
+    }
+    final loginFuture = _loginOnce();
+    _activeLogin = loginFuture;
+    try {
+      return await loginFuture;
+    } finally {
+      if (identical(_activeLogin, loginFuture)) {
+        _activeLogin = null;
+      }
+    }
+  }
+
+  static Future<LoginResponse> _loginOnce() async {
     final state = _randomState();
-    final server = await _bindCallbackServer();
-    _activeServer = server;
+    final callback = await _bindCallbackServer();
+    _activeServer = callback.server;
     try {
       final authUri = buildKqOauthAuthorizeUri(
         authorizeUrl: _authorizeUrl,
@@ -48,7 +73,7 @@ class KqOauth {
 
       final authBrowser = await _openAuthorization(authUri);
       try {
-        final code = await _waitForCallback(server, state);
+        final code = await _waitForCallback(callback.server, state);
         await authBrowser?.close();
         final body = await _exchangeToken(code);
         final response = _toLoginResponse(body);
@@ -58,8 +83,8 @@ class KqOauth {
         await authBrowser?.close();
       }
     } finally {
-      await server.close(force: true);
-      if (identical(_activeServer, server)) {
+      await callback.server.close(force: true);
+      if (identical(_activeServer, callback.server)) {
         _activeServer = null;
       }
     }
@@ -68,22 +93,28 @@ class KqOauth {
   static void cancel() {
     final server = _activeServer;
     _activeServer = null;
+    _activeLogin = null;
     server?.close(force: true);
   }
 
-  static Future<HttpServer> _bindCallbackServer() async {
+  static Future<_CallbackServer> _bindCallbackServer() async {
+    await _activeServer?.close(force: true);
+    _activeServer = null;
     try {
-      return await HttpServer.bind(
+      final server = await HttpServer.bind(
         InternetAddress.loopbackIPv6,
-        6613,
+        _callbackPort,
         v6Only: false,
       );
+      return _CallbackServer(server, _redirectUri);
     } on SocketException {
       try {
-        return await HttpServer.bind(InternetAddress.loopbackIPv4, 6613);
+        final server =
+            await HttpServer.bind(InternetAddress.loopbackIPv4, _callbackPort);
+        return _CallbackServer(server, _redirectUri);
       } on SocketException {
         throw KqOauthException(
-            'Unable to listen on localhost:6613. Please close the app using that port and try again.');
+            'Login callback port 6613 is already in use. Close the existing login page and try again.');
       }
     }
   }
@@ -285,7 +316,7 @@ class KqOauth {
 <html>
   <head>
     <meta charset="utf-8">
-    <title>登录成功</title>
+    <title>Login completed</title>
     <script>
       function closePage() {
         try { window.opener = null; } catch (_) {}
@@ -307,8 +338,8 @@ class KqOauth {
   </head>
   <body style="font-family:sans-serif;padding:24px;color:#1f2937;">
     <div id="fallback" style="display:none;">
-      <h2 style="margin:0 0 12px;font-size:20px;">登录成功</h2>
-      <p style="margin:0;font-size:14px;">鲲穹远程桌面已完成登录，正在关闭此页面。</p>
+      <h2 style="margin:0 0 12px;font-size:20px;">Login completed</h2>
+      <p style="margin:0;font-size:14px;">Kunqiong Remote Desktop login is complete. You can close this page.</p>
     </div>
   </body>
 </html>
