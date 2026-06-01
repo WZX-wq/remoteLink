@@ -15,6 +15,7 @@ KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH:-/kq-api}"
 KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH%/}"
 KQ_PUBLIC_API_URL="${KQ_PUBLIC_API_URL:-http://${PUBLIC_HOST}${KQ_API_PUBLIC_PATH}/api}"
 COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
+KQ_ENABLE_LOCAL_DB="${KQ_ENABLE_LOCAL_DB:-N}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -495,10 +496,18 @@ echo "Using RustDesk server key mode: managed key pair"
 compose -f rustdesk-server.compose.yml pull hbbs hbbr
 open_firewall_ports
 if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
-  compose -f rustdesk-server.compose.yml pull db
+  if [[ "${KQ_ENABLE_LOCAL_DB}" == "Y" ]]; then
+    COMPOSE_PROFILES="api,local-db" compose -f rustdesk-server.compose.yml pull db
+  else
+    "${SUDO[@]}" docker rm -f kq-remote-link-db >/dev/null 2>&1 || true
+  fi
   compose -f rustdesk-server.compose.yml build api
 fi
-compose -f rustdesk-server.compose.yml up -d --force-recreate
+if [[ "${KQ_ENABLE_LOCAL_DB}" == "Y" && "${COMPOSE_PROFILES}" == "api" ]]; then
+  COMPOSE_PROFILES="api,local-db" compose -f rustdesk-server.compose.yml up -d --force-recreate
+else
+  compose -f rustdesk-server.compose.yml up -d --force-recreate
+fi
 configure_api_reverse_proxy
 compose -f rustdesk-server.compose.yml ps
 

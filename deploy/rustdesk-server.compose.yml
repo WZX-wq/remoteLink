@@ -26,7 +26,7 @@ services:
       start_period: 30s
     restart: unless-stopped
     profiles:
-      - api
+      - local-db
 
   api:
     build:
@@ -41,9 +41,6 @@ services:
       KQ_SUBSITE_NAME: ${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}
       KQ_API_WEB_BASE_URL: ${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}
     network_mode: host
-    depends_on:
-      db:
-        condition: service_healthy
     restart: unless-stopped
     profiles:
       - api
