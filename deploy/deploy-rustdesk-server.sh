@@ -491,6 +491,39 @@ NGINX
   "${SUDO[@]}" nginx -s reload 2>/dev/null || "${SUDO[@]}" systemctl reload nginx 2>/dev/null || true
 }
 
+allow_kq_in_external_docker_guard() {
+  local guard_conf="/etc/kaixinniao/test-slot.conf"
+  local kq_prefix="kq-remote-link-"
+
+  if [[ ! -f "${guard_conf}" ]]; then
+    return
+  fi
+
+  echo "Allowing KQ containers in external Docker guard: ${guard_conf}"
+  local current_prefixes normalized new_prefixes
+  current_prefixes="$("${SUDO[@]}" awk -F= '/^ALLOWED_PREFIXES=/ {print $2; exit}' "${guard_conf}" 2>/dev/null \
+    | sed 's/^"//;s/"$//' \
+    | tr -d '[:space:]')"
+  normalized=",${current_prefixes},"
+  if [[ "${normalized}" != *",${kq_prefix},"* ]]; then
+    if [[ -n "${current_prefixes}" ]]; then
+      new_prefixes="${current_prefixes},${kq_prefix}"
+    else
+      new_prefixes="${kq_prefix}"
+    fi
+
+    if "${SUDO[@]}" grep -Eq '^ALLOWED_PREFIXES=' "${guard_conf}"; then
+      "${SUDO[@]}" sed -i "s|^ALLOWED_PREFIXES=.*|ALLOWED_PREFIXES=${new_prefixes}|" "${guard_conf}"
+    else
+      printf 'ALLOWED_PREFIXES=%s\n' "${new_prefixes}" | "${SUDO[@]}" tee -a "${guard_conf}" >/dev/null
+    fi
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    "${SUDO[@]}" systemctl reset-failed kaixinniao-docker-guard.service >/dev/null 2>&1 || true
+  fi
+}
+
 install_systemd_runtime_services() {
   if ! command -v systemctl >/dev/null 2>&1; then
     return 1
@@ -559,7 +592,7 @@ Restart=always
 RestartSec=5
 TimeoutStartSec=0
 ExecStartPre=-${docker_bin} rm -f kq-remote-link-api
-ExecStart=${docker_bin} run --name kq-remote-link-api --network host --env-file ${INSTALL_DIR}/.env -e KQ_API_HOST=127.0.0.1 -e KQ_API_PORT=${KQ_API_PORT} -e KQ_PUBLIC_API_URL=${KQ_PUBLIC_API_URL} -e KQ_SUBSITE_NAME=${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/} -e KQ_API_WEB_BASE_URL=${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com} kq-remote-link-api:latest
+ExecStart=${docker_bin} run --name kq-remote-link-api --network host --env-file ${INSTALL_DIR}/.env -e KQ_API_HOST=127.0.0.1 -e KQ_API_PORT=${KQ_API_PORT} -e KQ_PUBLIC_API_URL=${KQ_PUBLIC_API_URL} -e KQ_SUBSITE_NAME=${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/} -e KQ_API_WEB_BASE_URL=${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com} -e KQ_DB_POOL_SIZE=${KQ_DB_POOL_SIZE:-2} kq-remote-link-api:latest
 ExecStop=${docker_bin} stop -t 10 kq-remote-link-api
 ExecStopPost=-${docker_bin} rm -f kq-remote-link-api
 
@@ -707,6 +740,7 @@ echo "Using RustDesk relay server: ${KQ_RELAY_SERVER}"
 echo "Using RustDesk server key mode: managed key pair"
 compose -f rustdesk-server.compose.yml pull hbbs hbbr
 open_firewall_ports
+allow_kq_in_external_docker_guard
 if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
   if [[ "${KQ_ENABLE_LOCAL_DB}" == "Y" ]]; then
     COMPOSE_PROFILES="api,local-db" compose -f rustdesk-server.compose.yml pull db

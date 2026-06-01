@@ -41,6 +41,7 @@ services:
       KQ_PUBLIC_API_URL: ${KQ_PUBLIC_API_URL:-http://43.154.197.96/kq-api/api}
       KQ_SUBSITE_NAME: ${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}
       KQ_API_WEB_BASE_URL: ${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}
+      KQ_DB_POOL_SIZE: ${KQ_DB_POOL_SIZE:-2}
     network_mode: host
     restart: always
     profiles:
