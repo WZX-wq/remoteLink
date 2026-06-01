@@ -168,11 +168,11 @@ decrypt_api_env_file() {
   if [[ -n "${KQ_DB_HOST:-}" && -n "${KQ_DB_USER:-}" && -n "${KQ_DB_PASSWORD:-}" ]]; then
     return 0
   fi
-  if env_file_has_required_db_config "${env_file}"; then
-    return 0
-  fi
 
   if [[ ! -s "${KQ_API_ENV_ENC_FILE}" ]]; then
+    if env_file_has_required_db_config "${env_file}"; then
+      return 0
+    fi
     ensure_api_env_key_pair Y || true
     echo "No encrypted KQ API env file found at ${KQ_API_ENV_ENC_FILE}; database-backed API will be skipped until it is added."
     return 0
