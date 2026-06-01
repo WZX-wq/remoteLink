@@ -47,6 +47,13 @@ jobs:
           cp deploy/rustdesk-server.compose.yml "${compose_tmp}/rustdesk-server.compose.yml"
           mkdir -p "${compose_tmp}/api"
           cp -R server/. "${compose_tmp}/api/"
+          cat > "${compose_tmp}/.env" <<'ENV'
+          KQ_DB_HOST=127.0.0.1
+          KQ_DB_PORT=3306
+          KQ_DB_USER=kq
+          KQ_DB_PASSWORD=kq
+          KQ_DB_NAME=kq_remote_link
+          ENV
           if docker compose version >/dev/null 2>&1; then
             (cd "${compose_tmp}" && docker compose -f rustdesk-server.compose.yml config >/dev/null)
           elif command -v docker-compose >/dev/null 2>&1; then
