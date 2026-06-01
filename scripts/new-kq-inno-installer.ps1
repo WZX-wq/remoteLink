@@ -3,6 +3,7 @@ param(
     [string]$OutputRoot = "C:\kq-remote-link-tools",
     [string]$InstallerName,
     [string]$Version = (Get-Date -Format "yyyy.MM.dd.HHmm"),
+    [switch]$SkipFlutterBuild,
     [switch]$SkipCargoBuild
 )
 
@@ -18,7 +19,6 @@ if (-not $InstallerName) {
 }
 $InstallerName = [System.IO.Path]::GetFileNameWithoutExtension($InstallerName)
 
-$release = Resolve-Path $ReleaseDir
 $output = New-Item -ItemType Directory -Force -Path $OutputRoot
 $buildRoot = Join-Path $output.FullName "$InstallerName-inno-build"
 $issPath = Join-Path $buildRoot "installer.iss"
@@ -44,6 +44,33 @@ if (-not (Test-Path $chineseMessagesSourcePath)) {
     throw "Chinese installer language file not found: $chineseMessagesSourcePath"
 }
 
+if (-not $SkipFlutterBuild) {
+    Push-Location (Join-Path $repo "flutter")
+    try {
+        & flutter build windows --release
+        if ($LASTEXITCODE -ne 0) {
+            throw "flutter build failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+$release = Resolve-Path $ReleaseDir
+
+if (-not $SkipCargoBuild) {
+    & cargo build --features flutter --lib --release
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo build failed with exit code $LASTEXITCODE"
+    }
+    $freshDll = Join-Path $repo "target\release\librustdesk.dll"
+    if (-not (Test-Path $freshDll)) {
+        throw "cargo build did not produce $freshDll"
+    }
+    Copy-Item -LiteralPath $freshDll -Destination (Join-Path $release.Path "librustdesk.dll") -Force
+}
+
 $required = @(
     "rustdesk.exe",
     "librustdesk.dll",
@@ -58,18 +85,6 @@ foreach ($item in $required) {
     if (-not (Test-Path $path)) {
         throw "Missing release artifact: $path"
     }
-}
-
-if (-not $SkipCargoBuild) {
-    & cargo build --features flutter --lib --release
-    if ($LASTEXITCODE -ne 0) {
-        throw "cargo build failed with exit code $LASTEXITCODE"
-    }
-    $freshDll = Join-Path $repo "target\release\librustdesk.dll"
-    if (-not (Test-Path $freshDll)) {
-        throw "cargo build did not produce $freshDll"
-    }
-    Copy-Item -LiteralPath $freshDll -Destination (Join-Path $release.Path "librustdesk.dll") -Force
 }
 
 if (Test-Path $buildRoot) {
