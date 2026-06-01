@@ -6,6 +6,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/kq_oauth.dart';
+import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:get/get.dart';
 
@@ -23,6 +24,10 @@ class UserModel {
   static const memberLastErrorKey = 'kq_member_last_error';
   static const memberSubsiteName = 'https://remote.kunqiongai.com/';
   static const memberApiBaseUrl = 'https://api-web.kunqiongai.com';
+  static const remoteQualityKey = 'custom_image_quality';
+  static const remoteFpsKey = 'custom-fps';
+  static const freeRemoteQuality = '80';
+  static const memberRemoteQuality = '100';
 
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
@@ -187,6 +192,17 @@ class UserModel {
     final subsite = bind.mainGetLocalOption(key: memberSubsiteKey);
     memberSubsite.value = subsite.isEmpty ? memberSubsiteName : subsite;
     memberLastError.value = bind.mainGetLocalOption(key: memberLastErrorKey);
+    unawaited(_syncRemoteQualityDefaults(isMember.value));
+  }
+
+  Future<void> _syncRemoteQualityDefaults(bool active) async {
+    await bind.mainSetUserDefaultOption(
+        key: kOptionImageQuality, value: kRemoteImageQualityCustom);
+    await bind.mainSetUserDefaultOption(
+        key: remoteQualityKey,
+        value: active ? memberRemoteQuality : freeRemoteQuality);
+    await bind.mainSetUserDefaultOption(
+        key: remoteFpsKey, value: active ? '60' : '30');
   }
 
   Future<void> _setMemberStatus(
@@ -206,6 +222,7 @@ class UserModel {
     await bind.mainSetLocalOption(
         key: memberSubsiteKey, value: memberSubsite.value);
     await bind.mainSetLocalOption(key: memberLastErrorKey, value: error);
+    await _syncRemoteQualityDefaults(active);
   }
 
   bool _memberBool(dynamic value) {
