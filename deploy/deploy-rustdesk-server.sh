@@ -491,6 +491,99 @@ NGINX
   "${SUDO[@]}" nginx -s reload 2>/dev/null || "${SUDO[@]}" systemctl reload nginx 2>/dev/null || true
 }
 
+install_systemd_runtime_services() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local docker_bin
+  docker_bin="$(command -v docker)"
+  if [[ -z "${docker_bin}" ]]; then
+    return 1
+  fi
+
+  echo "Installing KQ Remote Link systemd runtime services."
+  "${SUDO[@]}" tee /etc/systemd/system/kq-remote-link-hbbr.service >/dev/null <<SERVICE
+[Unit]
+Description=KQ Remote Link hbbr relay server
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+ExecStartPre=-${docker_bin} rm -f kq-remote-link-hbbr
+ExecStart=${docker_bin} run --name kq-remote-link-hbbr --network host -v ${INSTALL_DIR}/data:/root rustdesk/rustdesk-server:latest hbbr
+ExecStop=${docker_bin} stop -t 10 kq-remote-link-hbbr
+ExecStopPost=-${docker_bin} rm -f kq-remote-link-hbbr
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+  "${SUDO[@]}" tee /etc/systemd/system/kq-remote-link-hbbs.service >/dev/null <<SERVICE
+[Unit]
+Description=KQ Remote Link hbbs rendezvous server
+Requires=docker.service kq-remote-link-hbbr.service
+After=docker.service network-online.target kq-remote-link-hbbr.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+ExecStartPre=-${docker_bin} rm -f kq-remote-link-hbbs
+ExecStart=${docker_bin} run --name kq-remote-link-hbbs --network host -v ${INSTALL_DIR}/data:/root rustdesk/rustdesk-server:latest hbbs -r ${KQ_RELAY_SERVER}
+ExecStop=${docker_bin} stop -t 10 kq-remote-link-hbbs
+ExecStopPost=-${docker_bin} rm -f kq-remote-link-hbbs
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+  if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+    "${SUDO[@]}" tee /etc/systemd/system/kq-remote-link-api.service >/dev/null <<SERVICE
+[Unit]
+Description=KQ Remote Link project API
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+ExecStartPre=-${docker_bin} rm -f kq-remote-link-api
+ExecStart=${docker_bin} run --name kq-remote-link-api --network host --env-file ${INSTALL_DIR}/.env -e KQ_API_HOST=127.0.0.1 -e KQ_API_PORT=${KQ_API_PORT} -e KQ_PUBLIC_API_URL=${KQ_PUBLIC_API_URL} -e KQ_SUBSITE_NAME=${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/} -e KQ_API_WEB_BASE_URL=${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com} kq-remote-link-api:latest
+ExecStop=${docker_bin} stop -t 10 kq-remote-link-api
+ExecStopPost=-${docker_bin} rm -f kq-remote-link-api
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+  else
+    "${SUDO[@]}" systemctl disable --now kq-remote-link-api.service >/dev/null 2>&1 || true
+    "${SUDO[@]}" rm -f /etc/systemd/system/kq-remote-link-api.service
+  fi
+
+  "${SUDO[@]}" systemctl daemon-reload
+  "${SUDO[@]}" systemctl enable kq-remote-link-hbbr.service kq-remote-link-hbbs.service >/dev/null
+  if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+    "${SUDO[@]}" systemctl enable kq-remote-link-api.service >/dev/null
+  fi
+
+  "${SUDO[@]}" systemctl restart kq-remote-link-hbbr.service
+  "${SUDO[@]}" systemctl restart kq-remote-link-hbbs.service
+  if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
+    "${SUDO[@]}" systemctl restart kq-remote-link-api.service
+  fi
+}
+
 install_runtime_watchdog() {
   local watchdog_script="/usr/local/sbin/kq-remote-link-watchdog.sh"
   local service_file="/etc/systemd/system/kq-remote-link-watchdog.service"
@@ -537,6 +630,16 @@ for container in "\${required[@]}"; do
 done
 
 if [[ "\${#missing[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+if command -v systemctl >/dev/null 2>&1 \
+    && systemctl list-unit-files kq-remote-link-hbbs.service >/dev/null 2>&1; then
+  systemctl start kq-remote-link-hbbr.service || true
+  systemctl start kq-remote-link-hbbs.service || true
+  if [[ "\${profiles}" == "api" ]]; then
+    systemctl start kq-remote-link-api.service || true
+  fi
   exit 0
 fi
 
@@ -615,7 +718,9 @@ fi
 if [[ "${KQ_ENABLE_LOCAL_DB}" == "Y" && "${COMPOSE_PROFILES}" == "api" ]]; then
   COMPOSE_PROFILES="api,local-db" compose -f rustdesk-server.compose.yml up -d --force-recreate
 else
-  compose -f rustdesk-server.compose.yml up -d --force-recreate
+  if ! install_systemd_runtime_services; then
+    compose -f rustdesk-server.compose.yml up -d --force-recreate
+  fi
 fi
 install_runtime_watchdog
 configure_api_reverse_proxy

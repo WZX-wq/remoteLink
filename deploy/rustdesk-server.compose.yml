@@ -29,6 +29,7 @@ services:
       - local-db
 
   api:
+    image: kq-remote-link-api:latest
     build:
       context: ./api
     container_name: kq-remote-link-api
