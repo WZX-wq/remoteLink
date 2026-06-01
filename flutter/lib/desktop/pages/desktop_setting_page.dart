@@ -2313,23 +2313,6 @@ class _AccountState extends State<_Account> {
               ),
             ),
           ),
-          OutlinedButton.icon(
-            onPressed: gFFI.userModel.isRefreshingMembership.value
-                ? null
-                : () async {
-                    gFFI.userModel.refreshCurrentUser();
-                    await gFFI.userModel.refreshMembership(showError: true);
-                  },
-            icon: gFFI.userModel.isRefreshingMembership.value
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh, size: 16),
-            label: const Text('刷新资料'),
-          ),
-          const SizedBox(width: 8),
           ElevatedButton.icon(
             onPressed: logOutConfirmDialog,
             icon: const Icon(Icons.logout, size: 16),
