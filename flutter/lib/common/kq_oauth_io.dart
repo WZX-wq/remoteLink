@@ -73,7 +73,8 @@ class KqOauth {
 
       final authBrowser = await _openAuthorization(authUri);
       try {
-        final code = await _waitForCallback(callback.server, state);
+        final code = await _waitForCallbackOrBrowserClose(
+            callback.server, state, authBrowser);
         await authBrowser?.close();
         final body = await _exchangeToken(code);
         final response = _toLoginResponse(body);
@@ -141,6 +142,21 @@ class KqOauth {
       throw KqOauthException('Unable to open the authorization page.$detail');
     }
     return null;
+  }
+
+  static Future<String> _waitForCallbackOrBrowserClose(
+    HttpServer server,
+    String expectedState,
+    _ManagedAuthBrowser? authBrowser,
+  ) {
+    final callback = _waitForCallback(server, expectedState);
+    if (authBrowser == null) {
+      return callback;
+    }
+    final browserClose = authBrowser.waitForUserClose().then<String>((_) {
+      throw KqOauthException('Authorization canceled.');
+    });
+    return Future.any([callback, browserClose]);
   }
 
   static Future<String> _waitForCallback(
@@ -408,11 +424,52 @@ class _ManagedAuthBrowser {
     await _deleteProfileDir(_profileDir);
   }
 
+  Future<void> waitForUserClose() async {
+    if (Platform.isWindows) {
+      await _waitForWindowsUserClose();
+      return;
+    }
+    await _process.exitCode;
+  }
+
+  Future<void> _waitForWindowsUserClose() async {
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    while (!_closed) {
+      final isRunning = await _hasWindowsBrowserProcesses();
+      if (!isRunning) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+    }
+  }
+
+  Future<bool> _hasWindowsBrowserProcesses() async {
+    final profilePath = _profileDir.path.replaceAll("'", "''");
+    final script = "\$profile = '$profilePath'; "
+        "\$process = Get-CimInstance Win32_Process | "
+        "Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -and \$_.CommandLine.Contains(\$profile) } | "
+        "Select-Object -First 1; "
+        "if (\$null -eq \$process) { '0' } else { '1' }";
+    try {
+      final result = await Process.run('powershell', [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ]).timeout(const Duration(seconds: 3));
+      return result.stdout.toString().trim() == '1';
+    } catch (err) {
+      _logCleanupFailure('detect browser close', err);
+      return true;
+    }
+  }
+
   Future<void> _terminateWindowsBrowserProcesses() async {
     final profilePath = _profileDir.path.replaceAll("'", "''");
     final script = "\$profile = '$profilePath'; "
         "Get-CimInstance Win32_Process | "
-        "Where-Object { \$_.CommandLine -and \$_.CommandLine.Contains(\$profile) } | "
+        "Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -and \$_.CommandLine.Contains(\$profile) } | "
         "ForEach-Object { Invoke-CimMethod -InputObject \$_ -MethodName Terminate | Out-Null }";
     try {
       await Process.run('powershell', [
