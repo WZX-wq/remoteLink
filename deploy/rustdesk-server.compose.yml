@@ -24,7 +24,7 @@ services:
       timeout: 3s
       retries: 30
       start_period: 30s
-    restart: unless-stopped
+    restart: always
     profiles:
       - local-db
 
@@ -41,7 +41,7 @@ services:
       KQ_SUBSITE_NAME: ${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}
       KQ_API_WEB_BASE_URL: ${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}
     network_mode: host
-    restart: unless-stopped
+    restart: always
     profiles:
       - api
 
@@ -54,7 +54,7 @@ services:
     network_mode: host
     depends_on:
       - hbbr
-    restart: unless-stopped
+    restart: always
 
   hbbr:
     image: rustdesk/rustdesk-server:latest
@@ -63,7 +63,7 @@ services:
     volumes:
       - ./data:/root
     network_mode: host
-    restart: unless-stopped
+    restart: always
 
 volumes:
   kq_remote_link_mysql:

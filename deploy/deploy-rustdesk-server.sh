@@ -491,6 +491,82 @@ NGINX
   "${SUDO[@]}" nginx -s reload 2>/dev/null || "${SUDO[@]}" systemctl reload nginx 2>/dev/null || true
 }
 
+install_runtime_watchdog() {
+  local watchdog_script="/usr/local/sbin/kq-remote-link-watchdog.sh"
+  local service_file="/etc/systemd/system/kq-remote-link-watchdog.service"
+  local timer_file="/etc/systemd/system/kq-remote-link-watchdog.timer"
+
+  echo "Installing KQ Remote Link runtime watchdog."
+  "${SUDO[@]}" tee "${watchdog_script}" >/dev/null <<WATCHDOG
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR="${INSTALL_DIR}"
+COMPOSE_FILE="rustdesk-server.compose.yml"
+
+cd "\${INSTALL_DIR}"
+
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+else
+  echo "docker compose or docker-compose is required." >&2
+  exit 1
+fi
+
+profiles=""
+if [[ -d api && -s .env ]] \
+    && grep -Eq '^KQ_DB_HOST=.+' .env \
+    && grep -Eq '^KQ_DB_USER=.+' .env \
+    && grep -Eq '^KQ_DB_PASSWORD=.+' .env; then
+  profiles="api"
+fi
+
+COMPOSE_PROFILES="\${profiles}" "\${COMPOSE_CMD[@]}" -f "\${COMPOSE_FILE}" up -d
+WATCHDOG
+  "${SUDO[@]}" chmod 755 "${watchdog_script}"
+
+  if command -v systemctl >/dev/null 2>&1; then
+    "${SUDO[@]}" tee "${service_file}" >/dev/null <<SERVICE
+[Unit]
+Description=KQ Remote Link runtime watchdog
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${watchdog_script}
+SERVICE
+    "${SUDO[@]}" tee "${timer_file}" >/dev/null <<TIMER
+[Unit]
+Description=Run KQ Remote Link runtime watchdog every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=kq-remote-link-watchdog.service
+
+[Install]
+WantedBy=timers.target
+TIMER
+    "${SUDO[@]}" systemctl daemon-reload || true
+    "${SUDO[@]}" systemctl enable --now kq-remote-link-watchdog.timer || true
+    "${SUDO[@]}" systemctl start kq-remote-link-watchdog.service || true
+    return
+  fi
+
+  if [[ -d /etc/cron.d ]]; then
+    "${SUDO[@]}" tee /etc/cron.d/kq-remote-link-watchdog >/dev/null <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root ${watchdog_script} >/var/log/kq-remote-link-watchdog.log 2>&1
+@reboot root sleep 30; ${watchdog_script} >/var/log/kq-remote-link-watchdog.log 2>&1
+CRON
+  fi
+}
+
 echo "Using RustDesk relay server: ${KQ_RELAY_SERVER}"
 echo "Using RustDesk server key mode: managed key pair"
 compose -f rustdesk-server.compose.yml pull hbbs hbbr
@@ -508,6 +584,7 @@ if [[ "${KQ_ENABLE_LOCAL_DB}" == "Y" && "${COMPOSE_PROFILES}" == "api" ]]; then
 else
   compose -f rustdesk-server.compose.yml up -d --force-recreate
 fi
+install_runtime_watchdog
 configure_api_reverse_proxy
 compose -f rustdesk-server.compose.yml ps
 
