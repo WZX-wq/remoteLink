@@ -46,6 +46,22 @@ jobs:
           echo "== container inspect =="
           docker inspect kq-remote-link-hbbs kq-remote-link-hbbr \
             --format '{{.Name}} image={{.Config.Image}} cmd={{json .Config.Cmd}} state={{.State.Status}} started={{.State.StartedAt}}' || true
+          docker inspect kq-remote-link-api \
+            --format '{{.Name}} image={{.Config.Image}} cmd={{json .Config.Cmd}} state={{.State.Status}} started={{.State.StartedAt}}' || true
+          echo ""
+          echo "== systemd services =="
+          systemctl --no-pager --full status kq-remote-link-hbbr.service kq-remote-link-hbbs.service kq-remote-link-api.service kq-remote-link-watchdog.timer kq-remote-link-watchdog.service || true
+          echo ""
+          echo "== systemd recent journal =="
+          journalctl --no-pager --since "20 minutes ago" -u kq-remote-link-hbbr.service -u kq-remote-link-hbbs.service -u kq-remote-link-api.service -u kq-remote-link-watchdog.service || true
+          echo ""
+          echo "== external docker guard =="
+          cat /etc/kaixinniao/test-slot.conf 2>/dev/null || true
+          systemctl --no-pager --full status kaixinniao-docker-guard.service 2>/dev/null || true
+          journalctl --no-pager --since "20 minutes ago" -u kaixinniao-docker-guard.service 2>/dev/null || true
+          echo ""
+          echo "== docker events recent =="
+          timeout 3 docker events --since 20m --until 0s --filter container=kq-remote-link-hbbs --filter container=kq-remote-link-hbbr --filter container=kq-remote-link-api || true
           echo ""
           echo "== listeners =="
           ss -lntup | awk 'NR == 1 || /:21115|:21116|:21117|:21118|:21119/' || true
