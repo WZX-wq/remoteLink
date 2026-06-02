@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:back_button_interceptor/back_button_interceptor.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -9,6 +8,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
+import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/main.dart';
@@ -77,6 +77,7 @@ bool _ignoreDevicePixelRatio = true;
 /// only available for Windows target
 int windowsBuildNumber = 0;
 DesktopType? desktopType;
+bool _kqNetworkRiskToastShown = false;
 
 // Tolerance used for floating-point position comparisons to avoid precision errors.
 const double _kPositionEpsilon = 1e-6;
@@ -2564,6 +2565,7 @@ connect(BuildContext context, String id,
   forceRelay = id != oldId || forceRelay;
   assert(!(isFileTransfer && isTcpTunneling && isRDP),
       "more than one connect type");
+  await _showKqNetworkRiskToastIfNeeded();
 
   if (isDesktop) {
     if (desktopType == DesktopType.main) {
@@ -2696,6 +2698,30 @@ connect(BuildContext context, String id,
   FocusScopeNode currentFocus = FocusScope.of(context);
   if (!currentFocus.hasPrimaryFocus) {
     currentFocus.unfocus();
+  }
+}
+
+Future<void> _showKqNetworkRiskToastIfNeeded() async {
+  if (_kqNetworkRiskToastShown ||
+      isWeb ||
+      (isDesktop && desktopType != DesktopType.main)) {
+    return;
+  }
+  _kqNetworkRiskToastShown = true;
+  try {
+    final appProxy = await bind
+        .mainGetProxyStatus()
+        .timeout(const Duration(milliseconds: 900), onTimeout: () => false);
+    final risk = await detectKqNetworkRisk()
+        .timeout(const Duration(milliseconds: 1600), onTimeout: () {
+      return const KqNetworkRisk(hasProxy: false, hasVpn: false);
+    });
+    if (appProxy || risk.hasRisk) {
+      showToast('检测到代理/VPN，远程连接可能变慢或不稳定，建议关闭后重试。',
+          timeout: const Duration(seconds: 5));
+    }
+  } catch (_) {
+    // Network-risk detection is advisory and must never block connecting.
   }
 }
 

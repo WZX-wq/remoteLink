@@ -203,6 +203,7 @@ void main() {
           'avatar': null,
         }),
         {
+          'id': '12',
           'name': 'zhangsan',
           'display_name': 'Zhang San',
           'avatar': '',
@@ -217,6 +218,7 @@ void main() {
       expect(
         normalizeKqOauthUser({'id': 42}),
         {
+          'id': '42',
           'name': '42',
           'display_name': '42',
           'avatar': '',

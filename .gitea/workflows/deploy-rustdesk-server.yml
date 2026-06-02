@@ -21,7 +21,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: linux
+    runs-on: linux:host
     steps:
       - name: Checkout
         uses: actions/checkout@v4
