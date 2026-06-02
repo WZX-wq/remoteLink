@@ -164,9 +164,40 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-service"; Flags: runhi
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent; Tasks: launch
 
 [UninstallRun]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated; RunOnceId: "KQUninstallService"
 
 [Code]
+procedure ExecQuiet(FileName: String; Params: String);
+var
+  ResultCode: Integer;
+begin
+  Exec(FileName, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure StopExistingKqRuntime();
+var
+  AppExe: String;
+begin
+  AppExe := ExpandConstant('{app}\{#MyAppExeName}');
+  if FileExists(AppExe) then begin
+    ExecQuiet(AppExe, '--uninstall-service');
+  end;
+
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'stop "{#MyAppName}"');
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
+  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+  Sleep(1200);
+  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then begin
+    StopExistingKqRuntime();
+  end;
+end;
+
 function SelectedAppLanguage(Param: String): String;
 var
   Lang: String;
