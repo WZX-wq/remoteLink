@@ -22,6 +22,7 @@ import 'package:window_size/window_size.dart' as window_size;
 import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/user_model.dart';
 import '../../common/shared_state.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
@@ -398,6 +399,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     ));
     // Do not show keyboard for camera connection type.
     if (widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_PerformanceMenu(id: widget.id, ffi: widget.ffi));
       toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
     }
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
@@ -913,6 +915,367 @@ class ScreenAdjustor {
         CanvasModel.topToEdge + displayHeight + CanvasModel.bottomToEdge;
     return selfWidth > (requiredWidth * scale) &&
         selfHeight > (requiredHeight * scale);
+  }
+}
+
+class _PerformanceMenu extends StatefulWidget {
+  final String id;
+  final FFI ffi;
+
+  const _PerformanceMenu({
+    Key? key,
+    required this.id,
+    required this.ffi,
+  }) : super(key: key);
+
+  @override
+  State<_PerformanceMenu> createState() => _PerformanceMenuState();
+}
+
+class _PerformanceMenuState extends State<_PerformanceMenu> {
+  bool _saving = false;
+
+  UserModel get user => gFFI.userModel;
+
+  Future<void> _applyProfile({String? resolutionTier, int? fps}) async {
+    if (_saving) {
+      return;
+    }
+    final targetResolution = resolutionTier ?? user.remoteResolutionSelection;
+    final targetFps = fps ?? user.remoteFpsSelection;
+    final memberOnly = (targetResolution == UserModel.remoteResolution1080p ||
+            targetFps >= 60) &&
+        !user.canUseMemberRemoteQuality;
+    if (memberOnly) {
+      showToast('开通会员后可使用 1080p / 60 FPS');
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await user.setRemotePerformanceProfile(
+        resolutionTier: targetResolution,
+        fps: targetFps,
+      );
+      final normalizedResolution = user.remoteResolutionSelection;
+      final normalizedFps = user.remoteFpsSelection;
+      final quality = int.tryParse(
+            normalizedResolution == UserModel.remoteResolution1080p
+                ? UserModel.memberRemoteQuality
+                : UserModel.freeRemoteQuality,
+          ) ??
+          80;
+
+      await bind.sessionSetImageQuality(
+        sessionId: widget.ffi.sessionId,
+        value: kRemoteImageQualityCustom,
+      );
+      await bind.sessionSetCustomImageQuality(
+        sessionId: widget.ffi.sessionId,
+        value: quality,
+      );
+      await bind.sessionSetCustomFps(
+        sessionId: widget.ffi.sessionId,
+        fps: normalizedFps,
+      );
+      showToast('远控体验已更新：${user.remoteQualityLabel}');
+    } catch (e) {
+      debugPrint('Failed to apply remote performance profile: $e');
+      showToast('远控体验更新失败');
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Widget _toolbarChip(BuildContext context) {
+    final label =
+        '${user.remoteResolutionSelection} · ${user.remoteFpsSelection}';
+    return SizedBox.expand(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _saving ? Icons.hourglass_top_rounded : Icons.speed_outlined,
+                size: 14,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _menuHeader(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 244,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: colors.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.tune_outlined, size: 17, color: colors.primary),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '画质与帧率',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    user.remoteQualityLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(BuildContext context, String label, IconData icon) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 7, 12, 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: colors.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: colors.onSurfaceVariant,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _optionButton(
+    BuildContext context, {
+    required String label,
+    required String caption,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onPressed,
+    bool locked = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final foreground = enabled ? colors.onSurface : colors.onSurfaceVariant;
+    final selectedColor = colors.primary.withOpacity(0.12);
+    return MenuButton(
+      ffi: widget.ffi,
+      onPressed: enabled ? onPressed : null,
+      child: SizedBox(
+        width: 220,
+        height: 42,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? selectedColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: selected ? colors.primary : foreground,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.onSurfaceVariant,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                locked
+                    ? Icons.lock_outline
+                    : selected
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
+                size: 16,
+                color: locked
+                    ? colors.onSurfaceVariant
+                    : selected
+                        ? colors.primary
+                        : colors.outline,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _menuChildren(BuildContext context) {
+    final isMember = user.canUseMemberRemoteQuality;
+    final resolution = user.remoteResolutionSelection;
+    final fps = user.remoteFpsSelection;
+    return [
+      _menuHeader(context),
+      Divider(),
+      _sectionLabel(context, '清晰度', Icons.high_quality_outlined),
+      _optionButton(
+        context,
+        label: '720p',
+        caption: '基础版可用',
+        selected: resolution == UserModel.remoteResolution720p,
+        enabled: !_saving,
+        onPressed: () => _applyProfile(
+          resolutionTier: UserModel.remoteResolution720p,
+        ),
+      ),
+      _optionButton(
+        context,
+        label: '1080p',
+        caption: isMember ? '会员高清' : '会员可用',
+        selected: resolution == UserModel.remoteResolution1080p,
+        enabled: !_saving && isMember,
+        locked: !isMember,
+        onPressed: () => _applyProfile(
+          resolutionTier: UserModel.remoteResolution1080p,
+        ),
+      ),
+      Divider(),
+      _sectionLabel(context, '帧率', Icons.speed_outlined),
+      _optionButton(
+        context,
+        label: '30 FPS',
+        caption: '稳定优先',
+        selected: fps == 30,
+        enabled: !_saving,
+        onPressed: () => _applyProfile(fps: 30),
+      ),
+      _optionButton(
+        context,
+        label: '60 FPS',
+        caption: isMember ? '更流畅' : '会员可用',
+        selected: fps == 60,
+        enabled: !_saving && isMember,
+        locked: !isMember,
+        onPressed: () => _applyProfile(fps: 60),
+      ),
+      Divider(),
+      MenuButton(
+        ffi: widget.ffi,
+        onPressed: _saving
+            ? null
+            : () async {
+                await bind.sessionSetImageQuality(
+                  sessionId: widget.ffi.sessionId,
+                  value: kRemoteImageQualityCustom,
+                );
+                customImageQualityDialog(
+                  widget.ffi.sessionId,
+                  widget.id,
+                  widget.ffi,
+                );
+              },
+        child: SizedBox(
+          width: 220,
+          height: 34,
+          child: Row(
+            children: [
+              Icon(Icons.tune_outlined,
+                  size: 16, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '高级自定义',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(
+      () => _IconSubmenuButton(
+        tooltip: '画质与帧率',
+        icon: _toolbarChip(context),
+        ffi: widget.ffi,
+        width: 92,
+        color: _ToolbarTheme.blueColor,
+        hoverColor: _ToolbarTheme.hoverBlueColor,
+        menuChildrenGetter: (_) => _menuChildren(context),
+      ),
+    );
   }
 }
 
