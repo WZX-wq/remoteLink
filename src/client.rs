@@ -177,7 +177,7 @@ fn rendezvous_token<'a>(token: &'a str) -> &'a str {
 
 fn kq_force_relay_enabled() -> bool {
     crate::get_app_name() == crate::common::KQ_APP_NAME
-        && !Config::get_option(keys::OPTION_RELAY_SERVER).is_empty()
+        && Config::get_bool_option("kq-force-always-relay")
 }
 
 #[cfg(feature = "flutter")]
