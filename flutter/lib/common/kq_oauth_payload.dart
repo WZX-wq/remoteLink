@@ -106,6 +106,7 @@ Map<String, dynamic>? normalizeKqOauthUser(dynamic value) {
           username)
       .toString();
   return {
+    'id': value['id']?.toString() ?? '',
     'name': username,
     'display_name': displayName,
     'avatar': value['avatar']?.toString() ?? '',

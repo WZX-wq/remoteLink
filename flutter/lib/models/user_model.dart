@@ -24,6 +24,7 @@ class UserModel {
   static const memberLastErrorKey = 'kq_member_last_error';
   static const memberSubsiteName = 'https://remote.kunqiongai.com/';
   static const memberApiBaseUrl = 'https://api-web.kunqiongai.com';
+  static const kqTestUnlimitedMemberUserId = '13';
   static const remoteQualityKey = 'custom_image_quality';
   static const remoteFpsKey = 'custom-fps';
   static const freeRemoteQuality = '80';
@@ -149,6 +150,28 @@ class UserModel {
     return null;
   }
 
+  static String _localUserPrimaryId() {
+    final userInfo = getLocalUserInfo();
+    if (userInfo == null) {
+      return '';
+    }
+    final direct = (userInfo['id'] ?? '').toString().trim();
+    if (direct.isNotEmpty) {
+      return direct;
+    }
+    final raw = userInfo['external_auth_raw'];
+    if (raw is Map) {
+      final user = raw['user'];
+      if (user is Map) {
+        return (user['id'] ?? '').toString().trim();
+      }
+    }
+    return '';
+  }
+
+  static bool get isKqTestUnlimitedMember =>
+      _localUserPrimaryId() == kqTestUnlimitedMemberUserId;
+
   _updateLocalUserInfo() {
     final userInfo = getLocalUserInfo();
     if (userInfo != null) {
@@ -187,7 +210,8 @@ class UserModel {
   }
 
   void _loadLocalMembership() {
-    isMember.value = bind.mainGetLocalOption(key: memberActiveKey) == 'Y';
+    isMember.value = isKqTestUnlimitedMember ||
+        bind.mainGetLocalOption(key: memberActiveKey) == 'Y';
     memberExpireAt.value = bind.mainGetLocalOption(key: memberExpireAtKey);
     final subsite = bind.mainGetLocalOption(key: memberSubsiteKey);
     memberSubsite.value = subsite.isEmpty ? memberSubsiteName : subsite;
@@ -334,6 +358,12 @@ class UserModel {
     }
     if (!isLogin) {
       await _setMemberStatus(false, expireAt: '', error: '');
+      return;
+    }
+    if (isKqTestUnlimitedMember) {
+      await _setMemberStatus(true,
+          expireAt: 'unlimited', error: '', subsite: memberSubsiteName);
+      memberPackages.clear();
       return;
     }
     isRefreshingMembership.value = true;
