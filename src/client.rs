@@ -202,6 +202,15 @@ fn kq_file_clipboard_enabled() -> bool {
         || Config::get_bool_option("kq-enable-file-clipboard")
 }
 
+#[inline]
+fn is_retryable_direct_connection_error(err: &str) -> bool {
+    let err = err.to_lowercase();
+    err.contains("10054")
+        || err.contains("104")
+        || err.contains("deadline")
+        || err.contains("reset")
+}
+
 #[cfg(feature = "flutter")]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) struct ClientClipboardContext;
@@ -585,7 +594,43 @@ impl Client {
                 my_addr,
                 peer
             );
-            socket.send(&msg_out).await?;
+            if let Err(err) = socket.send(&msg_out).await {
+                if !configured_relay_server.is_empty()
+                    && is_retryable_direct_connection_error(&err.to_string())
+                {
+                    log::warn!(
+                        "{} punch request failed for {}: {}; retrying forced relay via {}",
+                        punch_type,
+                        peer,
+                        err,
+                        configured_relay_server
+                    );
+                    drop(socket);
+                    let (conn, pk) = Self::request_forced_relay(
+                        &peer,
+                        configured_relay_server,
+                        &rendezvous_server,
+                        &key,
+                        &token,
+                        conn_type,
+                    )
+                    .await
+                    .with_context(|| "Failed to request relay after punch request failure")?;
+                    interface.update_direct(Some(false));
+                    return Ok((
+                        (
+                            conn,
+                            false,
+                            pk,
+                            None,
+                            if use_ws() { "WebSocket" } else { "Relay" },
+                        ),
+                        (feedback, rendezvous_server),
+                        false,
+                    ));
+                }
+                return Err(err);
+            }
             // below timeout should not bigger than hbbs's connection timeout.
             if let Some(msg_in) =
                 crate::get_next_nonkeyexchange_msg(&mut socket, Some(i * 3000)).await
@@ -697,6 +742,36 @@ impl Client {
         }
         drop(socket);
         if peer_addr.port() == 0 {
+            if !configured_relay_server.is_empty() {
+                log::warn!(
+                    "{} punch did not return a peer address for {}; retrying forced relay via {}",
+                    punch_type,
+                    peer,
+                    configured_relay_server
+                );
+                let (conn, pk) = Self::request_forced_relay(
+                    &peer,
+                    configured_relay_server,
+                    &rendezvous_server,
+                    &key,
+                    &token,
+                    conn_type,
+                )
+                .await
+                .with_context(|| "Failed to request relay after punch timeout")?;
+                interface.update_direct(Some(false));
+                return Ok((
+                    (
+                        conn,
+                        false,
+                        pk,
+                        None,
+                        if use_ws() { "WebSocket" } else { "Relay" },
+                    ),
+                    (feedback, rendezvous_server),
+                    false,
+                ));
+            }
             bail!("Failed to connect via rendezvous server");
         }
         let time_used = start.elapsed().as_millis() as u64;
@@ -711,30 +786,68 @@ impl Client {
                 format!("nat_type: {:?}", peer_nat_type)
             }
         );
-        Ok((
-            Self::connect(
-                my_addr,
-                peer_addr,
-                &peer,
-                signed_id_pk,
-                &relay_server,
-                &rendezvous_server,
-                time_used,
-                peer_nat_type,
-                my_nat_type,
-                is_local,
-                &key,
-                &token,
-                conn_type,
-                interface,
-                udp.0,
-                ipv6.0,
-                punch_type,
-            )
-            .await?,
-            (feedback, rendezvous_server),
-            true,
-        ))
+        let relay_server_for_retry = if relay_server.is_empty() {
+            configured_relay_server
+        } else {
+            relay_server.clone()
+        };
+        let direct_res = Self::connect(
+            my_addr,
+            peer_addr,
+            &peer,
+            signed_id_pk,
+            &relay_server_for_retry,
+            &rendezvous_server,
+            time_used,
+            peer_nat_type,
+            my_nat_type,
+            is_local,
+            &key,
+            &token,
+            conn_type,
+            interface,
+            udp.0,
+            ipv6.0,
+            punch_type,
+        )
+        .await;
+        match direct_res {
+            Ok(res) => Ok((res, (feedback, rendezvous_server), true)),
+            Err(err)
+                if !relay_server_for_retry.is_empty()
+                    && is_retryable_direct_connection_error(&err.to_string()) =>
+            {
+                log::warn!(
+                    "{} direct connection failed for {}: {}; retrying forced relay via {}",
+                    punch_type,
+                    peer,
+                    err,
+                    relay_server_for_retry
+                );
+                let (conn, pk) = Self::request_forced_relay(
+                    &peer,
+                    relay_server_for_retry,
+                    &rendezvous_server,
+                    &key,
+                    &token,
+                    conn_type,
+                )
+                .await
+                .with_context(|| "Failed to request relay after direct connection failure")?;
+                Ok((
+                    (
+                        conn,
+                        false,
+                        pk,
+                        None,
+                        if use_ws() { "WebSocket" } else { "Relay" },
+                    ),
+                    (feedback, rendezvous_server),
+                    false,
+                ))
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Connect to the peer.
@@ -856,10 +969,7 @@ impl Client {
                 let err_text = e.to_string();
                 let retry_via_relay = direct
                     && !relay_server.is_empty()
-                    && (err_text.contains("10054")
-                        || err_text.contains("104")
-                        || err_text.to_lowercase().contains("deadline")
-                        || err_text.to_lowercase().contains("reset"));
+                    && is_retryable_direct_connection_error(&err_text);
                 if retry_via_relay {
                     log::warn!(
                         "Direct secure handshake failed for {} via {}: {}; retrying with relay",
