@@ -180,6 +180,10 @@ fn kq_force_relay_enabled() -> bool {
         && Config::get_bool_option("kq-force-always-relay")
 }
 
+fn kq_should_ignore_standard_force_relay() -> bool {
+    crate::get_app_name() == crate::common::KQ_APP_NAME
+}
+
 fn kq_file_clipboard_enabled() -> bool {
     crate::get_app_name() != crate::common::KQ_APP_NAME
         || Config::get_bool_option("kq-enable-file-clipboard")
@@ -2921,7 +2925,9 @@ impl LoginConfigHandler {
                     .insert("other-server-key".to_owned(), c.clone());
             }
         }
-        if self.force_relay {
+        if kq_should_ignore_standard_force_relay() {
+            config.options.remove("force-always-relay");
+        } else if self.force_relay {
             config
                 .options
                 .insert("force-always-relay".to_owned(), "Y".to_owned());
@@ -4047,9 +4053,12 @@ pub trait Interface: Send + Clone + 'static + Sized {
     }
 
     fn is_force_relay(&self) -> bool {
-        self.get_lch().read().unwrap().force_relay
-            || Config::get_bool_option("force-always-relay")
-            || kq_force_relay_enabled()
+        if kq_should_ignore_standard_force_relay() {
+            kq_force_relay_enabled()
+        } else {
+            self.get_lch().read().unwrap().force_relay
+                || Config::get_bool_option("force-always-relay")
+        }
     }
 
     fn swap_modifier_mouse(&self, _msg: &mut hbb_common::protos::message::MouseEvent) {}
