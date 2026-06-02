@@ -2128,6 +2128,7 @@ fn apply_kq_remote_link_defaults() {
     overwrite_settings.insert(keys::OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
     overwrite_settings.insert(keys::OPTION_ALLOW_AUTO_DISCONNECT.to_owned(), "N".to_owned());
     overwrite_settings.insert(keys::OPTION_AUTO_DISCONNECT_TIMEOUT.to_owned(), "0".to_owned());
+    overwrite_settings.insert(keys::OPTION_AV1_TEST.to_owned(), "N".to_owned());
     overwrite_settings.insert(keys::OPTION_HIDE_WEBSOCKET_SETTINGS.to_owned(), "Y".to_owned());
     overwrite_settings.insert(keys::OPTION_HIDE_SERVER_SETTINGS.to_owned(), "Y".to_owned());
     overwrite_settings.insert(

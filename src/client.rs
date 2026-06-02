@@ -2652,12 +2652,22 @@ impl LoginConfigHandler {
     }
 
     pub fn get_supported_decoding(&self) -> SupportedDecoding {
-        Decoder::supported_decodings(
+        let mut decoding = Decoder::supported_decodings(
             Some(&self.id),
             use_texture_render(),
             self.adapter_luid,
             &self.mark_unsupported,
-        )
+        );
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            decoding.ability_av1 = 0;
+            if decoding.prefer == supported_decoding::PreferCodec::AV1.into() {
+                decoding.prefer = supported_decoding::PreferCodec::VP9.into();
+            }
+            if let Some(i444) = decoding.i444.as_mut() {
+                i444.av1 = false;
+            }
+        }
+        decoding
     }
 
     /// Parse the image quality option.

@@ -27,8 +27,9 @@ class UserModel {
   static const kqTestUnlimitedMemberUserId = '13';
   static const remoteQualityKey = 'custom_image_quality';
   static const remoteFpsKey = 'custom-fps';
+  static const remoteCodecKey = 'codec-preference';
   static const freeRemoteQuality = '80';
-  static const memberRemoteQuality = '100';
+  static const memberRemoteQuality = '90';
 
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
@@ -227,6 +228,7 @@ class UserModel {
         value: active ? memberRemoteQuality : freeRemoteQuality);
     await bind.mainSetUserDefaultOption(
         key: remoteFpsKey, value: active ? '60' : '30');
+    await bind.mainSetUserDefaultOption(key: remoteCodecKey, value: 'vp9');
   }
 
   Future<void> _setMemberStatus(

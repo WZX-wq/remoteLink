@@ -1303,7 +1303,11 @@ fn get_valid_subkey() -> String {
     let app_name = crate::get_app_name();
     for subkey in [
         get_hkcu_uninstall_subkey(KQ_INNO_IS1),
+        get_hklm_uninstall_subkey(KQ_INNO_IS1, false),
+        get_hklm_uninstall_subkey(KQ_INNO_IS1, true),
         get_hkcu_uninstall_subkey(KQ_LEGACY_UNINSTALL_KEY),
+        get_hklm_uninstall_subkey(KQ_LEGACY_UNINSTALL_KEY, false),
+        get_hklm_uninstall_subkey(KQ_LEGACY_UNINSTALL_KEY, true),
         get_subkey(IS1, false),
         get_subkey(IS1, true),
         get_subkey(&app_name, true),
