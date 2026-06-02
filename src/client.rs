@@ -190,7 +190,7 @@ fn rendezvous_token<'a>(token: &'a str) -> &'a str {
 
 fn kq_force_relay_enabled() -> bool {
     crate::get_app_name() == crate::common::KQ_APP_NAME
-        && Config::get_bool_option("kq-force-always-relay")
+        && LocalConfig::get_bool_option("kq-force-always-relay")
 }
 
 fn kq_should_ignore_standard_force_relay() -> bool {
@@ -2207,7 +2207,7 @@ impl LoginConfigHandler {
         self.restarting_remote_device = false;
         let force_always_relay = "force-always-relay";
         let saved_force_always_relay = if crate::get_app_name() == crate::common::KQ_APP_NAME {
-            Config::get_bool_option("kq-force-always-relay")
+            LocalConfig::get_bool_option("kq-force-always-relay")
         } else {
             config::option2bool(force_always_relay, &self.get_option(force_always_relay))
                 || Config::get_bool_option(force_always_relay)
