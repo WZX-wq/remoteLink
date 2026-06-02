@@ -180,6 +180,11 @@ fn kq_force_relay_enabled() -> bool {
         && Config::get_bool_option("kq-force-always-relay")
 }
 
+fn kq_file_clipboard_enabled() -> bool {
+    crate::get_app_name() != crate::common::KQ_APP_NAME
+        || Config::get_bool_option("kq-enable-file-clipboard")
+}
+
 #[cfg(feature = "flutter")]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) struct ClientClipboardContext;
@@ -2184,12 +2189,14 @@ impl LoginConfigHandler {
         self.supported_encoding = Default::default();
         self.restarting_remote_device = false;
         let force_always_relay = "force-always-relay";
-        self.force_relay =
+        let saved_force_always_relay = if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            Config::get_bool_option("kq-force-always-relay")
+        } else {
             config::option2bool(force_always_relay, &self.get_option(force_always_relay))
                 || Config::get_bool_option(force_always_relay)
-                || force_relay
-                || use_ws()
-                || Config::is_proxy();
+        };
+        self.force_relay =
+            saved_force_always_relay || force_relay || use_ws() || Config::is_proxy();
         if let Some((real_id, server, key)) = &self.other_server {
             let other_server_key = self.get_option("other-server-key");
             if !other_server_key.is_empty() && key.is_empty() {
@@ -2627,7 +2634,10 @@ impl LoginConfigHandler {
         if self.get_toggle_option("disable-audio") {
             msg.disable_audio = BoolOption::Yes.into();
         }
-        if !view_only && self.get_toggle_option(keys::OPTION_ENABLE_FILE_COPY_PASTE) {
+        if !view_only
+            && kq_file_clipboard_enabled()
+            && self.get_toggle_option(keys::OPTION_ENABLE_FILE_COPY_PASTE)
+        {
             msg.enable_file_transfer = BoolOption::Yes.into();
         }
         if view_only || self.get_toggle_option("disable-clipboard") {
@@ -2688,6 +2698,9 @@ impl LoginConfigHandler {
         } else if name == "privacy-mode" {
             self.config.privacy_mode.v
         } else if name == keys::OPTION_ENABLE_FILE_COPY_PASTE {
+            if !kq_file_clipboard_enabled() {
+                return false;
+            }
             self.config.enable_file_copy_paste.v
         } else if name == "disable-audio" {
             self.config.disable_audio.v

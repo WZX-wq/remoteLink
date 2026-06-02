@@ -211,6 +211,11 @@ impl SessionPermissionConfig {
 
     #[cfg(feature = "unix-file-copy-paste")]
     pub fn is_file_clipboard_required(&self) -> bool {
+        if crate::get_app_name() == crate::common::KQ_APP_NAME
+            && !Config::get_bool_option("kq-enable-file-clipboard")
+        {
+            return false;
+        }
         *self.server_keyboard_enabled.read().unwrap()
             && *self.server_file_transfer_enabled.read().unwrap()
             && self.lc.read().unwrap().enable_file_copy_paste.v
