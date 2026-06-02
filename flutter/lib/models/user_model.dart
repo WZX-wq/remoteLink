@@ -28,8 +28,12 @@ class UserModel {
   static const remoteQualityKey = 'custom_image_quality';
   static const remoteFpsKey = 'custom-fps';
   static const remoteCodecKey = 'codec-preference';
+  static const remoteResolutionTierKey = 'kq_remote_resolution_tier';
+  static const remoteFpsTierKey = 'kq_remote_fps_tier';
+  static const remoteResolution720p = '720p';
+  static const remoteResolution1080p = '1080p';
   static const freeRemoteQuality = '80';
-  static const memberRemoteQuality = '90';
+  static const memberRemoteQuality = '100';
 
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
@@ -43,15 +47,37 @@ class UserModel {
   final RxString memberLastError = ''.obs;
   final RxList<KqMemberPackage> memberPackages = <KqMemberPackage>[].obs;
   bool get isLogin => userName.isNotEmpty;
-  int get remoteMaxLongEdge => isMember.value ? 1920 : 1280;
-  int get remoteMaxShortEdge => isMember.value ? 1080 : 720;
-  int get remoteMaxFps => isMember.value ? 60 : 30;
-  String get remoteResolutionLabel => isMember.value ? '1080p' : '720p';
-  String get remoteQualityLabel =>
-      isMember.value ? '1080p / 60 FPS' : '720p / 30 FPS';
+  bool get canUseMemberRemoteQuality => isMember.value;
+  String get remoteResolutionSelection {
+    final saved = bind.mainGetLocalOption(key: remoteResolutionTierKey).trim();
+    if (saved == remoteResolution1080p && canUseMemberRemoteQuality) {
+      return remoteResolution1080p;
+    }
+    return remoteResolution720p;
+  }
+
+  int get remoteFpsSelection {
+    final saved = int.tryParse(bind.mainGetLocalOption(key: remoteFpsTierKey));
+    final fallback =
+        int.tryParse(bind.mainGetUserDefaultOption(key: remoteFpsKey));
+    final fps = saved ?? fallback ?? (canUseMemberRemoteQuality ? 60 : 30);
+    if (canUseMemberRemoteQuality && fps >= 60) {
+      return 60;
+    }
+    return 30;
+  }
+
+  int get remoteMaxLongEdge =>
+      remoteResolutionSelection == remoteResolution1080p ? 1920 : 1280;
+  int get remoteMaxShortEdge =>
+      remoteResolutionSelection == remoteResolution1080p ? 1080 : 720;
+  int get remoteEntitlementMaxFps => canUseMemberRemoteQuality ? 60 : 30;
+  int get remoteMaxFps => remoteFpsSelection;
+  String get remoteResolutionLabel => remoteResolutionSelection;
+  String get remoteQualityLabel => '$remoteResolutionLabel / $remoteMaxFps FPS';
   String get membershipName => isMember.value ? '会员版' : '基础版';
   String get remoteEntitlementHint => isMember.value
-      ? '会员版最高支持 1080p / 60 FPS。'
+      ? '会员可在 720p / 1080p 与 30 / 60 FPS 间切换。'
       : '基础版最高支持 720p / 30 FPS，开通会员后支持 1080p / 60 FPS。';
   String get displayNameOrUserName =>
       displayName.value.trim().isEmpty ? userName.value : displayName.value;
@@ -220,14 +246,47 @@ class UserModel {
     unawaited(_syncRemoteQualityDefaults(isMember.value));
   }
 
-  Future<void> _syncRemoteQualityDefaults(bool active) async {
+  Future<void> _syncRemoteQualityDefaults(
+    bool active, {
+    bool preferMemberDefaults = false,
+  }) async {
+    final savedResolution =
+        bind.mainGetLocalOption(key: remoteResolutionTierKey).trim();
+    final savedFps =
+        int.tryParse(bind.mainGetLocalOption(key: remoteFpsTierKey).trim());
+    final fallbackFps =
+        int.tryParse(bind.mainGetUserDefaultOption(key: remoteFpsKey));
+    final useMemberDefaults =
+        active && (preferMemberDefaults || savedResolution.isEmpty);
+    await setRemotePerformanceProfile(
+      resolutionTier: useMemberDefaults
+          ? remoteResolution1080p
+          : (savedResolution.isEmpty ? remoteResolution720p : savedResolution),
+      fps: useMemberDefaults ? 60 : (savedFps ?? fallbackFps ?? 30),
+    );
+  }
+
+  Future<void> setRemotePerformanceProfile({
+    required String resolutionTier,
+    required int fps,
+  }) async {
+    final normalizedResolution =
+        resolutionTier == remoteResolution1080p && canUseMemberRemoteQuality
+            ? remoteResolution1080p
+            : remoteResolution720p;
+    final normalizedFps = canUseMemberRemoteQuality && fps >= 60 ? 60 : 30;
+    final quality = normalizedResolution == remoteResolution1080p
+        ? memberRemoteQuality
+        : freeRemoteQuality;
+    await bind.mainSetLocalOption(
+        key: remoteResolutionTierKey, value: normalizedResolution);
+    await bind.mainSetLocalOption(
+        key: remoteFpsTierKey, value: normalizedFps.toString());
     await bind.mainSetUserDefaultOption(
         key: kOptionImageQuality, value: kRemoteImageQualityCustom);
+    await bind.mainSetUserDefaultOption(key: remoteQualityKey, value: quality);
     await bind.mainSetUserDefaultOption(
-        key: remoteQualityKey,
-        value: active ? memberRemoteQuality : freeRemoteQuality);
-    await bind.mainSetUserDefaultOption(
-        key: remoteFpsKey, value: active ? '60' : '30');
+        key: remoteFpsKey, value: normalizedFps.toString());
     await bind.mainSetUserDefaultOption(key: remoteCodecKey, value: 'vp9');
   }
 
@@ -237,6 +296,7 @@ class UserModel {
     required String error,
     String? subsite,
   }) async {
+    final wasMember = bind.mainGetLocalOption(key: memberActiveKey) == 'Y';
     isMember.value = active;
     memberExpireAt.value = expireAt;
     memberSubsite.value =
@@ -248,7 +308,8 @@ class UserModel {
     await bind.mainSetLocalOption(
         key: memberSubsiteKey, value: memberSubsite.value);
     await bind.mainSetLocalOption(key: memberLastErrorKey, value: error);
-    await _syncRemoteQualityDefaults(active);
+    await _syncRemoteQualityDefaults(active,
+        preferMemberDefaults: active && !wasMember);
   }
 
   bool _memberBool(dynamic value) {
@@ -285,7 +346,7 @@ class UserModel {
 
   int clampRemoteFps(num fps) {
     final value = fps.round();
-    return math.max(5, math.min(remoteMaxFps, value));
+    return math.max(5, math.min(remoteEntitlementMaxFps, value));
   }
 
   bool _looksLikeJwt(String value) => value.split('.').length == 3;

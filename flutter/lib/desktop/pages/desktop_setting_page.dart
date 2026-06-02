@@ -2001,6 +2001,7 @@ class _AccountState extends State<_Account> {
               children: [
                 _profilePanel(context),
                 _membershipPanel(context).marginOnly(top: 12),
+                _remotePerformancePanel(context).marginOnly(top: 12),
                 _quotaPanel(context).marginOnly(top: 12),
                 _accountActions(context).marginOnly(top: 12),
               ],
@@ -2290,6 +2291,271 @@ class _AccountState extends State<_Account> {
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _saveRemotePerformance({
+    String? resolutionTier,
+    int? fps,
+  }) async {
+    final user = gFFI.userModel;
+    await user.setRemotePerformanceProfile(
+      resolutionTier: resolutionTier ?? user.remoteResolutionSelection,
+      fps: fps ?? user.remoteFpsSelection,
+    );
+    setState(() {});
+    showToast('远控体验已更新：${user.remoteQualityLabel}');
+  }
+
+  Widget _remotePerformancePanel(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final user = gFFI.userModel;
+    final isMember = user.isMember.value;
+    final resolution = user.remoteResolutionSelection;
+    final fps = user.remoteFpsSelection;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: colors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child:
+                    Icon(Icons.tune_outlined, size: 20, color: colors.primary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '远控体验',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      user.remoteEntitlementHint,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodySmall?.color,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _tag(context, user.remoteQualityLabel, Icons.speed_outlined),
+            ],
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(builder: (context, constraints) {
+            final groups = [
+              _remoteOptionGroup(
+                context,
+                title: '清晰度',
+                icon: Icons.high_quality_outlined,
+                children: [
+                  _remoteOptionButton(
+                    context,
+                    label: '720p',
+                    caption: '省带宽',
+                    selected: resolution == UserModel.remoteResolution720p,
+                    enabled: true,
+                    onTap: () => _saveRemotePerformance(
+                      resolutionTier: UserModel.remoteResolution720p,
+                    ),
+                  ),
+                  _remoteOptionButton(
+                    context,
+                    label: '1080p',
+                    caption: '高清',
+                    selected: resolution == UserModel.remoteResolution1080p,
+                    enabled: isMember,
+                    locked: !isMember,
+                    onTap: () => _saveRemotePerformance(
+                      resolutionTier: UserModel.remoteResolution1080p,
+                    ),
+                  ),
+                ],
+              ),
+              _remoteOptionGroup(
+                context,
+                title: '帧率',
+                icon: Icons.speed_outlined,
+                children: [
+                  _remoteOptionButton(
+                    context,
+                    label: '30 FPS',
+                    caption: '稳定',
+                    selected: fps == 30,
+                    enabled: true,
+                    onTap: () => _saveRemotePerformance(fps: 30),
+                  ),
+                  _remoteOptionButton(
+                    context,
+                    label: '60 FPS',
+                    caption: '流畅',
+                    selected: fps == 60,
+                    enabled: isMember,
+                    locked: !isMember,
+                    onTap: () => _saveRemotePerformance(fps: 60),
+                  ),
+                ],
+              ),
+            ];
+            if (constraints.maxWidth < 620) {
+              return Column(
+                children: [
+                  groups[0],
+                  const SizedBox(height: 10),
+                  groups[1],
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: groups[0]),
+                const SizedBox(width: 10),
+                Expanded(child: groups[1]),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _remoteOptionGroup(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withOpacity(0.46),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: colors.primary),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: children[0]),
+              const SizedBox(width: 8),
+              Expanded(child: children[1]),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _remoteOptionButton(
+    BuildContext context, {
+    required String label,
+    required String caption,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+    bool locked = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final foreground = selected
+        ? colors.primary
+        : Theme.of(context).textTheme.bodyMedium?.color ?? colors.onSurface;
+    final borderColor = selected
+        ? colors.primary.withOpacity(0.62)
+        : Theme.of(context).dividerColor;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 58,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? colors.primary.withOpacity(0.10)
+                : colors.surface.withOpacity(enabled ? 1 : 0.42),
+            border: Border.all(color: borderColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: enabled ? foreground : colors.onSurfaceVariant,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodySmall?.color,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                locked
+                    ? Icons.lock_outline
+                    : selected
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                color: locked
+                    ? colors.onSurfaceVariant
+                    : selected
+                        ? colors.primary
+                        : colors.outline,
+                size: 17,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

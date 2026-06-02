@@ -53,6 +53,7 @@ use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
+const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
 const KQ_FREE_MAX_LONG_EDGE: i32 = 1280;
 const KQ_FREE_MAX_SHORT_EDGE: i32 = 720;
 const KQ_MEMBER_MAX_LONG_EDGE: i32 = 1920;
@@ -60,7 +61,9 @@ const KQ_MEMBER_MAX_SHORT_EDGE: i32 = 1080;
 
 #[inline]
 fn kq_remote_resolution_cap() -> (i32, i32) {
-    if LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y" {
+    if LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
+        && LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY) == "1080p"
+    {
         (KQ_MEMBER_MAX_LONG_EDGE, KQ_MEMBER_MAX_SHORT_EDGE)
     } else {
         (KQ_FREE_MAX_LONG_EDGE, KQ_FREE_MAX_SHORT_EDGE)

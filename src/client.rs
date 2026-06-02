@@ -100,8 +100,12 @@ pub const VIDEO_QUEUE_SIZE: usize = 120;
 const MAX_DECODE_FAIL_COUNTER: usize = 3;
 
 const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
+const KQ_REMOTE_FPS_TIER_KEY: &str = "kq_remote_fps_tier";
+const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
 const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
+const KQ_FREE_IMAGE_QUALITY: i32 = 80;
+const KQ_MEMBER_IMAGE_QUALITY: i32 = 100;
 
 #[inline]
 fn kq_member_active() -> bool {
@@ -110,7 +114,7 @@ fn kq_member_active() -> bool {
 
 #[inline]
 fn kq_max_remote_fps() -> i32 {
-    if kq_member_active() {
+    if kq_member_active() && LocalConfig::get_option(KQ_REMOTE_FPS_TIER_KEY) == "60" {
         KQ_MEMBER_MAX_FPS
     } else {
         KQ_FREE_MAX_FPS
@@ -120,6 +124,15 @@ fn kq_max_remote_fps() -> i32 {
 #[inline]
 fn clamp_kq_remote_fps(fps: i32) -> i32 {
     fps.clamp(5, kq_max_remote_fps())
+}
+
+#[inline]
+fn kq_remote_custom_image_quality() -> i32 {
+    if kq_member_active() && LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY) == "1080p" {
+        KQ_MEMBER_IMAGE_QUALITY
+    } else {
+        KQ_FREE_IMAGE_QUALITY
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -2589,31 +2602,38 @@ impl LoginConfigHandler {
                 return None;
             }
         }
-        let q = self.image_quality.clone();
-        if let Some(q) = self.get_image_quality_enum(&q, ignore_default) {
-            msg.image_quality = q.into();
-        } else if q == "custom" {
-            let config = self.load_config();
-            let allow_more = !crate::using_public_server() || self.direct == Some(true);
-            let quality = if config.custom_image_quality.is_empty() {
-                50
-            } else {
-                let mut quality = config.custom_image_quality[0];
-                if !allow_more && quality > 100 {
-                    quality = 50;
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            let custom_fps = kq_max_remote_fps();
+            msg.custom_image_quality = kq_remote_custom_image_quality() << 8;
+            msg.custom_fps = custom_fps;
+            *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
+        } else {
+            let q = self.image_quality.clone();
+            if let Some(q) = self.get_image_quality_enum(&q, ignore_default) {
+                msg.image_quality = q.into();
+            } else if q == "custom" {
+                let config = self.load_config();
+                let allow_more = !crate::using_public_server() || self.direct == Some(true);
+                let quality = if config.custom_image_quality.is_empty() {
+                    50
+                } else {
+                    let mut quality = config.custom_image_quality[0];
+                    if !allow_more && quality > 100 {
+                        quality = 50;
+                    }
+                    quality
+                };
+                msg.custom_image_quality = quality << 8;
+                #[cfg(feature = "flutter")]
+                if let Some(custom_fps) = self.options.get("custom-fps") {
+                    let mut custom_fps = custom_fps.parse().unwrap_or(30);
+                    if !allow_more && custom_fps > 30 {
+                        custom_fps = 30;
+                    }
+                    custom_fps = clamp_kq_remote_fps(custom_fps);
+                    msg.custom_fps = custom_fps;
+                    *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
                 }
-                quality
-            };
-            msg.custom_image_quality = quality << 8;
-            #[cfg(feature = "flutter")]
-            if let Some(custom_fps) = self.options.get("custom-fps") {
-                let mut custom_fps = custom_fps.parse().unwrap_or(30);
-                if !allow_more && custom_fps > 30 {
-                    custom_fps = 30;
-                }
-                custom_fps = clamp_kq_remote_fps(custom_fps);
-                msg.custom_fps = custom_fps;
-                *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
             }
         }
         let view_only = self.get_toggle_option("view-only");
