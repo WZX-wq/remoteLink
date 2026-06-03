@@ -26,7 +26,7 @@ class KqProjectApi {
   static bool get isEnabled => baseUrl.isNotEmpty;
 
   static int get recentHistoryLimit =>
-      bind.mainGetLocalOption(key: UserModel.memberActiveKey) == 'Y' ? 50 : 5;
+      UserModel.isLocalMemberActiveForCurrentUser ? 50 : 5;
 
   static Future<void> syncRecentPeers(List<Peer> peers) async {
     if (!isEnabled || peers.isEmpty) return;

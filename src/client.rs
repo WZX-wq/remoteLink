@@ -100,22 +100,67 @@ pub const VIDEO_QUEUE_SIZE: usize = 120;
 const MAX_DECODE_FAIL_COUNTER: usize = 3;
 
 const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
+const KQ_MEMBER_USER_ID_KEY: &str = "kq_member_user_id";
 const KQ_REMOTE_FPS_TIER_KEY: &str = "kq_remote_fps_tier";
 const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
+const KQ_TEST_UNLIMITED_MEMBER_USER_ID: &str = "13";
 const KQ_FREE_MAX_FPS: i32 = 30;
-const KQ_MEMBER_MAX_FPS: i32 = 60;
+const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
+const KQ_MEMBER_MAX_FPS: i32 = 120;
 const KQ_FREE_IMAGE_QUALITY: i32 = 80;
 const KQ_MEMBER_IMAGE_QUALITY: i32 = 100;
 
+fn kq_json_id(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.trim().to_owned(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn kq_local_user_primary_id() -> String {
+    let user_info = LocalConfig::get_option("user_info");
+    if user_info.trim().is_empty() {
+        return String::new();
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&user_info) else {
+        return String::new();
+    };
+    let direct = value.get("id").map(kq_json_id).unwrap_or_default();
+    if !direct.is_empty() {
+        return direct;
+    }
+    value
+        .get("external_auth_raw")
+        .and_then(|raw| raw.get("user"))
+        .and_then(|user| user.get("id"))
+        .map(kq_json_id)
+        .unwrap_or_default()
+}
+
 #[inline]
 fn kq_member_active() -> bool {
-    LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
+    let user_id = kq_local_user_primary_id();
+    if user_id == KQ_TEST_UNLIMITED_MEMBER_USER_ID {
+        return true;
+    }
+    !user_id.is_empty()
+        && LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
+        && LocalConfig::get_option(KQ_MEMBER_USER_ID_KEY) == user_id
 }
 
 #[inline]
 fn kq_max_remote_fps() -> i32 {
-    if kq_member_active() && LocalConfig::get_option(KQ_REMOTE_FPS_TIER_KEY) == "60" {
+    if !kq_member_active() {
+        return KQ_FREE_MAX_FPS;
+    }
+    let fps = LocalConfig::get_option(KQ_REMOTE_FPS_TIER_KEY)
+        .parse::<i32>()
+        .unwrap_or(KQ_MEMBER_DEFAULT_FPS);
+    if fps >= KQ_MEMBER_MAX_FPS {
         KQ_MEMBER_MAX_FPS
+    } else if fps >= KQ_MEMBER_DEFAULT_FPS {
+        KQ_MEMBER_DEFAULT_FPS
     } else {
         KQ_FREE_MAX_FPS
     }

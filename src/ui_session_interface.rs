@@ -53,17 +53,55 @@ use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
+const KQ_MEMBER_USER_ID_KEY: &str = "kq_member_user_id";
 const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
+const KQ_TEST_UNLIMITED_MEMBER_USER_ID: &str = "13";
 const KQ_FREE_MAX_LONG_EDGE: i32 = 1280;
 const KQ_FREE_MAX_SHORT_EDGE: i32 = 720;
 const KQ_MEMBER_MAX_LONG_EDGE: i32 = 1920;
 const KQ_MEMBER_MAX_SHORT_EDGE: i32 = 1080;
 
+fn kq_json_id(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.trim().to_owned(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn kq_local_user_primary_id() -> String {
+    let user_info = LocalConfig::get_option("user_info");
+    if user_info.trim().is_empty() {
+        return String::new();
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&user_info) else {
+        return String::new();
+    };
+    let direct = value.get("id").map(kq_json_id).unwrap_or_default();
+    if !direct.is_empty() {
+        return direct;
+    }
+    value
+        .get("external_auth_raw")
+        .and_then(|raw| raw.get("user"))
+        .and_then(|user| user.get("id"))
+        .map(kq_json_id)
+        .unwrap_or_default()
+}
+
+fn kq_member_active() -> bool {
+    let user_id = kq_local_user_primary_id();
+    if user_id == KQ_TEST_UNLIMITED_MEMBER_USER_ID {
+        return true;
+    }
+    !user_id.is_empty()
+        && LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
+        && LocalConfig::get_option(KQ_MEMBER_USER_ID_KEY) == user_id
+}
+
 #[inline]
 fn kq_remote_resolution_cap() -> (i32, i32) {
-    if LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
-        && LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY) == "1080p"
-    {
+    if kq_member_active() && LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY) == "1080p" {
         (KQ_MEMBER_MAX_LONG_EDGE, KQ_MEMBER_MAX_SHORT_EDGE)
     } else {
         (KQ_FREE_MAX_LONG_EDGE, KQ_FREE_MAX_SHORT_EDGE)

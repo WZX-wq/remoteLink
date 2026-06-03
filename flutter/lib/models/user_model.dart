@@ -19,6 +19,7 @@ bool refreshingUser = false;
 
 class UserModel {
   static const memberActiveKey = 'kq_member_active';
+  static const memberUserIdKey = 'kq_member_user_id';
   static const memberExpireAtKey = 'kq_member_expire_at';
   static const memberSubsiteKey = 'kq_member_subsite_name';
   static const memberLastErrorKey = 'kq_member_last_error';
@@ -32,6 +33,9 @@ class UserModel {
   static const remoteFpsTierKey = 'kq_remote_fps_tier';
   static const remoteResolution720p = '720p';
   static const remoteResolution1080p = '1080p';
+  static const freeMaxFps = 30;
+  static const memberDefaultFps = 60;
+  static const memberMaxFps = 120;
   static const freeRemoteQuality = '80';
   static const memberRemoteQuality = '100';
 
@@ -60,25 +64,31 @@ class UserModel {
     final saved = int.tryParse(bind.mainGetLocalOption(key: remoteFpsTierKey));
     final fallback =
         int.tryParse(bind.mainGetUserDefaultOption(key: remoteFpsKey));
-    final fps = saved ?? fallback ?? (canUseMemberRemoteQuality ? 60 : 30);
-    if (canUseMemberRemoteQuality && fps >= 60) {
-      return 60;
+    final fps = saved ??
+        fallback ??
+        (canUseMemberRemoteQuality ? memberDefaultFps : freeMaxFps);
+    if (canUseMemberRemoteQuality) {
+      if (fps >= memberMaxFps) return memberMaxFps;
+      if (fps >= memberDefaultFps) return memberDefaultFps;
+      return freeMaxFps;
     }
-    return 30;
+    return freeMaxFps;
   }
 
   int get remoteMaxLongEdge =>
       remoteResolutionSelection == remoteResolution1080p ? 1920 : 1280;
   int get remoteMaxShortEdge =>
       remoteResolutionSelection == remoteResolution1080p ? 1080 : 720;
-  int get remoteEntitlementMaxFps => canUseMemberRemoteQuality ? 60 : 30;
-  int get remoteMaxFps => remoteFpsSelection;
+  int get remoteEntitlementMaxFps =>
+      canUseMemberRemoteQuality ? memberMaxFps : freeMaxFps;
+  int get remoteMaxFps => remoteEntitlementMaxFps;
   String get remoteResolutionLabel => remoteResolutionSelection;
-  String get remoteQualityLabel => '$remoteResolutionLabel / $remoteMaxFps FPS';
+  String get remoteQualityLabel =>
+      '$remoteResolutionLabel / $remoteFpsSelection FPS';
   String get membershipName => isMember.value ? '会员版' : '基础版';
   String get remoteEntitlementHint => isMember.value
-      ? '会员可在 720p / 1080p 与 30 / 60 FPS 间切换。'
-      : '基础版最高支持 720p / 30 FPS，开通会员后支持 1080p / 60 FPS。';
+      ? '会员可在 720p / 1080p 与 30 / 60 / 120 FPS 间切换。'
+      : '基础版最高支持 720p / 30 FPS，开通会员后支持 1080p / 120 FPS。';
   String get displayNameOrUserName =>
       displayName.value.trim().isEmpty ? userName.value : displayName.value;
   String get accountLabelWithHandle {
@@ -199,6 +209,18 @@ class UserModel {
   static bool get isKqTestUnlimitedMember =>
       _localUserPrimaryId() == kqTestUnlimitedMemberUserId;
 
+  static bool get isLocalMemberActiveForCurrentUser {
+    final userId = _localUserPrimaryId();
+    if (userId == kqTestUnlimitedMemberUserId) {
+      return true;
+    }
+    if (userId.isEmpty) {
+      return false;
+    }
+    return bind.mainGetLocalOption(key: memberActiveKey) == 'Y' &&
+        bind.mainGetLocalOption(key: memberUserIdKey).trim() == userId;
+  }
+
   _updateLocalUserInfo() {
     final userInfo = getLocalUserInfo();
     if (userInfo != null) {
@@ -237,8 +259,7 @@ class UserModel {
   }
 
   void _loadLocalMembership() {
-    isMember.value = isKqTestUnlimitedMember ||
-        bind.mainGetLocalOption(key: memberActiveKey) == 'Y';
+    isMember.value = isLocalMemberActiveForCurrentUser;
     memberExpireAt.value = bind.mainGetLocalOption(key: memberExpireAtKey);
     final subsite = bind.mainGetLocalOption(key: memberSubsiteKey);
     memberSubsite.value = subsite.isEmpty ? memberSubsiteName : subsite;
@@ -262,7 +283,9 @@ class UserModel {
       resolutionTier: useMemberDefaults
           ? remoteResolution1080p
           : (savedResolution.isEmpty ? remoteResolution720p : savedResolution),
-      fps: useMemberDefaults ? 60 : (savedFps ?? fallbackFps ?? 30),
+      fps: useMemberDefaults
+          ? memberDefaultFps
+          : (savedFps ?? fallbackFps ?? freeMaxFps),
     );
   }
 
@@ -274,7 +297,11 @@ class UserModel {
         resolutionTier == remoteResolution1080p && canUseMemberRemoteQuality
             ? remoteResolution1080p
             : remoteResolution720p;
-    final normalizedFps = canUseMemberRemoteQuality && fps >= 60 ? 60 : 30;
+    final normalizedFps = canUseMemberRemoteQuality
+        ? (fps >= memberMaxFps
+            ? memberMaxFps
+            : (fps >= memberDefaultFps ? memberDefaultFps : freeMaxFps))
+        : freeMaxFps;
     final quality = normalizedResolution == remoteResolution1080p
         ? memberRemoteQuality
         : freeRemoteQuality;
@@ -296,7 +323,8 @@ class UserModel {
     required String error,
     String? subsite,
   }) async {
-    final wasMember = bind.mainGetLocalOption(key: memberActiveKey) == 'Y';
+    final wasMember = isLocalMemberActiveForCurrentUser;
+    final userId = _localUserPrimaryId();
     isMember.value = active;
     memberExpireAt.value = expireAt;
     memberSubsite.value =
@@ -304,6 +332,8 @@ class UserModel {
     memberLastError.value = error;
     await bind.mainSetLocalOption(
         key: memberActiveKey, value: active ? 'Y' : 'N');
+    await bind.mainSetLocalOption(
+        key: memberUserIdKey, value: active && userId.isNotEmpty ? userId : '');
     await bind.mainSetLocalOption(key: memberExpireAtKey, value: expireAt);
     await bind.mainSetLocalOption(
         key: memberSubsiteKey, value: memberSubsite.value);
