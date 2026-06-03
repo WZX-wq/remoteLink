@@ -1869,6 +1869,7 @@ impl Connection {
             peer_id.to_owned(),
             hbb_common::rendezvous_proto::ConnType::DEFAULT_CONN,
         ) > 0
+            || crate::common::kq_has_active_outgoing_desktop_peer(peer_id)
     }
 
     fn try_sub_monitor_services(&mut self) {

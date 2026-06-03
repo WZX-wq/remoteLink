@@ -2116,10 +2116,14 @@ pub mod sessions {
                 None => {}
             }
         }
-        let s = SESSIONS.write().unwrap().remove(&remove_peer_key?);
+        let remove_peer_key = remove_peer_key?;
+        let s = SESSIONS.write().unwrap().remove(&remove_peer_key)?;
+        if remove_peer_key.1 == ConnType::DEFAULT_CONN {
+            crate::common::kq_mark_outgoing_desktop_peer_inactive(&remove_peer_key.0);
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         update_session_count_to_server();
-        s
+        Some(s)
     }
 
     /// Check if removing a session by session_id would result in removing the entire peer.
@@ -2231,16 +2235,20 @@ pub mod sessions {
 
     #[inline]
     pub fn insert_session(session_id: SessionID, conn_type: ConnType, session: FlutterSession) {
+        let peer_id = session.get_id();
         SESSIONS
             .write()
             .unwrap()
-            .entry((session.get_id(), conn_type))
+            .entry((peer_id.clone(), conn_type))
             .or_insert(session)
             .ui_handler
             .session_handlers
             .write()
             .unwrap()
             .insert(session_id, Default::default());
+        if conn_type == ConnType::DEFAULT_CONN {
+            crate::common::kq_mark_outgoing_desktop_peer_active(&peer_id);
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         update_session_count_to_server();
     }
@@ -2258,7 +2266,8 @@ pub mod sessions {
         session_id: SessionID,
         displays: Vec<i32>,
     ) -> bool {
-        if let Some(s) = SESSIONS.read().unwrap().get(&(peer_id, conn_type)) {
+        let peer_key = (peer_id.clone(), conn_type);
+        if let Some(s) = SESSIONS.read().unwrap().get(&peer_key) {
             let mut h = SessionHandler::default();
             h.displays = displays.iter().map(|x| *x as usize).collect::<_>();
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -2278,6 +2287,9 @@ pub mod sessions {
             // If this is the second time the display is opened, the old valid flag may be true.
             if displays.len() == 1 {
                 s.ui_handler.next_rgba(displays[0] as usize);
+            }
+            if conn_type == ConnType::DEFAULT_CONN {
+                crate::common::kq_mark_outgoing_desktop_peer_active(&peer_id);
             }
             true
         } else {

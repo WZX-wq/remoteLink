@@ -1,11 +1,15 @@
 use std::{
     collections::HashMap,
+    fs as std_fs,
     future::Future,
     net::{SocketAddr, ToSocketAddrs},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     task::Poll,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 #[cfg(not(target_os = "ios"))]
@@ -65,6 +69,259 @@ pub const TIMER_OUT: Duration = Duration::from_secs(1);
 pub const DEFAULT_KEEP_ALIVE: i32 = 60_000;
 
 const MIN_VER_MULTI_UI_SESSION: &str = "1.2.4";
+const KQ_OUTGOING_DESKTOP_GUARD_DIR: &str = "KQRemoteLink";
+const KQ_OUTGOING_DESKTOP_GUARD_FILE_PREFIX: &str = "outgoing-desktop-peer-";
+const KQ_OUTGOING_DESKTOP_GUARD_FILE_SUFFIX: &str = ".json";
+const KQ_OUTGOING_DESKTOP_GUARD_TTL_SECS: u64 = 24 * 60 * 60;
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct KqOutgoingDesktopGuardMarker {
+    #[serde(default)]
+    peer_id: String,
+    #[serde(default)]
+    updated_at_unix_secs: u64,
+    #[serde(default)]
+    process_id: u32,
+    #[serde(default)]
+    process_path: String,
+}
+
+fn kq_now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default()
+}
+
+fn kq_normalize_guard_peer_id(peer_id: &str) -> Option<String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        None
+    } else {
+        Some(peer_id.to_owned())
+    }
+}
+
+fn kq_guard_peer_file_name(peer_id: &str) -> Option<String> {
+    let peer_id = kq_normalize_guard_peer_id(peer_id)?;
+    let mut encoded = String::with_capacity(peer_id.len());
+    for byte in peer_id.bytes() {
+        if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Some(format!(
+        "{KQ_OUTGOING_DESKTOP_GUARD_FILE_PREFIX}{encoded}{KQ_OUTGOING_DESKTOP_GUARD_FILE_SUFFIX}"
+    ))
+}
+
+fn kq_outgoing_desktop_guard_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    #[cfg(windows)]
+    {
+        if let Some(public) = std::env::var_os("PUBLIC") {
+            dirs.push(
+                PathBuf::from(public)
+                    .join("Documents")
+                    .join(KQ_OUTGOING_DESKTOP_GUARD_DIR),
+            );
+        }
+        if let Some(program_data) = std::env::var_os("ProgramData") {
+            dirs.push(PathBuf::from(program_data).join(KQ_OUTGOING_DESKTOP_GUARD_DIR));
+        } else if let Some(all_users_profile) = std::env::var_os("ALLUSERSPROFILE") {
+            dirs.push(PathBuf::from(all_users_profile).join(KQ_OUTGOING_DESKTOP_GUARD_DIR));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        dirs.push(Config::path(KQ_OUTGOING_DESKTOP_GUARD_DIR));
+    }
+    dirs.push(std::env::temp_dir().join(KQ_OUTGOING_DESKTOP_GUARD_DIR));
+    dirs
+}
+
+fn kq_outgoing_desktop_guard_paths(peer_id: &str) -> Vec<PathBuf> {
+    let Some(file_name) = kq_guard_peer_file_name(peer_id) else {
+        return Vec::new();
+    };
+    kq_outgoing_desktop_guard_dirs()
+        .into_iter()
+        .map(|dir| dir.join(&file_name))
+        .collect()
+}
+
+fn kq_remove_outgoing_desktop_guard_path(path: &Path) {
+    if let Err(err) = std_fs::remove_file(path) {
+        if err.kind() != std::io::ErrorKind::NotFound {
+            log::debug!(
+                "Failed to remove KQ outgoing desktop guard marker '{}': {}",
+                path.display(),
+                err
+            );
+        }
+    }
+}
+
+fn kq_process_matches_marker(marker: &KqOutgoingDesktopGuardMarker) -> bool {
+    if marker.process_id == 0 {
+        return false;
+    }
+    let mut sys = hbb_common::sysinfo::System::new();
+    sys.refresh_processes();
+    let Some(process) = sys.process(hbb_common::sysinfo::Pid::from_u32(marker.process_id)) else {
+        return false;
+    };
+    let marker_process_path = marker.process_path.trim();
+    if marker_process_path.is_empty() {
+        return true;
+    }
+    let process_path = process.exe().to_string_lossy();
+    if process_path.is_empty() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        process_path.eq_ignore_ascii_case(marker_process_path)
+    }
+    #[cfg(not(windows))]
+    {
+        process_path == marker_process_path
+    }
+}
+
+fn kq_outgoing_desktop_guard_marker_is_active(
+    peer_id: &str,
+    marker: &KqOutgoingDesktopGuardMarker,
+) -> bool {
+    if marker.peer_id.trim() != peer_id {
+        return false;
+    }
+    let now = kq_now_unix_secs();
+    if marker.updated_at_unix_secs == 0
+        || now.saturating_sub(marker.updated_at_unix_secs) > KQ_OUTGOING_DESKTOP_GUARD_TTL_SECS
+    {
+        return false;
+    }
+    kq_process_matches_marker(marker)
+}
+
+pub fn kq_mark_outgoing_desktop_peer_active(peer_id: &str) {
+    if get_app_name() != KQ_APP_NAME {
+        return;
+    }
+    let Some(peer_id) = kq_normalize_guard_peer_id(peer_id) else {
+        return;
+    };
+    let marker = KqOutgoingDesktopGuardMarker {
+        peer_id: peer_id.clone(),
+        updated_at_unix_secs: kq_now_unix_secs(),
+        process_id: std::process::id(),
+        process_path: std::env::current_exe()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    };
+    let Ok(marker_json) = serde_json::to_string(&marker) else {
+        log::warn!("Failed to serialize KQ outgoing desktop guard marker");
+        return;
+    };
+
+    let mut stored = false;
+    for path in kq_outgoing_desktop_guard_paths(&peer_id) {
+        if let Some(parent) = path.parent() {
+            if let Err(err) = std_fs::create_dir_all(parent) {
+                log::debug!(
+                    "Failed to create KQ outgoing desktop guard dir '{}': {}",
+                    parent.display(),
+                    err
+                );
+                continue;
+            }
+        }
+        match std_fs::write(&path, &marker_json) {
+            Ok(()) => {
+                stored = true;
+                log::debug!(
+                    "Marked outgoing desktop peer {} active at {}",
+                    peer_id,
+                    path.display()
+                );
+            }
+            Err(err) => {
+                log::debug!(
+                    "Failed to write KQ outgoing desktop guard marker '{}': {}",
+                    path.display(),
+                    err
+                );
+            }
+        }
+    }
+    if !stored {
+        log::warn!(
+            "Failed to store KQ outgoing desktop guard marker for peer {}",
+            peer_id
+        );
+    }
+}
+
+pub fn kq_mark_outgoing_desktop_peer_inactive(peer_id: &str) {
+    if get_app_name() != KQ_APP_NAME {
+        return;
+    }
+    let Some(peer_id) = kq_normalize_guard_peer_id(peer_id) else {
+        return;
+    };
+    for path in kq_outgoing_desktop_guard_paths(&peer_id) {
+        kq_remove_outgoing_desktop_guard_path(&path);
+    }
+}
+
+pub fn kq_has_active_outgoing_desktop_peer(peer_id: &str) -> bool {
+    if get_app_name() != KQ_APP_NAME {
+        return false;
+    }
+    let Some(peer_id) = kq_normalize_guard_peer_id(peer_id) else {
+        return false;
+    };
+    let paths = kq_outgoing_desktop_guard_paths(&peer_id);
+    for path in paths {
+        let Ok(marker_json) = std_fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(marker) = serde_json::from_str::<KqOutgoingDesktopGuardMarker>(&marker_json) else {
+            kq_remove_outgoing_desktop_guard_path(&path);
+            continue;
+        };
+        if kq_outgoing_desktop_guard_marker_is_active(&peer_id, &marker) {
+            return true;
+        }
+        kq_remove_outgoing_desktop_guard_path(&path);
+    }
+    false
+}
+
+#[cfg(test)]
+mod kq_outgoing_desktop_guard_tests {
+    use super::*;
+
+    #[test]
+    fn kq_outgoing_desktop_guard_round_trip() {
+        let old_app_name = hbb_common::config::APP_NAME.read().unwrap().clone();
+        *hbb_common::config::APP_NAME.write().unwrap() = KQ_APP_NAME.to_owned();
+
+        let peer_id = format!("codex-test-peer-{}", std::process::id());
+        kq_mark_outgoing_desktop_peer_inactive(&peer_id);
+        assert!(!kq_has_active_outgoing_desktop_peer(&peer_id));
+
+        kq_mark_outgoing_desktop_peer_active(&peer_id);
+        assert!(kq_has_active_outgoing_desktop_peer(&peer_id));
+
+        kq_mark_outgoing_desktop_peer_inactive(&peer_id);
+        assert!(!kq_has_active_outgoing_desktop_peer(&peer_id));
+        *hbb_common::config::APP_NAME.write().unwrap() = old_app_name;
+    }
+}
 
 pub mod input {
     pub const MOUSE_TYPE_MOVE: i32 = 0;
