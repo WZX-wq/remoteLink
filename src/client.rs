@@ -2835,8 +2835,12 @@ impl LoginConfigHandler {
         );
         if crate::get_app_name() == crate::common::KQ_APP_NAME {
             decoding.ability_av1 = 0;
-            if decoding.prefer == supported_decoding::PreferCodec::AV1.into() {
+            if decoding.ability_vp9 > 0 {
                 decoding.prefer = supported_decoding::PreferCodec::VP9.into();
+            } else if decoding.prefer == supported_decoding::PreferCodec::AV1.into()
+                || decoding.prefer == supported_decoding::PreferCodec::VP8.into()
+            {
+                decoding.prefer = supported_decoding::PreferCodec::Auto.into();
             }
             if let Some(i444) = decoding.i444.as_mut() {
                 i444.av1 = false;
@@ -3295,12 +3299,7 @@ impl LoginConfigHandler {
     }
 
     pub fn update_supported_decodings(&self) -> Message {
-        let decoding = scrap::codec::Decoder::supported_decodings(
-            Some(&self.id),
-            use_texture_render(),
-            self.adapter_luid,
-            &self.mark_unsupported,
-        );
+        let decoding = self.get_supported_decoding();
         let mut misc = Misc::new();
         misc.set_option(OptionMessage {
             supported_decoding: hbb_common::protobuf::MessageField::some(decoding),
