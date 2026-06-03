@@ -947,7 +947,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
             targetFps >= 60) &&
         !user.canUseMemberRemoteQuality;
     if (memberOnly) {
-      showToast('开通会员后可使用 1080p / 60/120 FPS');
+      showToast('开通会员后可使用 1080p / 60 FPS');
       return;
     }
 
@@ -1220,15 +1220,6 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
         enabled: !_saving && isMember,
         locked: !isMember,
         onPressed: () => _applyProfile(fps: 60),
-      ),
-      _optionButton(
-        context,
-        label: '120 FPS',
-        caption: isMember ? '极致流畅' : '会员可用',
-        selected: fps == 120,
-        enabled: !_saving && isMember,
-        locked: !isMember,
-        onPressed: () => _applyProfile(fps: 120),
       ),
       Divider(),
       MenuButton(

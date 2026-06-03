@@ -106,7 +106,7 @@ const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
 const KQ_TEST_UNLIMITED_MEMBER_USER_ID: &str = "13";
 const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
-const KQ_MEMBER_MAX_FPS: i32 = 120;
+const KQ_MEMBER_MAX_FPS: i32 = 60;
 const KQ_FREE_IMAGE_QUALITY: i32 = 50;
 const KQ_MEMBER_IMAGE_QUALITY: i32 = 50;
 
@@ -3020,7 +3020,7 @@ impl LoginConfigHandler {
 
     pub fn reset_auto_adjust_fps_to_custom(&mut self) -> Option<Message> {
         let fps = (*self.custom_fps.lock().unwrap())?;
-        if !(5..=120).contains(&fps) {
+        if !(5..=KQ_MEMBER_MAX_FPS as usize).contains(&fps) {
             return None;
         }
         self.last_auto_fps = Some(fps);

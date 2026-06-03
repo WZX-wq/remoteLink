@@ -2287,7 +2287,7 @@ class _AccountState extends State<_Account> {
             icon: Icons.workspace_premium_outlined,
             label: '当前档位',
             value: user.membershipName,
-            caption: user.isMember.value ? '会员权益已解锁' : '可升级至 1080p/120',
+            caption: user.isMember.value ? '会员权益已解锁' : '可升级至 1080p/60',
           ),
         ),
       ],
@@ -2413,15 +2413,6 @@ class _AccountState extends State<_Account> {
                     enabled: isMember,
                     locked: !isMember,
                     onTap: () => _saveRemotePerformance(fps: 60),
-                  ),
-                  _remoteOptionButton(
-                    context,
-                    label: '120 FPS',
-                    caption: '极致流畅',
-                    selected: fps == 120,
-                    enabled: isMember,
-                    locked: !isMember,
-                    onTap: () => _saveRemotePerformance(fps: 120),
                   ),
                 ],
               ),
@@ -2752,7 +2743,7 @@ class _AccountState extends State<_Account> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '会员解锁 1080p / 120 FPS，免费用户保留 720p / 30 FPS。',
+                        '会员解锁 1080p / 60 FPS，免费用户保留 720p / 30 FPS。',
                         style: TextStyle(
                           color: Theme.of(context).textTheme.bodySmall?.color,
                         ),
@@ -2927,7 +2918,7 @@ class _AccountState extends State<_Account> {
             const Spacer(),
             Text(
               package.benefitText.isEmpty
-                  ? '1080p / 120 FPS'
+                  ? '1080p / 60 FPS'
                   : package.benefitText,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

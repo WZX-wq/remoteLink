@@ -35,7 +35,7 @@ class UserModel {
   static const remoteResolution1080p = '1080p';
   static const freeMaxFps = 30;
   static const memberDefaultFps = 60;
-  static const memberMaxFps = 120;
+  static const memberMaxFps = 60;
   static const freeRemoteQuality = '50';
   static const memberRemoteQuality = '50';
 
@@ -87,8 +87,8 @@ class UserModel {
       '$remoteResolutionLabel / $remoteFpsSelection FPS';
   String get membershipName => isMember.value ? '会员版' : '基础版';
   String get remoteEntitlementHint => isMember.value
-      ? '会员可在 720p / 1080p 与 30 / 60 / 120 FPS 间切换。'
-      : '基础版最高支持 720p / 30 FPS，开通会员后支持 1080p / 120 FPS。';
+      ? '会员可在 720p / 1080p 与 30 / 60 FPS 间切换。'
+      : '基础版最高支持 720p / 30 FPS，开通会员后支持 1080p / 60 FPS。';
   String get displayNameOrUserName =>
       displayName.value.trim().isEmpty ? userName.value : displayName.value;
   String get accountLabelWithHandle {
