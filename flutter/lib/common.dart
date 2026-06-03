@@ -2308,10 +2308,17 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
     }
   }
   if (type != null && id != null) {
+    final targetId = id;
     switch (type) {
       case UriLinkType.remoteDesktop:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newRemoteDesktop(id!,
+          recordKqConnectionHistory(targetId,
+              isFileTransfer: false,
+              isViewCamera: false,
+              isTerminal: false,
+              isTcpTunneling: false,
+              isRDP: false);
+          rustDeskWinManager.newRemoteDesktop(targetId,
               password: password,
               switchUuid: switchUuid,
               forceRelay: forceRelay);
@@ -2319,31 +2326,61 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
         break;
       case UriLinkType.fileTransfer:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newFileTransfer(id!,
+          recordKqConnectionHistory(targetId,
+              isFileTransfer: true,
+              isViewCamera: false,
+              isTerminal: false,
+              isTcpTunneling: false,
+              isRDP: false);
+          rustDeskWinManager.newFileTransfer(targetId,
               password: password, forceRelay: forceRelay);
         });
         break;
       case UriLinkType.viewCamera:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newViewCamera(id!,
+          recordKqConnectionHistory(targetId,
+              isFileTransfer: false,
+              isViewCamera: true,
+              isTerminal: false,
+              isTcpTunneling: false,
+              isRDP: false);
+          rustDeskWinManager.newViewCamera(targetId,
               password: password, forceRelay: forceRelay);
         });
         break;
       case UriLinkType.portForward:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newPortForward(id!, false,
+          recordKqConnectionHistory(targetId,
+              isFileTransfer: false,
+              isViewCamera: false,
+              isTerminal: false,
+              isTcpTunneling: true,
+              isRDP: false);
+          rustDeskWinManager.newPortForward(targetId, false,
               password: password, forceRelay: forceRelay);
         });
         break;
       case UriLinkType.rdp:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newPortForward(id!, true,
+          recordKqConnectionHistory(targetId,
+              isFileTransfer: false,
+              isViewCamera: false,
+              isTerminal: false,
+              isTcpTunneling: false,
+              isRDP: true);
+          rustDeskWinManager.newPortForward(targetId, true,
               password: password, forceRelay: forceRelay);
         });
         break;
       case UriLinkType.terminal:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newTerminal(id!,
+          recordKqConnectionHistory(targetId,
+              isFileTransfer: false,
+              isViewCamera: false,
+              isTerminal: true,
+              isTcpTunneling: false,
+              isRDP: false);
+          rustDeskWinManager.newTerminal(targetId,
               password: password, forceRelay: forceRelay);
         });
         break;
@@ -2566,6 +2603,14 @@ connect(BuildContext context, String id,
   assert(!(isFileTransfer && isTcpTunneling && isRDP),
       "more than one connect type");
   await _showKqNetworkRiskToastIfNeeded();
+  recordKqConnectionHistory(
+    id,
+    isFileTransfer: isFileTransfer,
+    isViewCamera: isViewCamera,
+    isTerminal: isTerminal,
+    isTcpTunneling: isTcpTunneling,
+    isRDP: isRDP,
+  );
 
   if (isDesktop) {
     if (desktopType == DesktopType.main) {
