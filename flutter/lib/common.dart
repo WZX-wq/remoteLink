@@ -2526,7 +2526,70 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
   return null;
 }
 
-connectMainDesktop(String id,
+String _kqLoopGuardPeerId(String id) {
+  return id.replaceAll(RegExp(r'\s+'), '').trim().toLowerCase();
+}
+
+bool _isKqPlainRemoteDesktopConnect({
+  required bool isFileTransfer,
+  required bool isViewCamera,
+  required bool isTerminal,
+  required bool isTcpTunneling,
+  required bool isRDP,
+}) {
+  return !isFileTransfer &&
+      !isViewCamera &&
+      !isTerminal &&
+      !isTcpTunneling &&
+      !isRDP;
+}
+
+Future<bool> _blockKqRecursiveRemoteDesktopIfNeeded(
+  String id, {
+  required bool isFileTransfer,
+  required bool isViewCamera,
+  required bool isTerminal,
+  required bool isTcpTunneling,
+  required bool isRDP,
+}) async {
+  if (!_isKqPlainRemoteDesktopConnect(
+    isFileTransfer: isFileTransfer,
+    isViewCamera: isViewCamera,
+    isTerminal: isTerminal,
+    isTcpTunneling: isTcpTunneling,
+    isRDP: isRDP,
+  )) {
+    return false;
+  }
+  final targetId = _kqLoopGuardPeerId(id);
+  if (targetId.isEmpty) {
+    return false;
+  }
+  try {
+    await gFFI.serverModel.updateClientState();
+  } catch (e) {
+    debugPrint('Failed to refresh incoming clients before connect: $e');
+  }
+  final isControlledByTarget = gFFI.serverModel.clients.any((client) {
+    if (!client.authorized || client.disconnected || client.fromSwitch) {
+      return false;
+    }
+    if (client.isFileTransfer ||
+        client.isViewCamera ||
+        client.isTerminal ||
+        client.portForward.isNotEmpty) {
+      return false;
+    }
+    return _kqLoopGuardPeerId(client.peerId) == targetId;
+  });
+  if (!isControlledByTarget) {
+    return false;
+  }
+  showToast('当前设备正在被该伙伴远程控制。为避免画面循环，请先断开当前连接，或使用工具栏里的切换控制方向。');
+  return true;
+}
+
+Future<bool> connectMainDesktop(String id,
     {required bool isFileTransfer,
     required bool isViewCamera,
     required bool isTerminal,
@@ -2535,7 +2598,19 @@ connectMainDesktop(String id,
     bool? forceRelay,
     String? password,
     String? connToken,
-    bool? isSharedPassword}) async {
+    bool? isSharedPassword,
+    bool checkRecursiveLoop = true}) async {
+  if (checkRecursiveLoop) {
+    final blocked = await _blockKqRecursiveRemoteDesktopIfNeeded(
+      id,
+      isFileTransfer: isFileTransfer,
+      isViewCamera: isViewCamera,
+      isTerminal: isTerminal,
+      isTcpTunneling: isTcpTunneling,
+      isRDP: isRDP,
+    );
+    if (blocked) return false;
+  }
   if (isFileTransfer) {
     await rustDeskWinManager.newFileTransfer(id,
         password: password,
@@ -2566,6 +2641,7 @@ connectMainDesktop(String id,
         isSharedPassword: isSharedPassword,
         forceRelay: forceRelay);
   }
+  return true;
 }
 
 /// Connect to a peer with [id].
@@ -2602,6 +2678,17 @@ connect(BuildContext context, String id,
   forceRelay = id != oldId || forceRelay;
   assert(!(isFileTransfer && isTcpTunneling && isRDP),
       "more than one connect type");
+  if (isDesktop && desktopType == DesktopType.main) {
+    final blocked = await _blockKqRecursiveRemoteDesktopIfNeeded(
+      id,
+      isFileTransfer: isFileTransfer,
+      isViewCamera: isViewCamera,
+      isTerminal: isTerminal,
+      isTcpTunneling: isTcpTunneling,
+      isRDP: isRDP,
+    );
+    if (blocked) return;
+  }
   await _showKqNetworkRiskToastIfNeeded();
   recordKqConnectionHistory(
     id,
@@ -2624,6 +2711,7 @@ connect(BuildContext context, String id,
         password: password,
         isSharedPassword: isSharedPassword,
         forceRelay: forceRelay,
+        checkRecursiveLoop: false,
       );
     } else {
       await rustDeskWinManager.call(WindowType.Main, kWindowConnect, {
