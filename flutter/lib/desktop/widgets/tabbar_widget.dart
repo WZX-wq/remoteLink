@@ -333,6 +333,7 @@ class _DesktopTabState extends State<DesktopTab>
       tabType == DesktopTabType.main ||
       tabType == DesktopTabType.cm ||
       tabType == DesktopTabType.install;
+  bool get showAccountBadge => tabType == DesktopTabType.main;
 
   _DesktopTabState() : super();
 
@@ -678,6 +679,7 @@ class _DesktopTabState extends State<DesktopTab>
         // hide simulated action buttons when we in compatible ui mode, because of reusing system title bar.
         WindowActionPanel(
           isMainWindow: isMainWindow,
+          showAccountBadge: showAccountBadge,
           state: state,
           tabController: controller,
           invisibleTabKeys: invisibleTabKeys,
@@ -696,6 +698,7 @@ class _DesktopTabState extends State<DesktopTab>
 
 class WindowActionPanel extends StatefulWidget {
   final bool isMainWindow;
+  final bool showAccountBadge;
   final Rx<DesktopTabState> state;
   final DesktopTabController tabController;
 
@@ -712,6 +715,7 @@ class WindowActionPanel extends StatefulWidget {
   const WindowActionPanel(
       {Key? key,
       required this.isMainWindow,
+      required this.showAccountBadge,
       required this.state,
       required this.tabController,
       required this.invisibleTabKeys,
@@ -762,7 +766,8 @@ class WindowActionPanelState extends State<WindowActionPanel> {
             return Offstage();
           }
         }),
-        if (widget.isMainWindow) _AccountBadge(onTap: widget.onAccountBadgeTap),
+        if (widget.showAccountBadge)
+          _AccountBadge(onTap: widget.onAccountBadgeTap),
         if (widget.tail != null) widget.tail!,
         if (!kUseCompatibleUiMode)
           Row(
