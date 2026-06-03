@@ -381,6 +381,11 @@ pub fn core_main() -> Option<Vec<String>> {
             return None;
         } else if args[0] == "--install-service" {
             log::info!("start --install-service");
+            #[cfg(windows)]
+            if args.get(1).map(|arg| arg == "--no-launch").unwrap_or(false) {
+                crate::platform::install_service_no_launch();
+                return None;
+            }
             crate::platform::install_service();
             return None;
         } else if args[0] == "--uninstall-service" {

@@ -3221,6 +3221,14 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
 }
 
 pub fn install_service() -> bool {
+    install_service_(true)
+}
+
+pub fn install_service_no_launch() -> bool {
+    install_service_(false)
+}
+
+fn install_service_(launch_runtime: bool) -> bool {
     log::info!("Installing service...");
     let _installing = crate::platform::InstallingService::new();
     let (_, path, _, exe) = get_install_info();
@@ -3249,7 +3257,9 @@ if exist \"{tray_shortcut}\" del /f /q \"{tray_shortcut}\"
         log::debug!("{err}");
         return true;
     }
-    run_after_run_cmds(false);
+    if launch_runtime {
+        run_after_run_cmds(false);
+    }
     std::process::exit(0);
 }
 
