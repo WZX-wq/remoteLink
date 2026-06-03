@@ -3018,6 +3018,20 @@ impl LoginConfigHandler {
         msg_out
     }
 
+    pub fn reset_auto_adjust_fps_to_custom(&mut self) -> Option<Message> {
+        let fps = (*self.custom_fps.lock().unwrap())?;
+        if !(5..=120).contains(&fps) {
+            return None;
+        }
+        self.last_auto_fps = Some(fps);
+        let mut misc = Misc::new();
+        misc.union = Some(misc::Union::AutoAdjustFps(fps as _));
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        log::info!("Reset auto-adjust fps to selected custom fps {}", fps);
+        Some(msg_out)
+    }
+
     pub fn get_option(&self, k: &str) -> String {
         if let Some(v) = self.config.options.get(k) {
             v.clone()

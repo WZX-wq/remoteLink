@@ -576,8 +576,16 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn set_custom_fps(&self, custom_fps: i32) {
-        let msg = self.lc.write().unwrap().set_custom_fps(custom_fps, true);
+        let (msg, reset_auto_fps_msg) = {
+            let mut lc = self.lc.write().unwrap();
+            let msg = lc.set_custom_fps(custom_fps, true);
+            let reset_auto_fps_msg = lc.reset_auto_adjust_fps_to_custom();
+            (msg, reset_auto_fps_msg)
+        };
         self.send(Data::Message(msg));
+        if let Some(msg) = reset_auto_fps_msg {
+            self.send(Data::Message(msg));
+        }
     }
 
     pub fn get_remember(&self) -> bool {

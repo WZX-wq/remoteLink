@@ -1215,14 +1215,15 @@ impl<T: InvokeUiSession> Remote<T> {
             }
             if Some(auto_fps) != last_auto_fps {
                 let mut misc = Misc::new();
-                misc.set_option(OptionMessage {
-                    custom_fps: auto_fps as _,
-                    ..Default::default()
-                });
+                misc.union = Some(misc::Union::AutoAdjustFps(auto_fps as _));
                 let mut msg = Message::new();
                 msg.set_misc(misc);
                 self.sender.send(Data::Message(msg)).ok();
-                log::info!("Set fps to {}", auto_fps);
+                log::info!(
+                    "Set auto-adjust fps to {} with user custom fps cap {}",
+                    auto_fps,
+                    custom_fps
+                );
                 self.handler.lc.write().unwrap().last_auto_fps = Some(auto_fps);
             }
         }

@@ -2476,13 +2476,20 @@ class _AccountState extends State<_Account> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: children[0]),
-              const SizedBox(width: 8),
-              Expanded(child: children[1]),
-            ],
-          ),
+          LayoutBuilder(builder: (context, constraints) {
+            const gap = 8.0;
+            final columns =
+                children.length >= 3 && constraints.maxWidth >= 420 ? 3 : 2;
+            final width =
+                (constraints.maxWidth - gap * (columns - 1)) / columns;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: children
+                  .map((child) => SizedBox(width: width, child: child))
+                  .toList(),
+            );
+          }),
         ],
       ),
     );
