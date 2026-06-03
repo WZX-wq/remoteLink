@@ -36,8 +36,8 @@ class UserModel {
   static const freeMaxFps = 30;
   static const memberDefaultFps = 60;
   static const memberMaxFps = 120;
-  static const freeRemoteQuality = '80';
-  static const memberRemoteQuality = '100';
+  static const freeRemoteQuality = '50';
+  static const memberRemoteQuality = '50';
 
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
