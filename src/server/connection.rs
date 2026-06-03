@@ -1855,6 +1855,22 @@ impl Connection {
             && !self.terminal
     }
 
+    #[cfg(feature = "flutter")]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    fn should_block_recursive_remote_desktop(&self, peer_id: &str) -> bool {
+        if self.from_switch || !self.is_remote() {
+            return false;
+        }
+        let peer_id = peer_id.trim();
+        if peer_id.is_empty() {
+            return false;
+        }
+        crate::flutter::sessions::get_session_count(
+            peer_id.to_owned(),
+            hbb_common::rendezvous_proto::ConnType::DEFAULT_CONN,
+        ) > 0
+    }
+
     fn try_sub_monitor_services(&mut self) {
         let is_remote = self.is_remote();
         if is_remote && !self.services_subed {
@@ -2428,6 +2444,21 @@ impl Connection {
                         return false;
                     }
                 }
+            }
+
+            #[cfg(feature = "flutter")]
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if self.should_block_recursive_remote_desktop(&lr.my_id) {
+                log::warn!(
+                    "Blocked recursive remote desktop loop from peer {} while an outgoing session to that peer is active",
+                    lr.my_id
+                );
+                self.send_login_error(
+                    "双方已经存在反向远程控制。为避免画面循环，请先断开原连接，或使用工具栏里的切换控制方向。",
+                )
+                .await;
+                sleep(1.).await;
+                return false;
             }
 
             if !hbb_common::is_ip_str(&lr.username)
