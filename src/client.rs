@@ -104,6 +104,9 @@ const KQ_MEMBER_USER_ID_KEY: &str = "kq_member_user_id";
 const KQ_REMOTE_FPS_TIER_KEY: &str = "kq_remote_fps_tier";
 const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
 const KQ_TEST_UNLIMITED_MEMBER_USER_ID: &str = "13";
+const KQ_VIEW_STYLE_MIGRATION_KEY: &str = "kq-view-style-adaptive-migrated";
+const KQ_VIEW_STYLE_ORIGINAL: &str = "original";
+const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
 const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
@@ -178,6 +181,11 @@ fn kq_remote_custom_image_quality() -> i32 {
     } else {
         KQ_FREE_IMAGE_QUALITY
     }
+}
+
+#[inline]
+fn kq_should_default_to_adaptive_view_style(conn_type: &ConnType) -> bool {
+    crate::get_app_name() == crate::common::KQ_APP_NAME && conn_type.eq(&ConnType::DEFAULT_CONN)
 }
 
 #[cfg(target_os = "linux")]
@@ -2342,7 +2350,8 @@ impl LoginConfigHandler {
 
         self.id = id;
         self.conn_type = conn_type;
-        let config = self.load_config();
+        let mut config = self.load_config();
+        self.migrate_kq_adaptive_view_style(&mut config);
         self.remember = !config.password.is_empty();
         self.config = config;
 
@@ -2447,6 +2456,29 @@ impl LoginConfigHandler {
         self.config = config;
     }
 
+    fn migrate_kq_adaptive_view_style(&self, config: &mut PeerConfig) {
+        if !kq_should_default_to_adaptive_view_style(&self.conn_type)
+            || config
+                .options
+                .get(KQ_VIEW_STYLE_MIGRATION_KEY)
+                .map_or(false, |value| value == "Y")
+        {
+            return;
+        }
+
+        if config.view_style == KQ_VIEW_STYLE_ORIGINAL {
+            log::info!(
+                "KQ migrate peer {} view style from original to adaptive fit-window",
+                self.id
+            );
+            config.view_style = KQ_VIEW_STYLE_ADAPTIVE.to_owned();
+        }
+        config
+            .options
+            .insert(KQ_VIEW_STYLE_MIGRATION_KEY.to_owned(), "Y".to_owned());
+        config.store(&self.id);
+    }
+
     /// Set an option for handler's [`PeerConfig`].
     ///
     /// # Arguments
@@ -2472,6 +2504,11 @@ impl LoginConfigHandler {
     pub fn save_view_style(&mut self, value: String) {
         let mut config = self.load_config();
         config.view_style = value;
+        if kq_should_default_to_adaptive_view_style(&self.conn_type) {
+            config
+                .options
+                .insert(KQ_VIEW_STYLE_MIGRATION_KEY.to_owned(), "Y".to_owned());
+        }
         self.save_config(config);
     }
 

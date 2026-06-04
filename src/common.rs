@@ -2547,6 +2547,11 @@ fn apply_kq_remote_link_defaults() {
         .unwrap()
         .insert("local-ip-addr".to_owned(), "".to_owned());
 
+    config::DEFAULT_DISPLAY_SETTINGS
+        .write()
+        .unwrap()
+        .insert(keys::OPTION_VIEW_STYLE.to_owned(), "adaptive".to_owned());
+
     config::BUILTIN_SETTINGS
         .write()
         .unwrap()
