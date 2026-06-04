@@ -825,7 +825,13 @@ class _ImagePaintState extends State<ImagePaint> {
       ImageModel m, Size imageSize, double s) {
     return CustomPaint(
       size: imageSize,
-      painter: ImagePainter(image: m.image, x: 0, y: 0, scale: s),
+      painter: ImagePainter(
+        image: m.image,
+        x: 0,
+        y: 0,
+        scale: s,
+        filterQuality: _remoteImageFilterQuality(s),
+      ),
     );
   }
 
@@ -841,11 +847,20 @@ class _ImagePaintState extends State<ImagePaint> {
     return CustomPaint(
       size: Size(c.size.width, c.size.height),
       painter: ImagePainter(
-          image: m.image,
-          x: c.x / sizeScale,
-          y: c.y / sizeScale,
-          scale: sizeScale),
+        image: m.image,
+        x: c.x / sizeScale,
+        y: c.y / sizeScale,
+        scale: sizeScale,
+        filterQuality: _remoteImageFilterQuality(sizeScale),
+      ),
     );
+  }
+
+  FilterQuality _remoteImageFilterQuality(double scale) {
+    if (scale < 1.0) {
+      return FilterQuality.none;
+    }
+    return FilterQuality.medium;
   }
 
   Widget _BuildPaintTextureRender(
@@ -872,8 +887,9 @@ class _ImagePaintState extends State<ImagePaint> {
           height: displays[i].height * sizeScale,
           child: Obx(() => Texture(
                 textureId: textureId.value,
-                filterQuality:
-                    isViewOriginal ? FilterQuality.none : FilterQuality.low,
+                filterQuality: isViewOriginal || sizeScale < 1.0
+                    ? FilterQuality.none
+                    : FilterQuality.low,
               )),
         ));
       }
