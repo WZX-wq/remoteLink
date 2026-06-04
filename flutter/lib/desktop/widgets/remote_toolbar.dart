@@ -947,7 +947,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
             targetFps >= 60) &&
         !user.canUseMemberRemoteQuality;
     if (memberOnly) {
-      showToast('开通会员后可使用 1080p / 60 FPS');
+      showToast(translate('Members can use 1080p / 60 FPS'));
       return;
     }
 
@@ -978,10 +978,11 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
         sessionId: widget.ffi.sessionId,
         fps: normalizedFps,
       );
-      showToast('远控体验已更新：${user.remoteQualityLabel}');
+      showToast(
+          '${translate('Remote experience updated')}: ${user.remoteQualityLabel}');
     } catch (e) {
       debugPrint('Failed to apply remote performance profile: $e');
-      showToast('远控体验更新失败');
+      showToast(translate('Remote experience update failed'));
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -1050,7 +1051,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '画质与帧率',
+                    translate('Quality and FPS'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1180,11 +1181,11 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
     return [
       _menuHeader(context),
       Divider(),
-      _sectionLabel(context, '清晰度', Icons.high_quality_outlined),
+      _sectionLabel(context, translate('Clarity'), Icons.high_quality_outlined),
       _optionButton(
         context,
         label: '720p',
-        caption: '基础版可用',
+        caption: translate('Basic plan available'),
         selected: resolution == UserModel.remoteResolution720p,
         enabled: !_saving,
         onPressed: () => _applyProfile(
@@ -1194,7 +1195,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
       _optionButton(
         context,
         label: '1080p',
-        caption: isMember ? '会员高清' : '会员可用',
+        caption: isMember ? translate('Member HD') : translate('Members only'),
         selected: resolution == UserModel.remoteResolution1080p,
         enabled: !_saving && isMember,
         locked: !isMember,
@@ -1203,11 +1204,11 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
         ),
       ),
       Divider(),
-      _sectionLabel(context, '帧率', Icons.speed_outlined),
+      _sectionLabel(context, translate('Frame rate'), Icons.speed_outlined),
       _optionButton(
         context,
         label: '30 FPS',
-        caption: '稳定优先',
+        caption: translate('Prioritize stability'),
         selected: fps == 30,
         enabled: !_saving,
         onPressed: () => _applyProfile(fps: 30),
@@ -1215,7 +1216,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
       _optionButton(
         context,
         label: '60 FPS',
-        caption: isMember ? '更流畅' : '会员可用',
+        caption: isMember ? translate('Smoother') : translate('Members only'),
         selected: fps == 60,
         enabled: !_saving && isMember,
         locked: !isMember,
@@ -1247,7 +1248,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '高级自定义',
+                  translate('Advanced custom'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1267,7 +1268,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
   Widget build(BuildContext context) {
     return Obx(
       () => _IconSubmenuButton(
-        tooltip: '画质与帧率',
+        tooltip: translate('Quality and FPS'),
         icon: _toolbarChip(context),
         ffi: widget.ffi,
         width: 92,
@@ -2015,7 +2016,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
         ffi: widget.ffi,
         child: Text(allowed
             ? '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight}'
-            : '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight} (${gFFI.userModel.remoteResolutionLabel} 上限)'),
+            : '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight} (${gFFI.userModel.remoteResolutionLabel} ${translate('limit')})'),
       ),
     );
   }
@@ -2086,7 +2087,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
             gFFI.userModel.isRemoteResolutionAllowed(e.width, e.height);
         final label = allowed
             ? '${e.width}x${e.height}'
-            : '${e.width}x${e.height} (${gFFI.userModel.remoteResolutionLabel} 上限)';
+            : '${e.width}x${e.height} (${gFFI.userModel.remoteResolutionLabel} ${translate('limit')})';
         return RdoMenuButton(
           value: '${e.width}x${e.height}',
           groupValue: _groupValue,

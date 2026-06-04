@@ -85,10 +85,12 @@ class UserModel {
   String get remoteResolutionLabel => remoteResolutionSelection;
   String get remoteQualityLabel =>
       '$remoteResolutionLabel / $remoteFpsSelection FPS';
-  String get membershipName => isMember.value ? '会员版' : '基础版';
+  String get membershipName =>
+      translate(isMember.value ? 'Member plan' : 'Basic plan');
   String get remoteEntitlementHint => isMember.value
-      ? '会员可在 720p / 1080p 与 30 / 60 FPS 间切换。'
-      : '基础版最高支持 720p / 30 FPS，开通会员后支持 1080p / 60 FPS。';
+      ? translate('Members can switch between 720p / 1080p and 30 / 60 FPS.')
+      : translate(
+          'Basic plan supports up to 720p / 30 FPS. Members can use 1080p / 60 FPS.');
   String get displayNameOrUserName =>
       displayName.value.trim().isEmpty ? userName.value : displayName.value;
   String get accountLabelWithHandle {
@@ -463,7 +465,9 @@ class UserModel {
     try {
       final candidates = _memberTokenCandidates().toList();
       if (candidates.isEmpty) {
-        await _setMemberStatus(false, expireAt: '', error: '缺少会员登录凭证');
+        await _setMemberStatus(false,
+            expireAt: '',
+            error: translate('Missing membership login credential'));
         return;
       }
 
@@ -484,21 +488,25 @@ class UserModel {
 
           final body = _decodeMemberBody(response);
           if (body is! Map) {
-            throw '会员接口返回格式不正确';
+            throw translate('Membership API returned an invalid format');
           }
           final code = int.tryParse((body['code'] ?? '').toString());
           if (response.statusCode == 401 || code == 401) {
-            lastError = body['msg'] ?? body['message'] ?? '会员登录凭证失效';
+            lastError = body['msg'] ??
+                body['message'] ??
+                translate('Membership login credential expired');
             continue;
           }
           if (response.statusCode < 200 ||
               response.statusCode >= 300 ||
               code != 1) {
-            throw body['msg'] ?? body['message'] ?? '会员接口返回失败';
+            throw body['msg'] ??
+                body['message'] ??
+                translate('Membership API request failed');
           }
           final data = body['data'];
           if (data is! Map) {
-            throw '会员接口数据为空';
+            throw translate('Membership API data is empty');
           }
           await _applyMemberInfo(data);
           return;
@@ -507,7 +515,8 @@ class UserModel {
         }
       }
 
-      final message = lastError?.toString() ?? '会员状态刷新失败';
+      final message = lastError?.toString() ??
+          translate('Failed to refresh membership status');
       await _setMemberStatus(false, expireAt: '', error: message);
       if (showError) {
         showToast(message);
@@ -662,7 +671,7 @@ class UserModel {
     required int payType,
   }) async {
     if (!isLogin) {
-      throw '请先登录';
+      throw translate('Please log in first');
     }
     Object? lastError;
     for (final token in _memberTokenCandidates()) {
@@ -687,33 +696,37 @@ class UserModel {
         );
         final body = _decodeMemberBody(response);
         if (body is! Map) {
-          throw '会员订单接口返回格式不正确';
+          throw translate('Membership order API returned an invalid format');
         }
         final code = int.tryParse((body['code'] ?? '').toString());
         if (response.statusCode == 401 || code == 401) {
-          lastError = body['msg'] ?? body['message'] ?? '请先登录';
+          lastError = body['msg'] ??
+              body['message'] ??
+              translate('Please log in first');
           continue;
         }
         if (response.statusCode < 200 ||
             response.statusCode >= 300 ||
             code != 1) {
-          throw body['msg'] ?? body['message'] ?? '创建会员订单失败';
+          throw body['msg'] ??
+              body['message'] ??
+              translate('Failed to create membership order');
         }
         final data = body['data'];
         if (data is! Map) {
-          throw '会员订单数据为空';
+          throw translate('Membership order data is empty');
         }
         return KqMemberOrder.fromJson(data);
       } catch (e) {
         lastError = e;
       }
     }
-    throw lastError ?? '创建会员订单失败';
+    throw lastError ?? translate('Failed to create membership order');
   }
 
   Future<KqMemberOrderStatus> checkMemberOrder(String orderNo) async {
     if (orderNo.trim().isEmpty) {
-      throw '订单号为空';
+      throw translate('Order number is empty');
     }
     Object? lastError;
     for (final token in _memberTokenCandidates()) {
@@ -734,28 +747,32 @@ class UserModel {
         );
         final body = _decodeMemberBody(response);
         if (body is! Map) {
-          throw '订单状态接口返回格式不正确';
+          throw translate('Order status API returned an invalid format');
         }
         final code = int.tryParse((body['code'] ?? '').toString());
         if (response.statusCode == 401 || code == 401) {
-          lastError = body['msg'] ?? body['message'] ?? '请先登录';
+          lastError = body['msg'] ??
+              body['message'] ??
+              translate('Please log in first');
           continue;
         }
         if (response.statusCode < 200 ||
             response.statusCode >= 300 ||
             code != 1) {
-          throw body['msg'] ?? body['message'] ?? '查询订单状态失败';
+          throw body['msg'] ??
+              body['message'] ??
+              translate('Failed to check order status');
         }
         final data = body['data'];
         if (data is! Map) {
-          throw '订单状态数据为空';
+          throw translate('Order status data is empty');
         }
         return KqMemberOrderStatus.fromJson(data);
       } catch (e) {
         lastError = e;
       }
     }
-    throw lastError ?? '查询订单状态失败';
+    throw lastError ?? translate('Failed to check order status');
   }
 
   // update ab and group status
@@ -910,6 +927,13 @@ class KqMemberPackage {
     );
   }
 
+  String get displayName => _kqLocalizedMembershipPackageName(
+        rawName: name,
+        days: days,
+      );
+
+  String get displayBenefitText => _kqLocalizedMembershipBenefit(benefitText);
+
   String get priceLabel {
     if (priceYuan == priceYuan.roundToDouble()) {
       return '¥${priceYuan.toStringAsFixed(0)}';
@@ -918,11 +942,81 @@ class KqMemberPackage {
   }
 
   String get durationLabel {
-    if (days >= 999999) return '永久';
-    if (days >= 365 && days % 365 == 0) return '${days ~/ 365} 年';
-    if (days >= 30 && days % 30 == 0) return '${days ~/ 30} 个月';
-    return '$days 天';
+    if (days >= 999999) return translate('Membership lifetime');
+    if (days >= 365 && days % 365 == 0) {
+      final years = days ~/ 365;
+      return years == 1
+          ? translate('1 membership year')
+          : '$years ${translate('membership years')}';
+    }
+    if (days >= 30 && days % 30 == 0) {
+      final months = days ~/ 30;
+      return months == 1
+          ? translate('1 membership month')
+          : '$months ${translate('membership months')}';
+    }
+    return days == 1
+        ? translate('1 membership day')
+        : '$days ${translate('membership days')}';
   }
+}
+
+final _kqHanTextPattern = RegExp('[\u4e00-\u9fff]');
+
+bool _kqUiPrefersChinese() {
+  final selectedLang =
+      bind.mainGetLocalOption(key: kCommConfKeyLang).trim().toLowerCase();
+  if (selectedLang == 'zh-cn' || selectedLang == 'zh-tw') {
+    return true;
+  }
+  if (selectedLang.isNotEmpty && selectedLang != defaultOptionLang) {
+    return false;
+  }
+  return localeName.toString().toLowerCase().startsWith('zh');
+}
+
+bool _kqShouldReplaceBackendText(String value) {
+  final text = value.trim();
+  return text.isEmpty ||
+      (!_kqUiPrefersChinese() && _kqHanTextPattern.hasMatch(text));
+}
+
+String _kqMembershipPackageNameByDays(int days) {
+  if (days >= 999999) return translate('Lifetime membership');
+  if (days >= 365 && days % 365 == 0) {
+    final years = days ~/ 365;
+    return years == 1
+        ? translate('Annual membership')
+        : '$years ${translate('year membership')}';
+  }
+  if (days >= 30 && days % 30 == 0) {
+    final months = days ~/ 30;
+    if (months == 1) return translate('Monthly membership');
+    if (months == 3) return translate('Quarterly membership');
+    return '$months ${translate('month membership')}';
+  }
+  return days > 0
+      ? '$days ${translate('day membership')}'
+      : translate('Membership package');
+}
+
+String _kqLocalizedMembershipPackageName({
+  required String rawName,
+  required int days,
+}) {
+  final text = rawName.trim();
+  if (_kqShouldReplaceBackendText(text)) {
+    return _kqMembershipPackageNameByDays(days);
+  }
+  return text;
+}
+
+String _kqLocalizedMembershipBenefit(String rawBenefit) {
+  final text = rawBenefit.trim();
+  if (_kqShouldReplaceBackendText(text)) {
+    return translate('1080p / 60 FPS remote control');
+  }
+  return text;
 }
 
 class KqMemberOrder {
@@ -964,6 +1058,11 @@ class KqMemberOrder {
       alipaySubmitHtml: (json['alipaysubmit_html'] ?? '').toString(),
     );
   }
+
+  String get displayPackageName => _kqLocalizedMembershipPackageName(
+        rawName: packageName,
+        days: packageDays,
+      );
 }
 
 class KqMemberOrderStatus {

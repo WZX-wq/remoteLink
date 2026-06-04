@@ -1991,7 +1991,7 @@ class _AccountState extends State<_Account> {
     return ListView(
       controller: scrollController,
       children: [
-        _Card(title: '账户', children: [
+        _Card(title: 'Account', children: [
           Obx(() {
             if (gFFI.userModel.userName.value.isEmpty) {
               return _signedOutPanel(context);
@@ -2036,13 +2036,15 @@ class _AccountState extends State<_Account> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '登录鲲穹账号',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                Text(
+                  translate('Log in to your Kunqiong account'),
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '登录后可同步账户资料，后续会员、设备额度和增值权益也会在这里展示。',
+                  translate(
+                      'Log in to sync your profile. Membership, device quotas, and value-added benefits will appear here later.'),
                   style: TextStyle(
                     color: Theme.of(context).textTheme.bodySmall?.color,
                   ),
@@ -2053,7 +2055,7 @@ class _AccountState extends State<_Account> {
           const SizedBox(width: 16),
           ElevatedButton(
             onPressed: loginDialog,
-            child: const Text('立即登录'),
+            child: Text(translate('Log in now')),
           ),
         ],
       ),
@@ -2093,7 +2095,8 @@ class _AccountState extends State<_Account> {
                       ),
                     ),
                     if (gFFI.userModel.isAdmin.value)
-                      _tag(context, '管理员', Icons.verified_user_outlined)
+                      _tag(context, translate('Admin'),
+                              Icons.verified_user_outlined)
                           .marginOnly(left: 8),
                   ],
                 ),
@@ -2179,7 +2182,9 @@ class _AccountState extends State<_Account> {
                   children: [
                     Flexible(
                       child: Text(
-                        isMember ? '会员权益已生效' : '当前为基础版',
+                        translate(isMember
+                            ? 'Membership benefits active'
+                            : 'Current plan: Basic'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -2206,7 +2211,7 @@ class _AccountState extends State<_Account> {
                 if (isMember && expireAt.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
-                    '会员有效期至 $expireAt',
+                    '${translate('Membership valid until')} $expireAt',
                     style: TextStyle(
                       color: colors.primary,
                       fontWeight: FontWeight.w600,
@@ -2215,7 +2220,7 @@ class _AccountState extends State<_Account> {
                 ] else if (!isMember && lastError.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
-                    '会员状态未确认：$lastError',
+                    '${translate('Membership status not confirmed')}: $lastError',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -2234,7 +2239,8 @@ class _AccountState extends State<_Account> {
               FilledButton.icon(
                 onPressed: _showMemberRechargeDialog,
                 icon: const Icon(Icons.workspace_premium_outlined, size: 16),
-                label: Text(isMember ? '续费会员' : '开通会员'),
+                label:
+                    Text(translate(isMember ? 'Renew membership' : 'Upgrade')),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -2248,7 +2254,7 @@ class _AccountState extends State<_Account> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.refresh, size: 16),
-                label: const Text('刷新权益'),
+                label: Text(translate('Refresh benefits')),
               ),
             ],
           ),
@@ -2265,9 +2271,11 @@ class _AccountState extends State<_Account> {
           child: _metricTile(
             context,
             icon: Icons.high_quality_outlined,
-            label: '最高画质',
+            label: translate('Max quality'),
             value: user.remoteResolutionLabel,
-            caption: user.isMember.value ? '会员高清远控' : '基础清晰度上限',
+            caption: user.isMember.value
+                ? translate('Member HD remote control')
+                : translate('Basic clarity limit'),
           ),
         ),
         const SizedBox(width: 10),
@@ -2275,9 +2283,11 @@ class _AccountState extends State<_Account> {
           child: _metricTile(
             context,
             icon: Icons.speed_outlined,
-            label: '最高帧率',
+            label: translate('Max frame rate'),
             value: '${user.remoteMaxFps} FPS',
-            caption: user.isMember.value ? '更流畅的远程操作' : '免费用户帧率上限',
+            caption: user.isMember.value
+                ? translate('Smoother remote operation')
+                : translate('Free user frame rate limit'),
           ),
         ),
         const SizedBox(width: 10),
@@ -2285,9 +2295,11 @@ class _AccountState extends State<_Account> {
           child: _metricTile(
             context,
             icon: Icons.workspace_premium_outlined,
-            label: '当前档位',
+            label: translate('Current tier'),
             value: user.membershipName,
-            caption: user.isMember.value ? '会员权益已解锁' : '可升级至 1080p/60',
+            caption: user.isMember.value
+                ? translate('Membership benefits unlocked')
+                : translate('Upgradeable to 1080p/60'),
           ),
         ),
       ],
@@ -2304,7 +2316,8 @@ class _AccountState extends State<_Account> {
       fps: fps ?? user.remoteFpsSelection,
     );
     setState(() {});
-    showToast('远控体验已更新：${user.remoteQualityLabel}');
+    showToast(
+        '${translate('Remote experience updated')}: ${user.remoteQualityLabel}');
   }
 
   Widget _remotePerformancePanel(BuildContext context) {
@@ -2340,8 +2353,8 @@ class _AccountState extends State<_Account> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      '远控体验',
+                    Text(
+                      translate('Remote experience'),
                       style:
                           TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                     ),
@@ -2366,13 +2379,13 @@ class _AccountState extends State<_Account> {
             final groups = [
               _remoteOptionGroup(
                 context,
-                title: '清晰度',
+                title: translate('Clarity'),
                 icon: Icons.high_quality_outlined,
                 children: [
                   _remoteOptionButton(
                     context,
                     label: '720p',
-                    caption: '省带宽',
+                    caption: translate('Saves bandwidth'),
                     selected: resolution == UserModel.remoteResolution720p,
                     enabled: true,
                     onTap: () => _saveRemotePerformance(
@@ -2382,7 +2395,7 @@ class _AccountState extends State<_Account> {
                   _remoteOptionButton(
                     context,
                     label: '1080p',
-                    caption: '高清',
+                    caption: translate('HD'),
                     selected: resolution == UserModel.remoteResolution1080p,
                     enabled: isMember,
                     locked: !isMember,
@@ -2394,13 +2407,13 @@ class _AccountState extends State<_Account> {
               ),
               _remoteOptionGroup(
                 context,
-                title: '帧率',
+                title: translate('Frame rate'),
                 icon: Icons.speed_outlined,
                 children: [
                   _remoteOptionButton(
                     context,
                     label: '30 FPS',
-                    caption: '稳定',
+                    caption: translate('Stable'),
                     selected: fps == 30,
                     enabled: true,
                     onTap: () => _saveRemotePerformance(fps: 30),
@@ -2408,7 +2421,7 @@ class _AccountState extends State<_Account> {
                   _remoteOptionButton(
                     context,
                     label: '60 FPS',
-                    caption: '流畅',
+                    caption: translate('Smooth'),
                     selected: fps == 60,
                     enabled: isMember,
                     locked: !isMember,
@@ -2579,7 +2592,7 @@ class _AccountState extends State<_Account> {
         children: [
           Expanded(
             child: Text(
-              '账户操作',
+              translate('Account actions'),
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: Theme.of(context).textTheme.bodyMedium?.color,
@@ -2589,7 +2602,7 @@ class _AccountState extends State<_Account> {
           ElevatedButton.icon(
             onPressed: logOutConfirmDialog,
             icon: const Icon(Icons.logout, size: 16),
-            label: const Text('退出登录'),
+            label: Text(translate('Logout')),
             style: ElevatedButton.styleFrom(
               backgroundColor: colors.error,
               foregroundColor: colors.onError,
@@ -2603,7 +2616,7 @@ class _AccountState extends State<_Account> {
   Future<void> _showMemberRechargeDialog() async {
     final user = gFFI.userModel;
     if (!user.isLogin) {
-      showToast('请先登录鲲穹账号');
+      showToast(translate('Please log in to your Kunqiong account first'));
       return;
     }
     if (user.memberPackages.isEmpty) {
@@ -2611,7 +2624,7 @@ class _AccountState extends State<_Account> {
     }
     final packages = user.memberPackages.toList();
     if (packages.isEmpty) {
-      showToast('暂未获取到可购买的会员套餐');
+      showToast(translate('No purchasable membership packages available'));
       return;
     }
     if (!mounted) return;
@@ -2622,6 +2635,7 @@ class _AccountState extends State<_Account> {
     bool creatingOrder = false;
     bool dialogAlive = true;
     String statusText = '';
+    bool statusIsError = false;
     Timer? pollTimer;
 
     Future<void> openAlipayCheckout(KqMemberOrder order) async {
@@ -2648,7 +2662,11 @@ class _AccountState extends State<_Account> {
                 if (tick > 60) {
                   timer.cancel();
                   if (dialogAlive) {
-                    setDialogState(() => statusText = '支付状态确认超时，可稍后刷新权益');
+                    setDialogState(() {
+                      statusText = translate(
+                          'Payment status timed out. Refresh benefits later.');
+                      statusIsError = false;
+                    });
                   }
                   return;
                 }
@@ -2661,15 +2679,26 @@ class _AccountState extends State<_Account> {
                       timer.cancel();
                       await user.refreshMembership();
                       if (!dialogAlive) return;
-                      setDialogState(() => statusText = '支付成功，会员权益已刷新');
+                      setDialogState(() {
+                        statusText = translate(
+                            'Payment successful. Membership benefits refreshed.');
+                        statusIsError = false;
+                      });
                       Navigator.of(dialogContext).pop();
-                      showToast('会员权益已生效');
+                      showToast(translate('Membership benefits active'));
                     } else {
-                      setDialogState(() => statusText = '等待支付确认...');
+                      setDialogState(() {
+                        statusText =
+                            translate('Waiting for payment confirmation...');
+                        statusIsError = false;
+                      });
                     }
                   } catch (e) {
                     if (dialogAlive) {
-                      setDialogState(() => statusText = e.toString());
+                      setDialogState(() {
+                        statusText = e.toString();
+                        statusIsError = true;
+                      });
                     }
                   }
                 }());
@@ -2681,7 +2710,8 @@ class _AccountState extends State<_Account> {
               setDialogState(() {
                 creatingOrder = true;
                 order = null;
-                statusText = '正在创建订单...';
+                statusText = translate('Creating order...');
+                statusIsError = false;
               });
               try {
                 final nextOrder = await user.createMemberOrder(
@@ -2691,7 +2721,10 @@ class _AccountState extends State<_Account> {
                 if (!dialogAlive) return;
                 setDialogState(() {
                   order = nextOrder;
-                  statusText = payType == 1 ? '请使用微信扫码支付' : '已打开支付宝收银台';
+                  statusText = payType == 1
+                      ? translate('Scan with WeChat to pay')
+                      : translate('Alipay cashier opened');
+                  statusIsError = false;
                 });
                 if (payType == 2) {
                   await openAlipayCheckout(nextOrder);
@@ -2699,7 +2732,10 @@ class _AccountState extends State<_Account> {
                 startPolling(nextOrder);
               } catch (e) {
                 if (!dialogAlive) return;
-                setDialogState(() => statusText = e.toString());
+                setDialogState(() {
+                  statusText = e.toString();
+                  statusIsError = true;
+                });
                 showToast(e.toString());
               } finally {
                 if (dialogAlive) {
@@ -2726,11 +2762,11 @@ class _AccountState extends State<_Account> {
                         color: colors.primary),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '开通鲲穹会员',
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                      translate('Upgrade Kunqiong Membership'),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.w800),
                     ),
                   ),
                 ],
@@ -2743,7 +2779,8 @@ class _AccountState extends State<_Account> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '会员解锁 1080p / 60 FPS，免费用户保留 720p / 30 FPS。',
+                        translate(
+                            'Membership unlocks 1080p / 60 FPS. Free users keep 720p / 30 FPS.'),
                         style: TextStyle(
                           color: Theme.of(context).textTheme.bodySmall?.color,
                         ),
@@ -2762,6 +2799,7 @@ class _AccountState extends State<_Account> {
                                   selectedPackage = item;
                                   order = null;
                                   statusText = '';
+                                  statusIsError = false;
                                   pollTimer?.cancel();
                                 }),
                               ),
@@ -2772,7 +2810,7 @@ class _AccountState extends State<_Account> {
                       Row(
                         children: [
                           Text(
-                            '支付方式',
+                            translate('Payment method'),
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               color:
@@ -2782,24 +2820,26 @@ class _AccountState extends State<_Account> {
                           const SizedBox(width: 12),
                           ChoiceChip(
                             selected: payType == 1,
-                            label: const Text('微信扫码'),
+                            label: Text(translate('WeChat QR')),
                             avatar: const Icon(Icons.qr_code_2, size: 17),
                             onSelected: (_) => setDialogState(() {
                               payType = 1;
                               order = null;
                               statusText = '';
+                              statusIsError = false;
                               pollTimer?.cancel();
                             }),
                           ),
                           const SizedBox(width: 8),
                           ChoiceChip(
                             selected: payType == 2,
-                            label: const Text('支付宝'),
+                            label: Text(translate('Alipay')),
                             avatar: const Icon(Icons.open_in_browser, size: 17),
                             onSelected: (_) => setDialogState(() {
                               payType = 2;
                               order = null;
                               statusText = '';
+                              statusIsError = false;
                               pollTimer?.cancel();
                             }),
                           ),
@@ -2814,11 +2854,8 @@ class _AccountState extends State<_Account> {
                         Text(
                           statusText,
                           style: TextStyle(
-                            color: statusText.contains('失败') ||
-                                    statusText.contains('错误') ||
-                                    statusText.contains('请先登录')
-                                ? colors.error
-                                : colors.primary,
+                            color:
+                                statusIsError ? colors.error : colors.primary,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -2830,7 +2867,7 @@ class _AccountState extends State<_Account> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('关闭'),
+                  child: Text(translate('Close')),
                 ),
                 FilledButton.icon(
                   onPressed: creatingOrder ? null : createOrder,
@@ -2841,7 +2878,9 @@ class _AccountState extends State<_Account> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.payment, size: 16),
-                  label: Text(creatingOrder ? '创建中' : '生成支付订单'),
+                  label: Text(creatingOrder
+                      ? translate('Creating')
+                      : translate('Create payment order')),
                 ),
               ],
             );
@@ -2888,7 +2927,7 @@ class _AccountState extends State<_Account> {
               children: [
                 Expanded(
                   child: Text(
-                    package.name,
+                    package.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w800),
@@ -2917,9 +2956,7 @@ class _AccountState extends State<_Account> {
             ),
             const Spacer(),
             Text(
-              package.benefitText.isEmpty
-                  ? '1080p / 60 FPS'
-                  : package.benefitText,
+              package.displayBenefitText,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -2960,7 +2997,7 @@ class _AccountState extends State<_Account> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  order.packageName,
+                  order.displayPackageName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -2970,7 +3007,7 @@ class _AccountState extends State<_Account> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '订单号 ${order.orderNo}',
+                  '${translate('Order No.')} ${order.orderNo}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -2979,7 +3016,7 @@ class _AccountState extends State<_Account> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  '应付 ¥${order.payAmount.toStringAsFixed(2)}',
+                  '${translate('Amount due')} ¥${order.payAmount.toStringAsFixed(2)}',
                   style: TextStyle(
                     color: colors.primary,
                     fontSize: 22,
@@ -2988,7 +3025,11 @@ class _AccountState extends State<_Account> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  order.payType == 1 ? '微信扫码后会自动确认权益' : '请在打开的支付宝页面完成支付',
+                  order.payType == 1
+                      ? translate(
+                          'Benefits will be confirmed automatically after WeChat payment')
+                      : translate(
+                          'Please complete the payment on the opened Alipay page'),
                   style: TextStyle(
                     color: Theme.of(context).textTheme.bodySmall?.color,
                   ),
