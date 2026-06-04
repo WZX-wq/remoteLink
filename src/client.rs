@@ -58,7 +58,7 @@ use hbb_common::{
     rand,
     rendezvous_proto::*,
     sha2::{Digest, Sha256},
-    socket_client::{connect_tcp, connect_tcp_local, ipv4_to_ipv6, new_direct_udp_for},
+    socket_client::{connect_tcp_local, ipv4_to_ipv6, new_direct_udp_for},
     sodiumoxide::{base64, crypto::sign},
     timeout,
     tokio::{
@@ -513,7 +513,8 @@ impl Client {
         bool,
     )> {
         let mut start = Instant::now();
-        let mut socket = connect_tcp(&*rendezvous_server, CONNECT_TIMEOUT).await;
+        let mut socket =
+            crate::common::kq_connect_tcp_prefer_lan(&rendezvous_server, CONNECT_TIMEOUT).await;
         debug_assert!(!servers.contains(&rendezvous_server));
         let rtt = start.elapsed();
         log::debug!("TCP connection establishment time used: {:?}", rtt);
@@ -521,7 +522,7 @@ impl Client {
             log::info!("try the other servers: {:?}", servers);
             for server in servers {
                 let server = check_port(server, RENDEZVOUS_PORT);
-                socket = connect_tcp(&*server, CONNECT_TIMEOUT).await;
+                socket = crate::common::kq_connect_tcp_prefer_lan(&server, CONNECT_TIMEOUT).await;
                 if socket.is_ok() {
                     rendezvous_server = server;
                     break;
@@ -1150,15 +1151,18 @@ impl Client {
         let mut last_error = "Timeout".to_owned();
 
         for i in 1..=8 {
-            let mut socket = match connect_tcp(rendezvous_server, CONNECT_TIMEOUT).await {
-                Ok(socket) => socket,
-                Err(err) => {
-                    last_error = format!("Failed to connect to rendezvous server: {err}");
-                    log::warn!("#{} forced relay failed for {}: {}", i, peer, last_error);
-                    hbb_common::sleep(0.25).await;
-                    continue;
-                }
-            };
+            let mut socket =
+                match crate::common::kq_connect_tcp_prefer_lan(rendezvous_server, CONNECT_TIMEOUT)
+                    .await
+                {
+                    Ok(socket) => socket,
+                    Err(err) => {
+                        last_error = format!("Failed to connect to rendezvous server: {err}");
+                        log::warn!("#{} forced relay failed for {}: {}", i, peer, last_error);
+                        hbb_common::sleep(0.25).await;
+                        continue;
+                    }
+                };
 
             if !key.is_empty() && !rz_token.is_empty() {
                 if let Err(err) = secure_tcp(&mut socket, key).await {
@@ -1314,9 +1318,10 @@ impl Client {
         let relay_response_timeout = CONNECT_TIMEOUT.min(3_000);
         for i in 1..=8 {
             // use different socket due to current hbbs implementation requiring different nat address for each attempt
-            let mut socket = connect_tcp(rendezvous_server, CONNECT_TIMEOUT)
-                .await
-                .with_context(|| "Failed to connect to rendezvous server")?;
+            let mut socket =
+                crate::common::kq_connect_tcp_prefer_lan(rendezvous_server, CONNECT_TIMEOUT)
+                    .await
+                    .with_context(|| "Failed to connect to rendezvous server")?;
 
             if !key.is_empty() && !rz_token.is_empty() {
                 // mainly for the security of token
@@ -1416,7 +1421,7 @@ impl Client {
         conn_type: ConnType,
         ipv4: bool,
     ) -> ResultType<Stream> {
-        let mut conn = connect_tcp(
+        let mut conn = crate::common::kq_connect_tcp_prefer_lan(
             ipv4_to_ipv6(check_port(relay_server, RELAY_PORT), ipv4),
             CONNECT_TIMEOUT,
         )
@@ -3009,9 +3014,14 @@ impl LoginConfigHandler {
         msg_out.set_misc(misc);
         if save_config {
             let mut config = self.load_config();
-            config
-                .options
-                .insert("custom-fps".to_owned(), fps.to_string());
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                LocalConfig::set_option(KQ_REMOTE_FPS_TIER_KEY.to_owned(), fps.to_string());
+                config.options.remove("custom-fps");
+            } else {
+                config
+                    .options
+                    .insert("custom-fps".to_owned(), fps.to_string());
+            }
             self.save_config(config);
         }
         *self.custom_fps.lock().unwrap() = Some(fps as _);
@@ -3130,6 +3140,10 @@ impl LoginConfigHandler {
         }
         if kq_should_ignore_standard_force_relay() {
             config.options.remove("force-always-relay");
+            config.options.remove("custom-fps");
+            config.options.remove(keys::OPTION_CODEC_PREFERENCE);
+            config.image_quality = "custom".to_owned();
+            config.custom_image_quality = vec![kq_remote_custom_image_quality()];
         } else if self.force_relay {
             config
                 .options
@@ -4520,7 +4534,7 @@ async fn hc_connection_(
     let mut keep_alive = crate::DEFAULT_KEEP_ALIVE;
 
     let host = check_port(&rendezvous_server, RENDEZVOUS_PORT);
-    let mut conn = connect_tcp(host.clone(), CONNECT_TIMEOUT).await?;
+    let mut conn = crate::common::kq_connect_tcp_prefer_lan(host.clone(), CONNECT_TIMEOUT).await?;
     let key = crate::get_key(true).await;
     crate::secure_tcp(&mut conn, &key).await?;
     let mut msg_out = RendezvousMessage::new();

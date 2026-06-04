@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs as std_fs,
     future::Future,
-    net::{SocketAddr, ToSocketAddrs},
+    net::{Ipv4Addr, SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     task::Poll,
@@ -73,6 +73,154 @@ const KQ_OUTGOING_DESKTOP_GUARD_DIR: &str = "KQRemoteLink";
 const KQ_OUTGOING_DESKTOP_GUARD_FILE_PREFIX: &str = "outgoing-desktop-peer-";
 const KQ_OUTGOING_DESKTOP_GUARD_FILE_SUFFIX: &str = ".json";
 const KQ_OUTGOING_DESKTOP_GUARD_TTL_SECS: u64 = 24 * 60 * 60;
+
+fn kq_is_benchmark_tunnel_ipv4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 198 && (octets[1] == 18 || octets[1] == 19)
+}
+
+fn kq_is_bad_tcp_source_ipv4(ip: Ipv4Addr) -> bool {
+    kq_is_benchmark_tunnel_ipv4(ip) || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()
+}
+
+fn kq_is_usable_lan_ipv4(ip: Ipv4Addr) -> bool {
+    ip.is_private()
+        && !kq_is_benchmark_tunnel_ipv4(ip)
+        && !ip.is_loopback()
+        && !ip.is_link_local()
+        && !ip.is_unspecified()
+        && !ip.is_multicast()
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn kq_lan_tcp_source_candidates() -> Vec<(String, Ipv4Addr)> {
+    let mut candidates = Vec::<(i32, String, Ipv4Addr)>::new();
+    for iface in default_net::get_interfaces() {
+        let gateway = iface
+            .gateway
+            .as_ref()
+            .and_then(|gateway| match gateway.ip_addr {
+                std::net::IpAddr::V4(ip) if kq_is_usable_lan_ipv4(ip) => Some(ip),
+                _ => None,
+            });
+        if gateway.is_none() {
+            continue;
+        }
+
+        let label = iface
+            .friendly_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| iface.name.clone());
+        let name = format!(
+            "{} {} {}",
+            iface.name,
+            label,
+            iface.description.clone().unwrap_or_default()
+        )
+        .to_lowercase();
+        if name.contains("tunnel")
+            || name.contains("vpn")
+            || name.contains("hyper-v")
+            || name.contains("wsl")
+            || name.contains("virtual")
+            || name.contains("loopback")
+            || name.contains("bluetooth")
+            || name.contains("meta")
+        {
+            continue;
+        }
+
+        let type_name = iface.if_type.name();
+        let mut score = 100;
+        if type_name.contains("Ethernet") {
+            score += 30;
+        } else if type_name.contains("Wireless") {
+            score += 20;
+        }
+        if let Some(speed) = iface.receive_speed.or(iface.transmit_speed) {
+            score += (speed / 1_000_000_000).min(20) as i32;
+        }
+
+        for ip in iface.ipv4 {
+            if kq_is_usable_lan_ipv4(ip.addr) {
+                candidates.push((score, label.clone(), ip.addr));
+            }
+        }
+    }
+
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let mut out = Vec::new();
+    for (_, label, ip) in candidates {
+        if !out.iter().any(|(_, existing)| *existing == ip) {
+            out.push((label, ip));
+        }
+    }
+    out
+}
+
+pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
+    target: T,
+    ms_timeout: u64,
+) -> ResultType<Stream> {
+    let target = target.to_string();
+    let conn = socket_client::connect_tcp(target.as_str(), ms_timeout).await?;
+    if get_app_name() != KQ_APP_NAME || Config::is_proxy() || use_ws() {
+        return Ok(conn);
+    }
+
+    let local_addr = conn.local_addr();
+    let should_rebind = match local_addr.ip() {
+        std::net::IpAddr::V4(ip) => kq_is_bad_tcp_source_ipv4(ip),
+        std::net::IpAddr::V6(_) => false,
+    };
+    if !should_rebind {
+        return Ok(conn);
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        for (label, ip) in kq_lan_tcp_source_candidates() {
+            let bind_addr = SocketAddr::new(std::net::IpAddr::V4(ip), 0);
+            log::warn!(
+                "KQ TCP source {} for {} is not suitable for direct sessions; trying LAN source {} ({})",
+                local_addr,
+                target,
+                bind_addr,
+                label
+            );
+            match socket_client::connect_tcp_local(target.as_str(), Some(bind_addr), ms_timeout)
+                .await
+            {
+                Ok(rebound) => {
+                    log::info!(
+                        "KQ TCP source rebound for {}: {} -> {}",
+                        target,
+                        local_addr,
+                        rebound.local_addr()
+                    );
+                    return Ok(rebound);
+                }
+                Err(err) => {
+                    log::debug!(
+                        "KQ LAN source {} ({}) failed for {}: {}",
+                        bind_addr,
+                        label,
+                        target,
+                        err
+                    );
+                }
+            }
+        }
+        log::warn!(
+            "KQ could not find a working LAN TCP source for {}; continuing with {}",
+            target,
+            local_addr
+        );
+    }
+
+    Ok(conn)
+}
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct KqOutgoingDesktopGuardMarker {

@@ -321,7 +321,7 @@ async fn create_relay_connection_(
     ipv4: bool,
     control_permissions: Option<ControlPermissions>,
 ) -> ResultType<()> {
-    let mut stream = socket_client::connect_tcp(
+    let mut stream = crate::common::kq_connect_tcp_prefer_lan(
         socket_client::ipv4_to_ipv6(crate::check_port(relay_server, RELAY_PORT), ipv4),
         CONNECT_TIMEOUT,
     )
