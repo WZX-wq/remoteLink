@@ -858,7 +858,7 @@ class _ImagePaintState extends State<ImagePaint> {
 
   FilterQuality _remoteImageFilterQuality(double scale) {
     if (scale < 1.0) {
-      return FilterQuality.none;
+      return FilterQuality.high;
     }
     return FilterQuality.medium;
   }
@@ -887,9 +887,11 @@ class _ImagePaintState extends State<ImagePaint> {
           height: displays[i].height * sizeScale,
           child: Obx(() => Texture(
                 textureId: textureId.value,
-                filterQuality: isViewOriginal || sizeScale < 1.0
+                filterQuality: isViewOriginal
                     ? FilterQuality.none
-                    : FilterQuality.low,
+                    : (sizeScale < 1.0
+                        ? FilterQuality.high
+                        : FilterQuality.low),
               )),
         ));
       }

@@ -111,7 +111,7 @@ const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
 const KQ_FREE_IMAGE_QUALITY: i32 = 50;
-const KQ_MEMBER_IMAGE_QUALITY: i32 = 50;
+const KQ_MEMBER_IMAGE_QUALITY: i32 = 85;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
     match value {
