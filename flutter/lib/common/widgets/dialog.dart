@@ -1886,11 +1886,15 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
     initQuality = kDefaultQuality;
   }
   // fps
-  final fpsOption =
-      await bind.sessionGetOption(sessionId: sessionId, arg: 'custom-fps');
-  initFps = fpsOption == null
-      ? kDefaultFps
-      : double.tryParse(fpsOption) ?? kDefaultFps;
+  if (appName == '鲲穹远程桌面') {
+    initFps = gFFI.userModel.remoteFpsSelection.toDouble();
+  } else {
+    final fpsOption =
+        await bind.sessionGetOption(sessionId: sessionId, arg: 'custom-fps');
+    initFps = fpsOption == null
+        ? kDefaultFps
+        : double.tryParse(fpsOption) ?? kDefaultFps;
+  }
   final maxFps = gFFI.userModel.remoteMaxFps.toDouble();
   if (initFps < kMinFps || initFps > maxFps) {
     initFps = gFFI.userModel.clampRemoteFps(kDefaultFps).toDouble();

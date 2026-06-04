@@ -1152,6 +1152,22 @@ impl<T: InvokeUiSession> Remote<T> {
         } else if custom_fps > 60 {
             custom_fps = 60;
         }
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            let last_auto_fps = self.handler.lc.read().unwrap().last_auto_fps.clone();
+            if last_auto_fps != Some(custom_fps) {
+                let mut misc = Misc::new();
+                misc.union = Some(misc::Union::AutoAdjustFps(custom_fps as _));
+                let mut msg = Message::new();
+                msg.set_misc(misc);
+                self.sender.send(Data::Message(msg)).ok();
+                log::info!(
+                    "KQ keeps auto-adjust fps aligned to selected custom fps {}",
+                    custom_fps
+                );
+                self.handler.lc.write().unwrap().last_auto_fps = Some(custom_fps);
+            }
+            return;
+        }
         let inactive_threshold = 15;
         let max_queue_len = self
             .video_threads
