@@ -10,6 +10,8 @@ const defaultInstallerPath = path.resolve(
   __dirname,
   '../public/downloads/Kunqiong-Remote-Desktop-Setup.exe',
 );
+const defaultInstallerSha256 =
+  '1B357A0F1EF37572310DEF7F93386349F1471B8907DFF7957715A2DEC037BE9E';
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
@@ -36,7 +38,7 @@ const config = {
       process.env.KQ_DOWNLOAD_FILE_NAME ||
       'Kunqiong-Remote-Desktop-Setup.exe',
     version: process.env.KQ_DOWNLOAD_VERSION || '2026.06.05.1708',
-    sha256: process.env.KQ_DOWNLOAD_SHA256 || '',
+    sha256: process.env.KQ_DOWNLOAD_SHA256 || defaultInstallerSha256,
     maxRequestsPerWindow: envInt('KQ_DOWNLOAD_MAX_REQUESTS_PER_WINDOW', 12, 1, 120),
     windowMs: envInt('KQ_DOWNLOAD_RATE_WINDOW_MS', 60000, 1000, 3600000),
     maxPerIpConcurrent: envInt('KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT', 2, 1, 16),
