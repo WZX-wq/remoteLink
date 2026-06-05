@@ -2219,13 +2219,19 @@ setEnvTerminalAdmin() {
   bind.mainSetEnv(key: 'IS_TERMINAL_ADMIN', value: 'Y');
 }
 
+bool isSupportedKqUriLink(String url) {
+  final prefix = bind.mainUriPrefixSync();
+  return url.startsWith(prefix) ||
+      (prefix == 'kqremote://' && url.startsWith('rustdesk://'));
+}
+
 // uri link handler
 bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   List<String>? args;
   if (cmdArgs != null && cmdArgs.isNotEmpty) {
     args = cmdArgs;
     // rustdesk <uri link>
-    if (args[0].startsWith(bind.mainUriPrefixSync())) {
+    if (isSupportedKqUriLink(args[0])) {
       final uri = Uri.tryParse(args[0]);
       if (uri != null) {
         args = urlLinkToCmdArgs(uri);
@@ -2850,7 +2856,7 @@ Future<void> _showKqNetworkRiskToastIfNeeded() async {
       return const KqNetworkRisk(hasProxy: false, hasVpn: false);
     });
     if (appProxy || risk.hasRisk) {
-      showToast('检测到代理/VPN，远程连接可能变慢或不稳定，建议关闭后重试。',
+      showToast('检测到代理/VPN 或防火墙风险，远程连接可能变慢或不稳定，建议处理后重试。',
           timeout: const Duration(seconds: 5));
     }
   } catch (_) {

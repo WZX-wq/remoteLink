@@ -17,6 +17,8 @@ const config = {
     (process.env.KQ_API_WEB_BASE_URL || 'https://api-web.kunqiongai.com')
       .replace(/\/+$/, ''),
   subsiteName: process.env.KQ_SUBSITE_NAME || 'https://remote.kunqiongai.com/',
+  downloadUrl: process.env.KQ_DOWNLOAD_URL || 'https://kunqiongai.com/',
+  appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
 };
 
 let pool;
@@ -333,6 +335,361 @@ function normalizeDateTime(value) {
   return /^\d{4}-\d{2}-\d{2}/.test(text) ? text : null;
 }
 
+function htmlEscape(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function normalizeUriScheme(value) {
+  const scheme = String(value || 'kqremote')
+    .trim()
+    .replace(/:.*$/, '')
+    .toLowerCase();
+  return /^[a-z][a-z0-9+.-]*$/.test(scheme) ? scheme : 'kqremote';
+}
+
+function formatInviteDeviceId(value) {
+  const compact = String(value || '').replace(/\s+/g, '').trim();
+  if (!compact) return '--- --- ---';
+  return compact.replace(/(.{3})(?=.)/g, '$1 ');
+}
+
+function decodeInvitePayload(req) {
+  const encoded = String(req.query?.i || '').trim();
+  if (!encoded) return {};
+  try {
+    const json = Buffer.from(encoded, 'base64url').toString('utf8');
+    const payload = JSON.parse(json);
+    return payload && typeof payload === 'object' ? payload : {};
+  } catch {
+    return {};
+  }
+}
+
+function invitePage(payload) {
+  const id = String(payload.id || '').replace(/\s+/g, '').trim();
+  const password = String(payload.password || '').trim();
+  const ts = Number(payload.ts || 0);
+  const createdAt = ts > 0 ? new Date(ts) : null;
+  const isExpired =
+    !id ||
+    !password ||
+    !createdAt ||
+    Number.isNaN(createdAt.getTime()) ||
+    Date.now() - createdAt.getTime() > 24 * 60 * 60 * 1000;
+  const deepLink = `${config.appScheme}://connect/${encodeURIComponent(id)}?password=${encodeURIComponent(password)}`;
+  const maskedPassword = password ? `${password.slice(0, 2)}${'*'.repeat(Math.max(password.length - 4, 2))}${password.slice(-2)}` : '--';
+  const safeId = htmlEscape(formatInviteDeviceId(id));
+  const safePassword = htmlEscape(maskedPassword);
+  const safeCreatedAt = htmlEscape(
+    createdAt && !Number.isNaN(createdAt.getTime())
+      ? createdAt.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
+      : '--',
+  );
+  const disabledAttr = isExpired ? 'disabled aria-disabled="true"' : '';
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>鲲穹远程协助邀请</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --ink: #10243e;
+      --muted: #5d7190;
+      --primary: #1277d9;
+      --line: rgba(119, 181, 230, .42);
+      --panel: rgba(255, 255, 255, .82);
+      --soft: rgba(234, 246, 255, .86);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 14% 18%, rgba(103, 216, 234, .46), transparent 28rem),
+        radial-gradient(circle at 84% 10%, rgba(167, 190, 255, .58), transparent 30rem),
+        linear-gradient(135deg, #dff8ff 0%, #edf7ff 44%, #dfe7ff 100%);
+      overflow: hidden;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: auto -9rem -14rem auto;
+      width: 48rem;
+      height: 48rem;
+      border-radius: 9rem;
+      transform: rotate(18deg);
+      background: linear-gradient(145deg, rgba(52, 156, 232, .12), rgba(114, 123, 232, .08));
+      border: 1px solid rgba(255, 255, 255, .42);
+    }
+    main {
+      position: relative;
+      width: min(460px, calc(100vw - 32px));
+      padding: 32px;
+      border: 1px solid rgba(255, 255, 255, .72);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: 0 28px 80px rgba(15, 42, 72, .18);
+      backdrop-filter: blur(18px);
+    }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 26px; }
+    .mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-weight: 900;
+      background: linear-gradient(135deg, #19c8f0, #126fe8 58%, #5a7cff);
+      box-shadow: 0 14px 30px rgba(18, 119, 217, .24);
+    }
+    h1 { margin: 0; font-size: 26px; letter-spacing: 0; }
+    .subtitle { margin: 0 0 18px; text-align: center; color: var(--muted); font-weight: 700; }
+    .info {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,.62);
+      padding: 14px 16px;
+      margin-bottom: 22px;
+    }
+    .row { display: flex; justify-content: space-between; gap: 18px; padding: 8px 0; color: var(--muted); }
+    .row strong { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .02em; }
+    .actions { display: grid; gap: 10px; }
+    button, a.button {
+      width: 100%;
+      height: 42px;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button.primary { color: #fff; background: linear-gradient(135deg, #1686e8, #0f66c2); box-shadow: 0 12px 28px rgba(18, 119, 217, .25); }
+    button.primary:disabled { cursor: not-allowed; color: #f8fbff; background: #b9c2cc; box-shadow: none; }
+    a.button { color: var(--ink); background: #fff; border-color: rgba(16, 36, 62, .14); }
+    .status { min-height: 24px; margin-top: 18px; text-align: center; color: ${isExpired ? '#e23b2e' : '#5d7190'}; font-size: 14px; font-weight: 700; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .86); --soft: rgba(30,48,69,.86); --line: rgba(76, 137, 184, .5); }
+      body { background: linear-gradient(135deg, #102033 0%, #14283d 45%, #1d274a 100%); }
+      .info { background: rgba(15, 26, 40, .68); }
+      a.button { background: rgba(255,255,255,.08); color: var(--ink); border-color: rgba(160, 205, 244, .2); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="brand">
+      <div class="mark">鲲</div>
+      <h1>鲲穹远程桌面</h1>
+    </section>
+    <p class="subtitle">邀请你进行远程协助</p>
+    <section class="info">
+      <div class="row"><span>设备 ID</span><strong>${safeId}</strong></div>
+      <div class="row"><span>设备验证码</span><strong>${safePassword}</strong></div>
+      <div class="row"><span>邀请时间</span><strong>${safeCreatedAt}</strong></div>
+      <div class="row"><span>有效期</span><strong>24 小时</strong></div>
+    </section>
+    <section class="actions">
+      <button class="primary" id="openApp" ${disabledAttr}>开始远控</button>
+      <a class="button" href="download" rel="noopener">下载鲲穹远程桌面</a>
+    </section>
+    <div class="status" id="status">${isExpired ? '此链接已失效' : ''}</div>
+  </main>
+  <script>
+    const deepLink = ${JSON.stringify(deepLink)};
+    const expired = ${JSON.stringify(isExpired)};
+    document.getElementById('openApp').addEventListener('click', () => {
+      if (expired) return;
+      document.getElementById('status').textContent = '正在打开鲲穹远程桌面...';
+      window.location.href = deepLink;
+      window.setTimeout(() => {
+        document.getElementById('status').textContent = '如果没有自动打开，请确认已安装客户端，或点击下载按钮。';
+      }, 1500);
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function downloadPage() {
+  const safeDownloadUrl = htmlEscape(config.downloadUrl);
+  const safeOfficialUrl = htmlEscape('https://kunqiongai.com/');
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>下载鲲穹远程桌面</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --ink: #10243e;
+      --muted: #5d7190;
+      --primary: #147cde;
+      --primary-2: #0f65bf;
+      --line: rgba(96, 166, 224, .36);
+      --panel: rgba(255, 255, 255, .82);
+      --soft: rgba(235, 247, 255, .9);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(120deg, rgba(255,255,255,.7), rgba(255,255,255,0) 36%),
+        radial-gradient(circle at 20% 16%, rgba(87, 206, 232, .42), transparent 30rem),
+        radial-gradient(circle at 88% 20%, rgba(130, 169, 255, .52), transparent 28rem),
+        linear-gradient(135deg, #e3f7ff 0%, #f3f9ff 44%, #e6ecff 100%);
+    }
+    .shell {
+      width: min(1080px, calc(100vw - 36px));
+      margin: 0 auto;
+      padding: 30px 0 42px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 52px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; font-size: 19px; }
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: linear-gradient(135deg, #18c6ef, #147cde 58%, #5a7cff);
+      box-shadow: 0 14px 30px rgba(20, 124, 222, .24);
+    }
+    .official {
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 800;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(255,255,255,.52);
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
+      gap: 34px;
+      align-items: center;
+    }
+    .hero h1 {
+      margin: 0 0 16px;
+      font-size: clamp(34px, 5.4vw, 64px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+    .hero p {
+      max-width: 560px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.7;
+      font-weight: 700;
+    }
+    .panel {
+      border: 1px solid rgba(255,255,255,.72);
+      border-radius: 16px;
+      padding: 26px;
+      background: var(--panel);
+      box-shadow: 0 30px 84px rgba(15, 42, 72, .18);
+      backdrop-filter: blur(18px);
+    }
+    .panel h2 { margin: 0 0 8px; font-size: 24px; letter-spacing: 0; }
+    .panel .desc { margin: 0 0 22px; color: var(--muted); line-height: 1.55; font-weight: 700; }
+    .download {
+      width: 100%;
+      height: 48px;
+      border: 0;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      box-shadow: 0 14px 30px rgba(20, 124, 222, .28);
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .meta div {
+      min-height: 72px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.56);
+    }
+    .meta strong { display: block; margin-bottom: 6px; font-size: 18px; }
+    .meta span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .86); --soft: rgba(30,48,69,.86); --line: rgba(76, 137, 184, .48); }
+      body { background: linear-gradient(135deg, #102033 0%, #14283d 45%, #1d274a 100%); }
+      .official, .meta div { background: rgba(255,255,255,.08); }
+    }
+    @media (max-width: 760px) {
+      header { margin-bottom: 34px; }
+      main { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 40px; }
+      .meta { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand"><div class="mark">鲲</div><span>鲲穹远程桌面</span></div>
+      <a class="official" href="${safeOfficialUrl}" rel="noopener">公司官网</a>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>安全、清爽、好用的远程协助工具</h1>
+        <p>用于远程桌面、临时协助、跨设备办公和售后支持。安装后可直接打开分享链接，一键进入连接流程。</p>
+      </section>
+      <section class="panel">
+        <h2>Windows 客户端</h2>
+        <p class="desc">下载安装并完成向导后，再次点击邀请链接里的“开始远控”即可自动唤起客户端。</p>
+        <a class="download" href="${safeDownloadUrl}" rel="noopener">下载 Windows 安装包</a>
+        <div class="meta">
+          <div><strong>1080p</strong><span>会员支持高清画质</span></div>
+          <div><strong>60 FPS</strong><span>会员支持高帧率</span></div>
+          <div><strong>私有节点</strong><span>企业私有服务器接入</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>`;
+}
+
 function connectionLimitFor(user) {
   return Number(user.member_active) === 1 ? 50 : 5;
 }
@@ -447,6 +804,20 @@ app.get(['/health', '/api/health'], async (_req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.get(['/invite', '/api/invite'], (req, res) => {
+  res
+    .status(200)
+    .type('html')
+    .send(invitePage(decodeInvitePayload(req)));
+});
+
+app.get(['/download', '/api/download'], (_req, res) => {
+  res
+    .status(200)
+    .type('html')
+    .send(downloadPage());
 });
 
 app.get('/api/me', async (req, res, next) => {

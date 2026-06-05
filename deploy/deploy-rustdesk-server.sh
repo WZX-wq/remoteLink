@@ -255,6 +255,8 @@ write_compose_env() {
       printf 'KQ_API_PORT=%s\n' "${KQ_API_PORT}"
       printf 'KQ_API_PUBLIC_PATH=%s\n' "${KQ_API_PUBLIC_PATH}"
       printf 'KQ_PUBLIC_API_URL=%s\n' "${KQ_PUBLIC_API_URL}"
+      printf 'KQ_DOWNLOAD_URL=%s\n' "${KQ_DOWNLOAD_URL:-https://kunqiongai.com/}"
+      printf 'KQ_APP_SCHEME=%s\n' "${KQ_APP_SCHEME:-kqremote}"
       printf 'KQ_DB_HOST=%s\n' "${KQ_DB_HOST}"
       printf 'KQ_DB_PORT=%s\n' "${KQ_DB_PORT:-3306}"
       printf 'KQ_DB_USER=%s\n' "${KQ_DB_USER}"
@@ -606,7 +608,7 @@ Restart=always
 RestartSec=5
 TimeoutStartSec=0
 ExecStartPre=-${docker_bin} rm -f kq-remote-link-api
-ExecStart=${docker_bin} run --name kq-remote-link-api --network host --env-file ${INSTALL_DIR}/.env -e KQ_API_HOST=127.0.0.1 -e KQ_API_PORT=${KQ_API_PORT} -e KQ_PUBLIC_API_URL=${KQ_PUBLIC_API_URL} -e KQ_SUBSITE_NAME=${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/} -e KQ_API_WEB_BASE_URL=${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com} -e KQ_DB_POOL_SIZE=${KQ_DB_POOL_SIZE:-2} kq-remote-link-api:latest
+ExecStart=${docker_bin} run --name kq-remote-link-api --network host --env-file ${INSTALL_DIR}/.env -e KQ_API_HOST=127.0.0.1 -e KQ_API_PORT=${KQ_API_PORT} -e KQ_PUBLIC_API_URL=${KQ_PUBLIC_API_URL} -e KQ_DOWNLOAD_URL=${KQ_DOWNLOAD_URL:-https://kunqiongai.com/} -e KQ_APP_SCHEME=${KQ_APP_SCHEME:-kqremote} -e KQ_SUBSITE_NAME=${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/} -e KQ_API_WEB_BASE_URL=${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com} -e KQ_DB_POOL_SIZE=${KQ_DB_POOL_SIZE:-2} kq-remote-link-api:latest
 ExecStop=${docker_bin} stop -t 10 kq-remote-link-api
 ExecStopPost=-${docker_bin} rm -f kq-remote-link-api
 

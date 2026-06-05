@@ -25,6 +25,7 @@ import 'package:flutter_hbb/models/user_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/models/desktop_render_texture.dart';
 import 'package:flutter_hbb/models/terminal_model.dart';
+import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/plugin/event.dart';
 import 'package:flutter_hbb/plugin/manager.dart';
 import 'package:flutter_hbb/plugin/widgets/desc_ui.dart';
@@ -745,8 +746,7 @@ class FfiModel with ChangeNotifier {
 
   onUrlSchemeReceived(Map<String, dynamic> evt) {
     final url = evt['url'].toString().trim();
-    if (url.startsWith(bind.mainUriPrefixSync()) &&
-        handleUriLink(uriString: url)) {
+    if (isSupportedKqUriLink(url) && handleUriLink(uriString: url)) {
       return;
     }
     switch (url) {
@@ -932,6 +932,9 @@ class FfiModel with ChangeNotifier {
       showWaitUacDialog(sessionId, dialogManager, type);
     } else if (type == 'elevation-error') {
       showElevationError(sessionId, type, title, text, dialogManager);
+    } else if (type == 'kq-network-diagnostics') {
+      showKqNetworkDiagnosticsDialog(
+          sessionId, type, title, text, dialogManager, peerId);
     } else if (type == 'relay-hint' || type == 'relay-hint2') {
       showRelayHintDialog(sessionId, type, title, text, dialogManager, peerId);
     } else if (text == kMsgboxTextWaitingForImage) {
@@ -1114,6 +1117,65 @@ class FfiModel with ChangeNotifier {
             dialogButton('Connect via relay',
                 onPressed: () => reconnect(dialogManager, sessionId, true),
                 buttonStyle: style),
+        ],
+        onCancel: onClose,
+      );
+    });
+  }
+
+  Future<void> showKqNetworkDiagnosticsDialog(
+      SessionID sessionId,
+      String type,
+      String title,
+      String text,
+      OverlayDialogManager dialogManager,
+      String peerId) async {
+    final risk = await detectKqNetworkRisk()
+        .timeout(const Duration(milliseconds: 1800), onTimeout: () {
+      return const KqNetworkRisk(hasProxy: false, hasVpn: false);
+    });
+
+    var isRepairing = false;
+    var repairMessage = '';
+    dialogManager.show(tag: '$sessionId-$type', (setState, close, context) {
+      onClose() {
+        closeConnection();
+        close();
+      }
+
+      retryDirect() {
+        reconnect(dialogManager, sessionId, false);
+      }
+
+      repairFirewall() async {
+        if (isRepairing) return;
+        setState(() {
+          isRepairing = true;
+          repairMessage = '正在请求系统授权并修复本机防火墙...';
+        });
+        final result = await repairKqFirewallRules();
+        setState(() {
+          isRepairing = false;
+          repairMessage = result.message;
+        });
+        showToast(result.success ? '本机防火墙规则已修复，请重试直连。' : result.message,
+            timeout: const Duration(seconds: 5));
+      }
+
+      return CustomAlertDialog(
+        title: null,
+        contentBoxConstraints: const BoxConstraints(maxWidth: 560),
+        content: _KqNetworkDiagnosticsContent(
+          errorText: text,
+          risk: risk,
+          repairMessage: repairMessage,
+          isRepairing: isRepairing,
+        ),
+        actions: [
+          dialogButton('关闭', onPressed: onClose, isOutline: true),
+          dialogButton('修复本机防火墙',
+              onPressed: isRepairing ? null : repairFirewall, isOutline: true),
+          dialogButton('重试直连', onPressed: retryDirect),
         ],
         onCancel: onClose,
       );
@@ -1760,6 +1822,269 @@ class FfiModel with ChangeNotifier {
       _showMyCursor = value;
       notifyListeners();
     }
+  }
+}
+
+class _KqNetworkDiagnosticsContent extends StatelessWidget {
+  const _KqNetworkDiagnosticsContent({
+    required this.errorText,
+    required this.risk,
+    required this.repairMessage,
+    required this.isRepairing,
+  });
+
+  final String errorText;
+  final KqNetworkRisk risk;
+  final String repairMessage;
+  final bool isRepairing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final shellColor =
+        isDark ? const Color(0xFF132031) : const Color(0xFFF3F8FF);
+    final borderColor =
+        isDark ? const Color(0xFF25476A) : const Color(0xFFD7E9FF);
+    final titleColor =
+        isDark ? const Color(0xFFE7F2FF) : const Color(0xFF123A5E);
+    final bodyColor =
+        isDark ? const Color(0xFFC5D6E7) : const Color(0xFF40576F);
+
+    final items = [
+      _KqDiagnosticsItem(
+        title: '本机防火墙',
+        detail: risk.firewallRulesMissing
+            ? '未检测到完整的 TCP/UDP 入站/出站放行规则，可点击下方按钮自动修复。'
+            : '已检查本机规则；如果安全软件另有拦截，请在安全软件中放行鲲穹远程桌面。',
+        state: risk.firewallRulesMissing
+            ? _KqDiagnosticsState.warning
+            : _KqDiagnosticsState.ok,
+      ),
+      _KqDiagnosticsItem(
+        title: '代理 / VPN',
+        detail: risk.hasProxy || risk.hasVpn
+            ? '检测到代理或 VPN，可能导致连接绕路、延迟升高或打洞失败。建议关闭后重试。'
+            : '未发现明显代理或 VPN 风险。',
+        state: risk.hasProxy || risk.hasVpn
+            ? _KqDiagnosticsState.warning
+            : _KqDiagnosticsState.ok,
+      ),
+      const _KqDiagnosticsItem(
+        title: 'UDP 打洞',
+        detail: '两端网络需要允许 UDP 通信。若 UDP 被企业防火墙、路由器或运营商拦截，会转入中继并明显变慢。',
+        state: _KqDiagnosticsState.info,
+      ),
+      const _KqDiagnosticsItem(
+        title: 'NAT / 路由器',
+        detail: '对称 NAT、企业网、校园网、运营商 CGNAT 可能无法自动直连，需要网络管理员放行或调整端口映射。',
+        state: _KqDiagnosticsState.info,
+      ),
+      const _KqDiagnosticsItem(
+        title: '中继质量',
+        detail: '如果无法直连，只能走中继。当前中继带宽不足时会出现高延迟、低 FPS、画面卡顿。',
+        state: _KqDiagnosticsState.info,
+      ),
+    ];
+
+    return SelectionArea(
+      child: Container(
+        decoration: BoxDecoration(
+          color: shellColor,
+          border: Border.all(color: borderColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF0D3558)
+                        : const Color(0xFFE4F2FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.route_rounded,
+                      color: Color(0xFF2087D8), size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '网络连接诊断',
+                        style: TextStyle(
+                          color: titleColor,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '已停止高风险连接，避免自动进入高延迟中继。请按清单处理后重试直连。',
+                        style: TextStyle(color: bodyColor, height: 1.35),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...items.map((item) => _KqDiagnosticsRow(item: item)),
+            if (isRepairing || repairMessage.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF0C1825)
+                      : const Color(0xFFFFFFFF),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Row(
+                  children: [
+                    if (isRepairing) ...[
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Text(
+                        repairMessage,
+                        style: TextStyle(color: bodyColor, height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color:
+                    isDark ? const Color(0xFF0C1825) : const Color(0xFFFFFFFF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: borderColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '错误信息',
+                    style: TextStyle(
+                      color: titleColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    errorText,
+                    style: TextStyle(
+                      color: bodyColor,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _KqDiagnosticsState { ok, warning, info }
+
+class _KqDiagnosticsItem {
+  const _KqDiagnosticsItem({
+    required this.title,
+    required this.detail,
+    required this.state,
+  });
+
+  final String title;
+  final String detail;
+  final _KqDiagnosticsState state;
+}
+
+class _KqDiagnosticsRow extends StatelessWidget {
+  const _KqDiagnosticsRow({required this.item});
+
+  final _KqDiagnosticsItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    late final Color color;
+    late final IconData icon;
+    switch (item.state) {
+      case _KqDiagnosticsState.ok:
+        color = const Color(0xFF1B9B72);
+        icon = Icons.check_circle_rounded;
+        break;
+      case _KqDiagnosticsState.warning:
+        color = const Color(0xFFE48A1F);
+        icon = Icons.warning_rounded;
+        break;
+      case _KqDiagnosticsState.info:
+        color = const Color(0xFF2087D8);
+        icon = Icons.info_rounded;
+        break;
+    }
+    final titleColor =
+        isDark ? const Color(0xFFE7F2FF) : const Color(0xFF123A5E);
+    final bodyColor =
+        isDark ? const Color(0xFFC5D6E7) : const Color(0xFF40576F);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  item.detail,
+                  style: TextStyle(color: bodyColor, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

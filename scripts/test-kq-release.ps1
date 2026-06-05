@@ -58,6 +58,63 @@ function Test-SourceContains($Path, $Pattern, $Name) {
     }
 }
 
+function Test-InstallerUpgradePolicy {
+    $source = ".\scripts\new-kq-inno-installer.ps1"
+    if (-not (Test-Path $source)) {
+        Add-Check "installer:upgrade-policy" "SKIP" "Source file not available: $source"
+        return
+    }
+    $content = Get-Content $source -Raw -Encoding UTF8
+    $required = @(
+        @("installer:stable-app-id", "AppId={{D0B24C8B-7E7E-4B2C-9A38-0B2026052701}"),
+        @("installer:upgrade-default-dir", "DefaultDirName={code:GetDefaultInstallDir}"),
+        @("installer:no-language-dialog", "ShowLanguageDialog=no"),
+        @("installer:language-detect-ui", "LanguageDetectionMethod=uilanguage"),
+        @("installer:use-previous-dir", "UsePreviousAppDir=yes"),
+        @("installer:use-previous-language", "UsePreviousLanguage=yes"),
+        @("installer:use-previous-tasks", "UsePreviousTasks=yes"),
+        @("installer:read-existing-install-dir", "KqReadInstalledString('InstallLocation', KqExistingInstallDir)"),
+        @("installer:prefer-existing-install-dir", "if KqExistingInstallDir <> '' then"),
+        @("installer:fresh-lang-only", 'Parameters: "--local-option lang {code:SelectedAppLanguage}"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'),
+        @("installer:fresh-udp-only", 'Parameters: "--local-option enable-udp-punch Y"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'),
+        @("installer:fresh-relay-only", 'Parameters: "--local-option kq-force-always-relay N"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'),
+        @("installer:fresh-launch-only", 'Tasks: launch; Check: KqIsFreshInstall'),
+        @("installer:upgrade-skip-pages", "function ShouldSkipPage(PageID: Integer): Boolean"),
+        @("installer:upgrade-copy-hook", "procedure ApplyUpgradeWizardText(CurPageID: Integer)"),
+        @("installer:upgrade-welcome-copy", "WizardForm.WelcomeLabel1.Caption := '`$cnWelcomeTitle'"),
+        @("installer:upgrade-ready-copy", "WizardForm.ReadyLabel.Caption :="),
+        @("installer:upgrade-button-copy", "WizardForm.NextButton.Caption := '`$cnUpgradeButton'"),
+        @("installer:upgrade-page-change-hook", "procedure CurPageChanged(CurPageID: Integer)"),
+        @("installer:legacy-hkcu-migration", "function KqLegacyUninstallKey(): String"),
+        @("installer:downgrade-guard", "KqCompareVersions(KqExistingVersion, '{#MyAppVersion}') > 0"),
+        @("installer:system-desktop-shortcut", 'Name: "{commondesktop}\{#MyAppName}"'),
+        @("installer:system-startup-shortcut", 'Name: "{commonstartup}\{#MyAppName}"')
+    )
+    foreach ($pair in $required) {
+        if ($content -match [regex]::Escape($pair[1])) {
+            Add-Check $pair[0] "PASS" $pair[1]
+        } else {
+            Add-Check $pair[0] "FAIL" "Missing expected installer policy: $($pair[1])"
+        }
+    }
+
+    $forbidden = @(
+        @("installer:no-localappdata-default", "DefaultDirName={localappdata}\KQRemoteLink"),
+        @("installer:no-forced-language-dialog", "ShowLanguageDialog=yes"),
+        @("installer:no-auto-language-dialog", "ShowLanguageDialog=auto"),
+        @("installer:no-disabled-language-detection", "LanguageDetectionMethod=none"),
+        @("installer:no-user-desktop-task", 'Name: "{autodesktop}\{#MyAppName}"'),
+        @("installer:no-user-startup-task", 'Name: "{userstartup}\{#MyAppName}"')
+    )
+    foreach ($pair in $forbidden) {
+        if ($content -match [regex]::Escape($pair[1])) {
+            Add-Check $pair[0] "FAIL" "Forbidden installer policy is present: $($pair[1])"
+        } else {
+            Add-Check $pair[0] "PASS" "Forbidden policy absent"
+        }
+    }
+}
+
 $release = Resolve-Path $ReleaseDir
 if ($PackageZip) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -67,6 +124,9 @@ Test-RequiredPath $release.Path "librustdesk.dll"
 Test-RequiredPath $release.Path "flutter_windows.dll"
 Test-RequiredPath $release.Path "data\flutter_assets\AssetManifest.bin"
 Test-RequiredPath $release.Path "data\flutter_assets\assets\kq_toolbox_icon.svg"
+Test-RequiredPath $release.Path "drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf"
+Test-RequiredPath $release.Path "printer_driver_adapter.dll"
+Test-InstallerUpgradePolicy
 
 $kqLoginButton = [string]::Concat([char[]]@(
     0x4F7F,
@@ -87,6 +147,22 @@ $kqAppName = [string]::Concat([char[]]@(
     0x9762
 ))
 $kqTitleBrand = $kqAppName
+$kqDownloadWindowsButton = [string]::Concat([char[]]@(
+    0x4E0B,
+    0x8F7D,
+    0x20,
+    0x57,
+    0x69,
+    0x6E,
+    0x64,
+    0x6F,
+    0x77,
+    0x73,
+    0x20,
+    0x5B89,
+    0x88C5,
+    0x5305
+))
 
 function Test-BuiltInPrivateServerDefaults {
     $source = ".\src\common.rs"
@@ -153,8 +229,22 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\Cargo.toml" $kqAppName "branding:CARGO"
     Test-SourceContains ".\src\common.rs" $kqAppName "branding:common"
     Test-SourceContains ".\flutter\lib\common\widgets\login.dart" $kqLoginButton "oauth:login-button"
+    Test-SourceContains ".\flutter\lib\common\widgets\login.dart" "_isKqOauthCancellation" "oauth:suppress-cancel-toast"
+    Test-SourceContains ".\flutter\lib\common\widgets\login.dart" "if (!_isKqOauthCancellation(err))" "oauth:suppress-cancel-toast-branch"
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" $kqTitleBrand "ui:title-brand"
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "assets/icon.png" "ui:title-icon"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_tab_page.dart" "showMaximize: false" "ui:main-hide-maximize"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "_copyRemoteAssistShare" "ui:remote-assist-share-copy"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "kq-share-invite-url" "ui:remote-assist-share-url"
+    Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "_passwordController" "ui:remote-password-field"
+    Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "password: password.isEmpty ? null : password" "ui:remote-password-connect-param"
+    Test-SourceContains ".\flutter\lib\common.dart" "isSupportedKqUriLink" "deeplink:kqremote-compatible"
+    Test-SourceContains ".\src\common.rs" "kqremote://" "deeplink:kqremote-prefix"
+    Test-SourceContains ".\scripts\new-kq-inno-installer.ps1" "HKEY_CLASSES_ROOT\kqremote" "installer:kqremote-protocol"
+    Test-SourceContains ".\server\src\index.js" "app.get(['/invite', '/api/invite']" "server:invite-page"
+    Test-SourceContains ".\server\src\index.js" "kqremote" "server:invite-kqremote-scheme"
+    Test-SourceContains ".\server\src\index.js" "function downloadPage()" "server:download-page"
+    Test-SourceContains ".\server\src\index.js" $kqDownloadWindowsButton "server:download-windows-button"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "https://login.kunqiongai.com/authorize.html" "oauth:authorize-url"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "https://login.kunqiongai.com/api/oauth/token" "oauth:token-url"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "http://localhost:6613/oauth/callback" "oauth:redirect-uri"
@@ -193,7 +283,7 @@ if (Test-Path $customTxt) {
                 Add-Check "custom-client:signature" "WARN" "zip Release\custom.txt exists; pass -CustomClientPublicKey to verify it"
             }
         } else {
-            Add-Check "custom-client:signature" "SKIP" "No custom.txt in release or zip; using built-in private server defaults"
+            Add-Check "custom-client:signature" "SKIP" "No custom.txt in release or zip; built-in private server defaults are active"
         }
     } finally {
         $archiveForCustom.Dispose()
@@ -202,7 +292,7 @@ if (Test-Path $customTxt) {
         }
     }
 } else {
-    Add-Check "custom-client:signature" "SKIP" "No custom.txt in release; using built-in private server defaults"
+    Add-Check "custom-client:signature" "SKIP" "No custom.txt in release; built-in private server defaults are active"
 }
 
 if ($PackageZip) {
@@ -214,6 +304,8 @@ if ($PackageZip) {
             "Release\librustdesk.dll",
             "Release\data\flutter_assets\AssetManifest.bin",
             "Release\data\flutter_assets\assets\kq_toolbox_icon.svg",
+            "Release\drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf",
+            "Release\printer_driver_adapter.dll",
             "KQ_RELEASE_MANIFEST.json",
             "START_KQ_REMOTE_LINK.cmd",
             "RUN_SMOKE_CHECKS.cmd",

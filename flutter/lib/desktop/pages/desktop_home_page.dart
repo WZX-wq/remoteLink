@@ -6,6 +6,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
@@ -476,6 +477,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   buildPasswordBoard2(BuildContext context, ServerModel model) {
     RxBool refreshHover = false.obs;
+    RxBool shareHover = false.obs;
     RxBool editHover = false.obs;
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     final q = KqTheme.of(context);
@@ -529,6 +531,24 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   ),
                   onHover: (value) => refreshHover.value = value,
                 ).marginOnly(right: 4),
+              if (showOneTime)
+                InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  child: Tooltip(
+                    message: '复制并分享',
+                    child: Obx(
+                      () => Icon(
+                        Icons.ios_share_rounded,
+                        color: shareHover.value
+                            ? q.primary
+                            : textColor?.withOpacity(0.45),
+                        size: 19,
+                      ).paddingAll(4),
+                    ),
+                  ),
+                  onTap: () => _copyRemoteAssistShare(model),
+                  onHover: (value) => shareHover.value = value,
+                ).marginOnly(right: 4),
               if (!bind.isDisableSettings())
                 InkWell(
                   borderRadius: BorderRadius.circular(999),
@@ -578,6 +598,50 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ],
       ),
     );
+  }
+
+  Future<void> _copyRemoteAssistShare(ServerModel model) async {
+    final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
+    final password = model.serverPasswd.text.trim();
+    if (id.isEmpty || id == '--' || password.isEmpty || password == '-') {
+      showToast('设备号或一次性密码还未就绪');
+      return;
+    }
+    final link = _buildKqInviteLink(id: id, password: password);
+    final text = [
+      '使用 鲲穹远程桌面 即可对我发起远程协助',
+      '设备ID：${formatID(id)}',
+      '设备验证码：$password',
+      '点击链接可直接发起远程协助：$link',
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    showToast('已复制远程协助分享信息');
+  }
+
+  String _buildKqInviteLink({required String id, required String password}) {
+    final base = _kqInviteBaseUrl();
+    final payload = base64UrlEncode(utf8.encode(jsonEncode({
+      'id': id,
+      'password': password,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    })));
+    return '$base?i=$payload';
+  }
+
+  String _kqInviteBaseUrl() {
+    final configured =
+        bind.mainGetBuildinOption(key: 'kq-share-invite-url').trim();
+    if (configured.isNotEmpty) {
+      return configured.replaceFirst(RegExp(r'/+$'), '');
+    }
+    final apiBase = bind
+        .mainGetBuildinOption(key: 'kq-project-api-server')
+        .trim()
+        .replaceFirst(RegExp(r'/+$'), '');
+    if (apiBase.endsWith('/api')) {
+      return '${apiBase.substring(0, apiBase.length - 4)}/invite';
+    }
+    return 'http://43.154.197.96/kq-api/invite';
   }
 
   buildTip(BuildContext context) {

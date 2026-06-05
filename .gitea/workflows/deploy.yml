@@ -73,6 +73,8 @@ jobs:
           KQ_API_PORT: ${{ secrets.KQ_API_PORT }}
           KQ_API_PUBLIC_PATH: /kq-api
           KQ_PUBLIC_API_URL: http://43.154.197.96/kq-api/api
+          KQ_DOWNLOAD_URL: https://kunqiongai.com/
+          KQ_APP_SCHEME: kqremote
           KQ_DB_HOST: ${{ secrets.KQ_DB_HOST }}
           KQ_DB_PORT: ${{ secrets.KQ_DB_PORT }}
           KQ_DB_USER: ${{ secrets.KQ_DB_USER }}

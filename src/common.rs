@@ -1418,7 +1418,17 @@ pub fn is_rustdesk() -> bool {
 
 #[inline]
 pub fn get_uri_prefix() -> String {
-    format!("{}://", get_app_name().to_lowercase())
+    if get_app_name() == KQ_APP_NAME {
+        "kqremote://".to_owned()
+    } else {
+        format!("{}://", get_app_name().to_lowercase())
+    }
+}
+
+#[inline]
+pub fn is_supported_uri_prefix(url: &str) -> bool {
+    url.starts_with(&get_uri_prefix())
+        || (get_app_name() == KQ_APP_NAME && url.starts_with("rustdesk://"))
 }
 
 #[cfg(target_os = "macos")]
@@ -1515,6 +1525,13 @@ pub fn get_ipv6_punch_enabled() -> bool {
 
 pub fn get_local_option(key: &str) -> String {
     let v = LocalConfig::get_option(key);
+    if key == keys::OPTION_ENABLE_UDP_PUNCH
+        && v.is_empty()
+        && get_app_name() == KQ_APP_NAME
+        && !is_public(&Config::get_rendezvous_server())
+    {
+        return "Y".to_owned();
+    }
     if key == keys::OPTION_ENABLE_UDP_PUNCH || key == keys::OPTION_ENABLE_IPV6_PUNCH {
         if v.is_empty() {
             if !is_public(&Config::get_rendezvous_server()) {
@@ -2531,10 +2548,19 @@ fn apply_kq_remote_link_defaults() {
     );
     overwrite_settings.insert(keys::OPTION_DISABLE_UDP.to_owned(), "N".to_owned());
     overwrite_settings.insert(keys::OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
-    overwrite_settings.insert(keys::OPTION_ALLOW_AUTO_DISCONNECT.to_owned(), "N".to_owned());
-    overwrite_settings.insert(keys::OPTION_AUTO_DISCONNECT_TIMEOUT.to_owned(), "0".to_owned());
+    overwrite_settings.insert(
+        keys::OPTION_ALLOW_AUTO_DISCONNECT.to_owned(),
+        "N".to_owned(),
+    );
+    overwrite_settings.insert(
+        keys::OPTION_AUTO_DISCONNECT_TIMEOUT.to_owned(),
+        "0".to_owned(),
+    );
     overwrite_settings.insert(keys::OPTION_AV1_TEST.to_owned(), "N".to_owned());
-    overwrite_settings.insert(keys::OPTION_HIDE_WEBSOCKET_SETTINGS.to_owned(), "Y".to_owned());
+    overwrite_settings.insert(
+        keys::OPTION_HIDE_WEBSOCKET_SETTINGS.to_owned(),
+        "Y".to_owned(),
+    );
     overwrite_settings.insert(keys::OPTION_HIDE_SERVER_SETTINGS.to_owned(), "Y".to_owned());
     overwrite_settings.insert(
         keys::OPTION_ALLOW_DEEP_LINK_SERVER_SETTINGS.to_owned(),
@@ -2556,13 +2582,10 @@ fn apply_kq_remote_link_defaults() {
         .write()
         .unwrap()
         .insert(keys::OPTION_REGISTER_DEVICE.to_owned(), "N".to_owned());
-    config::BUILTIN_SETTINGS
-        .write()
-        .unwrap()
-        .insert(
-            "kq-project-api-server".to_owned(),
-            "http://43.154.197.96/kq-api/api".to_owned(),
-        );
+    config::BUILTIN_SETTINGS.write().unwrap().insert(
+        "kq-project-api-server".to_owned(),
+        "http://43.154.197.96/kq-api/api".to_owned(),
+    );
 }
 
 fn read_custom_client_advanced_settings(
@@ -2714,8 +2737,7 @@ pub fn read_custom_client(config: &str) {
 }
 
 fn custom_client_verification_key() -> &'static str {
-    option_env!("KQ_CUSTOM_CLIENT_PUBKEY")
-        .unwrap_or("5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=")
+    option_env!("KQ_CUSTOM_CLIENT_PUBKEY").unwrap_or("5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=")
 }
 
 #[inline]

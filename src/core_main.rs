@@ -162,7 +162,7 @@ pub fn core_main() -> Option<Vec<String>> {
 
     // linux uni (url) go here.
     #[cfg(all(target_os = "linux", feature = "flutter"))]
-    if args.len() > 0 && args[0].starts_with(&crate::get_uri_prefix()) {
+    if args.len() > 0 && crate::is_supported_uri_prefix(&args[0]) {
         return try_send_by_dbus(args[0].clone());
     }
 
@@ -258,6 +258,17 @@ pub fn core_main() -> Option<Vec<String>> {
                     log::error!("Failed to before-uninstall: {}", err);
                 }
                 return None;
+            } else if args[0] == "--repair-firewall" {
+                match platform::repair_kq_firewall_rules() {
+                    Ok(_) => {
+                        println!("KQ firewall rules repaired");
+                        return None;
+                    }
+                    Err(err) => {
+                        eprintln!("Failed to repair KQ firewall rules: {}", err);
+                        std::process::exit(1);
+                    }
+                }
             } else if args[0] == "--silent-install" {
                 if config::is_disable_installation() {
                     return None;
@@ -543,10 +554,7 @@ pub fn core_main() -> Option<Vec<String>> {
             return None;
         } else if args[0] == "--local-option" {
             if args.len() == 2 {
-                println!(
-                    "{}",
-                    hbb_common::config::LocalConfig::get_option(&args[1])
-                );
+                println!("{}", hbb_common::config::LocalConfig::get_option(&args[1]));
             } else if args.len() == 3 {
                 crate::ui_interface::set_local_option(args[1].clone(), args[2].clone());
             }
@@ -679,9 +687,7 @@ pub fn core_main() -> Option<Vec<String>> {
                 let local_id = crate::ipc::get_id();
                 let id_to_deploy = new_id.clone().unwrap_or_else(|| local_id.clone());
                 let uuid = crate::encode64(hbb_common::get_uuid());
-                let pk = crate::encode64(
-                    hbb_common::config::Config::get_key_pair().1,
-                );
+                let pk = crate::encode64(hbb_common::config::Config::get_key_pair().1);
                 let body = serde_json::json!({
                     "id": id_to_deploy,
                     "uuid": uuid,
