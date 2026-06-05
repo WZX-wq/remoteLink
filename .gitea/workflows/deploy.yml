@@ -36,6 +36,7 @@ jobs:
           test -f server/package.json
           test -f server/src/index.js
           test -f server/Dockerfile
+          test -f server/public/downloads/Kunqiong-Remote-Desktop-Setup.exe
           bash -n deploy/deploy-rustdesk-server.sh
           bash -n deploy/check-rustdesk-server.sh
           bash -n deploy/export-hbbs-public-key.sh
@@ -73,7 +74,15 @@ jobs:
           KQ_API_PORT: ${{ secrets.KQ_API_PORT }}
           KQ_API_PUBLIC_PATH: /kq-api
           KQ_PUBLIC_API_URL: http://43.154.197.96/kq-api/api
-          KQ_DOWNLOAD_URL: https://kunqiongai.com/
+          KQ_DOWNLOAD_URL: http://43.154.197.96/kq-api/download/windows
+          KQ_DOWNLOAD_FILE_PATH: /app/public/downloads/Kunqiong-Remote-Desktop-Setup.exe
+          KQ_DOWNLOAD_FILE_NAME: Kunqiong-Remote-Desktop-Setup.exe
+          KQ_DOWNLOAD_VERSION: 2026.06.05.1708
+          KQ_DOWNLOAD_SHA256: 1B357A0F1EF37572310DEF7F93386349F1471B8907DFF7957715A2DEC037BE9E
+          KQ_DOWNLOAD_MAX_REQUESTS_PER_WINDOW: "12"
+          KQ_DOWNLOAD_RATE_WINDOW_MS: "60000"
+          KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT: "2"
+          KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT: "8"
           KQ_APP_SCHEME: kqremote
           KQ_DB_HOST: ${{ secrets.KQ_DB_HOST }}
           KQ_DB_PORT: ${{ secrets.KQ_DB_PORT }}

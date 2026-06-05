@@ -1,6 +1,15 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import mysql from 'mysql2/promise';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const defaultInstallerPath = path.resolve(
+  __dirname,
+  '../public/downloads/Kunqiong-Remote-Desktop-Setup.exe',
+);
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
@@ -17,11 +26,30 @@ const config = {
     (process.env.KQ_API_WEB_BASE_URL || 'https://api-web.kunqiongai.com')
       .replace(/\/+$/, ''),
   subsiteName: process.env.KQ_SUBSITE_NAME || 'https://remote.kunqiongai.com/',
-  downloadUrl: process.env.KQ_DOWNLOAD_URL || 'https://kunqiongai.com/',
+  downloadUrl:
+    process.env.KQ_DOWNLOAD_URL ||
+    deriveDownloadUrl(process.env.KQ_PUBLIC_API_URL) ||
+    '/download/windows',
+  download: {
+    filePath: process.env.KQ_DOWNLOAD_FILE_PATH || defaultInstallerPath,
+    fileName:
+      process.env.KQ_DOWNLOAD_FILE_NAME ||
+      'Kunqiong-Remote-Desktop-Setup.exe',
+    version: process.env.KQ_DOWNLOAD_VERSION || '2026.06.05.1708',
+    sha256: process.env.KQ_DOWNLOAD_SHA256 || '',
+    maxRequestsPerWindow: envInt('KQ_DOWNLOAD_MAX_REQUESTS_PER_WINDOW', 12, 1, 120),
+    windowMs: envInt('KQ_DOWNLOAD_RATE_WINDOW_MS', 60000, 1000, 3600000),
+    maxPerIpConcurrent: envInt('KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT', 2, 1, 16),
+    maxGlobalConcurrent: envInt('KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT', 8, 1, 128),
+  },
   appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
 };
 
 let pool;
+const downloadLimiter = {
+  active: 0,
+  clients: new Map(),
+};
 
 function mustEnv(name) {
   const value = process.env[name];
@@ -29,6 +57,27 @@ function mustEnv(name) {
     throw new Error(`${name} is required`);
   }
   return value.trim();
+}
+
+function deriveDownloadUrl(publicApiUrl) {
+  const text = String(publicApiUrl || '').trim();
+  if (!text) return '';
+  try {
+    const url = new URL(text);
+    url.pathname = url.pathname.replace(/\/api\/?$/, '').replace(/\/+$/, '');
+    url.pathname = `${url.pathname}/download/windows`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function envInt(name, fallback, min, max) {
+  const parsed = Number.parseInt(process.env[name] || '', 10);
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(min, Math.min(max, value));
 }
 
 function assertIdentifier(value, name) {
@@ -51,6 +100,13 @@ function getAuthToken(req) {
 
 function jsonError(res, status, message) {
   return res.status(status).json({ ok: false, error: message });
+}
+
+function textError(res, status, message) {
+  return res
+    .status(status)
+    .type('text')
+    .send(message);
 }
 
 function toBool(value) {
@@ -333,6 +389,171 @@ function normalizeDateTime(value) {
   if (!value) return null;
   const text = String(value).trim();
   return /^\d{4}-\d{2}-\d{2}/.test(text) ? text : null;
+}
+
+function getClientIp(req) {
+  const realIp = String(req.get('x-real-ip') || '').trim();
+  if (realIp) return realIp;
+  const forwarded = String(req.get('x-forwarded-for') || '')
+    .split(',')[0]
+    .trim();
+  return forwarded || req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function downloadClientState(ip) {
+  const now = Date.now();
+  const state = downloadLimiter.clients.get(ip) || {
+    windowStart: now,
+    requests: 0,
+    active: 0,
+  };
+  if (now - state.windowStart > config.download.windowMs) {
+    state.windowStart = now;
+    state.requests = 0;
+  }
+  downloadLimiter.clients.set(ip, state);
+  if (downloadLimiter.clients.size > 5000) {
+    for (const [clientIp, clientState] of downloadLimiter.clients) {
+      if (
+        clientState.active === 0 &&
+        now - clientState.windowStart > config.download.windowMs * 2
+      ) {
+        downloadLimiter.clients.delete(clientIp);
+      }
+    }
+  }
+  return state;
+}
+
+function acquireDownloadSlot(req, res) {
+  const ip = getClientIp(req);
+  const state = downloadClientState(ip);
+  if (state.requests >= config.download.maxRequestsPerWindow) {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil((config.download.windowMs - (Date.now() - state.windowStart)) / 1000),
+    );
+    res.setHeader('retry-after', String(retryAfter));
+    textError(res, 429, 'Download rate limit exceeded. Please try again later.');
+    return null;
+  }
+  if (state.active >= config.download.maxPerIpConcurrent) {
+    textError(res, 429, 'Too many concurrent downloads from this network.');
+    return null;
+  }
+  if (downloadLimiter.active >= config.download.maxGlobalConcurrent) {
+    textError(res, 503, 'Download server is busy. Please try again later.');
+    return null;
+  }
+  state.requests += 1;
+  state.active += 1;
+  downloadLimiter.active += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    state.active = Math.max(0, state.active - 1);
+    downloadLimiter.active = Math.max(0, downloadLimiter.active - 1);
+  };
+}
+
+function parseRangeHeader(rangeHeader, size) {
+  if (!rangeHeader) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader).trim());
+  if (!match) return { invalid: true };
+  const [, startText, endText] = match;
+  if (!startText && !endText) return { invalid: true };
+  let start;
+  let end;
+  if (!startText) {
+    const suffixLength = Number.parseInt(endText, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+      return { invalid: true };
+    }
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number.parseInt(startText, 10);
+    end = endText ? Number.parseInt(endText, 10) : size - 1;
+  }
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end < start ||
+    start >= size
+  ) {
+    return { invalid: true };
+  }
+  return { start, end: Math.min(end, size - 1) };
+}
+
+async function sendWindowsInstaller(req, res) {
+  const releaseDownload = req.method !== 'HEAD' ? acquireDownloadSlot(req, res) : () => {};
+  if (!releaseDownload) return;
+  try {
+    const stat = await fs.promises.stat(config.download.filePath);
+    if (!stat.isFile()) {
+      releaseDownload();
+      textError(res, 404, 'Installer file is not available.');
+      return;
+    }
+
+    const range = parseRangeHeader(req.get('range'), stat.size);
+    if (range?.invalid) {
+      releaseDownload();
+      res.setHeader('content-range', `bytes */${stat.size}`);
+      textError(res, 416, 'Requested range is not satisfiable.');
+      return;
+    }
+
+    const start = range ? range.start : 0;
+    const end = range ? range.end : stat.size - 1;
+    const contentLength = end - start + 1;
+    const dispositionName = config.download.fileName.replace(/["\\]/g, '');
+    const headers = {
+      'accept-ranges': 'bytes',
+      'cache-control': 'private, max-age=300',
+      'content-type': 'application/vnd.microsoft.portable-executable',
+      'content-disposition': `attachment; filename="${dispositionName}"; filename*=UTF-8''${encodeURIComponent(config.download.fileName)}`,
+      'content-length': String(contentLength),
+      'x-kq-download-version': config.download.version,
+    };
+    if (config.download.sha256) {
+      headers['x-kq-download-sha256'] = config.download.sha256;
+    }
+    if (range) {
+      headers['content-range'] = `bytes ${start}-${end}/${stat.size}`;
+    }
+    res.writeHead(range ? 206 : 200, headers);
+    if (req.method === 'HEAD') {
+      releaseDownload();
+      res.end();
+      return;
+    }
+
+    const stream = fs.createReadStream(config.download.filePath, { start, end });
+    const finish = () => releaseDownload();
+    stream.on('error', (error) => {
+      console.error(error);
+      if (!res.headersSent) {
+        textError(res, 500, 'Could not read installer file.');
+      } else {
+        res.destroy(error);
+      }
+      finish();
+    });
+    res.on('close', finish);
+    res.on('finish', finish);
+    stream.pipe(res);
+  } catch (error) {
+    releaseDownload();
+    if (error?.code === 'ENOENT') {
+      textError(res, 404, 'Installer file is not available.');
+      return;
+    }
+    throw error;
+  }
 }
 
 function htmlEscape(value) {
@@ -676,12 +897,12 @@ function downloadPage() {
       </section>
       <section class="panel">
         <h2>Windows 客户端</h2>
-        <p class="desc">下载安装并完成向导后，再次点击邀请链接里的“开始远控”即可自动唤起客户端。</p>
+        <p class="desc">下载安装并完成向导后，再次点击邀请链接里的“开始远控”即可自动唤起客户端。测试环境下载入口已启用限流保护。</p>
         <a class="download" href="${safeDownloadUrl}" rel="noopener">下载 Windows 安装包</a>
         <div class="meta">
-          <div><strong>1080p</strong><span>会员支持高清画质</span></div>
-          <div><strong>60 FPS</strong><span>会员支持高帧率</span></div>
-          <div><strong>私有节点</strong><span>企业私有服务器接入</span></div>
+          <div><strong>v${htmlEscape(config.download.version)}</strong><span>当前 Windows 安装包</span></div>
+          <div><strong>断点续传</strong><span>网络波动可继续下载</span></div>
+          <div><strong>受控下载</strong><span>避免测试服务器被打满</span></div>
         </div>
       </section>
     </main>
@@ -818,6 +1039,22 @@ app.get(['/download', '/api/download'], (_req, res) => {
     .status(200)
     .type('html')
     .send(downloadPage());
+});
+
+app.head(['/download/windows', '/api/download/windows'], async (req, res, next) => {
+  try {
+    await sendWindowsInstaller(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get(['/download/windows', '/api/download/windows'], async (req, res, next) => {
+  try {
+    await sendWindowsInstaller(req, res);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/me', async (req, res, next) => {
