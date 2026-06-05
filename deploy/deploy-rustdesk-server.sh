@@ -775,7 +775,7 @@ if [[ "${COMPOSE_PROFILES}" == "api" ]]; then
   fi
   compose -f rustdesk-server.compose.yml build api
 fi
-"${SUDO[@]}" docker rm -f kq-remote-link-hbbs kq-remote-link-hbbr >/dev/null 2>&1 || true
+"${SUDO[@]}" docker rm -f kq-remote-link-api kq-remote-link-hbbs kq-remote-link-hbbr >/dev/null 2>&1 || true
 if [[ "${KQ_ENABLE_LOCAL_DB}" == "Y" && "${COMPOSE_PROFILES}" == "api" ]]; then
   COMPOSE_PROFILES="api,local-db" compose -f rustdesk-server.compose.yml up -d --force-recreate
 else
