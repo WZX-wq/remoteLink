@@ -9,7 +9,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: linux:host
+    runs-on: linux
     env:
       PROJECT_NAME: KQromoteLink
       INSTALL_DIR: /www/wwwroot/KQromoteLink
