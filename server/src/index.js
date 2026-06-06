@@ -436,15 +436,15 @@ function acquireDownloadSlot(req, res) {
       Math.ceil((config.download.windowMs - (Date.now() - state.windowStart)) / 1000),
     );
     res.setHeader('retry-after', String(retryAfter));
-    textError(res, 429, 'Download rate limit exceeded. Please try again later.');
+    textError(res, 429, '当前下载人数较多，请稍后再试。');
     return null;
   }
   if (state.active >= config.download.maxPerIpConcurrent) {
-    textError(res, 429, 'Too many concurrent downloads from this network.');
+    textError(res, 429, '当前下载任务较多，请稍后再试。');
     return null;
   }
   if (downloadLimiter.active >= config.download.maxGlobalConcurrent) {
-    textError(res, 503, 'Download server is busy. Please try again later.');
+    textError(res, 503, '当前下载人数较多，请稍后再试。');
     return null;
   }
   state.requests += 1;
@@ -497,7 +497,7 @@ async function sendWindowsInstaller(req, res) {
     const stat = await fs.promises.stat(config.download.filePath);
     if (!stat.isFile()) {
       releaseDownload();
-      textError(res, 404, 'Installer file is not available.');
+      textError(res, 404, '安装包暂时不可用，请稍后再试。');
       return;
     }
 
@@ -505,7 +505,7 @@ async function sendWindowsInstaller(req, res) {
     if (range?.invalid) {
       releaseDownload();
       res.setHeader('content-range', `bytes */${stat.size}`);
-      textError(res, 416, 'Requested range is not satisfiable.');
+      textError(res, 416, '下载请求无效，请重新点击下载。');
       return;
     }
 
@@ -539,7 +539,7 @@ async function sendWindowsInstaller(req, res) {
     stream.on('error', (error) => {
       console.error(error);
       if (!res.headersSent) {
-        textError(res, 500, 'Could not read installer file.');
+        textError(res, 500, '安装包暂时不可用，请稍后再试。');
       } else {
         res.destroy(error);
       }
@@ -551,7 +551,7 @@ async function sendWindowsInstaller(req, res) {
   } catch (error) {
     releaseDownload();
     if (error?.code === 'ENOENT') {
-      textError(res, 404, 'Installer file is not available.');
+      textError(res, 404, '安装包暂时不可用，请稍后再试。');
       return;
     }
     throw error;
@@ -752,6 +752,7 @@ function invitePage(payload) {
 function downloadPage() {
   const safeDownloadUrl = htmlEscape(config.downloadUrl);
   const safeOfficialUrl = htmlEscape('https://kunqiongai.com/');
+  const safeVersion = htmlEscape(config.download.version);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -761,13 +762,14 @@ function downloadPage() {
   <style>
     :root {
       color-scheme: light dark;
-      --ink: #10243e;
-      --muted: #5d7190;
-      --primary: #147cde;
-      --primary-2: #0f65bf;
-      --line: rgba(96, 166, 224, .36);
-      --panel: rgba(255, 255, 255, .82);
-      --soft: rgba(235, 247, 255, .9);
+      --ink: #102338;
+      --muted: #60758d;
+      --primary: #0f82df;
+      --primary-2: #1166c2;
+      --line: rgba(79, 153, 214, .28);
+      --panel: rgba(255, 255, 255, .84);
+      --soft: rgba(235, 247, 255, .74);
+      --accent: #28c7d8;
     }
     * { box-sizing: border-box; }
     body {
@@ -776,22 +778,22 @@ function downloadPage() {
       font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
       color: var(--ink);
       background:
-        linear-gradient(120deg, rgba(255,255,255,.7), rgba(255,255,255,0) 36%),
-        radial-gradient(circle at 20% 16%, rgba(87, 206, 232, .42), transparent 30rem),
-        radial-gradient(circle at 88% 20%, rgba(130, 169, 255, .52), transparent 28rem),
-        linear-gradient(135deg, #e3f7ff 0%, #f3f9ff 44%, #e6ecff 100%);
+        linear-gradient(115deg, rgba(255,255,255,.88), rgba(255,255,255,0) 42%),
+        radial-gradient(circle at 14% 18%, rgba(74, 210, 229, .36), transparent 28rem),
+        radial-gradient(circle at 88% 8%, rgba(92, 151, 243, .38), transparent 30rem),
+        linear-gradient(135deg, #eaf8ff 0%, #f6fbff 48%, #e9f0ff 100%);
     }
     .shell {
-      width: min(1080px, calc(100vw - 36px));
+      width: min(1120px, calc(100vw - 36px));
       margin: 0 auto;
-      padding: 30px 0 42px;
+      padding: 28px 0 38px;
     }
     header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 18px;
-      margin-bottom: 52px;
+      margin-bottom: 44px;
     }
     .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; font-size: 19px; }
     .mark {
@@ -815,39 +817,69 @@ function downloadPage() {
     }
     main {
       display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
-      gap: 34px;
+      grid-template-columns: minmax(0, 1.04fr) minmax(340px, .96fr);
+      gap: 36px;
       align-items: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 999px;
+      color: #0f65bf;
+      background: rgba(225, 244, 255, .86);
+      border: 1px solid rgba(55, 154, 222, .22);
+      font-size: 13px;
+      font-weight: 900;
+      margin-bottom: 18px;
     }
     .hero h1 {
       margin: 0 0 16px;
-      font-size: clamp(34px, 5.4vw, 64px);
-      line-height: 1.02;
+      font-size: clamp(36px, 5.2vw, 62px);
+      line-height: 1.04;
       letter-spacing: 0;
     }
     .hero p {
       max-width: 560px;
       margin: 0;
       color: var(--muted);
-      font-size: 18px;
+      font-size: 17px;
       line-height: 1.7;
       font-weight: 700;
     }
+    .highlights {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 28px;
+      max-width: 620px;
+    }
+    .highlight {
+      min-height: 94px;
+      padding: 16px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .54);
+      border: 1px solid var(--line);
+    }
+    .highlight strong { display: block; margin-bottom: 8px; font-size: 16px; }
+    .highlight span { display: block; color: var(--muted); font-size: 13px; line-height: 1.5; font-weight: 700; }
     .panel {
       border: 1px solid rgba(255,255,255,.72);
-      border-radius: 16px;
-      padding: 26px;
+      border-radius: 18px;
+      padding: 28px;
       background: var(--panel);
-      box-shadow: 0 30px 84px rgba(15, 42, 72, .18);
+      box-shadow: 0 30px 84px rgba(15, 42, 72, .16);
       backdrop-filter: blur(18px);
     }
-    .panel h2 { margin: 0 0 8px; font-size: 24px; letter-spacing: 0; }
-    .panel .desc { margin: 0 0 22px; color: var(--muted); line-height: 1.55; font-weight: 700; }
+    .panel h2 { margin: 0 0 10px; font-size: 28px; letter-spacing: 0; }
+    .panel .desc { margin: 0 0 24px; color: var(--muted); line-height: 1.65; font-weight: 700; }
     .download {
       width: 100%;
-      height: 48px;
+      min-height: 50px;
+      padding: 0 18px;
       border: 0;
-      border-radius: 10px;
+      border-radius: 12px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -858,31 +890,47 @@ function downloadPage() {
       background: linear-gradient(135deg, var(--primary), var(--primary-2));
       box-shadow: 0 14px 30px rgba(20, 124, 222, .28);
     }
-    .meta {
+    .steps {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-top: 18px;
+      gap: 12px;
+      margin: 24px 0 0;
+      padding: 0;
+      list-style: none;
     }
-    .meta div {
-      min-height: 72px;
-      padding: 12px;
-      border-radius: 10px;
+    .steps li {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding: 14px;
+      border-radius: 12px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.56);
+      background: rgba(255,255,255,.52);
     }
-    .meta strong { display: block; margin-bottom: 6px; font-size: 18px; }
-    .meta span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .step-no {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--primary));
+      font-weight: 900;
+    }
+    .steps strong { display: block; margin: 0 0 4px; font-size: 15px; }
+    .steps span { color: var(--muted); font-size: 13px; line-height: 1.5; font-weight: 700; }
+    .version { margin: 18px 0 0; color: var(--muted); font-size: 12px; text-align: center; font-weight: 700; }
     @media (prefers-color-scheme: dark) {
-      :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .86); --soft: rgba(30,48,69,.86); --line: rgba(76, 137, 184, .48); }
+      :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .88); --soft: rgba(30,48,69,.86); --line: rgba(76, 137, 184, .48); }
       body { background: linear-gradient(135deg, #102033 0%, #14283d 45%, #1d274a 100%); }
-      .official, .meta div { background: rgba(255,255,255,.08); }
+      .official, .highlight, .steps li { background: rgba(255,255,255,.08); }
+      .eyebrow { color: #9ed9ff; background: rgba(40, 102, 156, .24); }
     }
     @media (max-width: 760px) {
       header { margin-bottom: 34px; }
       main { grid-template-columns: 1fr; }
       .hero h1 { font-size: 40px; }
-      .meta { grid-template-columns: 1fr; }
+      .highlights { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -894,18 +942,25 @@ function downloadPage() {
     </header>
     <main>
       <section class="hero">
-        <h1>安全、清爽、好用的远程协助工具</h1>
-        <p>用于远程桌面、临时协助、跨设备办公和售后支持。安装后可直接打开分享链接，一键进入连接流程。</p>
+        <div class="eyebrow">鲲穹远程协助</div>
+        <h1>安全连接，轻松完成远程协助</h1>
+        <p>鲲穹远程桌面适用于临时协助、跨设备办公和售后支持。安装完成后，即可通过邀请链接快速发起连接。</p>
+        <div class="highlights">
+          <div class="highlight"><strong>快速协助</strong><span>打开邀请链接即可进入连接流程。</span></div>
+          <div class="highlight"><strong>清晰流畅</strong><span>会员可使用更高清晰度与更高帧率。</span></div>
+          <div class="highlight"><strong>企业可用</strong><span>适合办公支持、设备维护和客户服务。</span></div>
+        </div>
       </section>
       <section class="panel">
-        <h2>Windows 客户端</h2>
-        <p class="desc">下载安装并完成向导后，再次点击邀请链接里的“开始远控”即可自动唤起客户端。测试环境下载入口已启用限流保护。</p>
+        <h2>Windows 版下载</h2>
+        <p class="desc">下载并安装鲲穹远程桌面。安装完成后，回到邀请页面点击“开始远控”，即可自动打开客户端并继续连接。</p>
         <a class="download" href="${safeDownloadUrl}" rel="noopener">下载 Windows 安装包</a>
-        <div class="meta">
-          <div><strong>v${htmlEscape(config.download.version)}</strong><span>当前 Windows 安装包</span></div>
-          <div><strong>断点续传</strong><span>网络波动可继续下载</span></div>
-          <div><strong>受控下载</strong><span>避免测试服务器被打满</span></div>
-        </div>
+        <ol class="steps">
+          <li><span class="step-no">1</span><div><strong>下载安装</strong><span>运行安装包并按照向导完成安装。</span></div></li>
+          <li><span class="step-no">2</span><div><strong>打开邀请链接</strong><span>回到协助邀请页面，点击“开始远控”。</span></div></li>
+          <li><span class="step-no">3</span><div><strong>开始协助</strong><span>确认连接信息后即可进入远程桌面。</span></div></li>
+        </ol>
+        <p class="version">当前版本 ${safeVersion}</p>
       </section>
     </main>
   </div>

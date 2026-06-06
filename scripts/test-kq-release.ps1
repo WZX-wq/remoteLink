@@ -58,6 +58,19 @@ function Test-SourceContains($Path, $Pattern, $Name) {
     }
 }
 
+function Test-SourceNotContains($Path, $Pattern, $Name) {
+    if (-not (Test-Path $Path)) {
+        Add-Check $Name "SKIP" "Source file not available: $Path"
+        return
+    }
+    $content = Get-Content $Path -Raw -Encoding UTF8
+    if ($content -match [regex]::Escape($Pattern)) {
+        Add-Check $Name "FAIL" "Forbidden text is present: $Pattern"
+    } else {
+        Add-Check $Name "PASS" "Forbidden text absent"
+    }
+}
+
 function Test-InstallerUpgradePolicy {
     $source = ".\scripts\new-kq-inno-installer.ps1"
     if (-not (Test-Path $source)) {
@@ -163,6 +176,80 @@ $kqDownloadWindowsButton = [string]::Concat([char[]]@(
     0x88C5,
     0x5305
 ))
+$kqDownloadFriendlyBusyCopy = [string]::Concat([char[]]@(
+    0x5F53,
+    0x524D,
+    0x4E0B,
+    0x8F7D,
+    0x4EBA,
+    0x6570,
+    0x8F83,
+    0x591A,
+    0xFF0C,
+    0x8BF7,
+    0x7A0D,
+    0x540E,
+    0x518D,
+    0x8BD5,
+    0x3002
+))
+$kqDownloadUserFacingTitle = [string]::Concat([char[]]@(
+    0x57,
+    0x69,
+    0x6E,
+    0x64,
+    0x6F,
+    0x77,
+    0x73,
+    0x20,
+    0x7248,
+    0x4E0B,
+    0x8F7D
+))
+$kqDownloadUserFacingHero = [string]::Concat([char[]]@(
+    0x5B89,
+    0x5168,
+    0x8FDE,
+    0x63A5,
+    0xFF0C,
+    0x8F7B,
+    0x677E,
+    0x5B8C,
+    0x6210,
+    0x8FDC,
+    0x7A0B,
+    0x534F,
+    0x52A9
+))
+$kqDownloadForbiddenTestEnv = [string]::Concat([char[]]@(
+    0x6D4B,
+    0x8BD5,
+    0x73AF,
+    0x5883
+))
+$kqDownloadForbiddenTestServer = [string]::Concat([char[]]@(
+    0x6D4B,
+    0x8BD5,
+    0x670D,
+    0x52A1,
+    0x5668
+))
+$kqDownloadForbiddenControlled = [string]::Concat([char[]]@(
+    0x53D7,
+    0x63A7,
+    0x4E0B,
+    0x8F7D
+))
+$kqDownloadForbiddenRangeCopy = [string]::Concat([char[]]@(
+    0x65AD,
+    0x70B9,
+    0x7EED,
+    0x4F20
+))
+$kqDownloadForbiddenRateLimit = [string]::Concat([char[]]@(
+    0x9650,
+    0x6D41
+))
 
 function Test-BuiltInPrivateServerDefaults {
     $source = ".\src\common.rs"
@@ -249,7 +336,15 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\server\src\index.js" "accept-ranges" "server:download-range-support"
     Test-SourceContains ".\server\src\index.js" "maxGlobalConcurrent" "server:download-global-limit"
     Test-SourceContains ".\server\src\index.js" "maxPerIpConcurrent" "server:download-ip-limit"
-    Test-SourceContains ".\server\src\index.js" "Download rate limit exceeded" "server:download-rate-limit"
+    Test-SourceContains ".\server\src\index.js" $kqDownloadFriendlyBusyCopy "server:download-friendly-busy-copy"
+    Test-SourceContains ".\server\src\index.js" $kqDownloadUserFacingTitle "server:download-user-facing-title"
+    Test-SourceContains ".\server\src\index.js" $kqDownloadUserFacingHero "server:download-user-facing-hero"
+    Test-SourceNotContains ".\server\src\index.js" $kqDownloadForbiddenTestEnv "server:download-no-test-env-copy"
+    Test-SourceNotContains ".\server\src\index.js" $kqDownloadForbiddenTestServer "server:download-no-test-server-copy"
+    Test-SourceNotContains ".\server\src\index.js" $kqDownloadForbiddenControlled "server:download-no-controlled-copy"
+    Test-SourceNotContains ".\server\src\index.js" $kqDownloadForbiddenRangeCopy "server:download-no-range-copy"
+    Test-SourceNotContains ".\server\src\index.js" $kqDownloadForbiddenRateLimit "server:download-no-rate-limit-copy"
+    Test-SourceNotContains ".\server\src\index.js" "Download rate limit exceeded" "server:download-no-technical-rate-copy"
     Test-SourceContains ".\server\Dockerfile" "COPY public ./public" "server:download-file-packaged"
     Test-SourceContains ".\.gitea\workflows\deploy.yml" "http://43.154.197.96/kq-api/download/windows" "deploy:self-hosted-download-url"
     Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT" "deploy:download-limit-env"
