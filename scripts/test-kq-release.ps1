@@ -250,6 +250,15 @@ $kqDownloadForbiddenRateLimit = [string]::Concat([char[]]@(
     0x9650,
     0x6D41
 ))
+$kqRemoteDesktopOfflineCopy = [string]::Concat([char[]]@(
+    0x8FDC,
+    0x7A0B,
+    0x684C,
+    0x9762,
+    0x4E0D,
+    0x5728,
+    0x7EBF
+))
 
 function Test-BuiltInPrivateServerDefaults {
     $source = ".\src\common.rs"
@@ -326,6 +335,9 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "_passwordController" "ui:remote-password-field"
     Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "password: password.isEmpty ? null : password" "ui:remote-password-connect-param"
     Test-SourceContains ".\flutter\lib\common.dart" "isSupportedKqUriLink" "deeplink:kqremote-compatible"
+    Test-SourceContains ".\flutter\lib\common.dart" "kqNormalizeMsgboxText" "ui:remote-timeout-offline-normalizer"
+    Test-SourceContains ".\flutter\lib\common.dart" "title == 'Connection Error' && text == 'Timeout'" "ui:remote-timeout-offline-condition"
+    Test-SourceContains ".\src\lang\cn.rs" $kqRemoteDesktopOfflineCopy "ui:remote-offline-cn-copy"
     Test-SourceContains ".\src\common.rs" "kqremote://" "deeplink:kqremote-prefix"
     Test-SourceContains ".\scripts\new-kq-inno-installer.ps1" "HKEY_CLASSES_ROOT\kqremote" "installer:kqremote-protocol"
     Test-SourceContains ".\server\src\index.js" "app.get(['/invite', '/api/invite']" "server:invite-page"

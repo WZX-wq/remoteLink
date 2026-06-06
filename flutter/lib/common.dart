@@ -1310,6 +1310,13 @@ Widget msgboxIcon(String type) {
   return Offstage();
 }
 
+String kqNormalizeMsgboxText(String title, String text) {
+  if (title == 'Connection Error' && text == 'Timeout') {
+    return 'Remote desktop is offline';
+  }
+  return text;
+}
+
 // title should be null
 Widget msgboxContent(String type, String title, String text) {
   String translateText(String text) {
@@ -1343,7 +1350,8 @@ Widget msgboxContent(String type, String title, String text) {
               translate(title),
               style: TextStyle(fontSize: 21),
             ).marginOnly(bottom: 10),
-            createDialogContent(translateText(text)),
+            createDialogContent(
+                translateText(kqNormalizeMsgboxText(title, text))),
           ],
         ),
       ),
