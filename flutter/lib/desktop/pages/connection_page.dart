@@ -221,12 +221,14 @@ class _ConnectionPageState extends State<ConnectionPage>
     with SingleTickerProviderStateMixin, WindowListener {
   /// Controller for the id input bar.
   final _idController = IDTextEditingController();
+  final _passwordController = TextEditingController();
 
   final RxBool _idInputFocused = false.obs;
   final FocusNode _idFocusNode = FocusNode();
   final TextEditingController _idEditingController = TextEditingController();
 
   String selectedConnectionType = 'Connect';
+  bool _passwordVisible = false;
 
   bool isWindowMinimized = false;
 
@@ -260,6 +262,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   @override
   void dispose() {
     _idController.dispose();
+    _passwordController.dispose();
     windowManager.removeListener(this);
     _allPeersLoader.clear();
     _idFocusNode.removeListener(onFocusChanged);
@@ -358,10 +361,12 @@ class _ConnectionPageState extends State<ConnectionPage>
       bool isViewCamera = false,
       bool isTerminal = false}) {
     var id = _idController.id;
+    final password = _passwordController.text.trim();
     connect(context, id,
         isFileTransfer: isFileTransfer,
         isViewCamera: isViewCamera,
-        isTerminal: isTerminal);
+        isTerminal: isTerminal,
+        password: password.isEmpty ? null : password);
   }
 
   /// UI for the remote ID TextField.
@@ -571,6 +576,63 @@ class _ConnectionPageState extends State<ConnectionPage>
                 )),
               ],
             ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _passwordController,
+              autocorrect: false,
+              enableSuggestions: false,
+              keyboardType: TextInputType.visiblePassword,
+              obscureText: !_passwordVisible,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.35,
+                color: q.ink,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              cursorColor: q.primary,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: q.field,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: q.line),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: q.primary, width: 1.4),
+                ),
+                hintText: '连接密码（可选，留空需对方确认）',
+                hintStyle: TextStyle(
+                  color: q.muted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                prefixIcon: Icon(
+                  Icons.lock_outline,
+                  size: 18,
+                  color: q.muted,
+                ),
+                suffixIcon: IconButton(
+                  tooltip: _passwordVisible ? '隐藏密码' : '显示密码',
+                  icon: Icon(
+                    _passwordVisible ? Icons.visibility : Icons.visibility_off,
+                    size: 18,
+                    color: q.muted,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _passwordVisible = !_passwordVisible;
+                    });
+                  },
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+              onSubmitted: (_) {
+                onConnect();
+              },
+            ).workaroundFreezeLinuxMint(),
             Padding(
               padding: const EdgeInsets.only(top: 13.0),
               child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [

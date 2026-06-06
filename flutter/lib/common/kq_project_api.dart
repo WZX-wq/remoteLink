@@ -123,6 +123,7 @@ class KqProjectApi {
 
   static String _apiWebToken() {
     final values = <String>[
+      bind.mainGetLocalOption(key: 'access_token'),
       bind.mainGetLocalOption(key: 'kq_api_web_token'),
       bind.mainGetLocalOption(key: 'api_web_token'),
       bind.mainGetLocalOption(key: 'kq_token'),
@@ -154,29 +155,16 @@ class KqProjectApi {
       }
     }
     final seen = <String>{};
-    final uuidTokens = <String>[];
-    final otherTokens = <String>[];
+    final orderedTokens = <String>[];
     for (final value in values) {
       final token = value
           .replaceFirst(RegExp(r'^Bearer\s+', caseSensitive: false), '')
           .trim();
-      if (token.isEmpty || token.split('.').length == 3 || !seen.add(token)) {
+      if (token.isEmpty || !seen.add(token)) {
         continue;
       }
-      if (_looksLikeUuid(token)) {
-        uuidTokens.add(token);
-      } else {
-        otherTokens.add(token);
-      }
+      orderedTokens.add(token);
     }
-    final ordered = [...uuidTokens, ...otherTokens];
-    return ordered.isEmpty ? '' : ordered.first;
-  }
-
-  static bool _looksLikeUuid(String value) {
-    return RegExp(
-      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-      caseSensitive: false,
-    ).hasMatch(value);
+    return orderedTokens.isEmpty ? '' : orderedTokens.first;
   }
 }

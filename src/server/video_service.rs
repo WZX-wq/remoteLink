@@ -618,12 +618,13 @@ fn run(vs: VideoService) -> ResultType<()> {
             bail!(e);
         }
     }
-    VIDEO_QOS.lock().unwrap().store_bitrate(encoder.bitrate());
+    let initial_bitrate = encoder.bitrate();
+    VIDEO_QOS.lock().unwrap().store_bitrate(initial_bitrate);
     VIDEO_QOS
         .lock()
         .unwrap()
         .set_support_changing_quality(&sp.name(), encoder.support_changing_quality());
-    log::info!("initial quality: {quality:?}");
+    log::info!("initial quality: {quality:?}, target bitrate: {initial_bitrate}kbps");
 
     if sp.is_option_true(OPTION_REFRESH) {
         sp.set_option_bool(OPTION_REFRESH, false);
@@ -1322,7 +1323,12 @@ fn check_qos(
         *ratio = video_qos.ratio();
         if encoder.support_changing_quality() {
             allow_err!(encoder.set_quality(*ratio));
-            video_qos.store_bitrate(encoder.bitrate());
+            let bitrate = encoder.bitrate();
+            video_qos.store_bitrate(bitrate);
+            log::info!(
+                "video qos updated: ratio={:.2}, target bitrate={bitrate}kbps",
+                *ratio
+            );
         } else {
             // Now only vaapi doesn't support changing quality
             if !video_qos.in_vbr_state() && !video_qos.latest_quality().is_custom() {

@@ -16,6 +16,7 @@ use flutter_rust_bridge::{StreamSink, SyncReturn};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::allow_err;
 use hbb_common::{
+    bail,
     config::{self, LocalConfig, PeerConfig, PeerInfoSerde},
     fs, lazy_static, log,
     rendezvous_proto::ConnType,
@@ -2874,11 +2875,47 @@ pub fn main_get_common_sync(key: String) -> SyncReturn<String> {
     SyncReturn(main_get_common(key))
 }
 
+#[cfg(target_os = "windows")]
+fn install_update_remote_printer_for_ui() -> ResultType<()> {
+    let app_name = get_app_name();
+    if !crate::platform::is_elevated(None).unwrap_or(false) {
+        match crate::platform::elevate("--install-remote-printer") {
+            Ok(true) => {
+                let mut last_error = None;
+                for _ in 0..90 {
+                    match remote_printer::is_rd_printer_installed(&app_name) {
+                        Ok(true) => return Ok(()),
+                        Ok(false) => {}
+                        Err(e) => last_error = Some(e.to_string()),
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+                if let Some(error) = last_error {
+                    bail!(
+                        "Printer installation did not finish after UAC confirmation: {}",
+                        error
+                    );
+                }
+                bail!("Printer installation did not finish after UAC confirmation");
+            }
+            Ok(false) => bail!("Administrator permission was not granted"),
+            Err(e) => bail!("Failed to request administrator permission: {}", e),
+        }
+    }
+
+    remote_printer::install_update_printer(&app_name)?;
+    match remote_printer::is_rd_printer_installed(&app_name) {
+        Ok(true) => Ok(()),
+        Ok(false) => bail!("Printer installation finished but the printer was not found"),
+        Err(e) => bail!("Failed to verify printer installation: {}", e),
+    }
+}
+
 pub fn main_set_common(_key: String, _value: String) {
     #[cfg(target_os = "windows")]
     if _key == "install-printer" && crate::platform::is_win_10_or_greater() {
         std::thread::spawn(move || {
-            let (success, msg) = match remote_printer::install_update_printer(&get_app_name()) {
+            let (success, msg) = match install_update_remote_printer_for_ui() {
                 Ok(_) => (true, "".to_owned()),
                 Err(e) => {
                     let err = e.to_string();

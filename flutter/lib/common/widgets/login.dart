@@ -25,6 +25,9 @@ const kOpSvgList = [
   'microsoft'
 ];
 
+bool _isKqOauthCancellation(Object err) =>
+    err is KqOauthException && err.message == 'Authorization canceled.';
+
 class _IconOP extends StatelessWidget {
   final String op;
   final String? icon;
@@ -478,10 +481,13 @@ Future<bool?> loginDialog() async {
   if (isDesktop) {
     try {
       final resp = await KqOauth.login();
-      gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
+      await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
       await UserModel.updateOtherModels();
       return true;
     } catch (err) {
+      if (_isKqOauthCancellation(err)) {
+        return false;
+      }
       showToast(err.toString());
       return false;
     }
@@ -541,6 +547,10 @@ Future<bool?> loginDialog() async {
               await bind.mainSetLocalOption(
                   key: kKqOauthProviderKey, value: '');
             }
+            await gFFI.userModel.applyLoginResponse(
+              resp,
+              storeLocalUserInfo: true,
+            );
             if (close != null) {
               close(true);
             }
@@ -592,12 +602,17 @@ Future<bool?> loginDialog() async {
       try {
         final resp = await KqOauth.login();
         if (isDialogClosed) return;
-        gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
+        await gFFI.userModel.applyLoginResponse(
+          resp,
+          storeLocalUserInfo: false,
+        );
         close(true);
         return;
       } catch (err) {
         if (isDialogClosed) return;
-        kqOauthMsg = err.toString();
+        if (!_isKqOauthCancellation(err)) {
+          kqOauthMsg = err.toString();
+        }
       }
       curOP.value = '';
       setState(() => isKqOauthInProgress = false);
@@ -668,7 +683,7 @@ Future<bool?> loginDialog() async {
                     close(true);
 
                     if (resp != null) {
-                      handleLoginResponse(resp, false, null);
+                      await handleLoginResponse(resp, false, null);
                     }
                   },
                 ),
@@ -792,6 +807,7 @@ Future<bool?> verificationCodeDialog(
             if (resp.access_token != null) {
               await bind.mainSetLocalOption(
                   key: 'access_token', value: resp.access_token!);
+              await gFFI.userModel.applyLoginResponse(resp);
               close(true);
               return;
             }

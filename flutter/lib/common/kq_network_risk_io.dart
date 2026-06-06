@@ -2,18 +2,69 @@ import 'dart:async';
 import 'dart:io';
 
 class KqNetworkRisk {
-  const KqNetworkRisk({required this.hasProxy, required this.hasVpn});
+  const KqNetworkRisk({
+    required this.hasProxy,
+    required this.hasVpn,
+    this.firewallRulesMissing = false,
+  });
 
   final bool hasProxy;
   final bool hasVpn;
+  final bool firewallRulesMissing;
 
-  bool get hasRisk => hasProxy || hasVpn;
+  bool get hasRisk => hasProxy || hasVpn || firewallRulesMissing;
 }
 
 Future<KqNetworkRisk> detectKqNetworkRisk() async {
   final hasProxy = await _hasProxyRisk();
   final hasVpn = await _hasVpnRisk();
-  return KqNetworkRisk(hasProxy: hasProxy, hasVpn: hasVpn);
+  final firewallRulesMissing = await _hasFirewallRuleGap();
+  return KqNetworkRisk(
+    hasProxy: hasProxy,
+    hasVpn: hasVpn,
+    firewallRulesMissing: firewallRulesMissing,
+  );
+}
+
+class KqFirewallRepairResult {
+  const KqFirewallRepairResult({
+    required this.success,
+    required this.message,
+  });
+
+  final bool success;
+  final String message;
+}
+
+Future<KqFirewallRepairResult> repairKqFirewallRules() async {
+  if (!Platform.isWindows) {
+    return const KqFirewallRepairResult(
+      success: false,
+      message: '当前系统不支持自动修复防火墙。',
+    );
+  }
+  try {
+    final result = await Process.run(
+      Platform.resolvedExecutable,
+      ['--repair-firewall'],
+    ).timeout(const Duration(seconds: 60));
+    final output = '${result.stdout}\n${result.stderr}'.trim();
+    if (result.exitCode == 0) {
+      return const KqFirewallRepairResult(
+        success: true,
+        message: '本机防火墙规则已修复。',
+      );
+    }
+    return KqFirewallRepairResult(
+      success: false,
+      message: output.isEmpty ? '修复命令执行失败。' : output,
+    );
+  } catch (e) {
+    return KqFirewallRepairResult(
+      success: false,
+      message: '修复命令启动失败：$e',
+    );
+  }
 }
 
 Future<bool> _hasProxyRisk() async {
@@ -67,6 +118,41 @@ Future<bool> _hasVpnRisk() async {
   } catch (_) {
     return false;
   }
+}
+
+Future<bool> _hasFirewallRuleGap() async {
+  if (!Platform.isWindows) {
+    return false;
+  }
+  const ruleNames = [
+    'KQRemoteLink TCP In',
+    'KQRemoteLink TCP Out',
+    'KQRemoteLink UDP In',
+    'KQRemoteLink UDP Out',
+  ];
+  try {
+    for (final name in ruleNames) {
+      final result = await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'show',
+        'rule',
+        'name=$name',
+      ]).timeout(const Duration(milliseconds: 900));
+      if (result.exitCode != 0) {
+        return true;
+      }
+      final output = '${result.stdout}\n${result.stderr}'.toLowerCase();
+      if (output.contains('no rules match') ||
+          output.contains('没有与指定条件匹配的规则') ||
+          output.contains('找不到')) {
+        return true;
+      }
+    }
+  } catch (_) {
+    return false;
+  }
+  return false;
 }
 
 const _vpnNamePatterns = [

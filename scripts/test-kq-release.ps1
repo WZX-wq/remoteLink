@@ -259,6 +259,11 @@ $kqRemoteDesktopOfflineCopy = [string]::Concat([char[]]@(
     0x5728,
     0x7EBF
 ))
+$kqFileTransferDesktopCnCopy = [string]::Concat(
+    '("Desktop", "',
+    [string]::Concat([char[]]@(0x684C, 0x9762)),
+    '")'
+)
 
 function Test-BuiltInPrivateServerDefaults {
     $source = ".\src\common.rs"
@@ -334,10 +339,15 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "kq-share-invite-url" "ui:remote-assist-share-url"
     Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "_passwordController" "ui:remote-password-field"
     Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "password: password.isEmpty ? null : password" "ui:remote-password-connect-param"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_buildCommonLocationMenuItems" "ui:file-transfer-common-locations"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "PathUtil.join(home, 'Desktop'" "ui:file-transfer-desktop-shortcut"
+    Test-SourceContains ".\src\lang\cn.rs" $kqFileTransferDesktopCnCopy "ui:file-transfer-desktop-cn-copy"
     Test-SourceContains ".\flutter\lib\common.dart" "isSupportedKqUriLink" "deeplink:kqremote-compatible"
     Test-SourceContains ".\flutter\lib\common.dart" "kqNormalizeMsgboxText" "ui:remote-timeout-offline-normalizer"
     Test-SourceContains ".\flutter\lib\common.dart" "title == 'Connection Error' && text == 'Timeout'" "ui:remote-timeout-offline-condition"
     Test-SourceContains ".\src\lang\cn.rs" $kqRemoteDesktopOfflineCopy "ui:remote-offline-cn-copy"
+    Test-SourceContains ".\src\client.rs" "kq_should_show_remote_offline_for_early_reset" "remote:early-reset-offline-helper"
+    Test-SourceContains ".\src\client.rs" 'self.msgbox("error", title, "Remote desktop is offline", "")' "remote:early-reset-offline-msgbox"
     Test-SourceContains ".\src\common.rs" "kqremote://" "deeplink:kqremote-prefix"
     Test-SourceContains ".\scripts\new-kq-inno-installer.ps1" "HKEY_CLASSES_ROOT\kqremote" "installer:kqremote-protocol"
     Test-SourceContains ".\server\src\index.js" "app.get(['/invite', '/api/invite']" "server:invite-page"

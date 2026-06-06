@@ -113,6 +113,7 @@ Invoke-Step "PowerShell script syntax check" {
         ".\scripts\check-build-env.ps1",
         ".\scripts\collect-kq-diagnostics.ps1",
         ".\scripts\new-kq-custom-client-config.ps1",
+        ".\scripts\new-kq-inno-installer.ps1",
         ".\scripts\new-kq-manual-test-report.ps1",
         ".\scripts\new-kq-private-server-client-package.ps1",
         ".\scripts\new-kq-server-port-request.ps1",

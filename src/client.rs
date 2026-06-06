@@ -111,7 +111,7 @@ const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
 const KQ_FREE_IMAGE_QUALITY: i32 = 50;
-const KQ_MEMBER_IMAGE_QUALITY: i32 = 85;
+const KQ_MEMBER_IMAGE_QUALITY: i32 = 50;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
     match value {
@@ -262,6 +262,46 @@ fn is_retryable_direct_connection_error(err: &str) -> bool {
         || err.contains("104")
         || err.contains("deadline")
         || err.contains("reset")
+}
+
+fn kq_should_retry_punch_request_before_relay() -> bool {
+    crate::get_app_name() == crate::common::KQ_APP_NAME
+}
+
+fn kq_should_avoid_lan_relay() -> bool {
+    crate::get_app_name() == crate::common::KQ_APP_NAME && !kq_force_relay_enabled()
+}
+
+fn kq_should_show_network_diagnostics(err: &str, relay_hint: bool) -> bool {
+    if crate::get_app_name() != crate::common::KQ_APP_NAME {
+        return false;
+    }
+    if relay_hint {
+        return true;
+    }
+    let text = err.to_lowercase();
+    text.contains("局域网直连")
+        || text.contains("防火墙")
+        || text.contains("中继")
+        || text.contains("relay")
+        || text.contains("firewall")
+        || text.contains("nat")
+        || text.contains("udp")
+        || text.contains("10054")
+        || text.contains("104")
+        || text.contains("deadline")
+        || text.contains("reset")
+}
+
+fn kq_should_show_remote_offline_for_early_reset(err: &str, received: bool) -> bool {
+    if crate::get_app_name() != crate::common::KQ_APP_NAME || received {
+        return false;
+    }
+    let text = err.to_lowercase();
+    text.contains("10054")
+        || text.contains("104")
+        || text.contains("deadline")
+        || text.contains("reset")
 }
 
 #[cfg(feature = "flutter")]
@@ -447,19 +487,42 @@ impl Client {
         // no need to care about multiple rendezvous servers case, since it is acutally not used any more.
         // Shared state for UDP NAT test result
         if crate::get_udp_punch_enabled() && !interface.is_force_relay() {
-            if let Ok((socket, addr)) = new_direct_udp_for(&rendezvous_server).await {
-                let udp_port = Arc::new(Mutex::new(0));
-                let up_cloned = udp_port.clone();
-                let socket_cloned = socket.clone();
-                let func = async move {
-                    allow_err!(test_udp_uat(socket_cloned, addr, up_cloned, stop_udp_rx).await);
-                };
-                tokio::spawn(func);
-                (Some(socket), Some(udp_port))
-            } else {
-                (None, None)
+            match new_direct_udp_for(&rendezvous_server).await {
+                Ok((socket, addr)) => {
+                    if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                        log::info!(
+                            "KQ direct preflight: UDP hole punching enabled, local_udp={:?}, rendezvous_udp={}",
+                            socket.local_addr(),
+                            addr
+                        );
+                    }
+                    let udp_port = Arc::new(Mutex::new(0));
+                    let up_cloned = udp_port.clone();
+                    let socket_cloned = socket.clone();
+                    let func = async move {
+                        allow_err!(test_udp_uat(socket_cloned, addr, up_cloned, stop_udp_rx).await);
+                    };
+                    tokio::spawn(func);
+                    (Some(socket), Some(udp_port))
+                }
+                Err(err) => {
+                    if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                        log::warn!(
+                            "KQ direct preflight: UDP hole punching is enabled but socket setup failed: {}",
+                            err
+                        );
+                    }
+                    (None, None)
+                }
             }
         } else {
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                log::warn!(
+                    "KQ direct preflight: UDP hole punching is unavailable, udp_enabled={}, force_relay={}",
+                    crate::get_udp_punch_enabled(),
+                    interface.is_force_relay()
+                );
+            }
             (None, None)
         };
         let fut = Self::_start_inner(
@@ -542,7 +605,7 @@ impl Client {
         }
         log::info!("rendezvous server: {}", rendezvous_server);
         let mut socket = socket?;
-        let my_addr = socket.local_addr();
+        let mut my_addr = socket.local_addr();
         let mut signed_id_pk = Vec::new();
         let mut relay_server = "".to_owned();
         let mut peer_addr = Config::get_any_listen_addr(true);
@@ -552,6 +615,24 @@ impl Client {
         let mut feedback = 0;
         use hbb_common::protobuf::Enum;
         let force_relay = interface.is_force_relay();
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            let my_nat = NatType::from_i32(my_nat_type).unwrap_or(NatType::UNKNOWN_NAT);
+            if force_relay {
+                log::warn!(
+                    "KQ direct preflight: force relay is enabled; direct punching will be skipped"
+                );
+            } else if my_nat == NatType::SYMMETRIC {
+                log::warn!(
+                    "KQ direct preflight: local NAT type is SYMMETRIC; non-LAN direct punching may fail and need router/firewall changes"
+                );
+            } else if my_nat == NatType::UNKNOWN_NAT {
+                log::warn!(
+                    "KQ direct preflight: local NAT type is unknown; direct punching result is uncertain"
+                );
+            } else {
+                log::info!("KQ direct preflight: local NAT type is {:?}", my_nat);
+            }
+        }
         log::info!(
             "connection policy for {}: force_relay={}, relay_server={}",
             peer,
@@ -649,14 +730,62 @@ impl Client {
                 peer
             );
             if let Err(err) = socket.send(&msg_out).await {
+                let err_text = err.to_string();
                 if !configured_relay_server.is_empty()
-                    && is_retryable_direct_connection_error(&err.to_string())
+                    && is_retryable_direct_connection_error(&err_text)
                 {
+                    if kq_should_retry_punch_request_before_relay() && i < 3 {
+                        log::warn!(
+                            "{} punch request failed for {}: {}; reconnecting rendezvous and retrying direct punch before relay",
+                            punch_type,
+                            peer,
+                            err_text
+                        );
+                        match crate::common::kq_connect_tcp_prefer_lan(
+                            &rendezvous_server,
+                            CONNECT_TIMEOUT,
+                        )
+                        .await
+                        {
+                            Ok(mut next_socket) => {
+                                if !key.is_empty() && !rz_token.is_empty() {
+                                    if let Err(secure_err) =
+                                        secure_tcp(&mut next_socket, &key).await
+                                    {
+                                        log::warn!(
+                                            "Failed to secure rendezvous reconnect for {} punch retry to {}: {}",
+                                            punch_type,
+                                            peer,
+                                            secure_err
+                                        );
+                                    } else {
+                                        my_addr = next_socket.local_addr();
+                                        socket = next_socket;
+                                        hbb_common::sleep(0.1).await;
+                                        continue;
+                                    }
+                                } else {
+                                    my_addr = next_socket.local_addr();
+                                    socket = next_socket;
+                                    hbb_common::sleep(0.1).await;
+                                    continue;
+                                }
+                            }
+                            Err(reconnect_err) => {
+                                log::warn!(
+                                    "Failed to reconnect rendezvous for {} punch retry to {}: {}",
+                                    punch_type,
+                                    peer,
+                                    reconnect_err
+                                );
+                            }
+                        }
+                    }
                     log::warn!(
                         "{} punch request failed for {}: {}; retrying forced relay via {}",
                         punch_type,
                         peer,
-                        err,
+                        err_text,
                         configured_relay_server
                     );
                     drop(socket);
@@ -989,6 +1118,19 @@ impl Client {
         let mut direct = !conn.is_err();
         if interface.is_force_relay() || conn.is_err() {
             if !relay_server.is_empty() {
+                if conn.is_err() && is_local && kq_should_avoid_lan_relay() {
+                    let direct_err = conn
+                        .as_ref()
+                        .err()
+                        .map(|err| err.to_string())
+                        .unwrap_or_else(|| "unknown direct connection error".to_owned());
+                    interface.update_direct(Some(false));
+                    bail!(
+                        "局域网直连 {} 失败（{}）。为避免进入高延迟中继，会话已停止；请检查两端防火墙/网络后重试。",
+                        peer_id,
+                        direct_err
+                    );
+                }
                 conn = Self::request_relay(
                     peer_id,
                     relay_server.to_owned(),
@@ -2877,13 +3019,15 @@ impl LoginConfigHandler {
         );
         if crate::get_app_name() == crate::common::KQ_APP_NAME {
             decoding.ability_av1 = 0;
-            if decoding.ability_vp9 > 0 {
-                decoding.prefer = supported_decoding::PreferCodec::VP9.into();
-            } else if decoding.prefer == supported_decoding::PreferCodec::AV1.into()
-                || decoding.prefer == supported_decoding::PreferCodec::VP8.into()
-            {
-                decoding.prefer = supported_decoding::PreferCodec::Auto.into();
-            }
+            decoding.prefer = if decoding.ability_h265 > 0 {
+                supported_decoding::PreferCodec::H265.into()
+            } else if decoding.ability_h264 > 0 {
+                supported_decoding::PreferCodec::H264.into()
+            } else if decoding.ability_vp9 > 0 {
+                supported_decoding::PreferCodec::VP9.into()
+            } else {
+                supported_decoding::PreferCodec::Auto.into()
+            };
             if let Some(i444) = decoding.i444.as_mut() {
                 i444.av1 = false;
             }
@@ -4344,8 +4488,14 @@ pub trait Interface: Send + Clone + 'static + Sized {
             }
         }
 
-        // relay-hint
-        if cfg!(feature = "flutter") && relay_hint {
+        if cfg!(feature = "flutter")
+            && kq_should_show_remote_offline_for_early_reset(&text, received)
+        {
+            self.msgbox("error", title, "Remote desktop is offline", "");
+        } else if cfg!(feature = "flutter") && kq_should_show_network_diagnostics(&text, relay_hint)
+        {
+            self.msgbox("kq-network-diagnostics", title, &text, "");
+        } else if cfg!(feature = "flutter") && relay_hint {
             self.msgbox(relay_hint_type, title, &text, "");
         } else {
             self.msgbox("error", title, &text, "");
@@ -4837,6 +4987,22 @@ async fn test_udp_uat(
     }
 
     let final_port = *udp_port.lock().unwrap();
+    if crate::get_app_name() == crate::common::KQ_APP_NAME {
+        if final_port > 0 {
+            log::info!(
+                "KQ direct preflight: UDP NAT test succeeded, mapped_port={}, time={:?}, packets_sent={}",
+                final_port,
+                start.elapsed(),
+                packets_sent
+            );
+        } else {
+            log::warn!(
+                "KQ direct preflight: UDP NAT test did not receive a mapped port, time={:?}, packets_sent={}; UDP may be blocked by firewall/router/NAT",
+                start.elapsed(),
+                packets_sent
+            );
+        }
+    }
     log::debug!(
         "UDP NAT test to {:?} finished: time={:?}, port={}, packets_sent={}, success={}",
         server_addr,

@@ -326,6 +326,7 @@ class KqOauth {
     await bind.mainSetLocalOption(
       key: 'user_info',
       value: jsonEncode({
+        'id': response.user?.id ?? '',
         'name': response.user?.name ?? '',
         'display_name': response.user?.displayName ?? '',
         'avatar': response.user?.avatar ?? '',

@@ -1533,6 +1533,11 @@ class _FileManagerViewState extends State<FileManagerView> {
                           dismissOnClicked: true),
                       MenuEntryDivider()
                     ];
+                    final commonLocations = _buildCommonLocationMenuItems();
+                    if (commonLocations.isNotEmpty) {
+                      menuItems.addAll(commonLocations);
+                      menuItems.add(MenuEntryDivider());
+                    }
                     if (isPeerWindows) {
                       var loadingTag = "";
                       if (!isLocal) {
@@ -1593,6 +1598,105 @@ class _FileManagerViewState extends State<FileManagerView> {
                   iconSize: 20,
                 )
               ]);
+  }
+
+  List<MenuEntryBase> _buildCommonLocationMenuItems() {
+    final home = controller.options.value.home;
+    if (home.isEmpty) {
+      return [];
+    }
+    final isWindows = controller.options.value.isWindows;
+    final userName = _basename(home, isWindows);
+    final shortcuts = [
+      _FileLocationShortcut(
+        label: userName.isEmpty ? translate('Home') : userName,
+        icon: Icons.person_outline_rounded,
+        path: home,
+      ),
+      _FileLocationShortcut(
+        label: translate('Desktop'),
+        icon: Icons.desktop_windows_outlined,
+        path: PathUtil.join(home, 'Desktop', isWindows),
+      ),
+      _FileLocationShortcut(
+        label: translate('Documents'),
+        icon: Icons.description_outlined,
+        path: PathUtil.join(home, 'Documents', isWindows),
+      ),
+      _FileLocationShortcut(
+        label: translate('Downloads'),
+        icon: Icons.download_outlined,
+        path: PathUtil.join(home, 'Downloads', isWindows),
+      ),
+      _FileLocationShortcut(
+        label: translate('Pictures'),
+        icon: Icons.image_outlined,
+        path: PathUtil.join(home, 'Pictures', isWindows),
+      ),
+      _FileLocationShortcut(
+        label: translate('Music'),
+        icon: Icons.music_note_outlined,
+        path: PathUtil.join(home, 'Music', isWindows),
+      ),
+      _FileLocationShortcut(
+        label: translate('Videos'),
+        icon: Icons.movie_outlined,
+        path: PathUtil.join(home, 'Videos', isWindows),
+      ),
+    ];
+
+    final seenPaths = <String>{};
+    return shortcuts
+        .where((shortcut) => seenPaths.add(shortcut.path.toLowerCase()))
+        .map((shortcut) => MenuEntryButton(
+              childBuilder: (TextStyle? style) => _buildLocationMenuRow(
+                shortcut.icon,
+                shortcut.label,
+                style,
+              ),
+              proc: () {
+                selectedItems.clear();
+                controller.openDirectory(shortcut.path);
+              },
+              dismissOnClicked: true,
+            ))
+        .toList();
+  }
+
+  String _basename(String value, bool isWindows) {
+    final parts = PathUtil.split(value, isWindows)
+        .where((part) => part.trim().isNotEmpty)
+        .toList();
+    if (parts.isEmpty) {
+      return '';
+    }
+    var name = parts.last;
+    if (name.endsWith('\\') || name.endsWith('/')) {
+      name = name.substring(0, name.length - 1);
+    }
+    return name;
+  }
+
+  Widget _buildLocationMenuRow(
+    IconData icon,
+    String label,
+    TextStyle? style,
+  ) {
+    return Row(children: [
+      Icon(
+        icon,
+        size: 20,
+        color: Theme.of(context).iconTheme.color?.withOpacity(0.7),
+      ),
+      SizedBox(width: 10),
+      Expanded(
+        child: Text(
+          label,
+          style: style,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ]);
   }
 
   List<BreadCrumbItem> getPathBreadCrumbItems(
@@ -1691,4 +1795,16 @@ Widget buildWindowsThisPC(BuildContext context, [TextStyle? textStyle]) {
     SizedBox(width: 10),
     Text(translate('This PC'), style: textStyle)
   ]);
+}
+
+class _FileLocationShortcut {
+  final String label;
+  final IconData icon;
+  final String path;
+
+  const _FileLocationShortcut({
+    required this.label,
+    required this.icon,
+    required this.path,
+  });
 }

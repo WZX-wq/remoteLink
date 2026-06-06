@@ -368,5 +368,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("day membership", "day membership"),
         ("Membership package", "Membership package"),
         ("1080p / 60 FPS remote control", "1080p / 60 FPS remote control"),
+        ("This PC", "This PC"),
+        ("Desktop", "Desktop"),
+        ("Documents", "Documents"),
+        ("Downloads", "Downloads"),
+        ("Pictures", "Pictures"),
+        ("Music", "Music"),
+        ("Videos", "Videos"),
     ].iter().cloned().collect();
 }

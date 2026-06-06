@@ -3472,6 +3472,8 @@ class _About extends StatefulWidget {
 }
 
 class _AboutState extends State<_About> {
+  static final Uri _companyWebsite = Uri.parse('https://kunqiongai.com/');
+
   @override
   Widget build(BuildContext context) {
     return futureBuilder(future: () async {
@@ -3487,22 +3489,136 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: '鲲穹远程桌面', children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(
-                height: 8.0,
+        child: Row(
+          children: [
+            Flexible(
+              child: SizedBox(
+                width: _kCardFixedWidth,
+                child: Card(
+                  elevation: 0.8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(
+                      color: _accentColor.withOpacity(0.12),
+                    ),
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          _accentColor.withOpacity(0.08),
+                          Theme.of(context).cardColor,
+                        ],
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: _kContentHMargin,
+                        vertical: 18,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 240,
+                            height: 74,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Image.asset(
+                                'assets/kq_about_logo.png',
+                                width: 240,
+                                height: 49,
+                                fit: BoxFit.contain,
+                                filterQuality: FilterQuality.high,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 28),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SelectionArea(
+                                  child: Text(
+                                    '${translate('Version')}: $version',
+                                    style: const TextStyle(
+                                      fontSize: _kContentFontSize,
+                                    ),
+                                  ).marginSymmetric(vertical: 3.0),
+                                ),
+                                SelectionArea(
+                                  child: Text(
+                                    '${translate('Build Date')}: $buildDate',
+                                    style: const TextStyle(
+                                      fontSize: _kContentFontSize,
+                                    ),
+                                  ).marginSymmetric(vertical: 3.0),
+                                ),
+                                const SizedBox(height: 8),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(6),
+                                  onTap: () => launchUrl(
+                                    _companyWebsite,
+                                    mode: LaunchMode.externalApplication,
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 5,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.language,
+                                          size: 16,
+                                          color: _accentColor,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '公司官网',
+                                          style: TextStyle(
+                                            color: _accentColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
+                                            'kunqiongai.com',
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: _accentColor,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Icon(
+                                          Icons.open_in_new,
+                                          size: 14,
+                                          color: _accentColor.withOpacity(0.78),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ).marginOnly(left: _kCardLeftMargin, top: 15),
               ),
-              SelectionArea(
-                  child: Text('${translate('Version')}: $version')
-                      .marginSymmetric(vertical: 4.0)),
-              SelectionArea(
-                  child: Text('${translate('Build Date')}: $buildDate')
-                      .marginSymmetric(vertical: 4.0)),
-            ],
-          ).marginOnly(left: _kContentHMargin)
-        ]),
+            ),
+          ],
+        ),
       );
     });
   }

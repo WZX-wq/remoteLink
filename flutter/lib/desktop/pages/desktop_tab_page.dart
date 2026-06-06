@@ -96,6 +96,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
+              showMaximize: false,
               onAccountBadgeTap: () =>
                   DesktopSettingPage.switch2page(SettingsTabKey.account),
               tail: Offstage(

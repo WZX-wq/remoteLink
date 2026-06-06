@@ -37,7 +37,7 @@ class UserModel {
   static const memberDefaultFps = 60;
   static const memberMaxFps = 60;
   static const freeRemoteQuality = '50';
-  static const memberRemoteQuality = '85';
+  static const memberRemoteQuality = '50';
 
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
@@ -50,6 +50,7 @@ class UserModel {
   final RxString memberSubsite = memberSubsiteName.obs;
   final RxString memberLastError = ''.obs;
   final RxList<KqMemberPackage> memberPackages = <KqMemberPackage>[].obs;
+  int _membershipRefreshSerial = 0;
   bool get isLogin => userName.isNotEmpty;
   bool get canUseMemberRemoteQuality => isMember.value;
   String get remoteResolutionSelection {
@@ -166,7 +167,7 @@ class UserModel {
       }
 
       final user = UserPayload.fromJson(data);
-      _parseAndUpdateUser(user);
+      await _parseAndUpdateUser(user);
     } catch (e) {
       debugPrint('Failed to refreshCurrentUser: $e');
     } finally {
@@ -234,6 +235,8 @@ class UserModel {
   }
 
   Future<void> reset({bool resetOther = false}) async {
+    _membershipRefreshSerial++;
+    isRefreshingMembership.value = false;
     await bind.mainSetLocalOption(key: 'access_token', value: '');
     await bind.mainSetLocalOption(key: 'user_info', value: '');
     await bind.mainSetLocalOption(key: kKqOauthProviderKey, value: '');
@@ -247,16 +250,17 @@ class UserModel {
     avatar.value = '';
   }
 
-  _parseAndUpdateUser(UserPayload user) {
+  Future<void> _parseAndUpdateUser(UserPayload user) async {
     userName.value = user.name;
     displayName.value = user.displayName;
     avatar.value = user.avatar;
     isAdmin.value = user.isAdmin;
-    bind.mainSetLocalOption(key: kKqOauthProviderKey, value: '');
-    bind.mainSetLocalOption(key: 'user_info', value: jsonEncode(user));
+    await bind.mainSetLocalOption(key: kKqOauthProviderKey, value: '');
+    await bind.mainSetLocalOption(key: 'user_info', value: jsonEncode(user));
     if (isWeb) {
       // ugly here, tmp solution
-      bind.mainSetLocalOption(key: 'verifier', value: user.verifier ?? '');
+      await bind.mainSetLocalOption(
+          key: 'verifier', value: user.verifier ?? '');
     }
   }
 
@@ -316,7 +320,8 @@ class UserModel {
     await bind.mainSetUserDefaultOption(key: remoteQualityKey, value: quality);
     await bind.mainSetUserDefaultOption(
         key: remoteFpsKey, value: normalizedFps.toString());
-    await bind.mainSetUserDefaultOption(key: remoteCodecKey, value: 'vp9');
+    await bind.mainSetUserDefaultOption(key: remoteCodecKey, value: 'auto');
+    await bind.mainSetUserDefaultOption(key: kOptionEnableHwcodec, value: 'Y');
   }
 
   Future<void> _setMemberStatus(
@@ -324,22 +329,32 @@ class UserModel {
     required String expireAt,
     required String error,
     String? subsite,
+    bool Function()? shouldApply,
   }) async {
+    bool canApply() => shouldApply == null || shouldApply();
+    if (!canApply()) return;
     final wasMember = isLocalMemberActiveForCurrentUser;
     final userId = _localUserPrimaryId();
+    if (!canApply()) return;
     isMember.value = active;
     memberExpireAt.value = expireAt;
     memberSubsite.value =
         subsite == null || subsite.isEmpty ? memberSubsiteName : subsite;
     memberLastError.value = error;
+    if (!canApply()) return;
     await bind.mainSetLocalOption(
         key: memberActiveKey, value: active ? 'Y' : 'N');
+    if (!canApply()) return;
     await bind.mainSetLocalOption(
         key: memberUserIdKey, value: active && userId.isNotEmpty ? userId : '');
+    if (!canApply()) return;
     await bind.mainSetLocalOption(key: memberExpireAtKey, value: expireAt);
+    if (!canApply()) return;
     await bind.mainSetLocalOption(
         key: memberSubsiteKey, value: memberSubsite.value);
+    if (!canApply()) return;
     await bind.mainSetLocalOption(key: memberLastErrorKey, value: error);
+    if (!canApply()) return;
     await _syncRemoteQualityDefaults(active,
         preferMemberDefaults: active && !wasMember);
   }
@@ -381,21 +396,13 @@ class UserModel {
     return math.max(5, math.min(remoteEntitlementMaxFps, value));
   }
 
-  bool _looksLikeJwt(String value) => value.split('.').length == 3;
-
-  bool _looksLikeUuid(String value) {
-    return RegExp(
-      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-      caseSensitive: false,
-    ).hasMatch(value);
-  }
-
   Iterable<String> _memberTokenCandidates() sync* {
     final values = <String>[];
     void add(dynamic value) {
       values.add((value ?? '').toString());
     }
 
+    add(bind.mainGetLocalOption(key: 'access_token'));
     add(bind.mainGetLocalOption(key: 'kq_api_web_token'));
     add(bind.mainGetLocalOption(key: 'api_web_token'));
     add(bind.mainGetLocalOption(key: 'kq_token'));
@@ -425,47 +432,57 @@ class UserModel {
         }
       }
     }
-    final uuidTokens = <String>[];
-    final otherSessionTokens = <String>[];
+    final orderedTokens = <String>[];
     final seen = <String>{};
     for (final value in values) {
       final normalized = value
           .replaceFirst(RegExp(r'^Bearer\s+', caseSensitive: false), '')
           .trim();
-      if (normalized.isEmpty || _looksLikeJwt(normalized)) {
+      if (normalized.isEmpty) {
         continue;
       }
       if (seen.add(normalized)) {
-        if (_looksLikeUuid(normalized)) {
-          uuidTokens.add(normalized);
-        } else {
-          otherSessionTokens.add(normalized);
-        }
+        orderedTokens.add(normalized);
       }
     }
-    yield* uuidTokens;
-    yield* otherSessionTokens;
+    yield* orderedTokens;
   }
 
   Future<void> refreshMembership({bool showError = false}) async {
-    if (isRefreshingMembership.value) {
-      return;
+    final refreshSerial = ++_membershipRefreshSerial;
+    bool isCurrentRefresh() => refreshSerial == _membershipRefreshSerial;
+    Future<void> setCurrentMemberStatus(
+      bool active, {
+      required String expireAt,
+      required String error,
+      String? subsite,
+    }) async {
+      if (!isCurrentRefresh()) return;
+      await _setMemberStatus(active,
+          expireAt: expireAt,
+          error: error,
+          subsite: subsite,
+          shouldApply: isCurrentRefresh);
     }
-    if (!isLogin) {
-      await _setMemberStatus(false, expireAt: '', error: '');
-      return;
-    }
-    if (isKqTestUnlimitedMember) {
-      await _setMemberStatus(true,
-          expireAt: 'unlimited', error: '', subsite: memberSubsiteName);
-      memberPackages.clear();
-      return;
-    }
+
     isRefreshingMembership.value = true;
     try {
+      if (!isLogin) {
+        await setCurrentMemberStatus(false, expireAt: '', error: '');
+        return;
+      }
+      if (isKqTestUnlimitedMember) {
+        await setCurrentMemberStatus(true,
+            expireAt: 'unlimited', error: '', subsite: memberSubsiteName);
+        if (isCurrentRefresh()) {
+          memberPackages.clear();
+        }
+        return;
+      }
+
       final candidates = _memberTokenCandidates().toList();
       if (candidates.isEmpty) {
-        await _setMemberStatus(false,
+        await setCurrentMemberStatus(false,
             expireAt: '',
             error: translate('Missing membership login credential'));
         return;
@@ -476,7 +493,10 @@ class UserModel {
         try {
           final projectMemberInfo = await _getProjectMemberInfo(token);
           if (projectMemberInfo != null) {
-            await _applyMemberInfo(projectMemberInfo);
+            await _applyMemberInfo(
+              projectMemberInfo,
+              shouldApply: isCurrentRefresh,
+            );
             return;
           }
 
@@ -508,7 +528,7 @@ class UserModel {
           if (data is! Map) {
             throw translate('Membership API data is empty');
           }
-          await _applyMemberInfo(data);
+          await _applyMemberInfo(data, shouldApply: isCurrentRefresh);
           return;
         } catch (e) {
           lastError = e;
@@ -517,12 +537,14 @@ class UserModel {
 
       final message = lastError?.toString() ??
           translate('Failed to refresh membership status');
-      await _setMemberStatus(false, expireAt: '', error: message);
-      if (showError) {
+      await setCurrentMemberStatus(false, expireAt: '', error: message);
+      if (showError && isCurrentRefresh()) {
         showToast(message);
       }
     } finally {
-      isRefreshingMembership.value = false;
+      if (isCurrentRefresh()) {
+        isRefreshingMembership.value = false;
+      }
     }
   }
 
@@ -554,20 +576,28 @@ class UserModel {
     return jsonDecode(decode_http_response(response));
   }
 
-  Future<void> _applyMemberInfo(Map data) async {
+  Future<void> _applyMemberInfo(
+    Map data, {
+    bool Function()? shouldApply,
+  }) async {
+    if (shouldApply != null && !shouldApply()) return;
     final packages = data['packages'];
     if (packages is List) {
-      memberPackages.assignAll(packages
+      final nextPackages = packages
           .whereType<Map>()
           .map((item) => KqMemberPackage.fromJson(item))
           .where((item) => item.id > 0)
-          .toList());
+          .toList();
+      if (shouldApply != null && !shouldApply()) return;
+      memberPackages.assignAll(nextPackages);
     }
+    if (shouldApply != null && !shouldApply()) return;
     await _setMemberStatus(
       _memberBool(data['web_member_active']),
       expireAt: (data['web_member_expire_at'] ?? '').toString(),
       subsite: (data['subsite_name'] ?? memberSubsiteName).toString(),
       error: '',
+      shouldApply: shouldApply,
     );
   }
 
@@ -845,29 +875,27 @@ class UserModel {
       rethrow;
     }
 
-    final isLogInDone = loginResponse.type == HttpType.kAuthResTypeToken &&
-        loginResponse.access_token != null;
-    if (isLogInDone && loginResponse.user != null) {
-      _parseAndUpdateUser(loginResponse.user!);
-    }
-
     return loginResponse;
   }
 
-  void applyLoginResponse(LoginResponse loginResponse,
-      {bool storeLocalUserInfo = true}) {
+  Future<void> applyLoginResponse(LoginResponse loginResponse,
+      {bool storeLocalUserInfo = true}) async {
     if (loginResponse.type == HttpType.kAuthResTypeToken &&
         loginResponse.user != null) {
       if (storeLocalUserInfo) {
-        _parseAndUpdateUser(loginResponse.user!);
+        await _parseAndUpdateUser(loginResponse.user!);
       } else {
         userName.value = loginResponse.user!.name;
         displayName.value = loginResponse.user!.displayName;
         avatar.value = loginResponse.user!.avatar;
         isAdmin.value = loginResponse.user!.isAdmin;
       }
-      unawaited(refreshMembership());
+      isMember.value = isLocalMemberActiveForCurrentUser;
+      memberExpireAt.value = bind.mainGetLocalOption(key: memberExpireAtKey);
+      memberLastError.value = bind.mainGetLocalOption(key: memberLastErrorKey);
+      return refreshMembership();
     }
+    return Future.value();
   }
 
   static Future<List<dynamic>> queryOidcLoginOptions() async {

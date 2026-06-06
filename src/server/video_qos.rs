@@ -44,6 +44,11 @@ const ADJUST_RATIO_INTERVAL: usize = 3; // Adjust quality ratio every 3 seconds
 const DYNAMIC_SCREEN_THRESHOLD: usize = 2; // Allow increase quality ratio if encode more than 2 times in one second
 const DELAY_THRESHOLD_150MS: u32 = 150; // 150ms is the threshold for good network condition
 
+#[inline]
+fn kq_uses_selected_fps() -> bool {
+    crate::get_app_name() == crate::common::KQ_APP_NAME
+}
+
 #[derive(Default, Debug, Clone)]
 struct UserDelay {
     response_delayed: bool,
@@ -201,8 +206,13 @@ impl VideoQoS {
         if fps < MIN_FPS || fps > MAX_FPS {
             return;
         }
+        let mut updated = false;
         if let Some(user) = self.users.get_mut(&id) {
             user.custom_fps = Some(fps);
+            updated = true;
+        }
+        if updated {
+            self.adjust_fps();
         }
     }
 
@@ -210,8 +220,13 @@ impl VideoQoS {
         if fps < MIN_FPS || fps > MAX_FPS {
             return;
         }
+        let mut updated = false;
         if let Some(user) = self.users.get_mut(&id) {
             user.auto_adjust_fps = Some(fps);
+            updated = true;
+        }
+        if updated {
+            self.adjust_fps();
         }
     }
 
@@ -379,10 +394,17 @@ impl VideoQoS {
 
     #[inline]
     fn highest_fps(&self) -> u32 {
+        let use_selected_fps = kq_uses_selected_fps();
         let user_fps = |u: &UserData| {
             let mut fps = u.custom_fps.unwrap_or(FPS);
-            if let Some(auto_adjust_fps) = u.auto_adjust_fps {
-                if fps == 0 || auto_adjust_fps < fps {
+            if !use_selected_fps {
+                if let Some(auto_adjust_fps) = u.auto_adjust_fps {
+                    if fps == 0 || auto_adjust_fps < fps {
+                        fps = auto_adjust_fps;
+                    }
+                }
+            } else if fps == 0 {
+                if let Some(auto_adjust_fps) = u.auto_adjust_fps {
                     fps = auto_adjust_fps;
                 }
             }
@@ -510,6 +532,10 @@ impl VideoQoS {
     // Adjust fps based on network delay and user response time
     fn adjust_fps(&mut self) {
         let highest_fps = self.highest_fps();
+        if kq_uses_selected_fps() {
+            self.fps = highest_fps;
+            return;
+        }
         // Get minimum fps from all users
         let mut fps = self
             .users
