@@ -410,6 +410,7 @@ class _PeerTabPageState extends State<PeerTabPage>
                 }).toList();
                 await bind.mainStoreFav(favs: favs);
                 bind.mainLoadFavPeers();
+                bind.mainLoadRecentPeers();
                 break;
               case 2:
                 for (var p in peers) {
@@ -449,6 +450,8 @@ class _PeerTabPageState extends State<PeerTabPage>
             }
           }
           await bind.mainStoreFav(favs: favs);
+          bind.mainLoadFavPeers();
+          bind.mainLoadRecentPeers();
           model.setMultiSelectionMode(false);
           showToast(translate('Successful'));
         },

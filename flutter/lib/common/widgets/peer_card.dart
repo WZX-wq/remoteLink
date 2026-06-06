@@ -27,6 +27,7 @@ bool? hideUsernameOnCard;
 
 const _kqCardOnline = Color(0xFF16A77A);
 const _kqCardOffline = Color(0xFFD65B68);
+const _kqFavoriteGold = Color(0xFFFFB020);
 
 class _PeerCard extends StatefulWidget {
   final Peer peer;
@@ -53,6 +54,22 @@ class _PeerCardState extends State<_PeerCard>
   final double _cardRadius = 8;
   final double _tileRadius = 8;
   final double _borderWidth = 1;
+  final RxBool _isFavorite = false.obs;
+  bool _favoriteBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshFavoriteState();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PeerCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.peer.id != widget.peer.id || oldWidget.tab != widget.tab) {
+      _refreshFavoriteState();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -244,8 +261,20 @@ class _PeerCardState extends State<_PeerCard>
             ),
           ),
           isPortrait
-              ? checkBoxOrActionMorePortrait(peer)
-              : checkBoxOrActionMoreLandscape(peer, isTile: true),
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _favoriteButton(peer, compact: false),
+                    checkBoxOrActionMorePortrait(peer),
+                  ],
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _favoriteButton(peer, compact: true),
+                    checkBoxOrActionMoreLandscape(peer, isTile: true),
+                  ],
+                ),
         ],
       ).paddingOnly(right: 4),
     );
@@ -396,7 +425,13 @@ class _PeerCardState extends State<_PeerCard>
               children: [
                 _StatusPill(online: peer.online),
                 const SizedBox(height: 4),
-                checkBoxOrActionMoreLandscape(peer, isTile: false),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _favoriteButton(peer, compact: true),
+                    checkBoxOrActionMoreLandscape(peer, isTile: false),
+                  ],
+                ),
               ],
             ),
           ],
@@ -495,6 +530,75 @@ class _PeerCardState extends State<_PeerCard>
       },
       onPointerUp: (_) => _showPeerMenu(peer.id),
       child: build_more(context));
+
+  Future<void> _refreshFavoriteState() async {
+    final favs = (await bind.mainGetFav()).map((id) => id.toString()).toSet();
+    if (!mounted) return;
+    _isFavorite.value =
+        widget.tab == PeerTabIndex.fav || favs.contains(widget.peer.id);
+  }
+
+  Widget _favoriteButton(Peer peer, {required bool compact}) {
+    final q = KqTheme.of(context);
+    final size = compact ? 26.0 : 30.0;
+    return Obx(() {
+      final isFavorite = _isFavorite.value;
+      return Tooltip(
+        message: translate(
+            isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
+        waitDuration: const Duration(milliseconds: 500),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => _toggleFavorite(peer.id),
+          child: Container(
+            width: size,
+            height: size,
+            margin: EdgeInsets.only(right: compact ? 2 : 0),
+            decoration: BoxDecoration(
+              color: isFavorite
+                  ? _kqFavoriteGold.withOpacity(0.16)
+                  : q.surfaceSoft.withOpacity(0.72),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: isFavorite
+                    ? _kqFavoriteGold.withOpacity(0.72)
+                    : q.line.withOpacity(0.9),
+              ),
+            ),
+            child: Icon(
+              isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+              size: compact ? 16 : 18,
+              color: isFavorite ? _kqFavoriteGold : q.muted.withOpacity(0.82),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  Future<void> _toggleFavorite(String id) async {
+    if (_favoriteBusy) return;
+    _favoriteBusy = true;
+    try {
+      final favs =
+          (await bind.mainGetFav()).map((id) => id.toString()).toList();
+      final wasFavorite = favs.contains(id);
+      if (wasFavorite) {
+        favs.remove(id);
+      } else {
+        favs.add(id);
+      }
+      await bind.mainStoreFav(favs: favs);
+      if (mounted) {
+        _isFavorite.value = !wasFavorite;
+      }
+      bind.mainLoadFavPeers();
+      bind.mainLoadRecentPeers();
+      showToast(translate('Successful'));
+    } finally {
+      _favoriteBusy = false;
+    }
+  }
 
   bool _shouldBuildPasswordIcon(Peer peer) {
     if (gFFI.peerTabModel.currentTab != PeerTabIndex.ab.index) return false;
@@ -810,6 +914,8 @@ abstract class BasePeerCard extends StatelessWidget {
             favs.add(id);
             await bind.mainStoreFav(favs: favs);
           }
+          bind.mainLoadFavPeers();
+          bind.mainLoadRecentPeers();
           showToast(translate('Successful'));
         }();
       },
@@ -845,6 +951,8 @@ abstract class BasePeerCard extends StatelessWidget {
             await bind.mainStoreFav(favs: favs);
             await reloadFunc();
           }
+          bind.mainLoadFavPeers();
+          bind.mainLoadRecentPeers();
           showToast(translate('Successful'));
         }();
       },

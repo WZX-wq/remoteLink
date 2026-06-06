@@ -364,6 +364,10 @@ class _PeersViewState extends State<_PeersView>
       peers = peers.where((peer) => widget.peerFilter!(peer)).toList();
     }
 
+    if (widget.peers.loadEvent == LoadEvent.recent) {
+      peers = await _sortRecentPeersWithFavoritesFirst(peers);
+    }
+
     // fallback to id sorting
     if (!PeerSortType.values.contains(sortedBy)) {
       sortedBy = PeerSortType.remoteId;
@@ -407,6 +411,25 @@ class _PeersViewState extends State<_PeersView>
     }
 
     return filteredList;
+  }
+
+  Future<List<Peer>> _sortRecentPeersWithFavoritesFirst(
+      List<Peer> peers) async {
+    final orderedPeers = peers.toList(growable: false);
+    final order = <String, int>{};
+    for (var i = 0; i < orderedPeers.length; i++) {
+      order[orderedPeers[i].id] = i;
+    }
+    final favIds = (await bind.mainGetFav()).map((id) => id.toString()).toSet();
+    orderedPeers.sort((a, b) {
+      final aFav = favIds.contains(a.id);
+      final bFav = favIds.contains(b.id);
+      if (aFav != bFav) {
+        return aFav ? -1 : 1;
+      }
+      return (order[a.id] ?? 0).compareTo(order[b.id] ?? 0);
+    });
+    return orderedPeers;
   }
 }
 

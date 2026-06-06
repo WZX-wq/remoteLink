@@ -1903,18 +1903,21 @@ Future _saveSessionWindowPosition(WindowType windowType, int windowId,
   }
 }
 
-Future<Size> _adjustRestoreMainWindowSize(double? width, double? height) async {
-  const double minWidth = 1;
-  const double minHeight = 1;
+Future<Size> _adjustRestoreMainWindowSize(double? width, double? height,
+    {bool mainWindow = false}) async {
+  final minWidth = mainWindow ? kDesktopMainWindowMinSize.width : 1.0;
+  final minHeight = mainWindow ? kDesktopMainWindowMinSize.height : 1.0;
   const double maxWidth = 6480;
   const double maxHeight = 6480;
 
-  final defaultWidth =
-      ((isDesktop || isWebDesktop) ? 1280 : kMobileDefaultDisplayWidth)
-          .toDouble();
-  final defaultHeight =
-      ((isDesktop || isWebDesktop) ? 720 : kMobileDefaultDisplayHeight)
-          .toDouble();
+  final defaultWidth = ((isDesktop || isWebDesktop)
+          ? (mainWindow ? kDesktopMainWindowDefaultSize.width : 1280)
+          : kMobileDefaultDisplayWidth)
+      .toDouble();
+  final defaultHeight = ((isDesktop || isWebDesktop)
+          ? (mainWindow ? kDesktopMainWindowDefaultSize.height : 720)
+          : kMobileDefaultDisplayHeight)
+      .toDouble();
   double restoreWidth = width ?? defaultWidth;
   double restoreHeight = height ?? defaultHeight;
 
@@ -2067,7 +2070,11 @@ Future<bool> restoreWindowPosition(WindowType type,
     }
   }
 
-  final size = await _adjustRestoreMainWindowSize(lpos.width, lpos.height);
+  final size = await _adjustRestoreMainWindowSize(
+    lpos.width,
+    lpos.height,
+    mainWindow: type == WindowType.Main,
+  );
   final offsetLeftTop = await _adjustRestoreMainWindowOffset(
     lpos.offsetWidth,
     lpos.offsetHeight,

@@ -45,22 +45,7 @@ if (-not (Test-Path $chineseMessagesSourcePath)) {
     throw "Chinese installer language file not found: $chineseMessagesSourcePath"
 }
 
-if (-not $SkipFlutterBuild) {
-    Push-Location (Join-Path $repo "flutter")
-    try {
-        & flutter build windows --release
-        if ($LASTEXITCODE -ne 0) {
-            throw "flutter build failed with exit code $LASTEXITCODE"
-        }
-    }
-    finally {
-        Pop-Location
-    }
-}
-
-$release = Resolve-Path $ReleaseDir
-
-if (-not $SkipCargoBuild) {
+function Build-RustLibrary {
     if ([string]::IsNullOrWhiteSpace($CargoFeatures)) {
         throw "CargoFeatures must not be empty"
     }
@@ -100,7 +85,33 @@ if (-not $SkipCargoBuild) {
     if (-not (Test-Path $freshDll)) {
         throw "cargo build did not produce $freshDll"
     }
-    Copy-Item -LiteralPath $freshDll -Destination (Join-Path $release.Path "librustdesk.dll") -Force
+    return $freshDll
+}
+
+$freshRustDll = $null
+if (-not $SkipCargoBuild) {
+    # Flutter's Windows CMake install copies target\release\librustdesk.dll,
+    # so the Rust library must exist before `flutter build windows`.
+    $freshRustDll = Build-RustLibrary
+}
+
+if (-not $SkipFlutterBuild) {
+    Push-Location (Join-Path $repo "flutter")
+    try {
+        & flutter build windows --release
+        if ($LASTEXITCODE -ne 0) {
+            throw "flutter build failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+$release = Resolve-Path $ReleaseDir
+
+if (-not $SkipCargoBuild) {
+    Copy-Item -LiteralPath $freshRustDll -Destination (Join-Path $release.Path "librustdesk.dll") -Force
 }
 
 function Test-PathUnderRoot([string]$Path, [string]$Root) {
@@ -140,6 +151,14 @@ function Invoke-DownloadFile([string]$Uri, [string]$OutFile) {
     Move-Item -LiteralPath $tmp -Destination $OutFile -Force
 }
 
+function Ensure-CachedDownload([string]$Uri, [string]$OutFile) {
+    if (Test-Path $OutFile) {
+        Write-Host "Using cached file: $OutFile"
+        return
+    }
+    Invoke-DownloadFile -Uri $Uri -OutFile $OutFile
+}
+
 function Ensure-RemotePrinterArtifacts([string]$ReleasePath, [string]$CacheRoot) {
     $driverInf = Join-Path $ReleasePath "drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf"
     $adapterDll = Join-Path $ReleasePath "printer_driver_adapter.dll"
@@ -158,9 +177,9 @@ function Ensure-RemotePrinterArtifacts([string]$ReleasePath, [string]$CacheRoot)
     $sha256Sums = Join-Path $CacheRoot "sha256sums"
     $baseUri = "https://github.com/rustdesk/hbb_common/releases/download/driver"
 
-    Invoke-DownloadFile -Uri "$baseUri/$driverZipName" -OutFile $driverZip
-    Invoke-DownloadFile -Uri "$baseUri/$adapterZipName" -OutFile $adapterZip
-    Invoke-DownloadFile -Uri "$baseUri/sha256sums" -OutFile $sha256Sums
+    Ensure-CachedDownload -Uri "$baseUri/$driverZipName" -OutFile $driverZip
+    Ensure-CachedDownload -Uri "$baseUri/$adapterZipName" -OutFile $adapterZip
+    Ensure-CachedDownload -Uri "$baseUri/sha256sums" -OutFile $sha256Sums
 
     $expectedDriver = Get-Sha256FromSums -SumsPath $sha256Sums -FileName $driverZipName
     $actualDriver = (Get-FileHash -Algorithm SHA256 -LiteralPath $driverZip).Hash.ToUpperInvariant()

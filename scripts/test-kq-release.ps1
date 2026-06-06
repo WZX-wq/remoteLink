@@ -98,6 +98,7 @@ function Test-InstallerUpgradePolicy {
         @("installer:upgrade-ready-copy", "WizardForm.ReadyLabel.Caption :="),
         @("installer:upgrade-button-copy", "WizardForm.NextButton.Caption := '`$cnUpgradeButton'"),
         @("installer:upgrade-page-change-hook", "procedure CurPageChanged(CurPageID: Integer)"),
+        @("installer:rust-before-flutter-build", "`$freshRustDll = Build-RustLibrary"),
         @("installer:legacy-hkcu-migration", "function KqLegacyUninstallKey(): String"),
         @("installer:downgrade-guard", "KqCompareVersions(KqExistingVersion, '{#MyAppVersion}') > 0"),
         @("installer:system-desktop-shortcut", 'Name: "{commondesktop}\{#MyAppName}"'),
@@ -264,6 +265,11 @@ $kqFileTransferDesktopCnCopy = [string]::Concat(
     [string]::Concat([char[]]@(0x684C, 0x9762)),
     '")'
 )
+$kqFileTransferFolderCnCopy = [string]::Concat(
+    '("Folder", "',
+    [string]::Concat([char[]]@(0x6587, 0x4EF6, 0x5939)),
+    '")'
+)
 
 function Test-BuiltInPrivateServerDefaults {
     $source = ".\src\common.rs"
@@ -335,13 +341,46 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" $kqTitleBrand "ui:title-brand"
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "assets/icon.png" "ui:title-icon"
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_tab_page.dart" "showMaximize: false" "ui:main-hide-maximize"
+    Test-SourceContains ".\flutter\lib\consts.dart" "kDesktopMainWindowDefaultSize = Size(1360, 720)" "ui:main-window-roomy-default-size"
+    Test-SourceContains ".\flutter\lib\consts.dart" "kDesktopMainWindowMinSize = Size(1280, 700)" "ui:main-window-roomy-min-size"
+    Test-SourceContains ".\flutter\lib\main.dart" "size: kDesktopMainWindowDefaultSize" "ui:main-window-uses-roomy-default-size"
+    Test-SourceContains ".\flutter\lib\main.dart" "setMinimumSize(kDesktopMainWindowMinSize)" "ui:main-window-enforces-roomy-min-size"
+    Test-SourceContains ".\flutter\lib\common.dart" "mainWindow: type == WindowType.Main" "ui:main-window-restores-with-roomy-floor"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "width: isIncomingOnly ? 276.0 : 276.0" "ui:home-left-pane-narrower-for-history"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_tab_page.dart" "_KqTitleSettingsButton" "ui:title-settings-prominent-button"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_tab_page.dart" "Icons.settings_rounded" "ui:title-settings-gear-icon"
+    Test-SourceNotContains ".\flutter\lib\desktop\pages\desktop_tab_page.dart" "icon: IconFont.menu" "ui:title-settings-no-menu-icon"
+    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "Icons.settings_rounded" "ui:home-settings-prominent-gear"
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "_copyRemoteAssistShare" "ui:remote-assist-share-copy"
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_home_page.dart" "kq-share-invite-url" "ui:remote-assist-share-url"
+    Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "_sortRecentPeersWithFavoritesFirst" "ui:recent-favorites-first-sort"
+    Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "widget.peers.loadEvent == LoadEvent.recent" "ui:recent-favorites-sort-only-recent"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "_favoriteButton" "ui:peer-card-favorite-marker"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "Icons.star_rounded" "ui:peer-card-favorite-filled-star"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "Icons.star_outline_rounded" "ui:peer-card-favorite-empty-star"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "_toggleFavorite" "ui:peer-card-favorite-toggle"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "bind.mainLoadRecentPeers()" "ui:peer-card-favorite-refresh-recent"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_tab_page.dart" "bind.mainLoadRecentPeers();" "ui:peer-multiselect-favorite-refresh-recent"
     Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "_passwordController" "ui:remote-password-field"
     Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "password: password.isEmpty ? null : password" "ui:remote-password-connect-param"
+    Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "OutlinedButton.icon" "ui:file-transfer-primary-action"
+    Test-SourceContains ".\flutter\lib\desktop\pages\connection_page.dart" "Icons.folder_copy_outlined" "ui:file-transfer-primary-action-icon"
+    Test-SourceNotContains ".\flutter\lib\desktop\pages\connection_page.dart" "'Transfer file'," "ui:file-transfer-not-hidden-in-menu"
     Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_buildCommonLocationMenuItems" "ui:file-transfer-common-locations"
     Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "PathUtil.join(home, 'Desktop'" "ui:file-transfer-desktop-shortcut"
     Test-SourceContains ".\src\lang\cn.rs" $kqFileTransferDesktopCnCopy "ui:file-transfer-desktop-cn-copy"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_entryTypeLabel" "ui:file-transfer-type-label"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" 'SortBy.type, translate("Type")' "ui:file-transfer-type-column"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "extension.toUpperCase()" "ui:file-transfer-extension-type"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_typeColWidth" "ui:file-transfer-type-column-visible-width"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\list_search_action_listener.dart" "shouldHandleKeyEvent" "ui:file-transfer-ime-list-search-gate"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\list_search_action_listener.dart" "kv is! KeyDownEvent" "ui:file-transfer-ime-keydown-only"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_pathLocationController" "ui:file-transfer-ime-stable-path-controller"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_fileSearchController" "ui:file-transfer-ime-stable-search-controller"
+    Test-SourceNotContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "TextEditingController(text: text)" "ui:file-transfer-ime-no-recreated-controller"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "_isListSearchEnabled" "ui:file-transfer-ime-search-enabled-state"
+    Test-SourceContains ".\flutter\lib\desktop\pages\file_manager_page.dart" "shouldHandleKeyEvent: () => _isListSearchEnabled" "ui:file-transfer-ime-disable-list-search-while-input"
+    Test-SourceContains ".\src\lang\cn.rs" $kqFileTransferFolderCnCopy "ui:file-transfer-folder-cn-copy"
     Test-SourceContains ".\flutter\lib\common.dart" "isSupportedKqUriLink" "deeplink:kqremote-compatible"
     Test-SourceContains ".\flutter\lib\common.dart" "kqNormalizeMsgboxText" "ui:remote-timeout-offline-normalizer"
     Test-SourceContains ".\flutter\lib\common.dart" "title == 'Connection Error' && text == 'Timeout'" "ui:remote-timeout-offline-condition"

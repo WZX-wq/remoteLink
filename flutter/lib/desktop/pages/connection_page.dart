@@ -655,6 +655,31 @@ class _ConnectionPageState extends State<ConnectionPage>
                   ),
                 ),
                 const SizedBox(width: 8),
+                SizedBox(
+                  height: 34.0,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: q.field,
+                      foregroundColor: q.primaryDeep,
+                      side: BorderSide(color: q.line),
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () {
+                      onConnect(isFileTransfer: true);
+                    },
+                    icon: const Icon(Icons.folder_copy_outlined, size: 17),
+                    label: Text(
+                      translate('Transfer file'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Container(
                   height: 34.0,
                   width: 34.0,
@@ -687,10 +712,6 @@ class _ConnectionPageState extends State<ConnectionPage>
                                   context: context,
                                   position: RelativeRect.fromLTRB(x, y, x, y),
                                   items: [
-                                    (
-                                      'Transfer file',
-                                      () => onConnect(isFileTransfer: true)
-                                    ),
                                     (
                                       'View camera',
                                       () => onConnect(isViewCamera: true)

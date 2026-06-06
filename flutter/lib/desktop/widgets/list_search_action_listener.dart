@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class ListSearchActionListener extends StatelessWidget {
   final FocusNode node;
@@ -6,6 +7,7 @@ class ListSearchActionListener extends StatelessWidget {
   final Widget child;
   final Function(String) onNext;
   final Function(String) onSearch;
+  final bool Function()? shouldHandleKeyEvent;
 
   const ListSearchActionListener(
       {super.key,
@@ -13,7 +15,8 @@ class ListSearchActionListener extends StatelessWidget {
       required this.buffer,
       required this.child,
       required this.onNext,
-      required this.onSearch});
+      required this.onSearch,
+      this.shouldHandleKeyEvent});
 
   @mustCallSuper
   @override
@@ -21,8 +24,16 @@ class ListSearchActionListener extends StatelessWidget {
     return KeyboardListener(
         autofocus: true,
         onKeyEvent: (kv) {
+          if (shouldHandleKeyEvent != null && !shouldHandleKeyEvent!()) {
+            return;
+          }
+          if (kv is! KeyDownEvent) {
+            return;
+          }
           final ch = kv.character;
-          if (ch == null) {
+          if (ch == null ||
+              ch.isEmpty ||
+              ch.runes.any((rune) => rune < 0x20 || rune == 0x7F)) {
             return;
           }
           final action = buffer.input(ch);
@@ -49,6 +60,11 @@ class TimeoutStringBuffer {
   static int timeoutMilliSec = 1500;
 
   String get buffer => _buffer;
+
+  void clear() {
+    _buffer = "";
+    _duration = DateTime.now();
+  }
 
   TimeoutStringBuffer() {
     _duration = DateTime.now();

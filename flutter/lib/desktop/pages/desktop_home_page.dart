@@ -279,7 +279,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 292.0 : 292.0,
+        width: isIncomingOnly ? 276.0 : 276.0,
         decoration: BoxDecoration(
           color: q.panel,
           borderRadius: BorderRadius.circular(18),
@@ -314,13 +314,40 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
                     child: Obx(
-                      () => Icon(
-                        Icons.settings,
-                        color: _editHover.value
-                            ? textColor
-                            : Colors.grey.withOpacity(0.5),
-                        size: 22,
+                      () => AnimatedContainer(
+                        duration: const Duration(milliseconds: 140),
+                        curve: Curves.easeOut,
+                        width: 40,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: _editHover.value
+                              ? q.primary.withOpacity(0.16)
+                              : q.primary.withOpacity(0.09),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _editHover.value
+                                ? q.primary
+                                : q.primary.withOpacity(0.28),
+                            width: 1.2,
+                          ),
+                          boxShadow: [
+                            if (_editHover.value)
+                              BoxShadow(
+                                color: q.primary.withOpacity(0.18),
+                                blurRadius: 14,
+                                offset: const Offset(0, 5),
+                              ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.settings_rounded,
+                          color: _editHover.value
+                              ? q.primary
+                              : textColor?.withOpacity(0.72),
+                          size: 20,
+                        ),
                       ),
                     ),
                     onTap: () => {

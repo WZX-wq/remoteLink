@@ -400,6 +400,8 @@ class _FileManagerViewState extends State<FileManagerView> {
   final _locationStatus = LocationStatus.bread.obs;
   final _locationNode = FocusNode();
   final _locationBarKey = GlobalKey();
+  final _pathLocationController = TextEditingController();
+  final _fileSearchController = TextEditingController();
   final _searchText = "".obs;
   final _breadCrumbScroller = ScrollController();
   final _keyboardNode = FocusNode();
@@ -417,11 +419,14 @@ class _FileManagerViewState extends State<FileManagerView> {
 
   double? _windowWidthPrev;
   double _fileTransferMinimumWidth = 0.0;
+  static const double _typeColWidth = 72.0;
 
   FileController get controller => widget.controller;
   bool get isLocal => widget.controller.isLocal;
   FFI get _ffi => widget._ffi;
   SelectedItems get selectedItems => controller.selectedItems;
+  bool get _isListSearchEnabled =>
+      _locationStatus.value == LocationStatus.bread && !_locationNode.hasFocus;
 
   @override
   void initState() {
@@ -435,6 +440,8 @@ class _FileManagerViewState extends State<FileManagerView> {
   void dispose() {
     _locationNode.removeListener(onLocationFocusChanged);
     _locationNode.dispose();
+    _pathLocationController.dispose();
+    _fileSearchController.dispose();
     _keyboardNode.dispose();
     _breadCrumbScroller.dispose();
     _fileListScrollController.dispose();
@@ -461,7 +468,9 @@ class _FileManagerViewState extends State<FileManagerView> {
                     widget._mouseFocusScope.value = isLocal
                         ? MouseFocusScope.local
                         : MouseFocusScope.remote;
-                    _keyboardNode.requestFocus();
+                    if (_isListSearchEnabled) {
+                      _keyboardNode.requestFocus();
+                    }
                   },
                   onExit: (evt) =>
                       widget._mouseFocusScope.value = MouseFocusScope.none,
@@ -479,11 +488,12 @@ class _FileManagerViewState extends State<FileManagerView> {
     final windowWidthNow = MediaQuery.of(context).size.width;
     if (_windowWidthPrev == null) {
       _windowWidthPrev = windowWidthNow;
-      final defaultColumnWidth = windowWidthNow * 0.115;
-      _fileTransferMinimumWidth = defaultColumnWidth / 3;
-      _nameColWidth.value = defaultColumnWidth;
-      _modifiedColWidth.value = defaultColumnWidth;
-      _sizeColWidth.value = defaultColumnWidth;
+      final estimatedPaneWidth = max(360.0, (windowWidthNow - 380.0) / 2);
+      _fileTransferMinimumWidth = 48.0;
+      _nameColWidth.value = min(150.0, max(118.0, estimatedPaneWidth * 0.32));
+      _modifiedColWidth.value =
+          min(142.0, max(112.0, estimatedPaneWidth * 0.30));
+      _sizeColWidth.value = min(76.0, max(56.0, estimatedPaneWidth * 0.16));
     }
 
     if (_windowWidthPrev != windowWidthNow) {
@@ -499,7 +509,7 @@ class _FileManagerViewState extends State<FileManagerView> {
   void onLocationFocusChanged() {
     debugPrint("focus changed on local");
     if (_locationNode.hasFocus) {
-      // ignore
+      _listSearchBuffer.clear();
     } else {
       // lost focus, change to bread
       if (_locationStatus.value != LocationStatus.fileSearchBar) {
@@ -610,10 +620,15 @@ class _FileManagerViewState extends State<FileManagerView> {
                       padding: EdgeInsets.symmetric(vertical: 2.5),
                       child: GestureDetector(
                         onTap: () {
-                          _locationStatus.value =
+                          final nextStatus =
                               _locationStatus.value == LocationStatus.bread
                                   ? LocationStatus.pathLocation
                                   : LocationStatus.bread;
+                          if (nextStatus == LocationStatus.pathLocation) {
+                            _setTextControllerText(_pathLocationController,
+                                controller.directory.value.path);
+                          }
+                          _locationStatus.value = nextStatus;
                           Future.delayed(Duration.zero, () {
                             if (_locationStatus.value ==
                                 LocationStatus.pathLocation) {
@@ -645,6 +660,8 @@ class _FileManagerViewState extends State<FileManagerView> {
                     return MenuButton(
                       tooltip: translate('Search'),
                       onPressed: () {
+                        _setTextControllerText(
+                            _fileSearchController, _searchText.value);
                         _locationStatus.value = LocationStatus.fileSearchBar;
                         Future.delayed(
                             Duration.zero, () => _locationNode.requestFocus());
@@ -672,6 +689,7 @@ class _FileManagerViewState extends State<FileManagerView> {
                     return MenuButton(
                       tooltip: translate('Clear'),
                       onPressed: () {
+                        _fileSearchController.clear();
                         onSearchText("", isLocal);
                         _locationStatus.value = LocationStatus.bread;
                       },
@@ -1046,6 +1064,7 @@ class _FileManagerViewState extends State<FileManagerView> {
     return ListSearchActionListener(
       node: _keyboardNode,
       buffer: _listSearchBuffer,
+      shouldHandleKeyEvent: () => _isListSearchEnabled,
       onNext: (buffer) {
         debugPrint("searching next for $buffer");
         assert(buffer.length == 1);
@@ -1097,6 +1116,7 @@ class _FileManagerViewState extends State<FileManagerView> {
         final rows = filteredEntries.map((entry) {
           final sizeStr =
               entry.isFile ? readableFileSize(entry.size.toDouble()) : "";
+          final typeStr = _entryTypeLabel(entry);
           final lastModifiedStr = entry.isDrive
               ? " "
               : "${entry.lastModified().toString().replaceAll(".000", "")}   ";
@@ -1247,27 +1267,54 @@ class _FileManagerViewState extends State<FileManagerView> {
                             SizedBox(
                               width: 2.0,
                             ),
-                            Expanded(
-                              // width: 100,
-                              child: GestureDetector(
+                            GestureDetector(
+                              child: Obx(
+                                () => SizedBox(
+                                  width: _sizeColWidth.value,
+                                  child: Tooltip(
+                                    waitDuration: Duration(milliseconds: 500),
+                                    message: sizeStr,
+                                    child: Text(
+                                      sizeStr,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 10,
+                                          color: selectedItems.items
+                                                  .contains(entry)
+                                              ? Colors.white70
+                                              : MyTheme.darkGray),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              onTap: onTap,
+                              onSecondaryTap: onSecondaryTap,
+                              onSecondaryTapDown: onSecondaryTapDown,
+                            ),
+                            SizedBox(
+                              width: 2.0,
+                            ),
+                            GestureDetector(
+                              child: SizedBox(
+                                width: _typeColWidth,
                                 child: Tooltip(
                                   waitDuration: Duration(milliseconds: 500),
-                                  message: sizeStr,
+                                  message: typeStr,
                                   child: Text(
-                                    sizeStr,
+                                    typeStr,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                        fontSize: 10,
+                                        fontSize: 12,
                                         color:
                                             selectedItems.items.contains(entry)
                                                 ? Colors.white70
                                                 : MyTheme.darkGray),
                                   ),
                                 ),
-                                onTap: onTap,
-                                onSecondaryTap: onSecondaryTap,
-                                onSecondaryTapDown: onSecondaryTapDown,
                               ),
+                              onTap: onTap,
+                              onSecondaryTap: onSecondaryTap,
+                              onSecondaryTapDown: onSecondaryTapDown,
                             ),
                           ],
                         ),
@@ -1306,6 +1353,16 @@ class _FileManagerViewState extends State<FileManagerView> {
   onSearchText(String searchText, bool isLocal) {
     selectedItems.clear();
     _searchText.value = searchText;
+  }
+
+  void _setTextControllerText(TextEditingController controller, String value) {
+    if (controller.text == value) {
+      return;
+    }
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
   }
 
   void _jumpToEntry(bool isLocal, Entry entry,
@@ -1417,12 +1474,37 @@ class _FileManagerViewState extends State<FileManagerView> {
               onPointerMove: (dx) =>
                   _onDrag(dx, _modifiedColWidth, _sizeColWidth),
               padding: padding),
-          Expanded(
-              child: headerItemFunc(
-                  _sizeColWidth.value, SortBy.size, translate("Size")))
+          Obx(
+            () => headerItemFunc(
+                _sizeColWidth.value, SortBy.size, translate("Size")),
+          ),
+          SizedBox(width: 2.0),
+          headerItemFunc(_typeColWidth, SortBy.type, translate("Type"))
         ],
       ),
     );
+  }
+
+  String _entryTypeLabel(Entry entry) {
+    if (entry.isDrive) {
+      return translate('Drive');
+    }
+    if (entry.isDirectory) {
+      return translate('Folder');
+    }
+    final extension = _fileExtension(entry.name);
+    if (extension.isEmpty) {
+      return translate('File');
+    }
+    return '${extension.toUpperCase()} ${translate('File')}';
+  }
+
+  String _fileExtension(String name) {
+    final dotIndex = name.lastIndexOf('.');
+    if (dotIndex <= 0 || dotIndex == name.length - 1) {
+      return '';
+    }
+    return name.substring(dotIndex + 1);
   }
 
   Widget headerItemFunc(double? width, SortBy sortBy, String name) {
@@ -1747,17 +1829,13 @@ class _FileManagerViewState extends State<FileManagerView> {
   }
 
   Widget buildPathLocation() {
-    final text = _locationStatus.value == LocationStatus.pathLocation
-        ? controller.directory.value.path
-        : _searchText.value;
-    final textController = TextEditingController(text: text)
-      ..selection = TextSelection.collapsed(offset: text.length);
+    final isPathLocation = _locationStatus.value == LocationStatus.pathLocation;
+    final textController =
+        isPathLocation ? _pathLocationController : _fileSearchController;
     return Row(
       children: [
         SvgPicture.asset(
-          _locationStatus.value == LocationStatus.pathLocation
-              ? "assets/folder.svg"
-              : "assets/search.svg",
+          isPathLocation ? "assets/folder.svg" : "assets/search.svg",
           colorFilter: svgColor(Theme.of(context).tabBarTheme.labelColor),
         ),
         Expanded(
@@ -1772,9 +1850,11 @@ class _FileManagerViewState extends State<FileManagerView> {
             ),
             controller: textController,
             onSubmitted: (path) {
-              controller.openDirectory(path);
+              if (isPathLocation) {
+                controller.openDirectory(path);
+              }
             },
-            onChanged: _locationStatus.value == LocationStatus.fileSearchBar
+            onChanged: !isPathLocation
                 ? (searchText) => onSearchText(searchText, isLocal)
                 : null,
           ).workaroundFreezeLinuxMint(),
