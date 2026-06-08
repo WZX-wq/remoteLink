@@ -14,6 +14,8 @@ cd "${REPO_ROOT}"
 CI_ARTIFACT_DIR="${CI_ARTIFACT_DIR:-artifacts/ci}"
 PUBLIC_CI_DIR="${PUBLIC_CI_DIR:-/www/wwwroot/KQromoteLink/android/ci}"
 CI_ENV_FILE="${CI_ENV_FILE:-${CI_ARTIFACT_DIR}/android-build.env}"
+TIMINGS_FILE="${TIMINGS_FILE:-${CI_ARTIFACT_DIR}/CI_TIMINGS.tsv}"
+STEP_STARTED_AT="${SECONDS}"
 mkdir -p "${CI_ARTIFACT_DIR}"
 
 publish_ci_file() {
@@ -21,6 +23,16 @@ publish_ci_file() {
   if [[ -s "${file}" ]] && mkdir -p "${PUBLIC_CI_DIR}" >/dev/null 2>&1; then
     cp "${file}" "${PUBLIC_CI_DIR}/latest-$(basename "${file}")" >/dev/null 2>&1 || true
   fi
+}
+
+record_step_timing() {
+  local status="${1:-ok}"
+  mkdir -p "${CI_ARTIFACT_DIR}"
+  if [[ ! -f "${TIMINGS_FILE}" ]]; then
+    printf 'step\tstatus\tduration_seconds\ttime_utc\n' > "${TIMINGS_FILE}"
+  fi
+  printf '%s\t%s\t%s\t%s\n' "${STEP}" "${status}" "$((SECONDS - STEP_STARTED_AT))" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${TIMINGS_FILE}"
+  publish_ci_file "${TIMINGS_FILE}"
 }
 
 selected_env() {
@@ -39,6 +51,10 @@ selected_env() {
     ANDROID_API_LEVEL \
     BUILD_MODE \
     CARGO_FEATURES \
+    CARGO_TARGET_DIR \
+    KQ_ANDROID_BUILD_KIND \
+    KQ_ANDROID_BUILD_AAB \
+    KQ_ANDROID_RUN_ANALYZE \
     VCPKG_ROOT \
     CMAKE_VERSION \
     CMAKE_ROOT \
@@ -103,6 +119,7 @@ on_error() {
     collect_vcpkg_logs
   } > "${failure_file}" 2>&1 || true
   publish_ci_file "${failure_file}"
+  record_step_timing "failed" || true
   echo "Android CI step failed: ${STEP}. Diagnostic file: ${failure_file}" >&2
 }
 
@@ -140,6 +157,11 @@ setup_common_env() {
   export ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
   export BUILD_MODE="${BUILD_MODE:-release}"
   export CARGO_FEATURES="${CARGO_FEATURES:-flutter,hwcodec}"
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/opt/artifacts/kq-remote-link/cargo-target/android-aarch64}"
+  export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-1}"
+  export KQ_ANDROID_BUILD_KIND="${KQ_ANDROID_BUILD_KIND:-fast}"
+  export KQ_ANDROID_BUILD_AAB="${KQ_ANDROID_BUILD_AAB:-N}"
+  export KQ_ANDROID_RUN_ANALYZE="${KQ_ANDROID_RUN_ANALYZE:-N}"
   export VCPKG_COMMIT_ID="${VCPKG_COMMIT_ID:-120deac3062162151622ca4860575a33844ba10b}"
   export VCPKG_ROOT="${VCPKG_ROOT:-/opt/artifacts/vcpkg}"
   export CMAKE_VERSION="${CMAKE_VERSION:-3.30.1}"
@@ -643,6 +665,7 @@ build_rust_library() {
   require_command cargo
   require_command bash
   test -d "${ANDROID_NDK_HOME}"
+  mkdir -p "${CARGO_TARGET_DIR}"
 
   local ndk_host_tag ndk_prebuilt llvm_strip jni_dir
   ndk_host_tag="$(detect_ndk_host_tag)"
@@ -663,7 +686,7 @@ build_rust_library() {
   bash ./flutter/ndk_arm64.sh
   jni_dir="${ANDROID_JNI_LIB_DIR}/${ANDROID_ABI}"
   mkdir -p "${jni_dir}"
-  cp target/aarch64-linux-android/release/liblibrustdesk.so "${jni_dir}/librustdesk.so"
+  cp "${CARGO_TARGET_DIR}/aarch64-linux-android/release/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
   cp "${ndk_prebuilt}/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "${jni_dir}/"
   "${llvm_strip}" "${jni_dir}/librustdesk.so"
   "${llvm_strip}" "${jni_dir}/libc++_shared.so"
@@ -683,6 +706,10 @@ flutter_pub_get() {
 
 analyze_mobile() {
   setup_common_env
+  if [[ "${KQ_ANDROID_RUN_ANALYZE}" != "Y" ]]; then
+    echo "Skipping Flutter analyze for fast Android test build. Set KQ_ANDROID_RUN_ANALYZE=Y for full validation."
+    return 0
+  fi
   require_command flutter
   pushd flutter
   flutter pub get
@@ -710,13 +737,17 @@ build_flutter_artifacts() {
     extra_args+=(--obfuscate --split-debug-info=./split-debug-info)
   fi
   flutter build apk --"${BUILD_MODE}" --build-name "${BUILD_NAME}" --build-number "${BUILD_NUMBER}" --target-platform android-arm64 --split-per-abi "${extra_args[@]}"
-  flutter build appbundle --"${BUILD_MODE}" --build-name "${BUILD_NAME}" --build-number "${BUILD_NUMBER}" --target-platform android-arm64 "${extra_args[@]}"
 
   mkdir -p ../artifacts
   cp "build/app/outputs/flutter-apk/app-arm64-v8a-${BUILD_MODE}.apk" "../artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.apk"
-  local aab_path
-  aab_path="$(find build/app/outputs -name '*.aab' | sort | tail -n 1)"
-  cp "${aab_path}" "../artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.aab"
+  if [[ "${KQ_ANDROID_BUILD_AAB}" == "Y" ]]; then
+    flutter build appbundle --"${BUILD_MODE}" --build-name "${BUILD_NAME}" --build-number "${BUILD_NUMBER}" --target-platform android-arm64 "${extra_args[@]}"
+    local aab_path
+    aab_path="$(find build/app/outputs -name '*.aab' | sort | tail -n 1)"
+    cp "${aab_path}" "../artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.aab"
+  else
+    echo "Skipping Android AAB for fast test build. Set KQ_ANDROID_BUILD_AAB=Y for store-ready bundle."
+  fi
   popd
 }
 
@@ -726,22 +757,25 @@ verify_artifacts() {
   local apk_path="artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.apk"
   local aab_path="artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.aab"
   test -s "${apk_path}"
-  test -s "${aab_path}"
 
   jar tf "${apk_path}" > "${CI_ARTIFACT_DIR}/APK_FILES.txt"
-  jar tf "${aab_path}" > "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
 
   grep -q '^lib/arm64-v8a/librustdesk\.so$' "${CI_ARTIFACT_DIR}/APK_FILES.txt"
   grep -q '^lib/arm64-v8a/libc++_shared\.so$' "${CI_ARTIFACT_DIR}/APK_FILES.txt"
   grep -q '^lib/arm64-v8a/libapp\.so$' "${CI_ARTIFACT_DIR}/APK_FILES.txt"
   grep -q '^lib/arm64-v8a/libflutter\.so$' "${CI_ARTIFACT_DIR}/APK_FILES.txt"
 
-  grep -q '^base/lib/arm64-v8a/librustdesk\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
-  grep -q '^base/lib/arm64-v8a/libc++_shared\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
-  grep -q '^base/lib/arm64-v8a/libapp\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
-  grep -q '^base/lib/arm64-v8a/libflutter\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
-
-  sha256sum "${apk_path}" "${aab_path}" | tee artifacts/SHA256SUMS.txt
+  if [[ -s "${aab_path}" ]]; then
+    jar tf "${aab_path}" > "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
+    grep -q '^base/lib/arm64-v8a/librustdesk\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
+    grep -q '^base/lib/arm64-v8a/libc++_shared\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
+    grep -q '^base/lib/arm64-v8a/libapp\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
+    grep -q '^base/lib/arm64-v8a/libflutter\.so$' "${CI_ARTIFACT_DIR}/AAB_FILES.txt"
+    sha256sum "${apk_path}" "${aab_path}" | tee artifacts/SHA256SUMS.txt
+  else
+    echo "AAB artifact is absent by design for KQ_ANDROID_BUILD_AAB=${KQ_ANDROID_BUILD_AAB}."
+    sha256sum "${apk_path}" | tee artifacts/SHA256SUMS.txt
+  fi
   publish_ci_file "artifacts/SHA256SUMS.txt"
 }
 
@@ -796,3 +830,5 @@ case "${STEP}" in
     exit 2
     ;;
 esac
+
+record_step_timing "ok"

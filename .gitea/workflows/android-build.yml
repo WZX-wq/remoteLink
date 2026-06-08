@@ -29,8 +29,15 @@ jobs:
       ANDROID_API_LEVEL: "21"
       ANDROID_ABI: arm64-v8a
       BUILD_MODE: release
+      # Fast test packages are the normal CI output on the test server.
+      # Store-ready AAB/analyze can be re-enabled by setting these to Y.
+      KQ_ANDROID_BUILD_KIND: fast
+      KQ_ANDROID_BUILD_AAB: "N"
+      KQ_ANDROID_RUN_ANALYZE: "N"
       # Android F-Droid build uses flutter,hwcodec for arm64. vram is Windows-focused.
       CARGO_FEATURES: flutter,hwcodec
+      CARGO_TARGET_DIR: /opt/artifacts/kq-remote-link/cargo-target/android-aarch64
+      CARGO_INCREMENTAL: "1"
       ANDROID_JNI_LIB_DIR: flutter/android/app/src/main/jniLibs
       FLUTTER_ROOT: /opt/artifacts/flutter/3.24.5
       CI_ARTIFACT_DIR: artifacts/ci
