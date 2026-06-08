@@ -40,6 +40,10 @@ selected_env() {
     BUILD_MODE \
     CARGO_FEATURES \
     VCPKG_ROOT \
+    CMAKE_VERSION \
+    CMAKE_ROOT \
+    NINJA_VERSION \
+    NINJA_ROOT \
     FLUTTER_ROOT; do
     local value=""
     if [[ -v "${key}" ]]; then
@@ -137,6 +141,10 @@ setup_common_env() {
   export CARGO_FEATURES="${CARGO_FEATURES:-flutter,hwcodec}"
   export VCPKG_COMMIT_ID="${VCPKG_COMMIT_ID:-120deac3062162151622ca4860575a33844ba10b}"
   export VCPKG_ROOT="${VCPKG_ROOT:-/opt/artifacts/vcpkg}"
+  export CMAKE_VERSION="${CMAKE_VERSION:-3.30.1}"
+  export CMAKE_ROOT="${CMAKE_ROOT:-/opt/artifacts/cmake/${CMAKE_VERSION}}"
+  export NINJA_VERSION="${NINJA_VERSION:-1.12.1}"
+  export NINJA_ROOT="${NINJA_ROOT:-/opt/artifacts/ninja/${NINJA_VERSION}}"
   export FLUTTER_ROOT="${FLUTTER_ROOT:-/opt/artifacts/flutter/${FLUTTER_VERSION}}"
   export FLUTTER_STORAGE_BASE_URL="${FLUTTER_STORAGE_BASE_URL:-https://storage.flutter-io.cn}"
   export PUB_HOSTED_URL="${PUB_HOSTED_URL:-https://pub.flutter-io.cn}"
@@ -152,7 +160,8 @@ setup_common_env() {
   export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT}/ndk/${NDK_PACKAGE_VERSION}"
   export ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
   export ANDROID_NDK="${ANDROID_NDK_HOME}"
-  export PATH="${FLUTTER_ROOT}/bin:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${HOME}/.cargo/bin:${PATH}"
+  export PATH="${FLUTTER_ROOT}/bin:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${HOME}/.cargo/bin:${CMAKE_ROOT}/bin:${NINJA_ROOT}:${PATH}"
+  export VCPKG_FORCE_SYSTEM_BINARIES="${VCPKG_FORCE_SYSTEM_BINARIES:-1}"
 }
 
 require_command() {
@@ -245,6 +254,94 @@ prepare_build_tools() {
 
   tool_versions | tee "${CI_ARTIFACT_DIR}/PREPARE_BUILD_TOOLS.txt"
   publish_ci_file "${CI_ARTIFACT_DIR}/PREPARE_BUILD_TOOLS.txt"
+}
+
+download_with_fallback() {
+  local output="$1"
+  shift
+
+  local url
+  for url in "$@"; do
+    echo "Downloading ${url}"
+    if curl -L --fail --retry 5 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${output}" "${url}"; then
+      test -s "${output}"
+      return 0
+    fi
+    echo "Download failed: ${url}" >&2
+    rm -f "${output}"
+  done
+
+  echo "All download URLs failed for ${output}" >&2
+  return 1
+}
+
+install_cmake_tool() {
+  setup_common_env
+  mkdir -p "$(dirname "${CMAKE_ROOT}")"
+
+  if [[ -x "${CMAKE_ROOT}/bin/cmake" ]] && "${CMAKE_ROOT}/bin/cmake" --version | head -n 1 | grep -q "${CMAKE_VERSION}"; then
+    echo "Reusing cached CMake ${CMAKE_VERSION} at ${CMAKE_ROOT}"
+    return 0
+  fi
+
+  local tmp_dir archive extracted_dir
+  tmp_dir="$(mktemp -d)"
+  archive="${tmp_dir}/cmake.tar.gz"
+  download_with_fallback "${archive}" \
+    "https://cmake.org/files/v3.30/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" \
+    "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz"
+
+  tar -xzf "${archive}" -C "${tmp_dir}"
+  extracted_dir="${tmp_dir}/cmake-${CMAKE_VERSION}-linux-x86_64"
+  test -x "${extracted_dir}/bin/cmake"
+
+  rm -rf "${CMAKE_ROOT}"
+  mkdir -p "${CMAKE_ROOT}"
+  cp -a "${extracted_dir}/." "${CMAKE_ROOT}/"
+  rm -rf "${tmp_dir}"
+
+  "${CMAKE_ROOT}/bin/cmake" --version | tee "${CI_ARTIFACT_DIR}/CMAKE_VERSION.txt"
+  publish_ci_file "${CI_ARTIFACT_DIR}/CMAKE_VERSION.txt"
+}
+
+install_ninja_tool() {
+  setup_common_env
+  mkdir -p "${NINJA_ROOT}"
+
+  if [[ -x "${NINJA_ROOT}/ninja" ]] && "${NINJA_ROOT}/ninja" --version | grep -q "${NINJA_VERSION}"; then
+    echo "Reusing cached Ninja ${NINJA_VERSION} at ${NINJA_ROOT}"
+    return 0
+  fi
+
+  local tmp_dir archive
+  tmp_dir="$(mktemp -d)"
+  archive="${tmp_dir}/ninja-linux.zip"
+  download_with_fallback "${archive}" \
+    "https://gh.llkk.cc/https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip" \
+    "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"
+
+  unzip -q "${archive}" -d "${tmp_dir}/ninja"
+  test -f "${tmp_dir}/ninja/ninja"
+
+  rm -rf "${NINJA_ROOT}"
+  mkdir -p "${NINJA_ROOT}"
+  cp "${tmp_dir}/ninja/ninja" "${NINJA_ROOT}/ninja"
+  chmod +x "${NINJA_ROOT}/ninja"
+  rm -rf "${tmp_dir}"
+
+  "${NINJA_ROOT}/ninja" --version | tee "${CI_ARTIFACT_DIR}/NINJA_VERSION.txt"
+  publish_ci_file "${CI_ARTIFACT_DIR}/NINJA_VERSION.txt"
+}
+
+install_build_system_tools() {
+  setup_common_env
+  require_command curl
+  require_command tar
+  require_command unzip
+  install_cmake_tool
+  install_ninja_tool
+  tool_versions | tee "${CI_ARTIFACT_DIR}/BUILD_SYSTEM_TOOLS.txt"
+  publish_ci_file "${CI_ARTIFACT_DIR}/BUILD_SYSTEM_TOOLS.txt"
 }
 
 install_flutter() {
@@ -396,8 +493,12 @@ source_build_env() {
 build_native_deps() {
   setup_common_env
   require_command bash
+  require_command cmake
+  require_command ninja
   test -x "${VCPKG_ROOT}/vcpkg"
   test -d "${ANDROID_NDK_HOME}"
+  cmake --version | head -n 1
+  ninja --version
   bash ./flutter/build_android_deps.sh "${ANDROID_ABI}"
 }
 
@@ -533,6 +634,7 @@ publish_diagnostics() {
 
 case "${STEP}" in
   prepare-build-tools) prepare_build_tools ;;
+  install-build-system-tools) install_build_system_tools ;;
   install-flutter) install_flutter ;;
   install-android-sdk) install_android_sdk ;;
   install-vcpkg) install_vcpkg ;;
