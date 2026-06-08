@@ -81,7 +81,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $androidWorkflow = Get-Content .\.gitea\workflows\android-build.yml -Raw -Encoding UTF8
-    foreach ($needle in @("workflow_dispatch", "runs-on: linux", "using runner preinstalled tools", "Missing build tool during preflight", "build_native_libs", "CARGO_FEATURES", "flutter,hwcodec,vram", "ndk_prebuilt_dir", "ndk_host_tag", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so", "verify_artifacts", "scripts/deploy/deploy-android.sh")) {
+    foreach ($needle in @("workflow_dispatch", "runs-on: linux", "scripts/ci/android-build-step.sh", "prepare-build-tools", "install-flutter", "install-android-sdk", "install-vcpkg", "install-rust", "build-native-deps", "build-rust-library", "analyze-mobile", "build-flutter-artifacts", "verify-artifacts", "record-success", "CARGO_FEATURES", "flutter,hwcodec", "scripts/deploy/deploy-android.sh")) {
         if ($androidWorkflow -notmatch [regex]::Escape($needle)) {
             throw "Android workflow is missing $needle"
         }
@@ -89,12 +89,28 @@ Invoke-Step "Server deployment template check" {
     if ($androidWorkflow -match [regex]::Escape("runs-on: linux:host")) {
         throw "Android workflow is using linux:host, which currently leaves Android runs waiting"
     }
+    if ($androidWorkflow -match [regex]::Escape("flutter,hwcodec,vram")) {
+        throw "Android workflow should not enable vram by default; vram is Windows-focused"
+    }
+
+    $androidCiScript = Get-Content .\scripts\ci\android-build-step.sh -Raw -Encoding UTF8
+    foreach ($needle in @("CI_FAILURE_STEP.txt", "PUBLIC_CI_DIR", "collect_vcpkg_logs", "detect_ndk_host_tag", "prepare_build_tools", "install_flutter", "install_android_sdk", "install_vcpkg", "install_rust", "build_native_deps", "build_rust_library", "build_flutter_artifacts", "verify_artifacts", "record_success", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so")) {
+        if ($androidCiScript -notmatch [regex]::Escape($needle)) {
+            throw "Android CI script is missing $needle"
+        }
+    }
+    if ($androidCiScript -match [regex]::Escape('CARGO_FEATURES="${CARGO_FEATURES:-flutter,hwcodec,vram}"')) {
+        throw "Android CI script should not default to vram"
+    }
 
     $androidNdkArm64Script = Get-Content .\flutter\ndk_arm64.sh -Raw -Encoding UTF8
-    foreach ($needle in @("CARGO_FEATURES", "flutter,hwcodec,vram", "ANDROID_API_LEVEL", "cargo ndk")) {
+    foreach ($needle in @("CARGO_FEATURES", "flutter,hwcodec", "ANDROID_API_LEVEL", "cargo ndk")) {
         if ($androidNdkArm64Script -notmatch [regex]::Escape($needle)) {
             throw "Android ndk_arm64.sh is missing $needle"
         }
+    }
+    if ($androidNdkArm64Script -match [regex]::Escape("flutter,hwcodec,vram")) {
+        throw "Android ndk_arm64.sh should not enable vram by default"
     }
 
     $androidBuildScript = Get-Content .\flutter\build_android.sh -Raw -Encoding UTF8
