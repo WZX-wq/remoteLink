@@ -81,7 +81,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $androidWorkflow = Get-Content .\.gitea\workflows\android-build.yml -Raw -Encoding UTF8
-    foreach ($needle in @("workflow_dispatch", "runs-on: linux", "scripts/ci/android-build-step.sh", "prepare-build-tools", "install-flutter", "install-android-sdk", "install-vcpkg", "install-rust", "build-native-deps", "build-rust-library", "analyze-mobile", "build-flutter-artifacts", "verify-artifacts", "record-success", "CARGO_FEATURES", "flutter,hwcodec", "scripts/deploy/deploy-android.sh")) {
+    foreach ($needle in @("workflow_dispatch", "runs-on: linux", "scripts/ci/android-build-step.sh", "prepare-build-tools", "install-flutter", "install-android-sdk", "install-vcpkg", "install-rust", "build-native-deps", "build-rust-library", "analyze-mobile", "build-flutter-artifacts", "verify-artifacts", "record-success", "publish-diagnostics", "if: always()", "CARGO_FEATURES", "flutter,hwcodec", "scripts/deploy/deploy-android.sh")) {
         if ($androidWorkflow -notmatch [regex]::Escape($needle)) {
             throw "Android workflow is missing $needle"
         }
@@ -94,7 +94,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $androidCiScript = Get-Content .\scripts\ci\android-build-step.sh -Raw -Encoding UTF8
-    foreach ($needle in @("CI_FAILURE_STEP.txt", "PUBLIC_CI_DIR", "collect_vcpkg_logs", "detect_ndk_host_tag", "prepare_build_tools", "install_flutter", "install_android_sdk", "install_vcpkg", "install_rust", "build_native_deps", "build_rust_library", "build_flutter_artifacts", "verify_artifacts", "record_success", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so")) {
+    foreach ($needle in @("CI_FAILURE_STEP.txt", "PUBLIC_CI_DIR", "collect_vcpkg_logs", "detect_ndk_host_tag", "prepare_build_tools", "install_flutter", "install_android_sdk", "install_vcpkg", "install_rust", "build_native_deps", "build_rust_library", "build_flutter_artifacts", "verify_artifacts", "record_success", "publish_diagnostics", "CI_DIAGNOSTICS_INDEX.txt", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so")) {
         if ($androidCiScript -notmatch [regex]::Escape($needle)) {
             throw "Android CI script is missing $needle"
         }

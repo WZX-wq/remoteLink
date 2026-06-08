@@ -307,16 +307,38 @@ install_android_sdk() {
 install_vcpkg() {
   setup_common_env
   require_command git
-  require_command cmake
   mkdir -p "$(dirname "${VCPKG_ROOT}")"
+
+  if [[ -x "${VCPKG_ROOT}/vcpkg" && ! -d "${VCPKG_ROOT}/.git" ]]; then
+    echo "Using preinstalled vcpkg at ${VCPKG_ROOT}/vcpkg"
+    "${VCPKG_ROOT}/vcpkg" version | tee "${CI_ARTIFACT_DIR}/VCPKG_VERSION.txt" || true
+    publish_ci_file "${CI_ARTIFACT_DIR}/VCPKG_VERSION.txt"
+    return 0
+  fi
+
   if [[ ! -d "${VCPKG_ROOT}/.git" ]]; then
     rm -rf "${VCPKG_ROOT}"
     git clone https://github.com/microsoft/vcpkg.git "${VCPKG_ROOT}"
   fi
-  git -C "${VCPKG_ROOT}" fetch --depth=1 origin "${VCPKG_COMMIT_ID}"
-  git -C "${VCPKG_ROOT}" checkout --force "${VCPKG_COMMIT_ID}"
-  "${VCPKG_ROOT}/bootstrap-vcpkg.sh" -disableMetrics
+
+  if ! git -C "${VCPKG_ROOT}" fetch --depth=1 origin "${VCPKG_COMMIT_ID}"; then
+    if [[ -x "${VCPKG_ROOT}/vcpkg" ]]; then
+      echo "vcpkg fetch failed; continuing with cached executable at ${VCPKG_ROOT}/vcpkg"
+    else
+      return 1
+    fi
+  else
+    git -C "${VCPKG_ROOT}" checkout --force "${VCPKG_COMMIT_ID}"
+  fi
+
+  if [[ ! -x "${VCPKG_ROOT}/vcpkg" ]]; then
+    "${VCPKG_ROOT}/bootstrap-vcpkg.sh" -disableMetrics
+  else
+    echo "Reusing existing vcpkg executable at ${VCPKG_ROOT}/vcpkg"
+  fi
   test -x "${VCPKG_ROOT}/vcpkg"
+  "${VCPKG_ROOT}/vcpkg" version | tee "${CI_ARTIFACT_DIR}/VCPKG_VERSION.txt" || true
+  publish_ci_file "${CI_ARTIFACT_DIR}/VCPKG_VERSION.txt"
 }
 
 install_rust() {
@@ -490,6 +512,25 @@ record_success() {
   publish_ci_file "${file}"
 }
 
+publish_diagnostics() {
+  setup_common_env
+  mkdir -p "${CI_ARTIFACT_DIR}"
+  {
+    echo "time_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    selected_env
+    echo ""
+    find "${CI_ARTIFACT_DIR}" -maxdepth 1 -type f -printf '%f %s bytes\n' 2>/dev/null | sort || true
+  } > "${CI_ARTIFACT_DIR}/CI_DIAGNOSTICS_INDEX.txt"
+
+  if mkdir -p "${PUBLIC_CI_DIR}" >/dev/null 2>&1; then
+    find "${CI_ARTIFACT_DIR}" -maxdepth 1 -type f | while read -r file; do
+      cp "${file}" "${PUBLIC_CI_DIR}/latest-$(basename "${file}")" >/dev/null 2>&1 || true
+    done
+  fi
+
+  cat "${CI_ARTIFACT_DIR}/CI_DIAGNOSTICS_INDEX.txt"
+}
+
 case "${STEP}" in
   prepare-build-tools) prepare_build_tools ;;
   install-flutter) install_flutter ;;
@@ -504,6 +545,7 @@ case "${STEP}" in
   build-flutter-artifacts) build_flutter_artifacts ;;
   verify-artifacts) verify_artifacts ;;
   record-success) record_success ;;
+  publish-diagnostics) publish_diagnostics ;;
   *)
     echo "Unknown Android CI step: ${STEP}" >&2
     exit 2

@@ -109,3 +109,8 @@ jobs:
       - name: Record Android build success
         shell: bash
         run: bash scripts/ci/android-build-step.sh record-success
+
+      - name: Publish Android CI diagnostics
+        if: always()
+        shell: bash
+        run: bash scripts/ci/android-build-step.sh publish-diagnostics
