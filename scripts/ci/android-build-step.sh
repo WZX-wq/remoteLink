@@ -55,6 +55,7 @@ selected_env() {
 
 tool_versions() {
   uname -a || true
+  id || true
   df -h . || true
   for tool in git curl unzip zip python3 cmake ninja pkg-config clang g++ java javac rustup cargo flutter sdkmanager jar; do
     if command -v "${tool}" >/dev/null 2>&1; then
@@ -209,47 +210,114 @@ prepare_build_tools() {
   setup_common_env
   export DEBIAN_FRONTEND=noninteractive
 
-  local can_install_with_apt="N"
-  local apt_cmd=""
   if command -v apt-get >/dev/null 2>&1; then
     if [[ "$(id -u)" == "0" ]]; then
-      apt_cmd="apt-get"
-      can_install_with_apt="Y"
+      apt-get update
+      apt-get install -y \
+        autoconf \
+        automake \
+        clang \
+        cmake \
+        curl \
+        file \
+        git \
+        g++ \
+        gettext \
+        libclang-dev \
+        libglib2.0-dev \
+        libgtk-3-dev \
+        liblzma-dev \
+        libssl-dev \
+        libtool \
+        nasm \
+        ninja-build \
+        openjdk-17-jdk-headless \
+        pkg-config \
+        python3 \
+        unzip \
+        wget \
+        xz-utils \
+        zip || true
     elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-      apt_cmd="sudo apt-get"
-      can_install_with_apt="Y"
+      sudo apt-get update
+      sudo apt-get install -y \
+        autoconf \
+        automake \
+        clang \
+        cmake \
+        curl \
+        file \
+        git \
+        g++ \
+        gettext \
+        libclang-dev \
+        libglib2.0-dev \
+        libgtk-3-dev \
+        liblzma-dev \
+        libssl-dev \
+        libtool \
+        nasm \
+        ninja-build \
+        openjdk-17-jdk-headless \
+        pkg-config \
+        python3 \
+        unzip \
+        wget \
+        xz-utils \
+        zip || true
+    else
+      echo "apt-get is available but cannot run without an interactive password."
     fi
-  fi
-
-  if [[ "${can_install_with_apt}" == "Y" ]]; then
-    ${apt_cmd} update
-    ${apt_cmd} install -y \
+  elif command -v dnf >/dev/null 2>&1 && [[ "$(id -u)" == "0" ]]; then
+    dnf install -y \
       autoconf \
       automake \
       clang \
       cmake \
       curl \
       file \
-      git \
-      g++ \
+      gcc-c++ \
       gettext \
-      libclang-dev \
-      libglib2.0-dev \
-      libgtk-3-dev \
-      liblzma-dev \
-      libssl-dev \
+      git \
+      glib2-devel \
+      gtk3-devel \
+      java-17-openjdk-headless \
       libtool \
       nasm \
       ninja-build \
-      openjdk-17-jdk-headless \
-      pkg-config \
+      openssl-devel \
+      pkgconf-pkg-config \
       python3 \
       unzip \
       wget \
-      xz-utils \
-      zip
+      xz-devel \
+      zip || true
+  elif command -v yum >/dev/null 2>&1 && [[ "$(id -u)" == "0" ]]; then
+    yum install -y \
+      autoconf \
+      automake \
+      clang \
+      cmake \
+      curl \
+      file \
+      gcc-c++ \
+      gettext \
+      git \
+      glib2-devel \
+      gtk3-devel \
+      java-17-openjdk-headless \
+      libtool \
+      nasm \
+      ninja-build \
+      openssl-devel \
+      pkgconf-pkg-config \
+      python3 \
+      unzip \
+      wget \
+      xz-devel \
+      zip || true
   else
-    echo "apt-get is unavailable or cannot run without an interactive password; using runner preinstalled tools."
+    echo "No supported non-interactive package manager was found; using runner preinstalled tools."
   fi
 
   tool_versions | tee "${CI_ARTIFACT_DIR}/PREPARE_BUILD_TOOLS.txt"
@@ -313,19 +381,63 @@ install_ninja_tool() {
     return 0
   fi
 
-  local tmp_dir archive
+  if command -v ninja >/dev/null 2>&1; then
+    echo "Using system Ninja at $(command -v ninja)"
+    ninja --version | tee "${CI_ARTIFACT_DIR}/NINJA_VERSION.txt"
+    publish_ci_file "${CI_ARTIFACT_DIR}/NINJA_VERSION.txt"
+    return 0
+  fi
+
+  local tmp_dir archive source_dir
   tmp_dir="$(mktemp -d)"
   archive="${tmp_dir}/ninja-linux.zip"
-  download_with_fallback "${archive}" \
+  if ! download_with_fallback "${archive}" \
     "https://gh.llkk.cc/https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip" \
-    "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"
+    "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"; then
+    rm -rf "${tmp_dir}"
+    return 1
+  fi
 
-  unzip -q "${archive}" -d "${tmp_dir}/ninja"
-  test -f "${tmp_dir}/ninja/ninja"
+  if ! unzip -q "${archive}" -d "${tmp_dir}/ninja" || [[ ! -f "${tmp_dir}/ninja/ninja" ]]; then
+    rm -rf "${tmp_dir}"
+    return 1
+  fi
 
   rm -rf "${NINJA_ROOT}"
   mkdir -p "${NINJA_ROOT}"
   cp "${tmp_dir}/ninja/ninja" "${NINJA_ROOT}/ninja"
+  chmod +x "${NINJA_ROOT}/ninja"
+  rm -rf "${tmp_dir}"
+
+  "${NINJA_ROOT}/ninja" --version | tee "${CI_ARTIFACT_DIR}/NINJA_VERSION.txt"
+  publish_ci_file "${CI_ARTIFACT_DIR}/NINJA_VERSION.txt"
+}
+
+install_ninja_from_source() {
+  setup_common_env
+  require_command python3
+  require_command g++
+  mkdir -p "${NINJA_ROOT}"
+
+  local tmp_dir archive source_dir built_ninja
+  tmp_dir="$(mktemp -d)"
+  archive="${tmp_dir}/ninja-source.zip"
+  download_with_fallback "${archive}" \
+    "https://gitee.com/mirrors/ninja/repository/archive/v${NINJA_VERSION}.zip" \
+    "https://codeload.github.com/ninja-build/ninja/zip/refs/tags/v${NINJA_VERSION}"
+
+  unzip -q "${archive}" -d "${tmp_dir}/source"
+  source_dir="$(find "${tmp_dir}/source" -maxdepth 1 -type d -name 'ninja-*' | sort | head -n 1)"
+  test -n "${source_dir}"
+  pushd "${source_dir}"
+  python3 configure.py --bootstrap
+  built_ninja="${source_dir}/ninja"
+  test -x "${built_ninja}"
+  popd
+
+  rm -rf "${NINJA_ROOT}"
+  mkdir -p "${NINJA_ROOT}"
+  cp "${built_ninja}" "${NINJA_ROOT}/ninja"
   chmod +x "${NINJA_ROOT}/ninja"
   rm -rf "${tmp_dir}"
 
@@ -339,7 +451,10 @@ install_build_system_tools() {
   require_command tar
   require_command unzip
   install_cmake_tool
-  install_ninja_tool
+  if ! install_ninja_tool; then
+    echo "Prebuilt Ninja install failed; building Ninja ${NINJA_VERSION} from source."
+    install_ninja_from_source
+  fi
   tool_versions | tee "${CI_ARTIFACT_DIR}/BUILD_SYSTEM_TOOLS.txt"
   publish_ci_file "${CI_ARTIFACT_DIR}/BUILD_SYSTEM_TOOLS.txt"
 }
