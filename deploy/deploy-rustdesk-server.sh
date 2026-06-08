@@ -256,6 +256,7 @@ write_compose_env() {
     return 1
   fi
   if [[ "${#missing[@]}" -eq 0 ]]; then
+    load_compose_env_file
     {
       printf 'KQ_API_PORT=%s\n' "${KQ_API_PORT}"
       printf 'KQ_API_PUBLIC_PATH=%s\n' "${KQ_API_PUBLIC_PATH}"

@@ -67,7 +67,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $directWorkflow = Get-Content .\.gitea\workflows\deploy.yml -Raw -Encoding UTF8
-    foreach ($needle in @("runs-on: linux:host", "scripts/deploy/deploy.sh", "/www/wwwroot/KQromoteLink", "43.154.197.96", "bash -n", "secrets.KQ_HBBS_PUBLIC_KEY", "secrets.KQ_HBBS_SECRET_KEY")) {
+    foreach ($needle in @("runs-on: linux", "scripts/deploy/deploy.sh", "/www/wwwroot/KQromoteLink", "43.154.197.96", "bash -n", "secrets.KQ_HBBS_PUBLIC_KEY", "secrets.KQ_HBBS_SECRET_KEY")) {
         if ($directWorkflow -notmatch [regex]::Escape($needle)) {
             throw "Gitea direct deploy workflow is missing $needle"
         }
@@ -167,7 +167,7 @@ Invoke-Step "Server deployment template check" {
     $garbledText1 = [string]([char]0x6934)
     $garbledText2 = [string]([char]0x6D93)
     $garbledText3 = [string]([char]0x93CD)
-    foreach ($needle in @($androidBrandText, $androidDownloadText, $androidChecksumText, "Kunqiong-Remote-Desktop.apk", "SHA256SUMS.txt")) {
+    foreach ($needle in @($androidBrandText, $androidDownloadText, $androidChecksumText, "Kunqiong-Remote-Desktop.apk", "SHA256SUMS.txt", "API_DOWNLOAD_DIR", "KQ_ANDROID_DOWNLOAD_SHA256", "/kq-api/download/android")) {
         if ($androidDeployScript -notmatch [regex]::Escape($needle)) {
             throw "Android deploy script is missing user-facing copy: $needle"
         }
