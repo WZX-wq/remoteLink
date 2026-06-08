@@ -12,6 +12,39 @@ JNI_DIR="${FLUTTER_DIR}/android/app/src/main/jniLibs/${ANDROID_ABI}"
 export FLUTTER_STORAGE_BASE_URL="${FLUTTER_STORAGE_BASE_URL:-https://storage.flutter-io.cn}"
 export PUB_HOSTED_URL="${PUB_HOSTED_URL:-https://pub.flutter-io.cn}"
 
+detect_ndk_host_tag() {
+  local prebuilt_dir="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt"
+  local uname_s uname_m
+  uname_s="$(uname -s 2>/dev/null || true)"
+  uname_m="$(uname -m 2>/dev/null || true)"
+  local candidates=()
+
+  case "${uname_s}" in
+    Linux*) candidates+=(linux-x86_64) ;;
+    Darwin*)
+      if [[ "${uname_m}" == "arm64" ]]; then
+        candidates+=(darwin-arm64 darwin-x86_64)
+      else
+        candidates+=(darwin-x86_64 darwin-arm64)
+      fi
+      ;;
+    MINGW*|MSYS*|CYGWIN*) candidates+=(windows-x86_64) ;;
+  esac
+
+  candidates+=(linux-x86_64 windows-x86_64 darwin-arm64 darwin-x86_64)
+  local tag
+  for tag in "${candidates[@]}"; do
+    if [[ -d "${prebuilt_dir}/${tag}" ]]; then
+      echo "${tag}"
+      return 0
+    fi
+  done
+
+  echo "Unable to find an Android NDK LLVM prebuilt directory under ${prebuilt_dir}" >&2
+  ls -1 "${prebuilt_dir}" >&2 || true
+  return 1
+}
+
 if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
   echo "ANDROID_NDK_HOME is required" >&2
   exit 1
@@ -19,6 +52,16 @@ fi
 
 export ANDROID_NDK="${ANDROID_NDK:-${ANDROID_NDK_HOME}}"
 export ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME}}"
+NDK_HOST_TAG="$(detect_ndk_host_tag)"
+NDK_PREBUILT="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${NDK_HOST_TAG}"
+LLVM_STRIP="${NDK_PREBUILT}/bin/llvm-strip"
+if [[ ! -x "${LLVM_STRIP}" && -x "${LLVM_STRIP}.exe" ]]; then
+  LLVM_STRIP="${LLVM_STRIP}.exe"
+fi
+if [[ ! -x "${LLVM_STRIP}" ]]; then
+  echo "llvm-strip was not found in ${NDK_PREBUILT}/bin" >&2
+  exit 1
+fi
 
 case "${ANDROID_ABI}" in
   arm64-v8a)
@@ -47,9 +90,9 @@ bash "${NDK_SCRIPT}"
 
 mkdir -p "${JNI_DIR}"
 cp "target/${RUST_TARGET}/release/liblibrustdesk.so" "${JNI_DIR}/librustdesk.so"
-cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${NDK_LIB_DIR}/libc++_shared.so" "${JNI_DIR}/"
-"${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" "${JNI_DIR}/librustdesk.so"
-"${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" "${JNI_DIR}/libc++_shared.so"
+cp "${NDK_PREBUILT}/sysroot/usr/lib/${NDK_LIB_DIR}/libc++_shared.so" "${JNI_DIR}/"
+"${LLVM_STRIP}" "${JNI_DIR}/librustdesk.so"
+"${LLVM_STRIP}" "${JNI_DIR}/libc++_shared.so"
 
 test -s "${JNI_DIR}/librustdesk.so"
 test -s "${JNI_DIR}/libc++_shared.so"

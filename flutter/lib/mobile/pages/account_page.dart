@@ -8,9 +8,10 @@ import '../../common/kq_theme.dart';
 import '../../common/kq_project_api.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/user_model.dart';
 import 'page_shape.dart';
 
-class AccountPage extends StatelessWidget implements PageShape {
+class AccountPage extends StatefulWidget implements PageShape {
   AccountPage({super.key});
 
   @override
@@ -21,6 +22,27 @@ class AccountPage extends StatelessWidget implements PageShape {
 
   @override
   final appBarActions = const <Widget>[];
+
+  @override
+  State<AccountPage> createState() => _AccountPageState();
+}
+
+class _AccountPageState extends State<AccountPage> {
+  Future<void> _saveRemotePerformance({
+    String? resolutionTier,
+    int? fps,
+  }) async {
+    final user = gFFI.userModel;
+    await user.setRemotePerformanceProfile(
+      resolutionTier: resolutionTier ?? user.remoteResolutionSelection,
+      fps: fps ?? user.remoteFpsSelection,
+    );
+    if (mounted) {
+      setState(() {});
+    }
+    showToast(
+        '${translate('Remote experience updated')}: ${user.remoteQualityLabel}');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,14 +149,14 @@ class AccountPage extends StatelessWidget implements PageShape {
               _SectionPanel(
                 title: translate('Remote preferences'),
                 children: [
-                  _InfoRow(
-                    label: translate('Resolution'),
-                    value: user.remoteResolutionLabel,
+                  _RemoteExperienceControl(
+                    onResolutionTap: (resolutionTier) =>
+                        _saveRemotePerformance(resolutionTier: resolutionTier),
+                    onFpsTap: (fps) => _saveRemotePerformance(fps: fps),
                   ),
-                  _InfoRow(
-                    label: translate('Frame rate'),
-                    value: '${user.remoteFpsSelection} FPS',
-                  ),
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: q.line),
+                  const SizedBox(height: 8),
                   _InfoRow(
                     label: translate('Recent history'),
                     value: '${KqProjectApi.recentHistoryLimit}',
@@ -150,6 +172,260 @@ class AccountPage extends StatelessWidget implements PageShape {
             ],
           );
         }),
+      ),
+    );
+  }
+}
+
+class _RemoteExperienceControl extends StatelessWidget {
+  const _RemoteExperienceControl({
+    required this.onResolutionTap,
+    required this.onFpsTap,
+  });
+
+  final ValueChanged<String> onResolutionTap;
+  final ValueChanged<int> onFpsTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = gFFI.userModel;
+    final isMember = user.isMember.value;
+    final resolution = user.remoteResolutionSelection;
+    final fps = user.remoteFpsSelection;
+    final q = KqTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: q.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.tune_rounded, color: q.primary, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    translate('Remote experience'),
+                    style: TextStyle(
+                      color: q.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    user.remoteEntitlementHint,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: q.muted,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _OptionGroup(
+          title: translate('Clarity'),
+          icon: Icons.high_quality_rounded,
+          children: [
+            _QualityOption(
+              label: '720p',
+              caption: translate('Saves bandwidth'),
+              selected: resolution == UserModel.remoteResolution720p,
+              onTap: () => onResolutionTap(UserModel.remoteResolution720p),
+            ),
+            _QualityOption(
+              label: '1080p',
+              caption: isMember ? translate('HD') : translate('Members only'),
+              selected: resolution == UserModel.remoteResolution1080p,
+              locked: !isMember,
+              onTap: isMember
+                  ? () => onResolutionTap(UserModel.remoteResolution1080p)
+                  : () =>
+                      showToast(translate('Members can use 1080p / 60 FPS')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _OptionGroup(
+          title: translate('Frame rate'),
+          icon: Icons.speed_rounded,
+          children: [
+            _QualityOption(
+              label: '30 FPS',
+              caption: translate('Stable'),
+              selected: fps == UserModel.freeMaxFps,
+              onTap: () => onFpsTap(UserModel.freeMaxFps),
+            ),
+            _QualityOption(
+              label: '${UserModel.memberMaxFps} FPS',
+              caption:
+                  isMember ? translate('Smooth') : translate('Members only'),
+              selected: fps == UserModel.memberMaxFps,
+              locked: !isMember,
+              onTap: isMember
+                  ? () => onFpsTap(UserModel.memberMaxFps)
+                  : () =>
+                      showToast(translate('Members can use 1080p / 60 FPS')),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _OptionGroup extends StatelessWidget {
+  const _OptionGroup({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: q.primary),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                color: q.ink,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(child: children[i]),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _QualityOption extends StatelessWidget {
+  const _QualityOption({
+    required this.label,
+    required this.caption,
+    required this.selected,
+    required this.onTap,
+    this.locked = false,
+  });
+
+  final String label;
+  final String caption;
+  final bool selected;
+  final bool locked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final Color borderColor;
+    final Color backgroundColor;
+    final Color labelColor;
+    if (selected) {
+      borderColor = q.primary;
+      backgroundColor = q.primary.withOpacity(0.12);
+      labelColor = q.primaryDeep;
+    } else if (locked) {
+      borderColor = q.line.withOpacity(0.72);
+      backgroundColor = q.surface.withOpacity(0.58);
+      labelColor = q.muted.withOpacity(0.72);
+    } else {
+      borderColor = q.line;
+      backgroundColor = q.surfaceSoft.withOpacity(0.74);
+      labelColor = q.ink;
+    }
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 68),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                locked
+                    ? Icons.lock_rounded
+                    : (selected
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined),
+                color: locked ? q.muted.withOpacity(0.72) : q.primary,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: labelColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      caption,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -50,8 +50,6 @@ cat > "${OUTPUT_DIR}/index.html" <<'HTML'
     body {
       min-height: 100vh;
       margin: 0;
-      display: grid;
-      place-items: center;
       padding: 24px;
       font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
       color: var(--ink);
@@ -62,6 +60,7 @@ cat > "${OUTPUT_DIR}/index.html" <<'HTML'
     }
     main {
       width: min(520px, 100%);
+      margin: 8vh auto 0;
       padding: 28px;
       border: 1px solid rgba(255,255,255,.72);
       border-radius: 18px;
@@ -69,7 +68,19 @@ cat > "${OUTPUT_DIR}/index.html" <<'HTML'
       box-shadow: 0 28px 72px rgba(15, 42, 72, .16);
       backdrop-filter: blur(16px);
     }
-    h1 { margin: 0 0 10px; font-size: 26px; letter-spacing: 0; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #fff;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--primary), #41c7ee);
+      box-shadow: 0 14px 32px rgba(20, 124, 222, .24);
+    }
+    h1 { margin: 0; font-size: 25px; letter-spacing: 0; }
     p { margin: 0 0 22px; color: var(--muted); line-height: 1.7; font-weight: 700; }
     a.button {
       width: 100%;
@@ -93,6 +104,14 @@ cat > "${OUTPUT_DIR}/index.html" <<'HTML'
       font-weight: 800;
     }
     .secondary a { color: var(--primary-2); text-decoration: none; }
+    .tips {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
     @media (prefers-color-scheme: dark) {
       :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .88); --line: rgba(76, 137, 184, .48); }
       body { background: linear-gradient(135deg, #102033 0%, #14283d 45%, #1d274a 100%); }
@@ -101,13 +120,16 @@ cat > "${OUTPUT_DIR}/index.html" <<'HTML'
 </head>
 <body>
   <main>
-    <h1>鲲穹远程桌面 Android</h1>
-    <p>下载安装包后，在手机上允许安装并打开应用。首次使用请按引导开启屏幕共享、无障碍、后台运行和悬浮窗等权限。</p>
-    <a class="button" href="Kunqiong-Remote-Desktop.apk">下载 Android APK</a>
-    <div class="secondary">
-      <a href="Kunqiong-Remote-Desktop.aab">AAB 包</a>
-      <a href="SHA256SUMS.txt">校验文件</a>
+    <div class="brand">
+      <div class="mark">KQ</div>
+      <h1>鲲穹远程桌面</h1>
     </div>
+    <p>下载并安装手机端后，按应用内引导开启必要权限，即可登录账号、连接设备并进行远程协助。</p>
+    <a class="button" href="Kunqiong-Remote-Desktop.apk">下载安卓安装包</a>
+    <div class="secondary">
+      <a href="SHA256SUMS.txt">查看校验信息</a>
+    </div>
+    <div class="tips">如系统提示需要允许安装，请在手机设置中授权当前浏览器或文件管理器安装应用。首次远程控制前，请根据页面提示开启屏幕共享、无障碍、后台运行等权限。</div>
   </main>
 </body>
 </html>

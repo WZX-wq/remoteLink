@@ -36,8 +36,45 @@ fi
 
 # NDK llvm toolchain
 
-HOST_TAG="linux-x86_64" # current platform, set as `ls $ANDROID_NDK/toolchains/llvm/prebuilt/`
-TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/$HOST_TAG
+detect_ndk_host_tag() {
+  local prebuilt_dir="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"
+  local uname_s uname_m
+  uname_s="$(uname -s 2>/dev/null || true)"
+  uname_m="$(uname -m 2>/dev/null || true)"
+  local candidates=()
+
+  case "$uname_s" in
+    Linux*) candidates+=(linux-x86_64) ;;
+    Darwin*)
+      if [ "$uname_m" = "arm64" ]; then
+        candidates+=(darwin-arm64 darwin-x86_64)
+      else
+        candidates+=(darwin-x86_64 darwin-arm64)
+      fi
+      ;;
+    MINGW*|MSYS*|CYGWIN*) candidates+=(windows-x86_64) ;;
+  esac
+
+  candidates+=(linux-x86_64 windows-x86_64 darwin-arm64 darwin-x86_64)
+  local tag
+  for tag in "${candidates[@]}"; do
+    if [ -d "$prebuilt_dir/$tag" ]; then
+      echo "$tag"
+      return 0
+    fi
+  done
+
+  echo "Failed! Android NDK LLVM prebuilt directory was not found under $prebuilt_dir" >&2
+  ls -1 "$prebuilt_dir" >&2 || true
+  return 1
+}
+
+HOST_TAG="$(detect_ndk_host_tag)"
+TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG"
+if [ ! -d "$TOOLCHAIN" ]; then
+  echo "Failed! Android NDK toolchain was not found: $TOOLCHAIN" >&2
+  exit 1
+fi
 
 function build {
   ANDROID_ABI=$1

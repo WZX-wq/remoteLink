@@ -79,21 +79,70 @@ Invoke-Step "Server deployment template check" {
             throw "Gitea deploy workflow is missing $needle"
         }
     }
+
+    $androidWorkflow = Get-Content .\.gitea\workflows\android-build.yml -Raw -Encoding UTF8
+    foreach ($needle in @("workflow_dispatch", "runs-on: linux:host", "build_native_libs", "CARGO_FEATURES", "flutter,hwcodec,vram", "ndk_prebuilt_dir", "ndk_host_tag", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so", "verify_artifacts", "scripts/deploy/deploy-android.sh")) {
+        if ($androidWorkflow -notmatch [regex]::Escape($needle)) {
+            throw "Android workflow is missing $needle"
+        }
+    }
+
+    $androidNdkArm64Script = Get-Content .\flutter\ndk_arm64.sh -Raw -Encoding UTF8
+    foreach ($needle in @("CARGO_FEATURES", "flutter,hwcodec,vram", "ANDROID_API_LEVEL", "cargo ndk")) {
+        if ($androidNdkArm64Script -notmatch [regex]::Escape($needle)) {
+            throw "Android ndk_arm64.sh is missing $needle"
+        }
+    }
+
+    $androidBuildScript = Get-Content .\flutter\build_android.sh -Raw -Encoding UTF8
+    foreach ($needle in @("detect_ndk_host_tag", "NDK_PREBUILT", "LLVM_STRIP", "windows-x86_64", "darwin-arm64", "librustdesk.so", "libc++_shared.so")) {
+        if ($androidBuildScript -notmatch [regex]::Escape($needle)) {
+            throw "Android build script is missing $needle"
+        }
+    }
+    if ($androidBuildScript -match [regex]::Escape("prebuilt/linux-x86_64")) {
+        throw "Android build script still hardcodes the Linux NDK prebuilt path"
+    }
+
+    $androidDepsScript = Get-Content .\flutter\build_android_deps.sh -Raw -Encoding UTF8
+    foreach ($needle in @("detect_ndk_host_tag", "TOOLCHAIN", "windows-x86_64", "darwin-arm64")) {
+        if ($androidDepsScript -notmatch [regex]::Escape($needle)) {
+            throw "Android deps script is missing $needle"
+        }
+    }
+
+    $androidDeployScript = Get-Content .\scripts\deploy\deploy-android.sh -Raw -Encoding UTF8
+    $androidBrandText = [string]::Concat([char]0x9CB2, [char]0x7A79, [char]0x8FDC, [char]0x7A0B, [char]0x684C, [char]0x9762)
+    $androidDownloadText = [string]::Concat([char]0x4E0B, [char]0x8F7D, [char]0x5B89, [char]0x5353, [char]0x5B89, [char]0x88C5, [char]0x5305)
+    $androidChecksumText = [string]::Concat([char]0x67E5, [char]0x770B, [char]0x6821, [char]0x9A8C, [char]0x4FE1, [char]0x606F)
+    $testServerText = [string]::Concat([char]0x6D4B, [char]0x8BD5, [char]0x670D, [char]0x52A1, [char]0x5668)
+    $garbledText1 = [string]([char]0x6934)
+    $garbledText2 = [string]([char]0x6D93)
+    $garbledText3 = [string]([char]0x93CD)
+    foreach ($needle in @($androidBrandText, $androidDownloadText, $androidChecksumText, "Kunqiong-Remote-Desktop.apk", "SHA256SUMS.txt")) {
+        if ($androidDeployScript -notmatch [regex]::Escape($needle)) {
+            throw "Android deploy script is missing user-facing copy: $needle"
+        }
+    }
+    foreach ($forbidden in @($garbledText1, $garbledText2, $garbledText3, "technical", "test server", $testServerText)) {
+        if ($androidDeployScript -match [regex]::Escape($forbidden)) {
+            throw "Android deploy script contains forbidden or garbled copy: $forbidden"
+        }
+    }
 }
 
 Invoke-Step "Kunqiong desktop branding source check" {
     $tabbar = Get-Content .\flutter\lib\desktop\widgets\tabbar_widget.dart -Raw -Encoding UTF8
     $login = Get-Content .\flutter\lib\common\widgets\login.dart -Raw -Encoding UTF8
+    $cnLang = Get-Content .\src\lang\cn.rs -Raw -Encoding UTF8
     $brandText = [string]::Concat([char]0x9CB2, [char]0x7A79, [char]0x8FDC, [char]0x7A0B, [char]0x684C, [char]0x9762)
     $loginText = [string]::Concat(
-        [char]0x4F7F,
-        [char]0x7528,
+        [char]0x767B,
+        [char]0x5F55,
         [char]0x9CB2,
         [char]0x7A79,
         [char]0x8D26,
-        [char]0x53F7,
-        [char]0x767B,
-        [char]0x5F55
+        [char]0x53F7
     )
     if ($tabbar -notmatch $brandText) {
         throw "Desktop title bar brand text was not found."
@@ -101,7 +150,7 @@ Invoke-Step "Kunqiong desktop branding source check" {
     if ($tabbar -notmatch "assets/icon\.png") {
         throw "Desktop title bar icon asset was not found."
     }
-    if ($login -notmatch $loginText) {
+    if ($login -notmatch [regex]::Escape("Log in to your Kunqiong account") -or $cnLang -notmatch [regex]::Escape($loginText)) {
         throw "Kunqiong OAuth login button text was not found."
     }
 }
