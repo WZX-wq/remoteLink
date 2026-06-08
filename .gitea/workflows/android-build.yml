@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-android:
-    runs-on: linux:host
+    runs-on: linux
     env:
       FLUTTER_VERSION: "3.24.5"
       RUST_VERSION: "1.75"
