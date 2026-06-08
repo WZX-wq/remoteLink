@@ -730,6 +730,10 @@ build_flutter_artifacts() {
   source_build_env
   require_command flutter
   pushd flutter
+  if [[ "${KQ_ANDROID_CLEAN_FLUTTER_BUILD:-Y}" == "Y" ]]; then
+    echo "Cleaning Flutter build outputs to avoid stale Android/Kotlin transforms."
+    rm -rf build
+  fi
   flutter pub get
 
   local extra_args=()
