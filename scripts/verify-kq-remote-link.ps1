@@ -81,7 +81,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $androidWorkflow = Get-Content .\.gitea\workflows\android-build.yml -Raw -Encoding UTF8
-    foreach ($needle in @("workflow_dispatch", "runs-on: linux", "using runner preinstalled tools", "Missing build tool", "build_native_libs", "CARGO_FEATURES", "flutter,hwcodec,vram", "ndk_prebuilt_dir", "ndk_host_tag", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so", "verify_artifacts", "scripts/deploy/deploy-android.sh")) {
+    foreach ($needle in @("workflow_dispatch", "runs-on: linux", "using runner preinstalled tools", "Missing build tool during preflight", "build_native_libs", "CARGO_FEATURES", "flutter,hwcodec,vram", "ndk_prebuilt_dir", "ndk_host_tag", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so", "verify_artifacts", "scripts/deploy/deploy-android.sh")) {
         if ($androidWorkflow -notmatch [regex]::Escape($needle)) {
             throw "Android workflow is missing $needle"
         }

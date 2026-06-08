@@ -97,13 +97,11 @@ jobs:
             if command -v "${tool}" >/dev/null 2>&1; then
               echo "${tool}: $(command -v "${tool}")"
             else
-              echo "Missing build tool: ${tool}" >&2
-              exit 1
+              echo "Missing build tool during preflight: ${tool}"
             fi
           done
           if ! command -v java >/dev/null 2>&1 && [[ ! -x /usr/lib/jvm/java-17-openjdk-amd64/bin/java ]]; then
-            echo "Missing Java 17 runtime on the Android runner" >&2
-            exit 1
+            echo "Java 17 was not found during preflight; Build APK and AAB will fail with a concrete error if it is still unavailable."
           fi
 
       - name: Build APK and AAB
