@@ -1,0 +1,264 @@
+name: Build KQ Remote Link Android
+
+on:
+  push:
+    branches:
+      - main
+      - codex/**
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: linux:host
+    env:
+      FLUTTER_VERSION: "3.24.5"
+      RUST_VERSION: "1.75"
+      CARGO_NDK_VERSION: "3.1.2"
+      NDK_VERSION: "r28c"
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+      PUB_HOSTED_URL: https://pub.flutter-io.cn
+      VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+      VCPKG_ROOT: /opt/artifacts/vcpkg
+      ANDROID_API_LEVEL: "21"
+      BUILD_MODE: release
+      ANDROID_JNI_LIB_DIR: flutter/android/app/src/main/jniLibs
+    strategy:
+      fail-fast: false
+      matrix:
+        abi:
+          - arm64-v8a
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            curl \
+            git \
+            g++ \
+            libclang-dev \
+            libgtk-3-dev \
+            liblzma-dev \
+            libglib2.0-dev \
+            libssl-dev \
+            ninja-build \
+            openjdk-17-jdk-headless \
+            pkg-config \
+            unzip \
+            wget
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch Flutter
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          patch_file="${GITHUB_WORKSPACE}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if git apply --reverse --check "${patch_file}" >/dev/null 2>&1; then
+            echo "Flutter patch already applied"
+          else
+            git apply "${patch_file}"
+          fi
+
+      - name: Compute version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_line="$(grep -E '^version:' flutter/pubspec.yaml | head -n 1 | sed 's/^version:[[:space:]]*//')"
+          build_name="${version_line%%+*}"
+          build_number="${version_line##*+}"
+          if [[ "${version_line}" == "${build_name}" ]]; then
+            build_number="$(git rev-list --count HEAD)"
+          fi
+          echo "BUILD_NAME=${build_name}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
+          case "${BUILD_MODE}" in
+            release|profile|debug)
+              echo "BUILD_MODE=${BUILD_MODE}" >> "$GITHUB_ENV"
+            ;;
+            *)
+              echo "Unsupported Android build mode: ${BUILD_MODE}" >&2
+              exit 1
+            ;;
+          esac
+
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: /opt/artifacts/vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+
+      - name: Install cargo-ndk
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-ndk --version "${CARGO_NDK_VERSION}" --locked
+
+      - name: Install flutter deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd flutter
+          flutter pub get
+          popd
+
+      - name: Build Android native deps
+        shell: bash
+        env:
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          if ! ./flutter/build_android_deps.sh "${{ matrix.abi }}"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r log_file; do
+              echo "${log_file}:"
+              echo "======"
+              cat "${log_file}"
+              echo "======"
+              echo ""
+            done
+            exit 1
+          fi
+
+      - name: Build Rust library
+        shell: bash
+        env:
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.abi }}" in
+            arm64-v8a)
+              rust_target="aarch64-linux-android"
+              flutter_target="android-arm64"
+              ndk_lib_dir="aarch64-linux-android"
+              ndk_script="./flutter/ndk_arm64.sh"
+            ;;
+            *)
+              echo "Unsupported Android ABI: ${{ matrix.abi }}" >&2
+              exit 1
+            ;;
+          esac
+
+          rustup target add "${rust_target}"
+          bash "${ndk_script}"
+
+          jni_dir="${ANDROID_JNI_LIB_DIR}/${{ matrix.abi }}"
+          mkdir -p "${jni_dir}"
+          cp "target/${rust_target}/release/liblibrustdesk.so" "${jni_dir}/librustdesk.so"
+          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${ndk_lib_dir}/libc++_shared.so" "${jni_dir}/"
+          "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" "${jni_dir}/librustdesk.so"
+          "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" "${jni_dir}/libc++_shared.so"
+          test -s "${jni_dir}/librustdesk.so"
+          test -s "${jni_dir}/libc++_shared.so"
+          echo "FLUTTER_TARGET=${flutter_target}" >> "$GITHUB_ENV"
+
+      - name: Analyze mobile Flutter code
+        shell: bash
+        working-directory: flutter
+        run: |
+          set -euo pipefail
+          flutter analyze --no-fatal-infos \
+            lib/common/widgets/login.dart \
+            lib/mobile/pages/home_page.dart \
+            lib/mobile/pages/connection_page.dart \
+            lib/mobile/pages/account_page.dart \
+            lib/mobile/pages/settings_page.dart \
+            lib/mobile/pages/server_page.dart \
+            lib/mobile/pages/remote_page.dart \
+            lib/mobile/pages/file_manager_page.dart
+
+      - name: Build APK
+        shell: bash
+        working-directory: flutter
+        run: |
+          set -euo pipefail
+          extra_args=()
+          if [[ "${BUILD_MODE}" == "release" ]]; then
+            extra_args+=(--obfuscate --split-debug-info=./split-debug-info)
+          fi
+          flutter build apk --${BUILD_MODE} --build-name "${BUILD_NAME}" --build-number "${BUILD_NUMBER}" --target-platform "${FLUTTER_TARGET}" --split-per-abi "${extra_args[@]}"
+          mkdir -p ../artifacts
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-${BUILD_MODE}.apk ../artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.apk
+
+      - name: Build AAB
+        shell: bash
+        working-directory: flutter
+        run: |
+          set -euo pipefail
+          extra_args=()
+          if [[ "${BUILD_MODE}" == "release" ]]; then
+            extra_args+=(--obfuscate --split-debug-info=./split-debug-info)
+          fi
+          flutter build appbundle --${BUILD_MODE} --build-name "${BUILD_NAME}" --build-number "${BUILD_NUMBER}" --target-platform "${FLUTTER_TARGET}" "${extra_args[@]}"
+          aab_path="$(find build/app/outputs -name '*.aab' | sort | tail -n 1)"
+          mkdir -p ../artifacts
+          cp "${aab_path}" ../artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.aab
+
+      - name: Verify native libraries in Android artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk_path="artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.apk"
+          aab_path="artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.aab"
+          jar tf "${apk_path}" > /tmp/kq-apk-files.txt
+          jar tf "${aab_path}" > /tmp/kq-aab-files.txt
+
+          grep -q '^lib/arm64-v8a/librustdesk\.so$' /tmp/kq-apk-files.txt
+          grep -q '^lib/arm64-v8a/libc++_shared\.so$' /tmp/kq-apk-files.txt
+          grep -q '^lib/arm64-v8a/libapp\.so$' /tmp/kq-apk-files.txt
+          grep -q '^lib/arm64-v8a/libflutter\.so$' /tmp/kq-apk-files.txt
+
+          grep -q '^base/lib/arm64-v8a/librustdesk\.so$' /tmp/kq-aab-files.txt
+          grep -q '^base/lib/arm64-v8a/libc++_shared\.so$' /tmp/kq-aab-files.txt
+          grep -q '^base/lib/arm64-v8a/libapp\.so$' /tmp/kq-aab-files.txt
+          grep -q '^base/lib/arm64-v8a/libflutter\.so$' /tmp/kq-aab-files.txt
+
+          sha256sum "${apk_path}" "${aab_path}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kunqiong-remote-desktop-android-arm64-v8a
+          path: |
+            artifacts/*.apk
+            artifacts/*.aab
+
+      - name: Deploy APK
+        shell: bash
+        env:
+          ARTIFACT_DIR: artifacts
+          OUTPUT_DIR: /www/wwwroot/KQromoteLink/android
+        run: |
+          set -euo pipefail
+          chmod +x scripts/deploy/deploy-android.sh
+          bash scripts/deploy/deploy-android.sh

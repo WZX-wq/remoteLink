@@ -32,6 +32,13 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def hasReleaseKeystore =
+        keystorePropertiesFile.exists() &&
+        keystoreProperties['storeFile'] &&
+        keystoreProperties['storePassword'] &&
+        keystoreProperties['keyAlias'] &&
+        keystoreProperties['keyPassword']
+
 // Add rustls-platform-verifier Android support
 String findRustlsPlatformVerifierMavenDir() {
     def dependencyText = providers.exec {
@@ -115,9 +122,8 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig signingConfigs.release
+            // Fall back to debug signing when no release keystore is provided.
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules'
         }
     }

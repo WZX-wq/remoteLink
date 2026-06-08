@@ -1,19 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/mobile/pages/account_page.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/mobile/pages/settings_page.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
 import 'package:get/get.dart';
 import '../../common.dart';
+import '../../common/kq_theme.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
+import 'page_shape.dart';
 import 'connection_page.dart';
-
-abstract class PageShape extends Widget {
-  final String title = "";
-  final Widget icon = Icon(null);
-  final List<Widget> appBarActions = [];
-}
 
 class HomePage extends StatefulWidget {
   static final homeKey = GlobalKey<HomePageState>();
@@ -56,6 +53,7 @@ class HomePageState extends State<HomePage> {
       _chatPageTabIndex = _pages.length;
       _pages.addAll([ChatPage(type: ChatPageType.mobileMain), ServerPage()]);
     }
+    _pages.add(AccountPage());
     _pages.add(SettingsPage());
   }
 
@@ -73,10 +71,11 @@ class HomePageState extends State<HomePage> {
           return false;
         },
         child: Scaffold(
-          // backgroundColor: MyTheme.grayBg,
+          extendBody: true,
           appBar: AppBar(
-            centerTitle: true,
-            title: appTitle(),
+            centerTitle: false,
+            titleSpacing: 16,
+            title: Obx(() => appTitle(context)),
             actions: _pages.elementAt(_selectedIndex).appBarActions,
           ),
           bottomNavigationBar: BottomNavigationBar(
@@ -106,51 +105,92 @@ class HomePageState extends State<HomePage> {
         ));
   }
 
-  Widget appTitle() {
-    final currentUser = gFFI.chatModel.currentUser;
-    final currentKey = gFFI.chatModel.currentKey;
-    if (isChatPageCurrentTab &&
-        currentUser != null &&
-        currentKey.peerId.isNotEmpty) {
-      final connected =
-          gFFI.serverModel.clients.any((e) => e.id == currentKey.connId);
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget appTitle(BuildContext context) {
+    final q = KqTheme.of(context);
+    final currentUser = gFFI.userModel;
+    final avatar = bind.mainResolveAvatarUrl(avatar: currentUser.avatar.value);
+    final isLogin = currentUser.userName.value.isNotEmpty;
+    final title = isLogin
+        ? currentUser.displayNameOrUserName
+        : translate('Kunqiong Remote Desktop');
+    final subtitle = isLogin
+        ? currentUser.membershipName
+        : translate('Sign in to sync devices and membership.');
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () {
+        if (isAndroid && mounted) {
+          setState(() {
+            _selectedIndex = _pages.indexWhere((page) => page is AccountPage);
+            if (_selectedIndex < 0) _selectedIndex = 0;
+          });
+        }
+      },
+      child: Row(
         children: [
-          Tooltip(
-            message: currentKey.isOut
-                ? translate('Outgoing connection')
-                : translate('Incoming connection'),
-            child: Icon(
-              currentKey.isOut
-                  ? Icons.call_made_rounded
-                  : Icons.call_received_rounded,
+          Container(
+            width: 40,
+            height: 40,
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: q.panelStrong,
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: q.line),
+            ),
+            child: Image.asset('assets/logo.png', fit: BoxFit.contain),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-          Expanded(
-            child: Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "${currentUser.firstName}   ${currentUser.id}",
-                  ),
-                  if (connected)
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color.fromARGB(255, 133, 246, 199)),
-                    ).marginSymmetric(horizontal: 2),
-                ],
-              ),
+          const SizedBox(width: 10),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: q.surfaceSoft,
+              shape: BoxShape.circle,
+              border: Border.all(color: q.line),
+            ),
+            child: ClipOval(
+              child: buildAvatarWidget(
+                    avatar: avatar,
+                    size: 34,
+                    fallback:
+                        Icon(Icons.person_rounded, size: 18, color: q.primary),
+                  ) ??
+                  Icon(Icons.person_rounded, size: 18, color: q.primary),
             ),
           ),
         ],
-      );
-    }
-    return Text(bind.mainGetAppNameSync());
+      ),
+    );
   }
 }
 
@@ -245,11 +285,11 @@ class WebHomePage extends StatelessWidget {
       }
     }
     if (id != null) {
-      connect(context, id, 
-        isFileTransfer: isFileTransfer, 
-        isViewCamera: isViewCamera, 
-        isTerminal: isTerminal,
-        password: password);
+      connect(context, id,
+          isFileTransfer: isFileTransfer,
+          isViewCamera: isViewCamera,
+          isTerminal: isTerminal,
+          password: password);
     }
   }
 }

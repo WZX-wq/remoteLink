@@ -28,6 +28,21 @@ const kOpSvgList = [
 bool _isKqOauthCancellation(Object err) =>
     err is KqOauthException && err.message == 'Authorization canceled.';
 
+Future<bool?> _loginWithKqOauthDirect() async {
+  try {
+    final resp = await KqOauth.login();
+    await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
+    await UserModel.updateOtherModels();
+    return true;
+  } catch (err) {
+    if (_isKqOauthCancellation(err)) {
+      return false;
+    }
+    showToast(err.toString());
+    return false;
+  }
+}
+
 class _IconOP extends StatelessWidget {
   final String op;
   final String? icon;
@@ -450,9 +465,9 @@ class LoginWidgetKqOauth extends StatelessWidget {
           width: 200,
           child: Obx(() => ElevatedButton.icon(
                 icon: const Icon(Icons.business_center_outlined, size: 18),
-                label: const FittedBox(
+                label: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: Text('使用鲲穹账号登录'),
+                  child: Text(translate('Log in to your Kunqiong account')),
                 ),
                 onPressed: !isInProgress &&
                         (curOP.value.isEmpty || curOP.value == kKqOauthProvider)
@@ -478,19 +493,8 @@ const kAuthReqTypeOidc = 'oidc/';
 
 // call this directly
 Future<bool?> loginDialog() async {
-  if (isDesktop) {
-    try {
-      final resp = await KqOauth.login();
-      await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
-      await UserModel.updateOtherModels();
-      return true;
-    } catch (err) {
-      if (_isKqOauthCancellation(err)) {
-        return false;
-      }
-      showToast(err.toString());
-      return false;
-    }
+  if (isDesktop || isMobile) {
+    return _loginWithKqOauthDirect();
   }
 
   var username =

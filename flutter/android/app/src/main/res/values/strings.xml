@@ -1,4 +1,6 @@
 <resources>
-    <string name="app_name">RustDesk</string>
-    <string name="accessibility_service_description">Allow other devices to control your phone using virtual touch, when RustDesk screen sharing is established</string>
+    <string name="app_name">鲲穹远程桌面</string>
+    <string name="input_service_name">鲲穹远程桌面触控服务</string>
+    <string name="accessibility_service_description">允许鲲穹远程桌面在授权连接时使用虚拟触控，帮助你完成远程协助。</string>
+    <string name="boot_started">鲲穹远程桌面已启动</string>
 </resources>
