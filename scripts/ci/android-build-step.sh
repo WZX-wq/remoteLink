@@ -220,9 +220,12 @@ prepare_build_tools() {
         cmake \
         curl \
         file \
+        gcc-multilib \
         git \
         g++ \
+        g++-multilib \
         gettext \
+        libc6-dev \
         libclang-dev \
         libglib2.0-dev \
         libgtk-3-dev \
@@ -247,9 +250,12 @@ prepare_build_tools() {
         cmake \
         curl \
         file \
+        gcc-multilib \
         git \
         g++ \
+        g++-multilib \
         gettext \
+        libc6-dev \
         libclang-dev \
         libglib2.0-dev \
         libgtk-3-dev \
@@ -277,6 +283,8 @@ prepare_build_tools() {
       curl \
       file \
       gcc-c++ \
+      glibc-devel.i686 \
+      libstdc++-devel.i686 \
       gettext \
       git \
       glib2-devel \
@@ -301,6 +309,8 @@ prepare_build_tools() {
       curl \
       file \
       gcc-c++ \
+      glibc-devel.i686 \
+      libstdc++-devel.i686 \
       gettext \
       git \
       glib2-devel \
@@ -321,7 +331,18 @@ prepare_build_tools() {
   fi
 
   tool_versions | tee "${CI_ARTIFACT_DIR}/PREPARE_BUILD_TOOLS.txt"
+  {
+    echo "time_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    for path in /usr/include/gnu/stubs.h /usr/include/gnu/stubs-32.h /usr/include/gnu/stubs-64.h; do
+      if [[ -e "${path}" ]]; then
+        echo "present ${path}"
+      else
+        echo "missing ${path}"
+      fi
+    done
+  } | tee "${CI_ARTIFACT_DIR}/HOST_GLIBC_STUBS.txt"
   publish_ci_file "${CI_ARTIFACT_DIR}/PREPARE_BUILD_TOOLS.txt"
+  publish_ci_file "${CI_ARTIFACT_DIR}/HOST_GLIBC_STUBS.txt"
 }
 
 download_with_fallback() {
@@ -631,6 +652,13 @@ build_rust_library() {
     llvm_strip="${llvm_strip}.exe"
   fi
   test -x "${llvm_strip}"
+
+  if [[ -z "${BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android:-}" ]]; then
+    export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--target=aarch64-linux-android${ANDROID_API_LEVEL} --sysroot=${ndk_prebuilt}/sysroot -D__ANDROID_API__=${ANDROID_API_LEVEL}"
+  fi
+  export BINDGEN_EXTRA_CLANG_ARGS="${BINDGEN_EXTRA_CLANG_ARGS:-${BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android}}"
+  printf '%s\n' "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android=${BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android}" | tee "${CI_ARTIFACT_DIR}/BINDGEN_ANDROID_ARGS.txt"
+  publish_ci_file "${CI_ARTIFACT_DIR}/BINDGEN_ANDROID_ARGS.txt"
 
   bash ./flutter/ndk_arm64.sh
   jni_dir="${ANDROID_JNI_LIB_DIR}/${ANDROID_ABI}"

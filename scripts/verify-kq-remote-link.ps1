@@ -94,7 +94,7 @@ Invoke-Step "Server deployment template check" {
     }
 
     $androidCiScript = Get-Content .\scripts\ci\android-build-step.sh -Raw -Encoding UTF8
-    foreach ($needle in @("CI_FAILURE_STEP.txt", "PUBLIC_CI_DIR", "collect_vcpkg_logs", "detect_ndk_host_tag", "prepare_build_tools", "dnf install -y", "yum install -y", "install_build_system_tools", "install_cmake_tool", "install_ninja_tool", "install_ninja_from_source", "gitee.com/mirrors/ninja", "download_with_fallback", "VCPKG_FORCE_SYSTEM_BINARIES", "install_flutter", "install_android_sdk", "install_vcpkg", "install_rust", "build_native_deps", "build_rust_library", "build_flutter_artifacts", "verify_artifacts", "record_success", "publish_diagnostics", "CI_DIAGNOSTICS_INDEX.txt", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so")) {
+    foreach ($needle in @("CI_FAILURE_STEP.txt", "PUBLIC_CI_DIR", "collect_vcpkg_logs", "detect_ndk_host_tag", "prepare_build_tools", "gcc-multilib", "glibc-devel.i686", "HOST_GLIBC_STUBS.txt", "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android", "dnf install -y", "yum install -y", "install_build_system_tools", "install_cmake_tool", "install_ninja_tool", "install_ninja_from_source", "gitee.com/mirrors/ninja", "download_with_fallback", "VCPKG_FORCE_SYSTEM_BINARIES", "install_flutter", "install_android_sdk", "install_vcpkg", "install_rust", "build_native_deps", "build_rust_library", "build_flutter_artifacts", "verify_artifacts", "record_success", "publish_diagnostics", "CI_DIAGNOSTICS_INDEX.txt", "librustdesk.so", "libc++_shared.so", "libapp\.so", "libflutter\.so")) {
         if ($androidCiScript -notmatch [regex]::Escape($needle)) {
             throw "Android CI script is missing $needle"
         }
