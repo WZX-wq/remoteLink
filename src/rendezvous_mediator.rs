@@ -447,8 +447,14 @@ impl RendezvousMediator {
 
     pub async fn start(server: ServerPtr, host: String) -> ResultType<()> {
         log::info!("start rendezvous mediator of {}", host);
+        #[cfg(target_os = "android")]
+        let kq_android_private_server =
+            crate::get_app_name() == crate::common::KQ_APP_NAME && !crate::using_public_server();
+        #[cfg(not(target_os = "android"))]
+        let kq_android_private_server = false;
         //If the investment agent type is http or https, then tcp forwarding is enabled.
         if (cfg!(debug_assertions) && option_env!("TEST_TCP").is_some())
+            || kq_android_private_server
             || Config::is_proxy()
             || use_ws()
             || crate::is_udp_disabled()

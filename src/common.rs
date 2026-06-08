@@ -164,7 +164,52 @@ pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
     ms_timeout: u64,
 ) -> ResultType<Stream> {
     let target = target.to_string();
-    let conn = socket_client::connect_tcp(target.as_str(), ms_timeout).await?;
+    #[cfg(target_os = "android")]
+    let ws_fallback_target = if get_app_name() == KQ_APP_NAME && !Config::is_proxy() && !use_ws() {
+        let ws_target = kq_android_websocket_endpoint(&target);
+        (ws_target != target).then_some(ws_target)
+    } else {
+        None
+    };
+    #[cfg(target_os = "android")]
+    let tcp_timeout = if ws_fallback_target.is_some() {
+        ms_timeout.min(3_000)
+    } else {
+        ms_timeout
+    };
+    #[cfg(not(target_os = "android"))]
+    let tcp_timeout = ms_timeout;
+
+    let conn = match socket_client::connect_tcp(target.as_str(), tcp_timeout).await {
+        Ok(conn) => conn,
+        Err(tcp_err) => {
+            #[cfg(target_os = "android")]
+            if let Some(ws_target) = ws_fallback_target {
+                log::warn!(
+                    "KQ Android TCP connection to {} failed: {}; trying WebSocket fallback {}",
+                    target,
+                    tcp_err,
+                    ws_target
+                );
+                match Stream::connect_websocket(ws_target.clone(), None, None, ms_timeout).await {
+                    Ok(conn) => {
+                        log::info!("KQ Android WebSocket fallback connected: {}", ws_target);
+                        return Ok(conn);
+                    }
+                    Err(ws_err) => {
+                        log::error!(
+                            "KQ Android WebSocket fallback to {} also failed after TCP error {}: {}",
+                            ws_target,
+                            tcp_err,
+                            ws_err
+                        );
+                        bail!("当前网络无法连接远程桌面服务，请切换网络后再试");
+                    }
+                }
+            }
+            return Err(tcp_err);
+        }
+    };
     if get_app_name() != KQ_APP_NAME || Config::is_proxy() || use_ws() {
         return Ok(conn);
     }
@@ -220,6 +265,38 @@ pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
     }
 
     Ok(conn)
+}
+
+fn kq_android_websocket_endpoint(endpoint: &str) -> String {
+    if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") || endpoint.is_empty() {
+        return endpoint.to_owned();
+    }
+
+    let Some((host, port)) = socket_client::split_host_port(endpoint) else {
+        return endpoint.to_owned();
+    };
+
+    let rendezvous_port = socket_client::split_host_port(Config::get_rendezvous_server())
+        .map(|(_, port)| port)
+        .unwrap_or(RENDEZVOUS_PORT);
+    let relay_port = socket_client::split_host_port(Config::get_option(keys::OPTION_RELAY_SERVER))
+        .map(|(_, port)| port)
+        .unwrap_or(hbb_common::config::RELAY_PORT);
+
+    let ws_port = if port == rendezvous_port || port == rendezvous_port - 1 {
+        port + 2
+    } else if port == relay_port || port == rendezvous_port + 1 {
+        port + 2
+    } else {
+        return endpoint.to_owned();
+    };
+
+    format!("ws://{}:{}", host, ws_port)
+}
+
+#[inline]
+pub fn kq_stream_is_websocket(conn: &Stream) -> bool {
+    matches!(conn, Stream::WebSocket(_))
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -2367,7 +2444,7 @@ async fn secure_tcp_impl(conn: &mut Stream, key: &str, log_on_success: bool) -> 
     // as WebSocket Secure (wss://) already provides transport layer encryption.
     // This doesn't affect the end-to-end encryption between clients,
     // it only avoids redundant encryption between client and server.
-    if use_ws() || key.is_empty() {
+    if use_ws() || kq_stream_is_websocket(conn) || key.is_empty() {
         return Ok(());
     }
     let rs_pk = get_rs_pk(key);

@@ -614,7 +614,7 @@ impl Client {
         let mut is_local = false;
         let mut feedback = 0;
         use hbb_common::protobuf::Enum;
-        let force_relay = interface.is_force_relay();
+        let mut force_relay = interface.is_force_relay();
         if crate::get_app_name() == crate::common::KQ_APP_NAME {
             let my_nat = NatType::from_i32(my_nat_type).unwrap_or(NatType::UNKNOWN_NAT);
             if force_relay {
@@ -632,6 +632,12 @@ impl Client {
             } else {
                 log::info!("KQ direct preflight: local NAT type is {:?}", my_nat);
             }
+        }
+        if crate::common::kq_stream_is_websocket(&socket) {
+            force_relay = true;
+            log::info!(
+                "KQ WebSocket entry is active; requesting relay path instead of direct punch"
+            );
         }
         log::info!(
             "connection policy for {}: force_relay={}, relay_server={}",
