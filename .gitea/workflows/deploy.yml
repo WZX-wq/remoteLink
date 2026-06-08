@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - codex/**
   workflow_dispatch:
 
 jobs:
@@ -79,6 +80,10 @@ jobs:
           KQ_DOWNLOAD_FILE_NAME: Kunqiong-Remote-Desktop-Setup.exe
           KQ_DOWNLOAD_VERSION: 2026.06.05.1708
           KQ_DOWNLOAD_SHA256: 1B357A0F1EF37572310DEF7F93386349F1471B8907DFF7957715A2DEC037BE9E
+          KQ_ANDROID_DOWNLOAD_URL: http://43.154.197.96/kq-api/download/android
+          KQ_ANDROID_DOWNLOAD_FILE_PATH: /app/public/downloads/Kunqiong-Remote-Desktop.apk
+          KQ_ANDROID_DOWNLOAD_FILE_NAME: Kunqiong-Remote-Desktop.apk
+          KQ_ANDROID_DOWNLOAD_VERSION: 2026.06.08.93
           KQ_DOWNLOAD_MAX_REQUESTS_PER_WINDOW: "12"
           KQ_DOWNLOAD_RATE_WINDOW_MS: "60000"
           KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT: "2"

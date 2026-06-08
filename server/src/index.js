@@ -12,6 +12,10 @@ const defaultInstallerPath = path.resolve(
 );
 const defaultInstallerSha256 =
   '1B357A0F1EF37572310DEF7F93386349F1471B8907DFF7957715A2DEC037BE9E';
+const defaultAndroidApkPath = path.resolve(
+  __dirname,
+  '../public/downloads/Kunqiong-Remote-Desktop.apk',
+);
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
@@ -30,8 +34,12 @@ const config = {
   subsiteName: process.env.KQ_SUBSITE_NAME || 'https://remote.kunqiongai.com/',
   downloadUrl:
     process.env.KQ_DOWNLOAD_URL ||
-    deriveDownloadUrl(process.env.KQ_PUBLIC_API_URL) ||
+    deriveDownloadUrl(process.env.KQ_PUBLIC_API_URL, 'windows') ||
     '/download/windows',
+  androidDownloadUrl:
+    process.env.KQ_ANDROID_DOWNLOAD_URL ||
+    deriveDownloadUrl(process.env.KQ_PUBLIC_API_URL, 'android') ||
+    '/download/android',
   download: {
     filePath: process.env.KQ_DOWNLOAD_FILE_PATH || defaultInstallerPath,
     fileName:
@@ -43,6 +51,17 @@ const config = {
     windowMs: envInt('KQ_DOWNLOAD_RATE_WINDOW_MS', 60000, 1000, 3600000),
     maxPerIpConcurrent: envInt('KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT', 2, 1, 16),
     maxGlobalConcurrent: envInt('KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT', 8, 1, 128),
+  },
+  androidDownload: {
+    filePath: process.env.KQ_ANDROID_DOWNLOAD_FILE_PATH || defaultAndroidApkPath,
+    fileName:
+      process.env.KQ_ANDROID_DOWNLOAD_FILE_NAME ||
+      'Kunqiong-Remote-Desktop.apk',
+    version:
+      process.env.KQ_ANDROID_DOWNLOAD_VERSION ||
+      process.env.KQ_DOWNLOAD_VERSION ||
+      '2026.06.08.93',
+    sha256: process.env.KQ_ANDROID_DOWNLOAD_SHA256 || '',
   },
   appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
 };
@@ -61,13 +80,13 @@ function mustEnv(name) {
   return value.trim();
 }
 
-function deriveDownloadUrl(publicApiUrl) {
+function deriveDownloadUrl(publicApiUrl, platform = 'windows') {
   const text = String(publicApiUrl || '').trim();
   if (!text) return '';
   try {
     const url = new URL(text);
     url.pathname = url.pathname.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-    url.pathname = `${url.pathname}/download/windows`;
+    url.pathname = `${url.pathname}/download/${platform}`;
     url.search = '';
     url.hash = '';
     return url.toString();
@@ -490,11 +509,11 @@ function parseRangeHeader(rangeHeader, size) {
   return { start, end: Math.min(end, size - 1) };
 }
 
-async function sendWindowsInstaller(req, res) {
+async function sendDownloadFile(req, res, download, contentType) {
   const releaseDownload = req.method !== 'HEAD' ? acquireDownloadSlot(req, res) : () => {};
   if (!releaseDownload) return;
   try {
-    const stat = await fs.promises.stat(config.download.filePath);
+    const stat = await fs.promises.stat(download.filePath);
     if (!stat.isFile()) {
       releaseDownload();
       textError(res, 404, '安装包暂时不可用，请稍后再试。');
@@ -512,17 +531,17 @@ async function sendWindowsInstaller(req, res) {
     const start = range ? range.start : 0;
     const end = range ? range.end : stat.size - 1;
     const contentLength = end - start + 1;
-    const dispositionName = config.download.fileName.replace(/["\\]/g, '');
+    const dispositionName = download.fileName.replace(/["\\]/g, '');
     const headers = {
       'accept-ranges': 'bytes',
       'cache-control': 'private, max-age=300',
-      'content-type': 'application/vnd.microsoft.portable-executable',
-      'content-disposition': `attachment; filename="${dispositionName}"; filename*=UTF-8''${encodeURIComponent(config.download.fileName)}`,
+      'content-type': contentType,
+      'content-disposition': `attachment; filename="${dispositionName}"; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
       'content-length': String(contentLength),
-      'x-kq-download-version': config.download.version,
+      'x-kq-download-version': download.version,
     };
-    if (config.download.sha256) {
-      headers['x-kq-download-sha256'] = config.download.sha256;
+    if (download.sha256) {
+      headers['x-kq-download-sha256'] = download.sha256;
     }
     if (range) {
       headers['content-range'] = `bytes ${start}-${end}/${stat.size}`;
@@ -534,7 +553,7 @@ async function sendWindowsInstaller(req, res) {
       return;
     }
 
-    const stream = fs.createReadStream(config.download.filePath, { start, end });
+    const stream = fs.createReadStream(download.filePath, { start, end });
     const finish = () => releaseDownload();
     stream.on('error', (error) => {
       console.error(error);
@@ -556,6 +575,24 @@ async function sendWindowsInstaller(req, res) {
     }
     throw error;
   }
+}
+
+async function sendWindowsInstaller(req, res) {
+  return sendDownloadFile(
+    req,
+    res,
+    config.download,
+    'application/vnd.microsoft.portable-executable',
+  );
+}
+
+async function sendAndroidApk(req, res) {
+  return sendDownloadFile(
+    req,
+    res,
+    config.androidDownload,
+    'application/vnd.android.package-archive',
+  );
 }
 
 function htmlEscape(value) {
@@ -750,9 +787,11 @@ function invitePage(payload) {
 }
 
 function downloadPage() {
-  const safeDownloadUrl = htmlEscape(config.downloadUrl);
+  const safeWindowsDownloadUrl = htmlEscape(config.downloadUrl);
+  const safeAndroidDownloadUrl = htmlEscape(config.androidDownloadUrl);
   const safeOfficialUrl = htmlEscape('https://kunqiongai.com/');
-  const safeVersion = htmlEscape(config.download.version);
+  const safeWindowsVersion = htmlEscape(config.download.version);
+  const safeAndroidVersion = htmlEscape(config.androidDownload.version);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -874,6 +913,11 @@ function downloadPage() {
     }
     .panel h2 { margin: 0 0 10px; font-size: 28px; letter-spacing: 0; }
     .panel .desc { margin: 0 0 24px; color: var(--muted); line-height: 1.65; font-weight: 700; }
+    .downloads {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
     .download {
       width: 100%;
       min-height: 50px;
@@ -889,6 +933,12 @@ function downloadPage() {
       font-weight: 900;
       background: linear-gradient(135deg, var(--primary), var(--primary-2));
       box-shadow: 0 14px 30px rgba(20, 124, 222, .28);
+    }
+    .download.android {
+      color: var(--ink);
+      background: rgba(255,255,255,.68);
+      border: 1px solid var(--line);
+      box-shadow: none;
     }
     .steps {
       display: grid;
@@ -924,6 +974,7 @@ function downloadPage() {
       :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .88); --soft: rgba(30,48,69,.86); --line: rgba(76, 137, 184, .48); }
       body { background: linear-gradient(135deg, #102033 0%, #14283d 45%, #1d274a 100%); }
       .official, .highlight, .steps li { background: rgba(255,255,255,.08); }
+      .download.android { background: rgba(255,255,255,.08); color: var(--ink); }
       .eyebrow { color: #9ed9ff; background: rgba(40, 102, 156, .24); }
     }
     @media (max-width: 760px) {
@@ -952,15 +1003,18 @@ function downloadPage() {
         </div>
       </section>
       <section class="panel">
-        <h2>Windows 版下载</h2>
-        <p class="desc">下载并安装鲲穹远程桌面。安装完成后，回到邀请页面点击“开始远控”，即可自动打开客户端并继续连接。</p>
-        <a class="download" href="${safeDownloadUrl}" rel="noopener">下载 Windows 安装包</a>
+        <h2>客户端下载</h2>
+        <p class="desc">选择当前设备对应的版本。安装完成后，回到邀请页面点击“开始远控”，即可自动打开客户端并继续连接。</p>
+        <div class="downloads">
+          <a class="download" href="${safeWindowsDownloadUrl}" rel="noopener">下载 Windows 安装包</a>
+          <a class="download android" href="${safeAndroidDownloadUrl}" rel="noopener">下载 Android 安装包</a>
+        </div>
         <ol class="steps">
           <li><span class="step-no">1</span><div><strong>下载安装</strong><span>运行安装包并按照向导完成安装。</span></div></li>
           <li><span class="step-no">2</span><div><strong>打开邀请链接</strong><span>回到协助邀请页面，点击“开始远控”。</span></div></li>
           <li><span class="step-no">3</span><div><strong>开始协助</strong><span>确认连接信息后即可进入远程桌面。</span></div></li>
         </ol>
-        <p class="version">当前版本 ${safeVersion}</p>
+        <p class="version">Windows ${safeWindowsVersion} · Android ${safeAndroidVersion}</p>
       </section>
     </main>
   </div>
@@ -1109,6 +1163,22 @@ app.head(['/download/windows', '/api/download/windows'], async (req, res, next) 
 app.get(['/download/windows', '/api/download/windows'], async (req, res, next) => {
   try {
     await sendWindowsInstaller(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.head(['/download/android', '/api/download/android'], async (req, res, next) => {
+  try {
+    await sendAndroidApk(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get(['/download/android', '/api/download/android'], async (req, res, next) => {
+  try {
+    await sendAndroidApk(req, res);
   } catch (error) {
     next(error);
   }

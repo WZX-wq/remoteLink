@@ -3,8 +3,10 @@ set -euo pipefail
 
 ARTIFACT_DIR="${ARTIFACT_DIR:-artifacts}"
 OUTPUT_DIR="${OUTPUT_DIR:-/www/wwwroot/KQromoteLink/android}"
+API_DOWNLOAD_DIR="${API_DOWNLOAD_DIR:-/www/wwwroot/KQromoteLink/api/public/downloads}"
 
 mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${API_DOWNLOAD_DIR}"
 
 apk_path="$(find "${ARTIFACT_DIR}" -maxdepth 1 -name '*.apk' | sort | tail -n 1 || true)"
 if [[ -z "${apk_path}" ]]; then
@@ -13,11 +15,14 @@ if [[ -z "${apk_path}" ]]; then
 fi
 
 install -m 0644 "${apk_path}" "${OUTPUT_DIR}/Kunqiong-Remote-Desktop.apk"
+install -m 0644 "${apk_path}" "${API_DOWNLOAD_DIR}/Kunqiong-Remote-Desktop.apk"
 echo "Android APK published to ${OUTPUT_DIR}/Kunqiong-Remote-Desktop.apk"
+echo "Android APK published to ${API_DOWNLOAD_DIR}/Kunqiong-Remote-Desktop.apk for API downloads"
 
 aab_path="$(find "${ARTIFACT_DIR}" -maxdepth 1 -name '*.aab' | sort | tail -n 1 || true)"
 if [[ -n "${aab_path}" ]]; then
   install -m 0644 "${aab_path}" "${OUTPUT_DIR}/Kunqiong-Remote-Desktop.aab"
+  install -m 0644 "${aab_path}" "${API_DOWNLOAD_DIR}/Kunqiong-Remote-Desktop.aab"
   echo "Android AAB published to ${OUTPUT_DIR}/Kunqiong-Remote-Desktop.aab"
 else
   echo "No AAB artifact found in ${ARTIFACT_DIR}; APK deploy completed."
@@ -28,6 +33,31 @@ fi
   sha256sum Kunqiong-Remote-Desktop.apk Kunqiong-Remote-Desktop.aab 2>/dev/null \
     > SHA256SUMS.txt || sha256sum Kunqiong-Remote-Desktop.apk > SHA256SUMS.txt
 )
+install -m 0644 "${OUTPUT_DIR}/SHA256SUMS.txt" "${API_DOWNLOAD_DIR}/SHA256SUMS-android.txt"
+android_sha256="$(awk '/Kunqiong-Remote-Desktop\.apk$/ { print $1; exit }' "${OUTPUT_DIR}/SHA256SUMS.txt")"
+android_version="${KQ_ANDROID_DOWNLOAD_VERSION:-${BUILD_NAME:-2026.06.08}+${BUILD_NUMBER:-93}}"
+
+ENV_FILE="${KQ_API_ENV_FILE:-/www/wwwroot/KQromoteLink/.env}"
+if [[ -f "${ENV_FILE}" ]]; then
+  tmp_env="$(mktemp)"
+  grep -Ev '^(KQ_ANDROID_DOWNLOAD_URL|KQ_ANDROID_DOWNLOAD_FILE_PATH|KQ_ANDROID_DOWNLOAD_FILE_NAME|KQ_ANDROID_DOWNLOAD_VERSION|KQ_ANDROID_DOWNLOAD_SHA256)=' "${ENV_FILE}" > "${tmp_env}" || true
+  {
+    printf 'KQ_ANDROID_DOWNLOAD_URL=%s\n' "${KQ_ANDROID_DOWNLOAD_URL:-http://43.154.197.96/kq-api/download/android}"
+    printf 'KQ_ANDROID_DOWNLOAD_FILE_PATH=%s\n' "${KQ_ANDROID_DOWNLOAD_FILE_PATH:-/app/public/downloads/Kunqiong-Remote-Desktop.apk}"
+    printf 'KQ_ANDROID_DOWNLOAD_FILE_NAME=%s\n' "${KQ_ANDROID_DOWNLOAD_FILE_NAME:-Kunqiong-Remote-Desktop.apk}"
+    printf 'KQ_ANDROID_DOWNLOAD_VERSION=%s\n' "${android_version}"
+    printf 'KQ_ANDROID_DOWNLOAD_SHA256=%s\n' "${android_sha256}"
+  } >> "${tmp_env}"
+  install -m 0600 "${tmp_env}" "${ENV_FILE}"
+  rm -f "${tmp_env}"
+  echo "Android download environment updated in ${ENV_FILE}"
+fi
+
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files kq-remote-link-api.service >/dev/null 2>&1; then
+  systemctl restart kq-remote-link-api.service || true
+elif command -v docker >/dev/null 2>&1 && docker inspect kq-remote-link-api >/dev/null 2>&1; then
+  docker restart kq-remote-link-api >/dev/null || true
+fi
 
 cat > "${OUTPUT_DIR}/index.html" <<'HTML'
 <!doctype html>
@@ -125,7 +155,7 @@ cat > "${OUTPUT_DIR}/index.html" <<'HTML'
       <h1>鲲穹远程桌面</h1>
     </div>
     <p>下载并安装手机端后，按应用内引导开启必要权限，即可登录账号、连接设备并进行远程协助。</p>
-    <a class="button" href="Kunqiong-Remote-Desktop.apk">下载安卓安装包</a>
+    <a class="button" href="/kq-api/download/android">下载安卓安装包</a>
     <div class="secondary">
       <a href="SHA256SUMS.txt">查看校验信息</a>
     </div>

@@ -112,7 +112,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/deploy/deploy-android.sh
-          bash scripts/deploy/deploy-android.sh
+          API_DOWNLOAD_DIR=/www/wwwroot/KQromoteLink/api/public/downloads \
+            bash scripts/deploy/deploy-android.sh
 
       - name: Record Android build success
         shell: bash
