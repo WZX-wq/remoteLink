@@ -66,6 +66,8 @@ const config = {
   appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
 };
 
+const kqIconAssetPath = 'assets/kq-icon.png';
+
 let pool;
 const downloadLimiter = {
   active: 0,
@@ -604,6 +606,17 @@ function htmlEscape(value) {
     .replaceAll("'", '&#39;');
 }
 
+function publicAssetUrl(req, assetPath) {
+  const normalizedPath = String(assetPath || '').replace(/^\/+/, '');
+  const configuredBase = String(config.publicApiUrl || '').trim();
+  if (configuredBase) {
+    return `${configuredBase.replace(/\/+$/, '')}/${normalizedPath}`;
+  }
+  const protocol = req?.protocol || 'http';
+  const host = req?.get?.('host') || `localhost:${config.port}`;
+  return `${protocol}://${host}/${normalizedPath}`;
+}
+
 function normalizeUriScheme(value) {
   const scheme = String(value || 'kqremote')
     .trim()
@@ -630,7 +643,7 @@ function decodeInvitePayload(req) {
   }
 }
 
-function invitePage(payload) {
+function invitePage(payload, req) {
   const id = String(payload.id || '').replace(/\s+/g, '').trim();
   const password = String(payload.password || '').trim();
   const ts = Number(payload.ts || 0);
@@ -650,6 +663,8 @@ function invitePage(payload) {
       ? createdAt.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
       : '--',
   );
+  const safeIconUrl = htmlEscape(kqIconAssetPath);
+  const safeIconAbsoluteUrl = htmlEscape(publicAssetUrl(req, kqIconAssetPath));
   const disabledAttr = isExpired ? 'disabled aria-disabled="true"' : '';
   return `<!doctype html>
 <html lang="zh-CN">
@@ -657,6 +672,10 @@ function invitePage(payload) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>鲲穹远程协助邀请</title>
+  <link rel="icon" type="image/png" href="${safeIconUrl}" />
+  <link rel="apple-touch-icon" href="${safeIconUrl}" />
+  <meta property="og:image" content="${safeIconAbsoluteUrl}" />
+  <meta name="twitter:image" content="${safeIconAbsoluteUrl}" />
   <style>
     :root {
       color-scheme: light dark;
@@ -703,15 +722,11 @@ function invitePage(payload) {
       backdrop-filter: blur(18px);
     }
     .brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 26px; }
-    .mark {
+    .brand-icon {
       width: 44px;
       height: 44px;
       border-radius: 14px;
-      display: grid;
-      place-items: center;
-      color: white;
-      font-weight: 900;
-      background: linear-gradient(135deg, #19c8f0, #126fe8 58%, #5a7cff);
+      display: block;
       box-shadow: 0 14px 30px rgba(18, 119, 217, .24);
     }
     h1 { margin: 0; font-size: 26px; letter-spacing: 0; }
@@ -726,6 +741,19 @@ function invitePage(payload) {
     .row { display: flex; justify-content: space-between; gap: 18px; padding: 8px 0; color: var(--muted); }
     .row strong { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .02em; }
     .actions { display: grid; gap: 10px; }
+    .wechat-tip {
+      display: none;
+      margin: -4px 0 16px;
+      padding: 12px 14px;
+      border: 1px solid rgba(18, 119, 217, .22);
+      border-radius: 12px;
+      color: var(--ink);
+      background: rgba(18, 119, 217, .08);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.7;
+    }
+    .wechat-tip strong { color: var(--primary); }
     button, a.button {
       width: 100%;
       height: 42px;
@@ -741,12 +769,15 @@ function invitePage(payload) {
     }
     button.primary { color: #fff; background: linear-gradient(135deg, #1686e8, #0f66c2); box-shadow: 0 12px 28px rgba(18, 119, 217, .25); }
     button.primary:disabled { cursor: not-allowed; color: #f8fbff; background: #b9c2cc; box-shadow: none; }
+    button.secondary { color: var(--ink); background: rgba(255,255,255,.72); border-color: rgba(16, 36, 62, .14); }
     a.button { color: var(--ink); background: #fff; border-color: rgba(16, 36, 62, .14); }
     .status { min-height: 24px; margin-top: 18px; text-align: center; color: ${isExpired ? '#e23b2e' : '#5d7190'}; font-size: 14px; font-weight: 700; }
     @media (prefers-color-scheme: dark) {
       :root { --ink: #e8f2ff; --muted: #9bb6d3; --panel: rgba(18, 29, 43, .86); --soft: rgba(30,48,69,.86); --line: rgba(76, 137, 184, .5); }
       body { background: linear-gradient(135deg, #102033 0%, #14283d 45%, #1d274a 100%); }
       .info { background: rgba(15, 26, 40, .68); }
+      .wechat-tip { background: rgba(18, 119, 217, .14); border-color: rgba(95, 170, 235, .32); }
+      button.secondary { background: rgba(255,255,255,.08); color: var(--ink); border-color: rgba(160, 205, 244, .2); }
       a.button { background: rgba(255,255,255,.08); color: var(--ink); border-color: rgba(160, 205, 244, .2); }
     }
   </style>
@@ -754,7 +785,7 @@ function invitePage(payload) {
 <body>
   <main>
     <section class="brand">
-      <div class="mark">鲲</div>
+      <img class="brand-icon" src="${safeIconUrl}" alt="" />
       <h1>鲲穹远程桌面</h1>
     </section>
     <p class="subtitle">邀请你进行远程协助</p>
@@ -764,8 +795,10 @@ function invitePage(payload) {
       <div class="row"><span>邀请时间</span><strong>${safeCreatedAt}</strong></div>
       <div class="row"><span>有效期</span><strong>24 小时</strong></div>
     </section>
+    <div class="wechat-tip" id="wechatTip">当前在微信内置浏览器中，微信会拦截直接打开客户端。请点击右上角 <strong>...</strong>，选择 <strong>在浏览器打开</strong> 后再点“开始远控”。</div>
     <section class="actions">
       <button class="primary" id="openApp" ${disabledAttr}>开始远控</button>
+      <button class="secondary" id="copyLink" ${disabledAttr}>复制启动链接</button>
       <a class="button" href="download" rel="noopener">下载鲲穹远程桌面</a>
     </section>
     <div class="status" id="status">${isExpired ? '此链接已失效' : ''}</div>
@@ -773,29 +806,70 @@ function invitePage(payload) {
   <script>
     const deepLink = ${JSON.stringify(deepLink)};
     const expired = ${JSON.stringify(isExpired)};
+    const isWeChat = /MicroMessenger/i.test(navigator.userAgent || '');
+    const status = document.getElementById('status');
+    const wechatTip = document.getElementById('wechatTip');
+    const copyLinkButton = document.getElementById('copyLink');
+    if (isWeChat && !expired) {
+      wechatTip.style.display = 'block';
+      status.textContent = '微信内置浏览器限制直接唤起客户端，请在外部浏览器打开此页面。';
+    }
+    async function copyDeepLink() {
+      if (expired) return;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(deepLink);
+        } else {
+          const input = document.createElement('textarea');
+          input.value = deepLink;
+          input.setAttribute('readonly', 'readonly');
+          input.style.position = 'fixed';
+          input.style.left = '-9999px';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          document.body.removeChild(input);
+        }
+        status.textContent = '启动链接已复制。请在外部浏览器地址栏打开，或安装客户端后再使用。';
+      } catch (_) {
+        status.textContent = '复制失败，请点击右上角在浏览器打开后重试。';
+      }
+    }
     document.getElementById('openApp').addEventListener('click', () => {
       if (expired) return;
-      document.getElementById('status').textContent = '正在打开鲲穹远程桌面...';
+      if (isWeChat) {
+        status.textContent = '微信拦截了客户端唤起，请点击右上角 ... 选择“在浏览器打开”。';
+        copyDeepLink();
+        return;
+      }
+      status.textContent = '正在打开鲲穹远程桌面...';
       window.location.href = deepLink;
       window.setTimeout(() => {
-        document.getElementById('status').textContent = '如果没有自动打开，请确认已安装客户端，或点击下载按钮。';
+        status.textContent = '如果没有自动打开，请确认已安装客户端；仍打不开时可复制启动链接或点击下载按钮。';
       }, 1500);
     });
+    copyLinkButton.addEventListener('click', copyDeepLink);
   </script>
 </body>
 </html>`;
 }
 
-function downloadPage() {
+function downloadPage(req) {
   const safeWindowsDownloadUrl = htmlEscape(config.downloadUrl);
   const safeOfficialUrl = htmlEscape('https://kunqiongai.com/');
   const safeWindowsVersion = htmlEscape(config.download.version);
+  const safeIconUrl = htmlEscape(kqIconAssetPath);
+  const safeIconAbsoluteUrl = htmlEscape(publicAssetUrl(req, kqIconAssetPath));
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>下载鲲穹远程桌面</title>
+  <link rel="icon" type="image/png" href="${safeIconUrl}" />
+  <link rel="apple-touch-icon" href="${safeIconUrl}" />
+  <meta property="og:image" content="${safeIconAbsoluteUrl}" />
+  <meta name="twitter:image" content="${safeIconAbsoluteUrl}" />
   <style>
     :root {
       color-scheme: light dark;
@@ -833,14 +907,11 @@ function downloadPage() {
       margin-bottom: 44px;
     }
     .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; font-size: 19px; }
-    .mark {
+    .brand-icon {
       width: 42px;
       height: 42px;
       border-radius: 12px;
-      display: grid;
-      place-items: center;
-      color: white;
-      background: linear-gradient(135deg, #18c6ef, #147cde 58%, #5a7cff);
+      display: block;
       box-shadow: 0 14px 30px rgba(20, 124, 222, .24);
     }
     .official {
@@ -986,7 +1057,7 @@ function downloadPage() {
 <body>
   <div class="shell">
     <header>
-      <div class="brand"><div class="mark">鲲</div><span>鲲穹远程桌面</span></div>
+      <div class="brand"><img class="brand-icon" src="${safeIconUrl}" alt="" /><span>鲲穹远程桌面</span></div>
       <a class="official" href="${safeOfficialUrl}" rel="noopener">公司官网</a>
     </header>
     <main>
@@ -1107,6 +1178,13 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
+app.use(
+  ['/assets', '/api/assets', '/kq-api/assets'],
+  express.static(path.resolve(__dirname, '../public/assets'), {
+    immutable: true,
+    maxAge: '7d',
+  }),
+);
 app.use((req, res, next) => {
   res.setHeader('access-control-allow-origin', '*');
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
@@ -1139,14 +1217,14 @@ app.get(['/invite', '/api/invite'], (req, res) => {
   res
     .status(200)
     .type('html')
-    .send(invitePage(decodeInvitePayload(req)));
+    .send(invitePage(decodeInvitePayload(req), req));
 });
 
-app.get(['/download', '/api/download'], (_req, res) => {
+app.get(['/download', '/api/download'], (req, res) => {
   res
     .status(200)
     .type('html')
-    .send(downloadPage());
+    .send(downloadPage(req));
 });
 
 app.head(['/download/windows', '/api/download/windows'], async (req, res, next) => {

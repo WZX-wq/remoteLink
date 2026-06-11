@@ -19,6 +19,7 @@ src/version.rs
 cert.pfx
 *.bak
 *png
+!server/public/assets/kq-icon.png
 *svg
 *jpg
 sciter.dll
