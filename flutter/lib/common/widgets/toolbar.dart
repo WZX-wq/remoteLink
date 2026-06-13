@@ -186,11 +186,6 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     );
     v.add(
       TTextMenu(
-          child: Text(translate('View camera')),
-          onPressed: () => connectWithToken(isViewCamera: true)),
-    );
-    v.add(
-      TTextMenu(
           child: Text('${translate('Terminal')} (beta)'),
           onPressed: () => connectWithToken(isTerminal: true)),
     );
@@ -766,7 +761,8 @@ List<TToggleMenu> toolbarPrivacyMode(
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
   final sessionId = ffi.sessionId;
-  final hasPrivacyModePermission = ffiModel.permissions['privacy_mode'] != false;
+  final hasPrivacyModePermission =
+      ffiModel.permissions['privacy_mode'] != false;
 
   // Backend revocation already attempts to turn privacy mode off.
   // Still keep this menu when privacy mode is active, so users can turn it off
@@ -776,8 +772,8 @@ List<TToggleMenu> toolbarPrivacyMode(
   }
 
   getDefaultMenu(Future<void> Function(SessionID sid, String opt) toggleFunc) {
-    final enabled =
-        !ffiModel.viewOnly && (hasPrivacyModePermission || privacyModeState.isNotEmpty);
+    final enabled = !ffiModel.viewOnly &&
+        (hasPrivacyModePermission || privacyModeState.isNotEmpty);
     return TToggleMenu(
         value: privacyModeState.isNotEmpty,
         onChanged: enabled

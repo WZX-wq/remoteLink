@@ -20,6 +20,18 @@ if (-not $InstallerName) {
 }
 $InstallerName = [System.IO.Path]::GetFileNameWithoutExtension($InstallerName)
 
+if (-not $PSBoundParameters.ContainsKey("Version") -and $InstallerName -match "(?:^|-)v(?<build>\d+)(?:-|$)") {
+    $Version = "$(Get-Date -Format 'yyyy.MM.dd').$($Matches["build"])0"
+}
+
+function Test-KqInstallerVersionFormat([string]$Value) {
+    if ($Value -notmatch "^20\d{2}\.(0[1-9]|1[0-2])\.(0[1-9]|[12]\d|3[01])\.\d{4}$") {
+        throw "Installer Version must use the date-based increasing format yyyy.MM.dd.NNNN, for example 2026.06.12.1650. Got '$Value'. Do not use 1.0.xxx because installed 2026.* packages will treat it as an older version."
+    }
+}
+
+Test-KqInstallerVersionFormat -Value $Version
+
 $output = New-Item -ItemType Directory -Force -Path $OutputRoot
 $buildRoot = Join-Path $output.FullName "$InstallerName-inno-build"
 $issPath = Join-Path $buildRoot "installer.iss"
@@ -232,6 +244,15 @@ Ensure-RemotePrinterArtifacts `
     -ReleasePath $release.Path `
     -CacheRoot (Join-Path $OutputRoot "printer-driver-cache")
 
+$shortcutIconFileName = "kq-icon-$($Version -replace '[^A-Za-z0-9._-]', '_').ico"
+$shortcutIconRelativePath = "data\flutter_assets\assets\$shortcutIconFileName"
+$shortcutIconSourcePath = Join-Path $release.Path "data\flutter_assets\assets\icon.ico"
+$shortcutIconTargetPath = Join-Path $release.Path $shortcutIconRelativePath
+if (-not (Test-Path $shortcutIconSourcePath)) {
+    throw "Shortcut icon source not found: $shortcutIconSourcePath"
+}
+Copy-Item -LiteralPath $shortcutIconSourcePath -Destination $shortcutIconTargetPath -Force
+
 $required = @(
     "rustdesk.exe",
     "librustdesk.dll",
@@ -239,6 +260,7 @@ $required = @(
     "data\flutter_assets\AssetManifest.bin",
     "data\flutter_assets\assets\icon.png",
     "data\flutter_assets\assets\icon.ico",
+    $shortcutIconRelativePath,
     "data\flutter_assets\assets\kq_toolbox_icon.svg",
     "drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf",
     "printer_driver_adapter.dll"
@@ -292,6 +314,7 @@ $iss = @"
 #define MyAppExeName "rustdesk.exe"
 #define MyAppPublisher "Kunqiong"
 #define MyAppVersion "$Version"
+#define ShortcutIconRelative "$shortcutIconRelativePath"
 
 [Setup]
 AppId={{D0B24C8B-7E7E-4B2C-9A38-0B2026052701}
@@ -306,7 +329,7 @@ OutputBaseFilename=$InstallerName
 SetupIconFile=$escapedIcon
 WizardSmallImageFile=$escapedWizardSmallImage
 WizardImageFile=$escapedWizardImage
-UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayIcon={app}\{#ShortcutIconRelative}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -340,14 +363,17 @@ Name: "launch"; Description: "{cm:LaunchProgram,{#MyAppName}}"; GroupDescription
 Source: "$escapedRelease\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: startup
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#ShortcutIconRelative}"
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#ShortcutIconRelative}"; Tasks: desktopicon
+Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#ShortcutIconRelative}"; Tasks: startup
 
 [Run]
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated skipifdoesntexist
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option lang {code:SelectedAppLanguage}"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option enable-udp-punch Y"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option kq-force-always-relay N"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--option enable-perm-change-in-accept-window Y"; Flags: runhidden waituntilterminated
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--option allow-remote-config-modification N"; Flags: runhidden waituntilterminated
 Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\kqremote /f /v ""URL Protocol"" /t REG_SZ /d """""; Flags: runhidden waituntilterminated
 Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\kqremote\shell\open\command /f /ve /t REG_SZ /d ""\""{app}\{#MyAppExeName}\"" \""%1\"""""; Flags: runhidden waituntilterminated
 Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\rustdesk /f /v ""URL Protocol"" /t REG_SZ /d """""; Flags: runhidden waituntilterminated
@@ -361,6 +387,7 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""K
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP In"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP Out"" dir=out action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-service --no-launch"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/c exit"; Flags: runhidden waituntilterminated; AfterInstall: KqRepairExistingShortcuts
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent; Tasks: launch; Check: KqIsFreshInstall
 
 [UninstallRun]
@@ -373,11 +400,29 @@ Filename: "{sys}\reg.exe"; Parameters: "delete HKEY_CLASSES_ROOT\rustdesk /f"; F
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated; RunOnceId: "KQUninstallService"
 
 [Code]
+function SetTimer(hWnd, nIDEvent, uElapse, lpTimerFunc: Longword): Longword;
+external 'SetTimer@user32.dll stdcall';
+
+function KillTimer(hWnd, nIDEvent: Longword): Boolean;
+external 'KillTimer@user32.dll stdcall';
+
 var
   KqUpgradeInstall: Boolean;
+  KqInstallSucceeded: Boolean;
   KqExistingInstallDir: String;
   KqLegacyInstallDir: String;
   KqExistingVersion: String;
+  KqMotionTimerId: Longword;
+  KqMotionTick: Integer;
+  KqMotionPageTick: Integer;
+  KqMotionPageId: Integer;
+  KqWelcomeLabel1Left: Integer;
+  KqWelcomeLabel2Left: Integer;
+  KqPageNameLeft: Integer;
+  KqPageDescLeft: Integer;
+  KqReadyLabelLeft: Integer;
+  KqFinishedHeadingLeft: Integer;
+  KqFinishedLabelLeft: Integer;
 
 function KqUninstallKey(): String;
 begin
@@ -439,6 +484,7 @@ var
 begin
   Result := True;
   KqUpgradeInstall := False;
+  KqInstallSucceeded := False;
   KqExistingInstallDir := '';
   KqLegacyInstallDir := '';
   KqExistingVersion := '';
@@ -470,9 +516,47 @@ begin
   Result := not KqUpgradeInstall;
 end;
 
+function KqIsUpgradeInstall(): Boolean;
+begin
+  Result := KqUpgradeInstall;
+end;
+
 function KqIsChineseInstaller(): Boolean;
 begin
   Result := ActiveLanguage = 'chinesesimp';
+end;
+
+procedure KqRepairShortcut(Path: String);
+var
+  Shell: Variant;
+  Shortcut: Variant;
+begin
+  if not FileExists(Path) then
+    Exit;
+
+  try
+    Shell := CreateOleObject('WScript.Shell');
+    Shortcut := Shell.CreateShortcut(Path);
+    Shortcut.TargetPath := ExpandConstant('{app}\{#MyAppExeName}');
+    Shortcut.Arguments := '';
+    Shortcut.WorkingDirectory := ExpandConstant('{app}');
+    Shortcut.IconLocation := ExpandConstant('{app}\{#ShortcutIconRelative}');
+    Shortcut.Save;
+  except
+  end;
+end;
+
+procedure KqRepairExistingShortcuts;
+var
+  ResultCode: Integer;
+begin
+  KqRepairShortcut(ExpandConstant('{commondesktop}\{#MyAppName}.lnk'));
+  KqRepairShortcut(ExpandConstant('{commonprograms}\{#MyAppName}\{#MyAppName}.lnk'));
+  KqRepairShortcut(ExpandConstant('{commonstartup}\{#MyAppName}.lnk'));
+  KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppName}.lnk'));
+  KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppExeName}.lnk'));
+  KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#LegacyAppName}.lnk'));
+  Exec(ExpandConstant('{sys}\ie4uinit.exe'), '-show', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function KqUpgradeVersionText(): String;
@@ -525,6 +609,20 @@ begin
   ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
 end;
 
+procedure KqLaunchUpgradeAfterFinish();
+var
+  ResultCode: Integer;
+begin
+  if not KqUpgradeInstall then
+    Exit;
+  if not KqInstallSucceeded then
+    Exit;
+  if WizardSilent then
+    Exit;
+
+  Exec(ExpandConstant('{app}\{#MyAppExeName}'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
+end;
+
 procedure CleanupLegacyInstallRegistration();
 begin
   RegDeleteKeyIncludingSubkeys(HKCU, KqLegacyUninstallKey());
@@ -551,6 +649,124 @@ begin
   if KqIsUpgrade() then begin
     if (PageID = wpSelectDir) or (PageID = wpSelectProgramGroup) or (PageID = wpSelectTasks) then
       Result := True;
+  end;
+end;
+
+function KqGsapEaseOutCubic(Value: Integer): Integer;
+var
+  Inverse: Integer;
+begin
+  if Value < 0 then
+    Value := 0
+  else if Value > 1000 then
+    Value := 1000;
+
+  Inverse := 1000 - Value;
+  Result := 1000 - ((Inverse * Inverse * Inverse) div 1000000);
+end;
+
+function KqGsapEaseInOut(Value: Integer): Integer;
+begin
+  if Value < 500 then
+    Result := (2 * Value * Value) div 1000
+  else
+    Result := 1000 - (2 * (1000 - Value) * (1000 - Value) div 1000);
+end;
+
+function KqMotionOffset(BaseOffset: Integer): Integer;
+var
+  Ease: Integer;
+begin
+  Ease := KqGsapEaseOutCubic(KqMotionPageTick * 90);
+  Result := (BaseOffset * (1000 - Ease)) div 1000;
+end;
+
+procedure KqRestoreMotionTargets();
+begin
+  if KqWelcomeLabel1Left > 0 then
+    WizardForm.WelcomeLabel1.Left := KqWelcomeLabel1Left;
+  if KqWelcomeLabel2Left > 0 then
+    WizardForm.WelcomeLabel2.Left := KqWelcomeLabel2Left;
+  if KqPageNameLeft > 0 then
+    WizardForm.PageNameLabel.Left := KqPageNameLeft;
+  if KqPageDescLeft > 0 then
+    WizardForm.PageDescriptionLabel.Left := KqPageDescLeft;
+  if KqReadyLabelLeft > 0 then
+    WizardForm.ReadyLabel.Left := KqReadyLabelLeft;
+  if KqFinishedHeadingLeft > 0 then
+    WizardForm.FinishedHeadingLabel.Left := KqFinishedHeadingLeft;
+  if KqFinishedLabelLeft > 0 then
+    WizardForm.FinishedLabel.Left := KqFinishedLabelLeft;
+end;
+
+procedure KqPrepareInstallerMotion(CurPageID: Integer);
+var
+  StartOffset: Integer;
+begin
+  KqRestoreMotionTargets();
+  KqMotionPageTick := 0;
+  KqMotionPageId := CurPageID;
+  StartOffset := ScaleX(18);
+
+  KqWelcomeLabel1Left := WizardForm.WelcomeLabel1.Left;
+  KqWelcomeLabel2Left := WizardForm.WelcomeLabel2.Left;
+  KqPageNameLeft := WizardForm.PageNameLabel.Left;
+  KqPageDescLeft := WizardForm.PageDescriptionLabel.Left;
+  KqReadyLabelLeft := WizardForm.ReadyLabel.Left;
+  KqFinishedHeadingLeft := WizardForm.FinishedHeadingLabel.Left;
+  KqFinishedLabelLeft := WizardForm.FinishedLabel.Left;
+
+  if CurPageID = wpWelcome then begin
+    WizardForm.WelcomeLabel1.Left := KqWelcomeLabel1Left + StartOffset;
+    WizardForm.WelcomeLabel2.Left := KqWelcomeLabel2Left + StartOffset;
+  end else if CurPageID = wpReady then begin
+    WizardForm.PageNameLabel.Left := KqPageNameLeft + StartOffset;
+    WizardForm.PageDescriptionLabel.Left := KqPageDescLeft + StartOffset;
+    WizardForm.ReadyLabel.Left := KqReadyLabelLeft + StartOffset;
+  end else if CurPageID = wpInstalling then begin
+    WizardForm.PageNameLabel.Left := KqPageNameLeft + StartOffset;
+    WizardForm.PageDescriptionLabel.Left := KqPageDescLeft + StartOffset;
+  end else if CurPageID = wpFinished then begin
+    WizardForm.FinishedHeadingLabel.Left := KqFinishedHeadingLeft + StartOffset;
+    WizardForm.FinishedLabel.Left := KqFinishedLabelLeft + StartOffset;
+  end;
+end;
+
+procedure KqMotionTimerProc(Arg1, Arg2, Arg3, Arg4: Longword);
+begin
+  Inc(KqMotionTick);
+  if KqMotionPageTick < 14 then
+    Inc(KqMotionPageTick);
+
+  if KqMotionPageId = wpWelcome then begin
+    WizardForm.WelcomeLabel1.Left := KqWelcomeLabel1Left + KqMotionOffset(ScaleX(18));
+    WizardForm.WelcomeLabel2.Left := KqWelcomeLabel2Left + KqMotionOffset(ScaleX(18));
+  end else if KqMotionPageId = wpReady then begin
+    WizardForm.PageNameLabel.Left := KqPageNameLeft + KqMotionOffset(ScaleX(18));
+    WizardForm.PageDescriptionLabel.Left := KqPageDescLeft + KqMotionOffset(ScaleX(18));
+    WizardForm.ReadyLabel.Left := KqReadyLabelLeft + KqMotionOffset(ScaleX(18));
+  end else if KqMotionPageId = wpInstalling then begin
+    WizardForm.PageNameLabel.Left := KqPageNameLeft + KqMotionOffset(ScaleX(18));
+    WizardForm.PageDescriptionLabel.Left := KqPageDescLeft + KqMotionOffset(ScaleX(18));
+  end else if KqMotionPageId = wpFinished then begin
+    WizardForm.FinishedHeadingLabel.Left := KqFinishedHeadingLeft + KqMotionOffset(ScaleX(18));
+    WizardForm.FinishedLabel.Left := KqFinishedLabelLeft + KqMotionOffset(ScaleX(18));
+  end;
+end;
+
+procedure KqCreateInstallerMotion();
+begin
+  if KqMotionTimerId <> 0 then
+    Exit;
+
+  KqMotionTimerId := SetTimer(0, 0, 30, CreateCallback(@KqMotionTimerProc));
+end;
+
+procedure KqStopInstallerMotion();
+begin
+  if KqMotionTimerId <> 0 then begin
+    KillTimer(0, KqMotionTimerId);
+    KqMotionTimerId := 0;
   end;
 end;
 
@@ -619,11 +835,14 @@ end;
 procedure InitializeWizard();
 begin
   ApplyUpgradeWizardText(wpWelcome);
+  KqCreateInstallerMotion();
+  KqPrepareInstallerMotion(wpWelcome);
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
   ApplyUpgradeWizardText(CurPageID);
+  KqPrepareInstallerMotion(CurPageID);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -631,9 +850,16 @@ begin
   if CurStep = ssInstall then begin
     StopExistingKqRuntimeForInstall();
   end else if CurStep = ssPostInstall then begin
+    KqInstallSucceeded := True;
     CleanupLegacyInstallRegistration();
     CleanupLegacyUserShortcuts();
   end;
+end;
+
+procedure DeinitializeSetup();
+begin
+  KqStopInstallerMotion();
+  KqLaunchUpgradeAfterFinish();
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

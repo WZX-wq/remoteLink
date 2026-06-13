@@ -420,6 +420,24 @@ pub fn set_options(m: HashMap<String, String>) {
 
 #[inline]
 pub fn set_option(key: String, value: String) {
+    if key == "temporary-password" {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            if !value.is_empty() {
+                *TEMPORARY_PASSWD.lock().unwrap() = value.clone();
+            }
+            allow_err!(ipc::set_config("temporary-password", value));
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            if value.is_empty() {
+                password_security::update_temporary_password();
+            } else {
+                password_security::set_temporary_password(&value);
+            }
+        }
+        return;
+    }
     if &key == "stop-service" {
         #[cfg(target_os = "macos")]
         {

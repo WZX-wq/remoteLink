@@ -79,6 +79,14 @@ Future<void> main(List<String> args) async {
         );
         break;
       case WindowType.ViewCamera:
+        if (!isViewCameraFeatureEnabled()) {
+          desktopType = DesktopType.main;
+          runMultiWindow(
+            argument,
+            kAppTypeMain,
+          );
+          break;
+        }
         desktopType = DesktopType.viewCamera;
         runMultiWindow(
           argument,
@@ -217,6 +225,10 @@ void runMultiWindow(
       );
       break;
     case kAppTypeDesktopViewCamera:
+      if (!isViewCameraFeatureEnabled()) {
+        widget = App();
+        break;
+      }
       draggablePositions.load();
       widget = DesktopViewCameraScreen(
         params: argument,
@@ -263,6 +275,9 @@ void runMultiWindow(
           windowId: kWindowId!);
       break;
     case kAppTypeDesktopViewCamera:
+      if (!isViewCameraFeatureEnabled()) {
+        break;
+      }
       // If screen rect is set, the window will be moved to the target screen and then set fullscreen.
       if (argument['screen_rect'] == null) {
         // display can be used to control the offset of the window.

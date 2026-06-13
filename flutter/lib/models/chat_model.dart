@@ -149,15 +149,16 @@ class ChatModel with ChangeNotifier {
   ChatUser? get currentUser => _messages[_currentKey]?.chatUser;
 
   showChatIconOverlay({Offset offset = const Offset(200, 50)}) {
+    if (isMobile && !kKqMobileTextChatEnabled) {
+      return;
+    }
     if (chatIconOverlayEntry != null) {
       chatIconOverlayEntry!.remove();
     }
     // mobile check navigationBar
-    final bar = navigationBarKey.currentWidget;
-    if (bar != null) {
-      if ((bar as BottomNavigationBar).currentIndex == 1) {
-        return;
-      }
+    if (isAndroid &&
+        HomePage.homeKey.currentState?.isChatPageCurrentTab == true) {
+      return;
     }
 
     final overlayState = _blockableOverlayState.state;
@@ -195,6 +196,9 @@ class ChatModel with ChangeNotifier {
   }
 
   showChatWindowOverlay({Offset? chatInitPos}) {
+    if (isMobile && !kKqMobileTextChatEnabled) {
+      return;
+    }
     if (chatWindowOverlayEntry != null) return;
     isWindowFocus.value = true;
     _blockableOverlayState.setMiddleBlocked(true);
@@ -240,6 +244,11 @@ class ChatModel with ChangeNotifier {
           chatWindowOverlayEntry == null);
 
   toggleChatOverlay({Offset? chatInitPos}) {
+    if (isMobile && !kKqMobileTextChatEnabled) {
+      hideChatIconOverlay();
+      hideChatWindowOverlay();
+      return;
+    }
     if (_isChatOverlayHide()) {
       gFFI.invokeMethod("enable_soft_keyboard", true);
       if (!(isDesktop || isWebDesktop)) {
@@ -260,6 +269,9 @@ class ChatModel with ChangeNotifier {
   }
 
   showChatPage(MessageKey key) async {
+    if (isMobile && !kKqMobileTextChatEnabled) {
+      return;
+    }
     if (isDesktop) {
       if (isConnManager) {
         if (!_isShowCMSidePage) {
@@ -370,7 +382,9 @@ class ChatModel with ChangeNotifier {
     final messagekey = MessageKey(peerId, id);
 
     // mobile: first message show overlay icon
-    if (!isDesktop && chatIconOverlayEntry == null) {
+    if (!isDesktop &&
+        kKqMobileTextChatEnabled &&
+        chatIconOverlayEntry == null) {
       showChatIconOverlay();
     }
     // show chat page

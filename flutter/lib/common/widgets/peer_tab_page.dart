@@ -20,7 +20,6 @@ import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
-import 'package:pull_down_button/pull_down_button.dart';
 
 import '../../common.dart';
 import '../../common/kq_theme.dart';
@@ -40,6 +39,20 @@ class _TabEntry {
 
 EdgeInsets? _menuPadding() {
   return (isDesktop || isWebDesktop) ? kDesktopMenuPadding : null;
+}
+
+String _kqPeerTabText(String key) {
+  if (!localeName.toString().toLowerCase().startsWith('zh')) {
+    return translate(key);
+  }
+  switch (key) {
+    case 'Device groups':
+      return '设备分组';
+    case 'Search device ID or name':
+      return '输入设备号或名称搜索';
+    default:
+      return translate(key);
+  }
 }
 
 class _PeerTabPageState extends State<PeerTabPage>
@@ -111,27 +124,189 @@ class _PeerTabPageState extends State<PeerTabPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Obx(() => SizedBox(
-              height: 44,
+              height: stateGlobal.isPortrait.isTrue ? 102 : 44,
               child: Container(
-                margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                margin: stateGlobal.isPortrait.isTrue
+                    ? const EdgeInsets.fromLTRB(0, 16, 0, 0)
+                    : const EdgeInsets.fromLTRB(14, 12, 14, 0),
                 padding: stateGlobal.isPortrait.isTrue
-                    ? const EdgeInsets.symmetric(horizontal: 2)
+                    ? EdgeInsets.zero
                     : const EdgeInsets.symmetric(horizontal: 4),
-                child: selectionWrap(Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    visibleContextMenuListener(_createSwitchBar(context)),
-                    const Spacer(),
-                    if (stateGlobal.isPortrait.isTrue)
-                      ..._portraitRightActions(context)
-                    else
-                      ..._landscapeRightActions(context)
-                  ],
-                )),
+                child: selectionWrap(stateGlobal.isPortrait.isTrue
+                    ? _buildPortraitToolbar(context)
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          visibleContextMenuListener(_createSwitchBar(context)),
+                          const Spacer(),
+                          ..._landscapeRightActions(context)
+                        ],
+                      )),
               ),
             )),
         _createPeersView(),
       ],
+    );
+  }
+
+  Widget _buildPortraitToolbar(BuildContext context) {
+    final model = Provider.of<PeerTabModel>(context);
+    final q = KqTheme.of(context);
+    final count = model.currentTabCachedPeers.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: PeerSearchBar(expanded: true),
+            ),
+            const SizedBox(width: 12),
+            _mobileToolbarButton(
+              context,
+              icon: Icons.refresh_rounded,
+              tooltip: translate('Refresh'),
+              onTap: () {
+                if (gFFI.peerTabModel.currentTab < entries.length) {
+                  entries[gFFI.peerTabModel.currentTab].load?.call();
+                }
+              },
+            ),
+            const SizedBox(width: 10),
+            _mobileToolbarButton(
+              context,
+              icon: Icons.tune_rounded,
+              tooltip: _kqPeerTabText('Device groups'),
+              onTap: _showMobileTabSelector,
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: _showMobileTabSelector,
+          onLongPress: mobileShowTabVisibilityMenu,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.keyboard_arrow_down_rounded, color: q.muted, size: 22),
+              const SizedBox(width: 4),
+              Text(
+                '${model.tabTooltip(model.currentTab)}($count)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: q.ink,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mobileToolbarButton(
+    BuildContext context, {
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    final q = KqTheme.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(17),
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: q.panelStrong.withOpacity(q.isDark ? 0.82 : 0.96),
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(color: q.line),
+            boxShadow: [
+              BoxShadow(
+                color: q.shadow.withOpacity(q.isDark ? 0.36 : 0.7),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: q.primary, size: 24),
+        ),
+      ),
+    );
+  }
+
+  void _showMobileTabSelector() {
+    final model = gFFI.peerTabModel;
+    final visibleTabs = model.visibleEnabledOrderedIndexs;
+    if (visibleTabs.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: KqTheme.of(context).panelStrong,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final q = KqTheme.of(context);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _kqPeerTabText('Device groups'),
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...visibleTabs.map((index) {
+                  final selected = model.currentTab == index;
+                  return ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    leading: Icon(
+                      model.tabIcon(index),
+                      color: selected ? q.primary : q.muted,
+                    ),
+                    title: Text(
+                      model.tabTooltip(index),
+                      style: TextStyle(
+                        color: selected ? q.primaryDeep : q.ink,
+                        fontWeight:
+                            selected ? FontWeight.w900 : FontWeight.w700,
+                      ),
+                    ),
+                    trailing: selected
+                        ? Icon(Icons.check_circle_rounded, color: q.primary)
+                        : null,
+                    selected: selected,
+                    selectedTileColor: q.primary.withOpacity(0.08),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await handleTabSelection(index);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -172,6 +347,7 @@ class _PeerTabPageState extends State<PeerTabPage>
   Widget _createPeersView() {
     final model = Provider.of<PeerTabModel>(context);
     final q = KqTheme.of(context);
+    final isPortrait = stateGlobal.isPortrait.isTrue;
     Widget child;
     if (model.visibleEnabledOrderedIndexs.isEmpty) {
       child = visibleContextMenuListener(Row(
@@ -190,22 +366,26 @@ class _PeerTabPageState extends State<PeerTabPage>
     }
     return Expanded(
       child: Container(
-        margin: EdgeInsets.fromLTRB(
-          14,
-          (isDesktop || isWebDesktop) ? 12.0 : 6.0,
-          14,
-          14,
-        ),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: q.workSurfaceGradient,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: q.line),
-        ),
+        margin: isPortrait
+            ? const EdgeInsets.fromLTRB(0, 8, 0, 14)
+            : EdgeInsets.fromLTRB(
+                14,
+                (isDesktop || isWebDesktop) ? 12.0 : 6.0,
+                14,
+                14,
+              ),
+        padding: isPortrait ? EdgeInsets.zero : const EdgeInsets.all(12),
+        decoration: isPortrait
+            ? null
+            : BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: q.workSurfaceGradient,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: q.line),
+              ),
         child: child,
       ),
     );
@@ -578,92 +758,12 @@ class _PeerTabPageState extends State<PeerTabPage>
       ),
     ];
   }
-
-  List<Widget> _portraitRightActions(BuildContext context) {
-    final model = Provider.of<PeerTabModel>(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final leftIconSize = Theme.of(context).iconTheme.size ?? 24;
-    final leftActionsSize =
-        (leftIconSize + (4 + 4) * 2) * model.visibleEnabledOrderedIndexs.length;
-    final availableWidth = screenWidth - 10 * 2 - leftActionsSize - 2 * 2;
-    final searchWidth = 120;
-    final otherActionWidth = 18 + 10;
-
-    dropDown(List<Widget> menus) {
-      final padding = 6.0;
-      final textColor = Theme.of(context).textTheme.titleLarge?.color;
-      return PullDownButton(
-        buttonBuilder:
-            (BuildContext context, Future<void> Function() showMenu) {
-          return _hoverAction(
-            context: context,
-            toolTip: translate('More'),
-            child: SvgPicture.asset(
-              "assets/chevron_up_chevron_down.svg",
-              width: 18,
-              height: 18,
-              colorFilter: svgColor(textColor),
-            ),
-            onTap: showMenu,
-          );
-        },
-        routeTheme: PullDownMenuRouteTheme(
-            width: menus.length * (otherActionWidth + padding * 2) * 1.0),
-        itemBuilder: (context) => [
-          PullDownMenuEntryImpl(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: menus
-                  .map((e) =>
-                      Material(child: e.paddingSymmetric(horizontal: padding)))
-                  .toList(),
-            ),
-          )
-        ],
-      );
-    }
-
-    // Always show search, refresh
-    List<Widget> actions = [
-      const PeerSearchBar(),
-      if (model.currentTab == PeerTabIndex.ab.index)
-        _createRefresh(
-            index: PeerTabIndex.ab, loading: gFFI.abModel.currentAbLoading),
-      if (model.currentTab == PeerTabIndex.group.index)
-        _createRefresh(
-            index: PeerTabIndex.group, loading: gFFI.groupModel.groupLoading),
-    ];
-    final List<Widget> dynamicActions = [
-      if (model.currentTabCachedPeers.isNotEmpty) _createMultiSelection(),
-      if (model.currentTab != PeerTabIndex.recent.index) PeerSortDropdown(),
-      if (model.currentTab == PeerTabIndex.ab.index) _toggleTags()
-    ];
-    final rightWidth = availableWidth -
-        searchWidth -
-        (actions.length == 2 ? otherActionWidth : 0);
-    final availablePositions = rightWidth ~/ otherActionWidth;
-
-    if (availablePositions < dynamicActions.length &&
-        dynamicActions.length > 1) {
-      if (availablePositions < 2) {
-        actions.addAll([
-          dropDown(dynamicActions),
-        ]);
-      } else {
-        actions.addAll([
-          ...dynamicActions.sublist(0, availablePositions - 1),
-          dropDown(dynamicActions.sublist(availablePositions - 1)),
-        ]);
-      }
-    } else {
-      actions.addAll(dynamicActions);
-    }
-    return actions;
-  }
 }
 
 class PeerSearchBar extends StatefulWidget {
-  const PeerSearchBar({Key? key}) : super(key: key);
+  const PeerSearchBar({Key? key, this.expanded = false}) : super(key: key);
+
+  final bool expanded;
 
   @override
   State<StatefulWidget> createState() => _PeerSearchBarState();
@@ -675,7 +775,7 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
-    return drawer
+    return widget.expanded || drawer
         ? _buildSearchBar()
         : _hoverAction(
             context: context,
@@ -700,11 +800,18 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
       focused.value = focusNode.hasFocus;
     });
     return Obx(() => Container(
-          width: stateGlobal.isPortrait.isTrue ? 120 : 140,
+          height: widget.expanded ? 48 : null,
+          width: widget.expanded
+              ? double.infinity
+              : stateGlobal.isPortrait.isTrue
+                  ? 120
+                  : 140,
           decoration: BoxDecoration(
-            color: q.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: q.line),
+            color: widget.expanded
+                ? q.panelStrong.withOpacity(q.isDark ? 0.78 : 0.94)
+                : q.surface,
+            borderRadius: BorderRadius.circular(widget.expanded ? 16 : 12),
+            border: Border.all(color: q.line.withOpacity(0.9)),
           ),
           child: Row(
             children: [
@@ -713,11 +820,11 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                   children: [
                     Icon(
                       Icons.search_rounded,
-                      color: q.muted,
-                    ).marginSymmetric(horizontal: 4),
+                      color: widget.expanded ? q.online : q.muted,
+                    ).marginSymmetric(horizontal: widget.expanded ? 12 : 4),
                     Expanded(
                       child: TextField(
-                        autofocus: true,
+                        autofocus: !widget.expanded,
                         controller: peerSearchTextController,
                         onChanged: (searchText) {
                           peerSearchText.value = searchText;
@@ -737,7 +844,9 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                           contentPadding:
                               const EdgeInsets.symmetric(vertical: 6),
                           hintText:
-                              focused.value ? null : translate("Search ID"),
+                              focused.value || peerSearchText.value.isNotEmpty
+                                  ? null
+                                  : _kqPeerTabText("Search device ID or name"),
                           hintStyle: TextStyle(fontSize: 14, color: q.muted),
                           border: InputBorder.none,
                           isDense: true,
@@ -745,22 +854,28 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                       ).workaroundFreezeLinuxMint(),
                     ),
                     // Icon(Icons.close),
-                    IconButton(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 2),
-                      onPressed: () {
-                        setState(() {
-                          peerSearchTextController.clear();
-                          peerSearchText.value = "";
-                          drawer = false;
-                        });
-                      },
-                      icon: Tooltip(
-                          message: translate('Close'),
-                          child: Icon(
-                            Icons.close,
-                            color: q.muted,
-                          )),
+                    Obx(
+                      () => Offstage(
+                        offstage:
+                            peerSearchText.value.isEmpty && widget.expanded,
+                        child: IconButton(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 2),
+                          onPressed: () {
+                            setState(() {
+                              peerSearchTextController.clear();
+                              peerSearchText.value = "";
+                              if (!widget.expanded) drawer = false;
+                            });
+                          },
+                          icon: Tooltip(
+                              message: translate('Close'),
+                              child: Icon(
+                                Icons.close_rounded,
+                                color: q.muted,
+                              )),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1034,15 +1149,4 @@ Widget _hoverAction(
               child: Container(padding: padding, child: child))),
     ),
   );
-}
-
-class PullDownMenuEntryImpl extends StatelessWidget
-    implements PullDownMenuEntry {
-  final Widget child;
-  const PullDownMenuEntryImpl({super.key, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return child;
-  }
 }

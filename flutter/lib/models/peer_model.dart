@@ -7,6 +7,8 @@ import 'platform_model.dart';
 // ignore: depend_on_referenced_packages
 import 'package:collection/collection.dart';
 
+String kqNormalizePeerId(String id) => id.replaceAll(RegExp(r'\s+'), '').trim();
+
 class Peer {
   final String id;
   String hash; // personal ab hash password
@@ -44,6 +46,7 @@ class Peer {
         forceAlwaysRelay = json['forceAlwaysRelay'] == 'true',
         rdpPort = json['rdpPort'] ?? '',
         rdpUsername = json['rdpUsername'] ?? '',
+        online = json['online'] == true || json['online'] == 'true',
         loginName = json['loginName'] ?? '',
         device_group_name = json['device_group_name'] ?? '',
         note = json['note'] is String ? json['note'] : '',
@@ -62,6 +65,7 @@ class Peer {
       "forceAlwaysRelay": forceAlwaysRelay.toString(),
       "rdpPort": rdpPort,
       "rdpUsername": rdpUsername,
+      'online': online,
       'loginName': loginName,
       'device_group_name': device_group_name,
       'note': note,
@@ -107,6 +111,7 @@ class Peer {
     required this.forceAlwaysRelay,
     required this.rdpPort,
     required this.rdpUsername,
+    this.online = false,
     required this.loginName,
     required this.device_group_name,
     required this.note,
@@ -160,6 +165,7 @@ class Peer {
             forceAlwaysRelay: other.forceAlwaysRelay,
             rdpPort: other.rdpPort,
             rdpUsername: other.rdpUsername,
+            online: other.online,
             loginName: other.loginName,
             device_group_name: other.device_group_name,
             note: other.note,
@@ -291,27 +297,30 @@ class Peers extends ChangeNotifier {
 
   void _updateOnlineState(Map<String, dynamic> evt) {
     int changedCount = 0;
-    evt['onlines'].split(',').forEach((online) {
-      for (var i = 0; i < peers.length; i++) {
-        if (peers[i].id == online) {
-          if (!peers[i].online) {
-            changedCount += 1;
-            peers[i].online = true;
-          }
+    final onlineSet = (evt['onlines'] as String)
+        .split(',')
+        .map(kqNormalizePeerId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final offlineSet = (evt['offlines'] as String)
+        .split(',')
+        .map(kqNormalizePeerId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    for (final peer in peers) {
+      final id = kqNormalizePeerId(peer.id);
+      if (onlineSet.contains(id)) {
+        if (!peer.online) {
+          changedCount += 1;
+          peer.online = true;
+        }
+      } else if (offlineSet.contains(id)) {
+        if (peer.online) {
+          changedCount += 1;
+          peer.online = false;
         }
       }
-    });
-
-    evt['offlines'].split(',').forEach((offline) {
-      for (var i = 0; i < peers.length; i++) {
-        if (peers[i].id == offline) {
-          if (peers[i].online) {
-            changedCount += 1;
-            peers[i].online = false;
-          }
-        }
-      }
-    });
+    }
 
     if (changedCount > 0) {
       event = UpdateEvent.online;
@@ -340,25 +349,29 @@ class Peers extends ChangeNotifier {
     }
 
     for (var peer in peers) {
-      final state = onlineStates[peer.id];
-      peer.online = state != null && state != false;
+      final state = onlineStates[kqNormalizePeerId(peer.id)];
+      if (state != null) {
+        peer.online = state;
+      }
     }
     event = UpdateEvent.load;
     notifyListeners();
     if (loadEvent == 'load_recent_peers') {
-      unawaited(_syncRecentPeersWithDatabase(onlineStates));
+      unawaited(_syncRecentPeersWithDatabase());
     }
   }
 
-  Future<void> _syncRecentPeersWithDatabase(
-      Map<String, bool> onlineStates) async {
+  Future<void> _syncRecentPeersWithDatabase() async {
     final localPeers = peers.map((peer) => Peer.copy(peer)).toList();
     await KqProjectApi.syncRecentPeers(localPeers);
     final remotePeers = await KqProjectApi.fetchConnectionHistory();
     if (remotePeers.isEmpty) return;
+    final onlineStates = _getOnlineStates();
     for (final peer in remotePeers) {
-      final state = onlineStates[peer.id];
-      peer.online = state != null && state != false;
+      final state = onlineStates[kqNormalizePeerId(peer.id)];
+      if (state != null) {
+        peer.online = state;
+      }
     }
     peers = remotePeers;
     restPeerIds = [];
@@ -369,7 +382,10 @@ class Peers extends ChangeNotifier {
   Map<String, bool> _getOnlineStates() {
     var onlineStates = <String, bool>{};
     for (var peer in peers) {
-      onlineStates[peer.id] = peer.online;
+      final id = kqNormalizePeerId(peer.id);
+      if (id.isNotEmpty) {
+        onlineStates[id] = peer.online;
+      }
     }
     return onlineStates;
   }

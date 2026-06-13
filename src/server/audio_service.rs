@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub const NAME: &'static str = "audio";
 pub const AUDIO_DATA_SIZE_U8: usize = 960 * 4; // 10ms in 48000 stereo
 static RESTARTING: AtomicBool = AtomicBool::new(false);
+static VOICE_CALL_CAPTURE_NONZERO_LOGGED: AtomicBool = AtomicBool::new(false);
 
 lazy_static::lazy_static! {
     static ref VOICE_CALL_INPUT_DEVICE: Arc::<Mutex::<Option<String>>> = Default::default();
@@ -54,17 +55,30 @@ pub fn set_voice_call_input_device(device: Option<String>, set_if_present: bool)
     if *VOICE_CALL_INPUT_DEVICE.lock().unwrap() == device {
         return;
     }
+    log::info!("Voice call input device changed to {:?}", device);
+    VOICE_CALL_CAPTURE_NONZERO_LOGGED.store(false, Ordering::SeqCst);
     *VOICE_CALL_INPUT_DEVICE.lock().unwrap() = device;
     restart();
 }
 
 #[inline]
+#[cfg(not(windows))]
 fn get_audio_input() -> String {
     VOICE_CALL_INPUT_DEVICE
         .lock()
         .unwrap()
         .clone()
         .unwrap_or(Config::get_option("audio-input"))
+}
+
+#[inline]
+#[cfg(windows)]
+fn get_voice_call_or_config_audio_input() -> (Option<String>, String) {
+    let voice_call_input = VOICE_CALL_INPUT_DEVICE.lock().unwrap().clone();
+    let audio_input = voice_call_input
+        .clone()
+        .unwrap_or(Config::get_option("audio-input"));
+    (voice_call_input, audio_input)
 }
 
 pub fn restart() {
@@ -282,8 +296,8 @@ mod cpal_impl {
 
     #[cfg(windows)]
     fn get_device() -> ResultType<(Device, SupportedStreamConfig)> {
-        let audio_input = super::get_audio_input();
-        if !audio_input.is_empty() {
+        let (voice_call_input, audio_input) = super::get_voice_call_or_config_audio_input();
+        if voice_call_input.is_some() || !audio_input.is_empty() {
             return get_audio_input(&audio_input);
         }
         let device = HOST
@@ -307,43 +321,100 @@ mod cpal_impl {
         get_audio_input(&audio_input)
     }
 
+    fn log_usable_input_device(
+        device: Device,
+        source: &str,
+    ) -> Option<(Device, SupportedStreamConfig)> {
+        let name = device.name().unwrap_or_default();
+        match device.default_input_config() {
+            Ok(format) => {
+                log::info!("Input device: {} ({})", name, source);
+                log::info!("Default input format: {:?}", format);
+                Some((device, format))
+            }
+            Err(err) => {
+                log::warn!(
+                    "Audio input device '{}' from {} is not usable: {}",
+                    name,
+                    source,
+                    err
+                );
+                None
+            }
+        }
+    }
+
+    fn get_named_audio_input_from_host(
+        host: &Host,
+        audio_input: &str,
+        source: &str,
+    ) -> ResultType<Option<(Device, SupportedStreamConfig)>> {
+        let mut matched = false;
+        for device in host
+            .input_devices()
+            .with_context(|| "Failed to get audio input devices")?
+        {
+            let name = device.name().unwrap_or_default();
+            if name != audio_input {
+                continue;
+            }
+            matched = true;
+            if let Some(device) = log_usable_input_device(device, source) {
+                return Ok(Some(device));
+            }
+        }
+        if !matched {
+            log::warn!(
+                "Configured audio input '{}' was not found in {} input devices",
+                audio_input,
+                source
+            );
+        }
+        Ok(None)
+    }
+
+    fn get_fallback_audio_input() -> ResultType<(Device, SupportedStreamConfig)> {
+        if let Some(device) = HOST.default_input_device() {
+            if let Some(device) = log_usable_input_device(device, "default input device") {
+                return Ok(device);
+            }
+            log::warn!("Default input device is not usable; trying another input device");
+        } else {
+            log::warn!("No default input device; trying the first usable input device");
+        }
+
+        for device in HOST
+            .input_devices()
+            .with_context(|| "Failed to get audio input devices")?
+        {
+            if let Some(device) = log_usable_input_device(device, "fallback input device") {
+                return Ok(device);
+            }
+        }
+        bail!("Failed to get default input format")
+    }
+
     fn get_audio_input(audio_input: &str) -> ResultType<(Device, SupportedStreamConfig)> {
-        let mut device = None;
         #[cfg(feature = "screencapturekit")]
         if !audio_input.is_empty() && is_screen_capture_kit_available() {
-            for d in HOST_SCREEN_CAPTURE_KIT
-                .as_ref()?
-                .devices()
-                .with_context(|| "Failed to get audio devices")?
-            {
-                if d.name().unwrap_or("".to_owned()) == audio_input {
-                    device = Some(d);
-                    break;
-                }
+            if let Some(device) = get_named_audio_input_from_host(
+                HOST_SCREEN_CAPTURE_KIT.as_ref()?,
+                audio_input,
+                "ScreenCaptureKit",
+            )? {
+                return Ok(device);
             }
         }
-        if device.is_none() && !audio_input.is_empty() {
-            for d in HOST
-                .devices()
-                .with_context(|| "Failed to get audio devices")?
-            {
-                if d.name().unwrap_or("".to_owned()) == audio_input {
-                    device = Some(d);
-                    break;
-                }
+        if !audio_input.is_empty() {
+            if let Some(device) = get_named_audio_input_from_host(&HOST, audio_input, "system")? {
+                return Ok(device);
             }
+            log::warn!(
+                "Configured audio input '{}' is not usable; falling back to default input",
+                audio_input
+            );
         }
-        let device = device.unwrap_or(
-            HOST.default_input_device()
-                .with_context(|| "Failed to get default input device for loopback")?,
-        );
-        log::info!("Input device: {}", device.name().unwrap_or("".to_owned()));
-        let format = device
-            .default_input_config()
-            .map_err(|e| anyhow!(e))
-            .with_context(|| "Failed to get default input format")?;
-        log::info!("Default input format: {:?}", format);
-        Ok((device, format))
+        get_fallback_audio_input()
     }
 
     fn play(sp: &GenericService) -> ResultType<(Box<dyn StreamTrait>, Arc<Message>)> {
@@ -467,6 +538,11 @@ static mut AUDIO_ZERO_COUNT: u16 = 0;
 
 fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
     if data.iter().filter(|x| **x != 0.).next().is_some() {
+        if get_voice_call_input_device().is_some()
+            && !VOICE_CALL_CAPTURE_NONZERO_LOGGED.swap(true, Ordering::SeqCst)
+        {
+            log::info!("Voice call microphone captured non-zero PCM");
+        }
         unsafe {
             AUDIO_ZERO_COUNT = 0;
         }

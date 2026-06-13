@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/kq_oauth_payload.dart';
@@ -12,13 +11,17 @@ import 'package:url_launcher/url_launcher.dart';
 const kKqOauthProvider = 'kunqiong';
 const kKqOauthProviderKey = 'external_auth_provider';
 
-const _clientId = 'app_e866d8c8242e2c2b';
-const _clientSecret = '19a43485a13c75fe451ec2e61148027e';
-const _redirectUri = 'http://localhost:6613/oauth/callback';
-const _callbackPort = 6613;
-const _authorizeUrl = 'https://login.kunqiongai.com/authorize.html';
-const _tokenUrl = 'https://login.kunqiongai.com/api/oauth/token';
-const _callbackPath = '/oauth/callback';
+const _apiBaseUrl = 'https://api-web.kunqiongai.com';
+const _loginBaseUrl = 'https://login.kunqiongai.com';
+const _secretKey = '7530bfb1ad6c41627b0f0620078fa5ed';
+const _passwordLoginPath = '/api/auth/login';
+const _smsSendPath = '/api/sms/send';
+const _smsLoginPath = '/api/auth/login/phone';
+const _webLoginUrlPath = '/soft_desktop/get_web_login_url';
+const _desktopTokenPath = '/user/desktop_get_token';
+const _checkLoginPath = '/user/check_login';
+const _userInfoPath = '/soft_desktop/get_user_info';
+const _logoutPath = '/logout';
 
 class KqOauthException implements Exception {
   final String message;
@@ -29,17 +32,10 @@ class KqOauthException implements Exception {
   String toString() => message;
 }
 
-class _CallbackServer {
-  final HttpServer server;
-  final String redirectUri;
-
-  const _CallbackServer(this.server, this.redirectUri);
-}
-
 class KqOauth {
-  static HttpServer? _activeServer;
-  static _ManagedAuthBrowser? _activeBrowser;
+  static _AuthView? _activeBrowser;
   static Future<LoginResponse>? _activeLogin;
+  static bool _cancelRequested = false;
 
   static bool get isActive =>
       bind.mainGetLocalOption(key: kKqOauthProviderKey) == kKqOauthProvider;
@@ -48,6 +44,7 @@ class KqOauth {
     if (_activeLogin != null) {
       await _cancelActiveLogin();
     }
+    _cancelRequested = false;
     final loginFuture = _loginOnce();
     _activeLogin = loginFuture;
     try {
@@ -59,38 +56,67 @@ class KqOauth {
     }
   }
 
-  static Future<LoginResponse> _loginOnce() async {
-    final state = _randomState();
-    final callback = await _bindCallbackServer();
-    _activeServer = callback.server;
-    try {
-      final authUri = buildKqOauthAuthorizeUri(
-        authorizeUrl: _authorizeUrl,
-        clientId: _clientId,
-        redirectUri: _redirectUri,
-        state: state,
-      );
+  static Future<LoginResponse> loginWithPassword({
+    required String username,
+    required String password,
+  }) async {
+    final body = await _postLoginJson(_passwordLoginPath, {
+      'username': username.trim(),
+      'password': password,
+    });
+    final response = _toNativeLoginResponse(body);
+    await _storeLogin(response, body);
+    return response;
+  }
 
-      final authBrowser = await _openAuthorization(authUri);
-      _activeBrowser = authBrowser;
-      try {
-        final code = await _waitForCallbackOrBrowserClose(
-            callback.server, state, authBrowser);
-        await authBrowser?.close();
-        final body = await _exchangeToken(code);
-        final response = _toLoginResponse(body);
-        await _storeLogin(response, body);
-        return response;
-      } finally {
-        await authBrowser?.close();
-        if (identical(_activeBrowser, authBrowser)) {
-          _activeBrowser = null;
-        }
-      }
+  static Future<void> sendSmsCode({required String phone}) async {
+    await _postLoginJson(_smsSendPath, {
+      'phone': phone.trim(),
+      'purpose': 'login',
+    });
+  }
+
+  static Future<LoginResponse> loginWithSms({
+    required String phone,
+    required String code,
+  }) async {
+    final body = await _postLoginJson(_smsLoginPath, {
+      'phone': phone.trim(),
+      'code': code.trim(),
+    });
+    final response = _toNativeLoginResponse(body);
+    await _storeLogin(response, body);
+    return response;
+  }
+
+  static Future<LoginResponse> _loginOnce() async {
+    final existing = await _restoreExistingLogin();
+    if (existing != null) {
+      return existing;
+    }
+
+    final encodedNonce = encodeKqDesktopLoginNonce(
+      generateKqDesktopLoginNonce(secretKey: _secretKey),
+    );
+    final webLoginUrl = await _getWebLoginUrl();
+    final loginUri = buildKqDesktopLoginUri(
+      webLoginUrl: webLoginUrl,
+      clientNonce: encodedNonce,
+    );
+
+    final authBrowser = await _openAuthorization(loginUri);
+    _activeBrowser = authBrowser;
+    try {
+      final token = await _pollToken(encodedNonce, authBrowser);
+      await authBrowser?.close();
+      final userInfoResponse = await _getUserInfo(token);
+      final response = _toLoginResponse(token, userInfoResponse);
+      await _storeLogin(response, userInfoResponse);
+      return response;
     } finally {
-      await callback.server.close(force: true);
-      if (identical(_activeServer, callback.server)) {
-        _activeServer = null;
+      await authBrowser?.close();
+      if (identical(_activeBrowser, authBrowser)) {
+        _activeBrowser = null;
       }
     }
   }
@@ -99,47 +125,165 @@ class KqOauth {
     unawaited(_cancelActiveLogin());
   }
 
+  static Future<void> logout() async {
+    final token = bind.mainGetLocalOption(key: 'access_token').trim();
+    if (token.isEmpty) {
+      return;
+    }
+    try {
+      await _postForm(
+        _logoutPath,
+        headers: {'token': token},
+      ).timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Local logout must still succeed when the web API is unavailable.
+    }
+  }
+
+  static Future<bool> checkLogin() async {
+    final token = bind.mainGetLocalOption(key: 'access_token').trim();
+    if (token.isEmpty) {
+      return false;
+    }
+    final body = await _postForm(_checkLoginPath, body: {'token': token});
+    return parseKqCheckLoginResult(body);
+  }
+
+  static Future<LoginResponse?> _restoreExistingLogin() async {
+    if (!isActive) {
+      return null;
+    }
+    final token = bind.mainGetLocalOption(key: 'access_token').trim();
+    if (token.isEmpty) {
+      return null;
+    }
+    try {
+      if (!await checkLogin()) {
+        await _clearStoredLogin();
+        return null;
+      }
+      final userInfoResponse = await _getUserInfo(token);
+      final response = _toLoginResponse(token, userInfoResponse);
+      await _storeLogin(response, userInfoResponse);
+      return response;
+    } catch (_) {
+      await _clearStoredLogin();
+      return null;
+    }
+  }
+
   static Future<void> _cancelActiveLogin() async {
-    final server = _activeServer;
+    _cancelRequested = true;
     final browser = _activeBrowser;
-    _activeServer = null;
     _activeBrowser = null;
     _activeLogin = null;
     if (browser != null) {
       unawaited(browser.close());
     }
+  }
+
+  static Future<String> _getWebLoginUrl() async {
+    final body = await _postForm(_webLoginUrlPath);
     try {
-      if (server != null) {
-        await server.close(force: true).timeout(const Duration(seconds: 1));
-      }
-    } catch (_) {
-      // A stale callback server should never block a fresh login attempt.
+      return extractKqWebLoginUrl(body);
+    } on FormatException catch (err) {
+      throw KqOauthException(err.message);
     }
   }
 
-  static Future<_CallbackServer> _bindCallbackServer() async {
-    await _activeServer?.close(force: true);
-    _activeServer = null;
-    try {
-      final server = await HttpServer.bind(
-        InternetAddress.loopbackIPv6,
-        _callbackPort,
-        v6Only: false,
-      );
-      return _CallbackServer(server, _redirectUri);
-    } on SocketException {
+  static Future<String> _pollToken(
+      String encodedNonce, _AuthView? authBrowser) async {
+    final deadline = DateTime.now().add(const Duration(minutes: 5));
+    while (DateTime.now().isBefore(deadline)) {
+      if (_cancelRequested) {
+        throw KqOauthException('Authorization canceled.');
+      }
+      if (authBrowser != null && await authBrowser.isUserClosed()) {
+        throw KqOauthException('Authorization canceled.');
+      }
       try {
-        final server =
-            await HttpServer.bind(InternetAddress.loopbackIPv4, _callbackPort);
-        return _CallbackServer(server, _redirectUri);
-      } on SocketException {
-        throw KqOauthException(
-            'Login callback port 6613 is already in use. Close the existing login page and try again.');
+        final body = await _postForm(_desktopTokenPath, body: {
+          'client_type': 'desktop',
+          'client_nonce': encodedNonce,
+        }).timeout(const Duration(seconds: 8));
+        final token = extractKqDesktopTokenIfReady(body);
+        if (token != null) {
+          return token;
+        }
+      } catch (err) {
+        if (err is KqOauthException) {
+          rethrow;
+        }
+        // The server can return "not logged in yet" or transient network
+        // errors while the user is still completing the browser login.
       }
+      await Future<void>.delayed(const Duration(seconds: 2));
     }
+    throw KqOauthException('Authorization timed out.');
   }
 
-  static Future<_ManagedAuthBrowser?> _openAuthorization(Uri authUri) async {
+  static Future<Map<String, dynamic>> _getUserInfo(String token) async {
+    return await _postForm(_userInfoPath, headers: {'token': token});
+  }
+
+  static Future<Map<String, dynamic>> _postForm(
+    String path, {
+    Map<String, String>? headers,
+    Map<String, String>? body,
+  }) async {
+    final requestHeaders = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...?headers,
+    };
+    final resp = await http.post(
+      Uri.parse('$_apiBaseUrl$path'),
+      headers: requestHeaders,
+      body: body == null ? null : Uri(queryParameters: body).query,
+    );
+    final raw = utf8.decode(resp.bodyBytes, allowMalformed: true);
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      throw KqOauthException('Invalid Kunqiong API response.');
+    }
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      final message = (decoded['msg'] ?? decoded['message'])?.toString();
+      throw KqOauthException(message == null || message.isEmpty
+          ? 'Kunqiong API request failed.'
+          : message);
+    }
+    return decoded;
+  }
+
+  static Future<Map<String, dynamic>> _postLoginJson(
+    String path,
+    Map<String, String> body,
+  ) async {
+    final resp = await http.post(
+      Uri.parse('$_loginBaseUrl$path'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+    final raw = utf8.decode(resp.bodyBytes, allowMalformed: true);
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      throw KqOauthException('Invalid Kunqiong login response.');
+    }
+    final code = int.tryParse((decoded['code'] ?? '').toString());
+    if (resp.statusCode < 200 ||
+        resp.statusCode >= 300 ||
+        (code != null && code != 200)) {
+      final message = (decoded['message'] ?? decoded['msg'])?.toString();
+      throw KqOauthException(message == null || message.isEmpty
+          ? 'Kunqiong login request failed.'
+          : message);
+    }
+    return decoded;
+  }
+
+  static Future<_AuthView?> _openAuthorization(Uri authUri) async {
     Object? managedBrowserError;
     if (Platform.isWindows) {
       try {
@@ -152,156 +296,35 @@ class KqOauth {
       }
     }
 
+    if (Platform.isAndroid || Platform.isIOS) {
+      final launched = await launchUrl(
+        authUri,
+        mode: LaunchMode.inAppWebView,
+        webViewConfiguration: const WebViewConfiguration(
+          enableJavaScript: true,
+          enableDomStorage: true,
+        ),
+      );
+      if (!launched) {
+        throw KqOauthException('Unable to open the Kunqiong login page.');
+      }
+      return const _InAppAuthView();
+    }
+
     final launched =
         await launchUrl(authUri, mode: LaunchMode.externalApplication);
     if (!launched) {
       final detail = managedBrowserError == null
           ? ''
           : ' Managed browser error: $managedBrowserError';
-      throw KqOauthException('Unable to open the authorization page.$detail');
+      throw KqOauthException('Unable to open the Kunqiong login page.$detail');
     }
     return null;
   }
 
-  static Future<String> _waitForCallbackOrBrowserClose(
-    HttpServer server,
-    String expectedState,
-    _ManagedAuthBrowser? authBrowser,
-  ) {
-    final callback = _waitForCallback(server, expectedState);
-    if (authBrowser == null) {
-      return callback;
-    }
-    final browserClose = authBrowser.waitForUserClose().then<String>((_) {
-      throw KqOauthException('Authorization canceled.');
-    });
-    return Future.any([callback, browserClose]);
-  }
-
-  static Future<String> _waitForCallback(
-      HttpServer server, String expectedState) async {
-    final deadline = DateTime.now().add(const Duration(minutes: 10));
-    final iterator = StreamIterator<HttpRequest>(server);
-    try {
-      while (true) {
-        final remaining = deadline.difference(DateTime.now());
-        if (remaining.inMilliseconds <= 0) {
-          throw KqOauthException('Authorization timed out.');
-        }
-
-        final hasRequest = await iterator.moveNext().timeout(
-              remaining,
-              onTimeout: () =>
-                  throw KqOauthException('Authorization timed out.'),
-            );
-        if (!hasRequest) {
-          throw KqOauthException('Authorization canceled.');
-        }
-        final request = iterator.current;
-
-        final error = parseKqOauthCallbackError(
-          request.uri,
-          expectedState,
-          callbackPath: _callbackPath,
-        );
-        final valid = isKqOauthCallbackSuccess(
-          request.uri,
-          expectedState,
-          callbackPath: _callbackPath,
-        );
-
-        request.response.headers.contentType =
-            ContentType('text', 'html', charset: 'utf-8');
-        request.response.write(_callbackHtml(valid, error));
-        await request.response.close();
-
-        if (error != null && error.isNotEmpty) {
-          throw KqOauthException(error);
-        }
-        try {
-          return parseKqOauthCallbackCode(
-            request.uri,
-            expectedState,
-            callbackPath: _callbackPath,
-          );
-        } on FormatException {
-          continue;
-        }
-      }
-    } finally {
-      await iterator.cancel();
-    }
-  }
-
-  static Future<Map<String, dynamic>> _exchangeToken(String code) async {
-    final params = {
-      'grant_type': 'authorization_code',
-      'code': code,
-      'client_id': _clientId,
-      'client_secret': _clientSecret,
-      'redirect_uri': _redirectUri,
-    };
-    var resp = await http.post(
-      Uri.parse(_tokenUrl),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(params),
-    );
-    var decoded = _tryDecodeTokenResponse(resp);
-    if (resp.statusCode != 200 || !_isTokenResponseSuccess(decoded)) {
-      resp = await http.post(
-        Uri.parse(_tokenUrl),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: Uri(queryParameters: params).query,
-      );
-      decoded = _decodeTokenResponse(resp);
-    }
-    final tokenBody = decoded;
-    if (resp.statusCode != 200 || tokenBody == null) {
-      throw KqOauthException(
-          (tokenBody?['message'] ?? 'OAuth token exchange failed').toString());
-    }
-    return _extractTokenData(tokenBody);
-  }
-
-  static bool _isTokenResponseSuccess(Map<String, dynamic>? body) {
-    if (body == null) return false;
-    try {
-      extractKqOauthTokenData(body);
-      return true;
-    } on FormatException {
-      return false;
-    }
-  }
-
-  static Map<String, dynamic> _extractTokenData(Map<String, dynamic> body) {
-    try {
-      return extractKqOauthTokenData(body);
-    } on FormatException catch (err) {
-      throw KqOauthException(err.message);
-    }
-  }
-
-  static Map<String, dynamic>? _tryDecodeTokenResponse(http.Response resp) {
-    try {
-      return _decodeTokenResponse(resp);
-    } on KqOauthException {
-      return null;
-    } on FormatException {
-      return null;
-    }
-  }
-
-  static Map<String, dynamic> _decodeTokenResponse(http.Response resp) {
-    final raw = utf8.decode(resp.bodyBytes, allowMalformed: true);
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map<String, dynamic>) {
-      throw KqOauthException('Invalid token response.');
-    }
-    return decoded;
-  }
-
-  static LoginResponse _toLoginResponse(Map<String, dynamic> data) {
-    final payload = _parseLoginPayload(data);
+  static LoginResponse _toLoginResponse(
+      String token, Map<String, dynamic> userInfoResponse) {
+    final payload = _parseLoginPayload(token, userInfoResponse);
     return LoginResponse.fromJson({
       'type': HttpType.kAuthResTypeToken,
       'access_token': payload.accessToken,
@@ -309,18 +332,63 @@ class KqOauth {
     });
   }
 
-  static KqOauthLoginPayload _parseLoginPayload(Map<String, dynamic> data) {
+  static LoginResponse _toNativeLoginResponse(Map<String, dynamic> body) {
+    final data = body['data'];
+    if (data is! Map) {
+      throw KqOauthException('Kunqiong login response data is empty.');
+    }
+    final accessToken =
+        (data['api_web_token'] ?? data['access_token'] ?? '').toString().trim();
+    final jwtToken = (data['access_token'] ?? '').toString().trim();
+    final user = normalizeKqOauthUser(data['user']);
+    if (accessToken.isEmpty || user == null) {
+      throw KqOauthException(
+          'Kunqiong login response is missing token or user.');
+    }
+    return LoginResponse.fromJson({
+      'type': HttpType.kAuthResTypeToken,
+      'access_token': accessToken,
+      'user': {
+        ...user,
+        'api_web_token': accessToken,
+        'kq_token': jwtToken,
+        'token': jwtToken,
+      },
+    });
+  }
+
+  static KqOauthLoginPayload _parseLoginPayload(
+      String token, Map<String, dynamic> userInfoResponse) {
     try {
-      return parseKqOauthLoginPayload(data);
+      return parseKqOauthLoginPayload(
+        token: token,
+        userInfoResponse: userInfoResponse,
+      );
     } on FormatException catch (err) {
       throw KqOauthException(err.message);
     }
   }
 
   static Future<void> _storeLogin(
-      LoginResponse response, Map<String, dynamic> rawData) async {
+      LoginResponse response, Map<String, dynamic> rawUserInfoResponse) async {
     await bind.mainSetLocalOption(
         key: 'access_token', value: response.access_token ?? '');
+    final rawData = rawUserInfoResponse['data'];
+    String apiWebToken = '';
+    String jwtToken = '';
+    if (rawData is Map) {
+      apiWebToken = (rawData['api_web_token'] ?? '').toString().trim();
+      jwtToken = (rawData['access_token'] ?? '').toString().trim();
+    }
+    if (apiWebToken.isNotEmpty) {
+      await bind.mainSetLocalOption(
+          key: 'kq_api_web_token', value: apiWebToken);
+      await bind.mainSetLocalOption(key: 'api_web_token', value: apiWebToken);
+    }
+    if (jwtToken.isNotEmpty) {
+      await bind.mainSetLocalOption(key: 'kq_token', value: jwtToken);
+      await bind.mainSetLocalOption(key: 'user_token', value: jwtToken);
+    }
     await bind.mainSetLocalOption(
         key: kKqOauthProviderKey, value: kKqOauthProvider);
     await bind.mainSetLocalOption(
@@ -332,72 +400,45 @@ class KqOauth {
         'avatar': response.user?.avatar ?? '',
         'email': response.user?.email ?? '',
         'status': 1,
+        'api_web_token': apiWebToken,
+        'kq_token': jwtToken,
+        'token': jwtToken,
         'external_auth_provider': kKqOauthProvider,
-        'external_auth_raw': rawData,
+        'external_auth_raw': rawUserInfoResponse,
       }),
     );
   }
 
-  static String _randomState() {
-    final random = Random.secure();
-    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
-    return base64Url.encode(bytes).replaceAll('=', '');
-  }
-
-  static String _callbackHtml(bool success, String? error) {
-    final escape = const HtmlEscape().convert;
-    if (success) {
-      return '''
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Login completed</title>
-    <script>
-      function closePage() {
-        try { window.opener = null; } catch (_) {}
-        window.open('', '_self');
-        window.close();
-      }
-      function showFallback() {
-        var el = document.getElementById('fallback');
-        if (el) el.style.display = 'block';
-      }
-      window.addEventListener('load', function() {
-        closePage();
-        setTimeout(closePage, 100);
-        setTimeout(closePage, 400);
-        setTimeout(closePage, 900);
-        setTimeout(showFallback, 1200);
-      });
-    </script>
-  </head>
-  <body style="font-family:sans-serif;padding:24px;color:#1f2937;">
-    <div id="fallback" style="display:none;">
-      <h2 style="margin:0 0 12px;font-size:20px;">Login completed</h2>
-      <p style="margin:0;font-size:14px;">Kunqiong Remote Desktop login is complete. You can close this page.</p>
-    </div>
-  </body>
-</html>
-''';
-    }
-    final title = escape('Login failed');
-    final detail = escape(
-        error == null || error.isEmpty ? 'Authorization failed.' : error);
-    return '''
-<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>$title</title></head>
-  <body style="font-family: sans-serif; padding: 32px;">
-    <h2>$title</h2>
-    <p>$detail</p>
-  </body>
-</html>
-''';
+  static Future<void> _clearStoredLogin() async {
+    await bind.mainSetLocalOption(key: 'access_token', value: '');
+    await bind.mainSetLocalOption(key: 'user_info', value: '');
+    await bind.mainSetLocalOption(key: kKqOauthProviderKey, value: '');
   }
 }
 
-class _ManagedAuthBrowser {
+abstract class _AuthView {
+  Future<void> close();
+
+  Future<bool> isUserClosed();
+}
+
+class _InAppAuthView implements _AuthView {
+  const _InAppAuthView();
+
+  @override
+  Future<void> close() async {
+    try {
+      await closeInAppWebView();
+    } catch (_) {
+      // Some platforms cannot close an already-dismissed in-app WebView.
+    }
+  }
+
+  @override
+  Future<bool> isUserClosed() async => false;
+}
+
+class _ManagedAuthBrowser implements _AuthView {
   final Process _process;
   final Directory _profileDir;
   bool _closed = false;
@@ -410,7 +451,7 @@ class _ManagedAuthBrowser {
       return null;
     }
 
-    final profileDir = await Directory.systemTemp.createTemp('kq_oauth_');
+    final profileDir = await Directory.systemTemp.createTemp('kq_login_');
     try {
       final process = await Process.start(browserPath, [
         '--user-data-dir=${profileDir.path}',
@@ -418,7 +459,7 @@ class _ManagedAuthBrowser {
         '--no-default-browser-check',
         '--disable-sync',
         '--app=${authUri.toString()}',
-        '--window-size=980,760',
+        '--window-size=1360,820',
       ]);
       unawaited(process.stdout.drain<void>());
       unawaited(process.stderr.drain<void>());
@@ -429,6 +470,7 @@ class _ManagedAuthBrowser {
     }
   }
 
+  @override
   Future<void> close() async {
     if (_closed) {
       return;
@@ -444,23 +486,20 @@ class _ManagedAuthBrowser {
     await _deleteProfileDir(_profileDir);
   }
 
-  Future<void> waitForUserClose() async {
+  @override
+  Future<bool> isUserClosed() async {
+    if (_closed) {
+      return true;
+    }
     if (Platform.isWindows) {
-      await _waitForWindowsUserClose();
-      return;
+      return !await _hasWindowsBrowserProcesses();
     }
-    await _process.exitCode;
-  }
-
-  Future<void> _waitForWindowsUserClose() async {
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    while (!_closed) {
-      final isRunning = await _hasWindowsBrowserProcesses();
-      if (!isRunning) {
-        return;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-    }
+    return _process.exitCode
+        .timeout(
+          const Duration(milliseconds: 1),
+          onTimeout: () => -1,
+        )
+        .then((code) => code != -1);
   }
 
   Future<bool> _hasWindowsBrowserProcesses() async {
@@ -567,9 +606,9 @@ class _ManagedAuthBrowser {
 
   static void _logCleanupFailure(String action, Object error) {
     try {
-      stderr.writeln('KQ OAuth browser cleanup failed ($action): $error');
+      stderr.writeln('KQ login browser cleanup failed ($action): $error');
     } catch (_) {
-      // Nothing else to do; cleanup logging must not affect login.
+      // Cleanup logging must not affect login.
     }
   }
 }

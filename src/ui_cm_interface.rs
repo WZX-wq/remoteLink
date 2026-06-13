@@ -1,4 +1,6 @@
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::client::{start_audio_thread, MediaData, MediaSender};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::ipc::Connection;
 #[cfg(not(any(target_os = "ios")))]
 use crate::ipc::{self, Data};
@@ -11,7 +13,7 @@ use hbb_common::fs::serialize_transfer_job;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::tokio::sync::mpsc::unbounded_channel;
 use hbb_common::{
-    allow_err, bail,
+    allow_err,
     config::{
         keys::{OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW, OPTION_FILE_TRANSFER_MAX_FILES},
         option2bool, Config,
@@ -37,11 +39,24 @@ use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering},
         RwLock,
+    },
+    time::Instant,
+};
+#[cfg(target_os = "windows")]
+use winapi::{
+    shared::{
+        minwindef::{LPARAM, LRESULT, WPARAM},
+        windef::HHOOK,
+    },
+    um::winuser::{
+        CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
+        HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
+        WH_KEYBOARD_LL, WH_MOUSE_LL,
     },
 };
 
@@ -165,6 +180,8 @@ struct IpcTaskRunner<T: InvokeUiCM> {
     file_transfer_enabled: bool,
     #[cfg(target_os = "windows")]
     file_transfer_enabled_peer: bool,
+    voice_call_audio_sender: Option<MediaSender>,
+    voice_call_audio_frames_received: u64,
     /// Read jobs for CM-side file reading (server to client transfers)
     read_jobs: Vec<fs::TransferJob>,
 }
@@ -173,7 +190,86 @@ lazy_static::lazy_static! {
     static ref CLIENTS: RwLock<HashMap<i32, Client>> = Default::default();
 }
 
+#[cfg(target_os = "windows")]
+lazy_static::lazy_static! {
+    static ref KQ_CM_MANUAL_KEYBOARD_DISABLED: RwLock<HashSet<i32>> = Default::default();
+}
+
 static CLICK_TIME: AtomicI64 = AtomicI64::new(0);
+#[cfg(target_os = "windows")]
+static KQ_CM_LOCAL_INPUT_HOOK_STARTED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static KQ_CM_LOCAL_INPUT_TICK: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn kq_cm_keyboard_hook(
+    code: i32,
+    w_param: WPARAM,
+    l_param: LPARAM,
+) -> LRESULT {
+    if code == HC_ACTION {
+        let info = &*(l_param as *const KBDLLHOOKSTRUCT);
+        if info.flags & LLKHF_INJECTED == 0 {
+            KQ_CM_LOCAL_INPUT_TICK.store(info.time, Ordering::SeqCst);
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, w_param, l_param)
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn kq_cm_mouse_hook(code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+    if code == HC_ACTION {
+        let info = &*(l_param as *const MSLLHOOKSTRUCT);
+        if info.flags & LLMHF_INJECTED == 0 {
+            KQ_CM_LOCAL_INPUT_TICK.store(info.time, Ordering::SeqCst);
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, w_param, l_param)
+}
+
+#[cfg(target_os = "windows")]
+fn kq_cm_local_input_tick() -> u32 {
+    KQ_CM_LOCAL_INPUT_TICK.load(Ordering::SeqCst)
+}
+
+#[cfg(target_os = "windows")]
+fn kq_ensure_cm_local_input_hook() {
+    if KQ_CM_LOCAL_INPUT_HOOK_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| unsafe {
+        let keyboard_hook: HHOOK = SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(kq_cm_keyboard_hook),
+            std::ptr::null_mut(),
+            0,
+        );
+        if keyboard_hook.is_null() {
+            KQ_CM_LOCAL_INPUT_HOOK_STARTED.store(false, Ordering::SeqCst);
+            log::warn!(
+                "KQ CM controlled-side local keyboard hook failed: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+        let mouse_hook: HHOOK =
+            SetWindowsHookExW(WH_MOUSE_LL, Some(kq_cm_mouse_hook), std::ptr::null_mut(), 0);
+        if mouse_hook.is_null() {
+            KQ_CM_LOCAL_INPUT_HOOK_STARTED.store(false, Ordering::SeqCst);
+            log::warn!(
+                "KQ CM controlled-side local mouse hook failed: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+
+        let mut msg: MSG = std::mem::zeroed();
+        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    });
+}
 
 #[derive(Clone)]
 pub struct ConnectionManager<T: InvokeUiCM> {
@@ -412,9 +508,139 @@ pub fn switch_permission(id: i32, name: String, enabled: bool) {
         );
         return;
     }
+    #[cfg(target_os = "windows")]
+    if name == "keyboard" {
+        let mut disabled = KQ_CM_MANUAL_KEYBOARD_DISABLED.write().unwrap();
+        if enabled {
+            disabled.remove(&id);
+        } else {
+            disabled.insert(id);
+        }
+    }
     if let Some(client) = CLIENTS.read().unwrap().get(&id) {
         allow_err!(client.tx.send(Data::SwitchPermission { name, enabled }));
     };
+}
+
+#[cfg(target_os = "windows")]
+fn kq_revoke_keyboard_after_local_input<T: InvokeUiCM>(
+    cm: &ConnectionManager<T>,
+    local_input_tick: u32,
+    baseline: &mut u32,
+    auto_paused: &mut HashMap<i32, Instant>,
+) {
+    if local_input_tick == 0 || local_input_tick == *baseline {
+        return;
+    }
+    *baseline = local_input_tick;
+    let now = Instant::now();
+    for last_input_at in auto_paused.values_mut() {
+        *last_input_at = now;
+    }
+    let clients = {
+        let mut clients = CLIENTS.write().unwrap();
+        let manual_disabled = KQ_CM_MANUAL_KEYBOARD_DISABLED.read().unwrap();
+        clients
+            .values_mut()
+            .filter(|client| {
+                client.authorized
+                    && !client.is_file_transfer
+                    && !client.is_view_camera
+                    && !client.is_terminal
+                    && client.port_forward.is_empty()
+                    && client.keyboard
+                    && !manual_disabled.contains(&client.id)
+            })
+            .map(|client| {
+                client.keyboard = false;
+                auto_paused.insert(client.id, now);
+                client.clone()
+            })
+            .collect::<Vec<_>>()
+    };
+    for client in clients {
+        log::info!(
+            "KQ CM auto paused controller keyboard/mouse permission due to controlled-side local input (conn {}, local_input_tick {})",
+            client.id,
+            local_input_tick
+        );
+        allow_err!(client.tx.send(Data::SwitchPermission {
+            name: "keyboard".to_owned(),
+            enabled: false,
+        }));
+        cm.ui_handler.add_connection(&client);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn kq_restore_keyboard_after_local_input_idle<T: InvokeUiCM>(
+    cm: &ConnectionManager<T>,
+    auto_paused: &mut HashMap<i32, Instant>,
+) {
+    let ready = auto_paused
+        .iter()
+        .filter_map(|(id, last_input_at)| {
+            if last_input_at.elapsed().as_millis() >= 2_000 {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if ready.is_empty() {
+        return;
+    }
+    let clients = {
+        let mut clients = CLIENTS.write().unwrap();
+        let manual_disabled = KQ_CM_MANUAL_KEYBOARD_DISABLED.read().unwrap();
+        ready
+            .into_iter()
+            .filter_map(|id| {
+                auto_paused.remove(&id);
+                if manual_disabled.contains(&id) {
+                    return None;
+                }
+                clients.get_mut(&id).map(|client| {
+                    client.keyboard = true;
+                    client.clone()
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    for client in clients {
+        log::info!(
+            "KQ CM restored controller keyboard/mouse permission after controlled-side local input idle for 2000 ms (conn {})",
+            client.id
+        );
+        allow_err!(client.tx.send(Data::SwitchPermission {
+            name: "keyboard".to_owned(),
+            enabled: true,
+        }));
+        cm.ui_handler.add_connection(&client);
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn kq_run_cm_local_input_monitor<T: InvokeUiCM>(cm: ConnectionManager<T>) {
+    use hbb_common::tokio::time::{self, Duration};
+
+    kq_ensure_cm_local_input_hook();
+    let mut baseline = kq_cm_local_input_tick();
+    let mut auto_paused: HashMap<i32, Instant> = HashMap::new();
+    let mut timer = crate::rustdesk_interval(time::interval(Duration::from_millis(200)));
+    loop {
+        timer.tick().await;
+        let local_input_tick = kq_cm_local_input_tick();
+        if local_input_tick != 0 && local_input_tick != baseline {
+            kq_revoke_keyboard_after_local_input(
+                &cm,
+                local_input_tick,
+                &mut baseline,
+                &mut auto_paused,
+            );
+        }
+        kq_restore_keyboard_after_local_input_idle(&cm, &mut auto_paused);
+    }
 }
 
 #[inline]
@@ -574,21 +800,24 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
                                     self.cm.new_message(self.conn_id, text);
                                 }
                                 Data::SwitchPermission { name, enabled } => {
-                                    // Keep this branch scoped to privacy mode rollback.
-                                    // Other CM permission toggles are updated optimistically by the UI itself.
-                                    // The backend currently sends SwitchPermission back to CM only when
-                                    // privacy-mode turn-off fails and the UI state must be restored.
-                                    if name == "privacy_mode" {
+                                    // Manual CM toggles are updated optimistically by the UI itself.
+                                    // The backend sends SwitchPermission here for server-side rollbacks
+                                    // and automatic permission revocation.
+                                    if name == "keyboard" || name == "privacy_mode" {
                                         let client = {
                                             let mut clients = CLIENTS.write().unwrap();
-                                            clients.get_mut(&self.conn_id).map(|c| {
-                                                c.privacy_mode = enabled;
-                                                c.clone()
+                                            clients.get_mut(&self.conn_id).map(|client| {
+                                                if name == "keyboard" {
+                                                    client.keyboard = enabled;
+                                                } else {
+                                                    client.privacy_mode = enabled;
+                                                }
+                                                client.clone()
                                             })
                                         };
                                         if let Some(client) = client {
                                             // This reuses add_connection(), and cm.tis only selectively updates
-                                            // existing rows (authorized/privacy_mode) for this fallback path.
+                                            // existing rows for this fallback/auto-revoke path.
                                             self.cm.ui_handler.add_connection(&client);
                                         }
                                     }
@@ -654,13 +883,51 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
                                     self.cm.show_elevation(show);
                                 }
                                 Data::StartVoiceCall => {
+                                    self.voice_call_audio_sender = None;
+                                    self.voice_call_audio_frames_received = 0;
                                     self.cm.voice_call_started(self.conn_id);
                                 }
                                 Data::VoiceCallIncoming => {
                                     self.cm.voice_call_incoming(self.conn_id);
                                 }
                                 Data::CloseVoiceCall(reason) => {
+                                    self.voice_call_audio_sender = None;
+                                    self.voice_call_audio_frames_received = 0;
                                     self.cm.voice_call_closed(self.conn_id, reason.as_str());
+                                }
+                                Data::VoiceCallAudioFormat { sample_rate, channels } => {
+                                    log::info!(
+                                        "CM received voice call audio format: sample_rate={}, channels={}",
+                                        sample_rate,
+                                        channels
+                                    );
+                                    let sender = start_audio_thread();
+                                    allow_err!(sender.send(MediaData::AudioFormat(AudioFormat {
+                                        sample_rate,
+                                        channels,
+                                        ..Default::default()
+                                    })));
+                                    self.voice_call_audio_sender = Some(sender);
+                                }
+                                Data::VoiceCallAudioFrame(data) => {
+                                    if let Some(sender) = &self.voice_call_audio_sender {
+                                        self.voice_call_audio_frames_received += 1;
+                                        if self.voice_call_audio_frames_received == 1
+                                            || self.voice_call_audio_frames_received % 500 == 0
+                                        {
+                                            log::info!(
+                                                "CM received voice call audio frame #{}, {} bytes",
+                                                self.voice_call_audio_frames_received,
+                                                data.len()
+                                            );
+                                        }
+                                        allow_err!(sender.send(MediaData::AudioFrame(Box::new(
+                                            AudioFrame {
+                                                data: data.into(),
+                                                ..Default::default()
+                                            },
+                                        ))));
+                                    }
                                 }
                                 #[cfg(target_os = "windows")]
                                 Data::ClipboardNonFile(_) => {
@@ -816,6 +1083,8 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
             file_transfer_enabled: false,
             #[cfg(target_os = "windows")]
             file_transfer_enabled_peer: false,
+            voice_call_audio_sender: None,
+            voice_call_audio_frames_received: 0,
             read_jobs: Vec::new(),
         };
 
@@ -836,6 +1105,7 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
 pub async fn start_ipc<T: InvokeUiCM>(cm: ConnectionManager<T>) {
     #[cfg(target_os = "windows")]
     {
+        tokio::spawn(kq_run_cm_local_input_monitor(cm.clone()));
         let enabled = crate::Connection::is_permission_enabled_locally(OPTION_ENABLE_FILE_TRANSFER);
         let mut lock = crate::ui_interface::IS_FILE_TRANSFER_ENABLED
             .lock()

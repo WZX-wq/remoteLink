@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/mobile/pages/account_page.dart';
+import 'package:flutter_hbb/mobile/pages/recent_connections_page.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
-import 'package:flutter_hbb/mobile/pages/settings_page.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
-import 'package:get/get.dart';
 import '../../common.dart';
+import '../../consts.dart';
 import '../../common/kq_theme.dart';
-import '../../common/widgets/chat_page.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'page_shape.dart';
@@ -25,10 +24,9 @@ class HomePageState extends State<HomePage> {
   var _selectedIndex = 0;
   int get selectedIndex => _selectedIndex;
   final List<PageShape> _pages = [];
-  int _chatPageTabIndex = -1;
-  bool get isChatPageCurrentTab => isAndroid
-      ? _selectedIndex == _chatPageTabIndex
-      : false; // change this when ios have chat page
+  bool get isChatPageCurrentTab => false;
+
+  void showChatPage() {}
 
   void refreshPages() {
     setState(() {
@@ -48,17 +46,17 @@ class HomePageState extends State<HomePage> {
       _pages.add(ConnectionPage(
         appBarActions: [],
       ));
+      _pages.add(RecentConnectionsPage());
     }
     if (isAndroid && !bind.isOutgoingOnly()) {
-      _chatPageTabIndex = _pages.length;
-      _pages.addAll([ChatPage(type: ChatPageType.mobileMain), ServerPage()]);
+      _pages.add(ServerPage());
     }
     _pages.add(AccountPage());
-    _pages.add(SettingsPage());
   }
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     return WillPopScope(
         onWillPop: () async {
           if (_selectedIndex != 0) {
@@ -72,125 +70,64 @@ class HomePageState extends State<HomePage> {
         },
         child: Scaffold(
           extendBody: true,
-          appBar: AppBar(
-            centerTitle: false,
-            titleSpacing: 16,
-            title: Obx(() => appTitle(context)),
-            actions: _pages.elementAt(_selectedIndex).appBarActions,
-          ),
-          bottomNavigationBar: BottomNavigationBar(
-            key: navigationBarKey,
-            items: _pages
-                .map((page) =>
-                    BottomNavigationBarItem(icon: page.icon, label: page.title))
-                .toList(),
-            currentIndex: _selectedIndex,
-            type: BottomNavigationBarType.fixed,
-            selectedItemColor: MyTheme.accent, //
-            unselectedItemColor: MyTheme.darkGray,
-            onTap: (index) => setState(() {
-              // close chat overlay when go chat page
-              if (_selectedIndex != index) {
-                _selectedIndex = index;
-                if (isChatPageCurrentTab) {
-                  gFFI.chatModel.hideChatIconOverlay();
-                  gFFI.chatModel.hideChatWindowOverlay();
-                  gFFI.chatModel.mobileClearClientUnread(
-                      gFFI.chatModel.currentKey.connId);
-                }
-              }
-            }),
-          ),
-          body: _pages.elementAt(_selectedIndex),
-        ));
-  }
-
-  Widget appTitle(BuildContext context) {
-    final q = KqTheme.of(context);
-    final currentUser = gFFI.userModel;
-    final avatar = bind.mainResolveAvatarUrl(avatar: currentUser.avatar.value);
-    final isLogin = currentUser.userName.value.isNotEmpty;
-    final title = isLogin
-        ? currentUser.displayNameOrUserName
-        : translate('Kunqiong Remote Desktop');
-    final subtitle = isLogin
-        ? currentUser.membershipName
-        : translate('Sign in to sync devices and membership.');
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () {
-        if (isAndroid && mounted) {
-          setState(() {
-            _selectedIndex = _pages.indexWhere((page) => page is AccountPage);
-            if (_selectedIndex < 0) _selectedIndex = 0;
-          });
-        }
-      },
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            padding: const EdgeInsets.all(5),
+          backgroundColor: q.surface,
+          bottomNavigationBar: Container(
+            margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
             decoration: BoxDecoration(
-              color: q.panelStrong,
-              borderRadius: BorderRadius.circular(13),
+              color: q.panelStrong.withOpacity(q.isDark ? 0.92 : 0.96),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(color: q.line),
-            ),
-            child: Image.asset('assets/logo.png', fit: BoxFit.contain),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: q.ink,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: q.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: q.shadow,
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: NavigationBar(
+                key: navigationBarKey,
+                height: 68,
+                elevation: 0,
+                backgroundColor: Colors.transparent,
+                indicatorColor: q.primary.withOpacity(0.16),
+                selectedIndex: _selectedIndex,
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                destinations: _pages
+                    .map((page) => NavigationDestination(
+                          icon: page.icon,
+                          selectedIcon: IconTheme(
+                            data: IconThemeData(color: q.primary),
+                            child: page.icon,
+                          ),
+                          label: page.title,
+                        ))
+                    .toList(),
+                onDestinationSelected: (index) => setState(() {
+                  if (_selectedIndex != index) {
+                    _selectedIndex = index;
+                  }
+                }),
+              ),
+            ),
           ),
-          const SizedBox(width: 10),
-          Container(
-            width: 34,
-            height: 34,
+          body: Container(
             decoration: BoxDecoration(
-              color: q.surfaceSoft,
-              shape: BoxShape.circle,
-              border: Border.all(color: q.line),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: q.pageGradient,
+              ),
             ),
-            child: ClipOval(
-              child: buildAvatarWidget(
-                    avatar: avatar,
-                    size: 34,
-                    fallback:
-                        Icon(Icons.person_rounded, size: 18, color: q.primary),
-                  ) ??
-                  Icon(Icons.person_rounded, size: 18, color: q.primary),
+            child: SafeArea(
+              top: true,
+              bottom: false,
+              child: _pages.elementAt(_selectedIndex),
             ),
           ),
-        ],
-      ),
-    );
+        ));
   }
 }
 
@@ -261,6 +198,10 @@ class WebHomePage extends StatelessWidget {
           i++;
           break;
         case '--view-camera':
+          if (!kShowViewCameraConnectAction) {
+            i++;
+            break;
+          }
           isViewCamera = true;
           id = args[i + 1];
           i++;

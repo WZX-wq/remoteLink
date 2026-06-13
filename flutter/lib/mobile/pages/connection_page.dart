@@ -12,9 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 
 import '../../common.dart';
-import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
-import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'page_shape.dart';
@@ -88,57 +86,27 @@ class _ConnectionPageState extends State<ConnectionPage> {
     return Obx(() {
       final user = gFFI.userModel;
       final isLogin = user.userName.value.isNotEmpty;
-      final avatar = bind.mainResolveAvatarUrl(avatar: user.avatar.value);
       return CustomScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
           SliverToBoxAdapter(
-            child: _buildHero(context, avatar: avatar, isLogin: isLogin),
+            child: _buildConnectPanel(context, isLogin: isLogin, user: user),
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.only(top: 12),
               child: Column(
                 children: [
                   if (!bind.isCustomClient() && !isIOS)
                     Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
-                  const SizedBox(height: 10),
-                  _buildRemoteIDTextField(),
-                  const SizedBox(height: 10),
-                  _buildRemotePasswordField(),
-                  const SizedBox(height: 12),
-                  _buildQuickActions(context),
+                  _buildMembershipStrip(context, isLogin: isLogin, user: user),
                 ],
               ),
             ),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 14, 10, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      translate('Recent devices'),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: translate('Refresh'),
-                    onPressed: () => bind.mainLoadRecentPeers(),
-                    icon: const Icon(Icons.refresh_rounded),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SliverFillRemaining(
-            hasScrollBody: true,
-            child: PeerTabPage(),
-          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 104)),
         ],
-      ).marginOnly(top: 2, left: 10, right: 10);
+      ).marginOnly(top: 10, left: 16, right: 16);
     });
   }
 
@@ -177,47 +145,53 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// UI for software update.
   /// If _updateUrl] is not empty, shows a button to update the software.
   Widget _buildUpdateUI(String updateUrl) {
-    return updateUrl.isEmpty
-        ? const SizedBox(height: 0)
-        : InkWell(
-            onTap: () async {
-              final url = 'https://kunqiongai.com/';
-              // https://pub.dev/packages/url_launcher#configuration
-              // https://developer.android.com/training/package-visibility/use-cases#open-urls-custom-tabs
-              //
-              // `await launchUrl(Uri.parse(url))` can also run if skip
-              // 1. The following check
-              // 2. `<action android:name="android.support.customtabs.action.CustomTabsService" />` in AndroidManifest.xml
-              //
-              // But it is better to add the check.
-              await launchUrl(Uri.parse(url));
-            },
-            child: Container(
-                alignment: AlignmentDirectional.center,
-                width: double.infinity,
-                color: Colors.pinkAccent,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(translate('Download new version'),
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold))));
+    if (updateUrl.isEmpty) return const SizedBox.shrink();
+    final q = KqTheme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () async {
+          await launchUrl(Uri.parse('https://kunqiongai.com/'));
+        },
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: q.primary.withOpacity(q.isDark ? 0.14 : 0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: q.primary.withOpacity(0.18)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.system_update_alt_rounded, color: q.primary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  translate('Download new version'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.primaryDeep,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios_rounded, color: q.primary, size: 14),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  Widget _buildHero(BuildContext context,
-      {required String avatar, required bool isLogin}) {
+  Widget _buildConnectPanel(BuildContext context,
+      {required bool isLogin, required dynamic user}) {
     final q = KqTheme.of(context);
-    final user = gFFI.userModel;
-    final title = isLogin
-        ? user.displayNameOrUserName
-        : translate('Kunqiong Remote Desktop');
-    final subtitle = isLogin
-        ? user.accountLabelWithHandle
-        : translate('Sign in to sync devices and favorites.');
-    final hint = isLogin
-        ? user.remoteEntitlementHint
-        : translate('Sign in to unlock device sync and membership tools.');
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -234,94 +208,121 @@ class _ConnectionPageState extends State<ConnectionPage> {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 58,
-            height: 58,
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: q.surfaceSoft,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: q.line),
-            ),
-            child: Image.asset('assets/logo.png', fit: BoxFit.contain),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: q.ink,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: q.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _statusChip(
-                        context,
-                        isLogin
-                            ? translate('Logged in')
-                            : translate('Not logged in'),
-                        isLogin ? q.online : q.offline),
-                    _statusChip(context, user.membershipName, q.primary),
-                    _statusChip(context, user.remoteQualityLabel, q.warning),
+                    Text(
+                      _kqMobileText('Remote connection'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.ink,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w900,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: q.online,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Container(
+                          width: 18,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: q.primary.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      translate(
+                          'Enter device ID to connect or transfer files.'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.muted,
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  hint,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: q.ink,
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              _HeaderIconButton(
+                icon: Icons.qr_code_scanner_rounded,
+                tooltip: translate('Scan'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (BuildContext context) => ScanPage()),
+                  );
+                },
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: q.surfaceSoft,
-              shape: BoxShape.circle,
-              border: Border.all(color: q.line),
-            ),
-            child: ClipOval(
-              child: buildAvatarWidget(
-                    avatar: avatar,
-                    size: 38,
-                    fallback:
-                        Icon(Icons.person_rounded, size: 20, color: q.primary),
-                  ) ??
-                  Icon(Icons.person_rounded, size: 20, color: q.primary),
+          const SizedBox(height: 20),
+          _buildRemoteIDTextField(),
+          const SizedBox(height: 8),
+          _buildRemotePasswordField(),
+          const SizedBox(height: 16),
+          _buildQuickActions(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMembershipStrip(BuildContext context,
+      {required bool isLogin, required dynamic user}) {
+    final q = KqTheme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.52 : 0.72),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line.withOpacity(0.75)),
+      ),
+      child: Row(
+        children: [
+          _statusChip(
+            context,
+            isLogin ? translate('Logged in') : translate('Not logged in'),
+            isLogin ? q.online : q.offline,
+          ),
+          const SizedBox(width: 8),
+          _statusChip(context, user.membershipName, q.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              user.remoteQualityLabel,
+              maxLines: 1,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: q.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
@@ -350,23 +351,40 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   Widget _buildQuickActions(BuildContext context) {
     final q = KqTheme.of(context);
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: _QuickActionButton(
-            icon: Icons.smart_button_rounded,
-            label: translate('Connect'),
-            color: q.primary,
-            onTap: onConnect,
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: onConnect,
+            style: FilledButton.styleFrom(
+              backgroundColor: q.online,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.near_me_rounded),
+                const SizedBox(width: 8),
+                Text(translate('Connect')),
+              ],
+            ),
           ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _QuickActionButton(
-            icon: Icons.folder_copy_outlined,
-            label: translate('Transfer file'),
-            color: q.online,
-            onTap: () {
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
               if (!_ensureRemoteId()) return;
               connect(
                 context,
@@ -375,21 +393,16 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 password: _remotePassword,
               );
             },
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _QuickActionButton(
-            icon: Icons.qr_code_scanner_rounded,
-            label: translate('Scan'),
-            color: q.warning,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (BuildContext context) => ScanPage()),
-              );
-            },
+            icon: const Icon(Icons.folder_copy_outlined),
+            label: Text(translate('Transfer file')),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: q.online,
+              side: BorderSide(color: q.online.withOpacity(0.42)),
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
         ),
       ],
@@ -401,10 +414,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
   Widget _buildRemotePasswordField() {
     final q = KqTheme.of(context);
     final child = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
+        color: q.field,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: q.line),
       ),
       child: TextField(
@@ -418,15 +432,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
         onSubmitted: (_) => onConnect(),
         decoration: InputDecoration(
           border: InputBorder.none,
-          icon: Icon(Icons.lock_outline_rounded, color: q.primary),
-          labelText: translate('Remote password (optional)'),
-          hintText: translate('Leave empty to request approval'),
-          labelStyle: TextStyle(
+          icon: Icon(Icons.lock_outline_rounded, color: q.muted, size: 20),
+          hintText: translate('Remote password (optional)'),
+          hintStyle: TextStyle(
             color: q.muted,
             fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
-          hintStyle: TextStyle(color: q.muted.withOpacity(0.72)),
           suffixIcon: IconButton(
             tooltip: translate(_passwordVisible ? 'Hide' : 'Show'),
             onPressed: () {
@@ -442,31 +454,33 @@ class _ConnectionPageState extends State<ConnectionPage> {
         ),
       ),
     );
-    return Align(
-      alignment: Alignment.topCenter,
-      child: Container(
-        constraints: kMobilePageConstraints,
-        child: child,
-      ),
-    );
+    return child;
   }
 
   Widget _buildRemoteIDTextField() {
     final w = SizedBox(
-      height: 88,
+      height: 64,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
+        padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 0),
         child: Ink(
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.all(Radius.circular(18)),
+            color: KqTheme.of(context).field,
+            borderRadius: const BorderRadius.all(Radius.circular(12)),
             border: Border.all(color: KqTheme.of(context).line),
           ),
           child: Row(
             children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.only(left: 14),
+                child: Icon(
+                  Icons.tag_rounded,
+                  color: KqTheme.of(context).muted,
+                  size: 20,
+                ),
+              ),
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.only(left: 16, right: 12),
+                  padding: const EdgeInsets.only(left: 10, right: 8),
                   child: RawAutocomplete<Peer>(
                     optionsBuilder: (TextEditingValue textEditingValue) {
                       if (textEditingValue.text == '') {
@@ -526,7 +540,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       return AutoSizeTextField(
                         controller: fieldTextEditingController,
                         focusNode: fieldFocusNode,
-                        minFontSize: 18,
+                        minFontSize: 16,
                         autocorrect: false,
                         enableSuggestions: false,
                         keyboardType: TextInputType.visiblePassword,
@@ -537,24 +551,16 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         style: const TextStyle(
                           fontFamily: 'WorkSans',
                           fontWeight: FontWeight.bold,
-                          fontSize: 30,
+                          fontSize: 22,
                           color: MyTheme.idColor,
                         ),
                         decoration: InputDecoration(
-                          labelText: translate('Remote ID'),
                           hintText: translate('Enter device id or alias'),
-                          // hintText: 'Enter your remote ID',
                           border: InputBorder.none,
-                          helperStyle: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: MyTheme.darkGray,
-                          ),
-                          labelStyle: const TextStyle(
+                          hintStyle: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 16,
-                            letterSpacing: 0.2,
-                            color: MyTheme.darkGray,
+                            color: KqTheme.of(context).muted,
                           ),
                         ),
                         inputFormatters: [IDTextInputFormatter()],
@@ -640,11 +646,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         icon: Icon(Icons.clear, color: MyTheme.darkGray)),
                   )),
               SizedBox(
-                width: 58,
-                height: 58,
+                width: 52,
+                height: 52,
                 child: IconButton(
-                  icon: const Icon(Icons.arrow_forward,
-                      color: MyTheme.darkGray, size: 45),
+                  icon: Icon(Icons.arrow_forward_rounded,
+                      color: KqTheme.of(context).primary, size: 30),
                   onPressed: onConnect,
                 ),
               ),
@@ -659,9 +665,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             .marginOnly(bottom: 10, top: 15, left: 12),
       w
     ]);
-    return Align(
-        alignment: Alignment.topCenter,
-        child: Container(constraints: kMobilePageConstraints, child: child));
+    return child;
   }
 
   @override
@@ -684,55 +688,60 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 }
 
-class _QuickActionButton extends StatelessWidget {
-  const _QuickActionButton({
+String _kqMobileText(String key) {
+  if (!localeName.toString().toLowerCase().startsWith('zh')) {
+    return translate(key);
+  }
+  switch (key) {
+    case 'Remote connection':
+      return '远程连接';
+    case 'Allow remote access to this device':
+      return '允许远程本设备';
+    case 'Remote access is on':
+      return '已允许远程访问';
+    case 'Remote access is off':
+      return '未允许远程访问';
+    default:
+      return translate(key);
+  }
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
     required this.icon,
-    required this.label,
-    required this.color,
+    required this.tooltip,
     required this.onTap,
   });
 
   final IconData icon;
-  final String label;
-  final Color color;
+  final String tooltip;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
-      child: Container(
-        height: 72,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: KqTheme.of(context).line),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
+      child: Tooltip(
+        message: tooltip,
+        child: Container(
+          width: 48,
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: q.panelStrong.withOpacity(q.isDark ? 0.66 : 0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: q.line),
+            boxShadow: [
+              BoxShadow(
+                color: q.shadow.withOpacity(q.isDark ? 0.3 : 0.65),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
               ),
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ),
-          ],
+            ],
+          ),
+          child: Icon(icon, color: q.primary, size: 24),
         ),
       ),
     );

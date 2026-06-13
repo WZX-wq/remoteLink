@@ -1450,6 +1450,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             resp
         }
         Err(err) => {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if is_tls_not_cached && err.is_request() {
                 let tls_type = TlsType::NativeTls;
                 let client = create_http_client_async(tls_type, false);
@@ -1457,6 +1458,10 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
                 upsert_tls_cache(tls_url, tls_type, false);
                 resp
             } else {
+                return Err(err.into());
+            }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            {
                 return Err(err.into());
             }
         }
@@ -1974,17 +1979,24 @@ async fn post_request_(
                         )
                         .await
                     } else {
-                        log::warn!("HTTP request failed: {:?}, try again with native-tls", e);
-                        post_request_(
-                            url,
-                            tls_url,
-                            body,
-                            header,
-                            Some(TlsType::NativeTls),
-                            original_danger_accept_invalid_cert,
-                            original_danger_accept_invalid_cert,
-                        )
-                        .await
+                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                        {
+                            log::warn!("HTTP request failed: {:?}, try again with native-tls", e);
+                            post_request_(
+                                url,
+                                tls_url,
+                                body,
+                                header,
+                                Some(TlsType::NativeTls),
+                                original_danger_accept_invalid_cert,
+                                original_danger_accept_invalid_cert,
+                            )
+                            .await
+                        }
+                        #[cfg(any(target_os = "android", target_os = "ios"))]
+                        {
+                            Err(anyhow!("{:?}", e))
+                        }
                     }
                 } else {
                     Err(anyhow!("{:?}", e))
@@ -2082,18 +2094,25 @@ async fn get_http_response_async(
                         )
                         .await
                     } else {
-                        log::warn!("HTTP request failed: {:?}, try again with native-tls", e);
-                        get_http_response_async(
-                            url,
-                            tls_url,
-                            method,
-                            body,
-                            header,
-                            Some(TlsType::NativeTls),
-                            original_danger_accept_invalid_cert,
-                            original_danger_accept_invalid_cert,
-                        )
-                        .await
+                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                        {
+                            log::warn!("HTTP request failed: {:?}, try again with native-tls", e);
+                            get_http_response_async(
+                                url,
+                                tls_url,
+                                method,
+                                body,
+                                header,
+                                Some(TlsType::NativeTls),
+                                original_danger_accept_invalid_cert,
+                                original_danger_accept_invalid_cert,
+                            )
+                            .await
+                        }
+                        #[cfg(any(target_os = "android", target_os = "ios"))]
+                        {
+                            Err(anyhow!("{:?}", e))
+                        }
                     }
                 } else {
                     Err(anyhow!("{:?}", e))
@@ -2659,6 +2678,16 @@ fn apply_kq_remote_link_defaults() {
         .write()
         .unwrap()
         .insert(keys::OPTION_REGISTER_DEVICE.to_owned(), "N".to_owned());
+    let mut builtin_settings = config::BUILTIN_SETTINGS.write().unwrap();
+    builtin_settings.insert(
+        keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW.to_owned(),
+        "Y".to_owned(),
+    );
+    builtin_settings.insert(
+        keys::OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION.to_owned(),
+        "N".to_owned(),
+    );
+    drop(builtin_settings);
     config::BUILTIN_SETTINGS.write().unwrap().insert(
         "kq-project-api-server".to_owned(),
         "http://43.154.197.96/kq-api/api".to_owned(),

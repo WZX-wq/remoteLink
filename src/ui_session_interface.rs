@@ -1884,7 +1884,7 @@ impl<T: InvokeUiSession> Interface for Session<T> {
                 self.lc.write().unwrap().handle_peer_info(&pi);
                 self.update_privacy_mode();
                 let msg = if self.is_view_camera() {
-                    "No cameras"
+                    "The requested connection type is unavailable"
                 } else {
                     "No displays"
                 };

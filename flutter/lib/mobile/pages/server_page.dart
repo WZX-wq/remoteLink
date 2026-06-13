@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
 import 'package:flutter_hbb/mobile/widgets/dialog.dart';
-import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
@@ -203,22 +203,19 @@ class _ServerPageState extends State<ServerPage> {
     return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
         child: Consumer<ServerModel>(
-            builder: (context, serverModel, child) => SingleChildScrollView(
+            builder: (context, serverModel, child) => ListView(
                   controller: gFFI.serverModel.controller,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        buildPresetPasswordWarningMobile(),
-                        gFFI.serverModel.isStart
-                            ? ServerInfo()
-                            : ServiceNotRunningNotification(),
-                        const ConnectionManager(),
-                        const PermissionChecker(),
-                        SizedBox.fromSize(size: const Size(0, 15.0)),
-                      ],
-                    ),
-                  ),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 104),
+                  children: [
+                    buildPresetPasswordWarningMobile(),
+                    gFFI.serverModel.isStart
+                        ? ServerInfo()
+                        : ServiceNotRunningNotification(),
+                    const ConnectionManager(),
+                    const PermissionChecker(),
+                  ],
                 )));
   }
 }
@@ -239,32 +236,66 @@ class ServiceNotRunningNotification extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
+    final q = KqTheme.of(context);
 
     return PaddingCard(
-        title: translate("Service is not running"),
-        titleIcon:
-            const Icon(Icons.warning_amber_sharp, color: Colors.redAccent),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(translate("android_start_service_tip"),
-                    style:
-                        const TextStyle(fontSize: 12, color: MyTheme.darkGray))
-                .marginOnly(bottom: 8),
-            ElevatedButton.icon(
-                icon: const Icon(Icons.play_arrow),
-                onPressed: () {
-                  if (gFFI.userModel.userName.value.isEmpty &&
-                      bind.mainGetLocalOption(key: "show-scam-warning") !=
-                          "N") {
-                    showScamWarning(context, serverModel);
-                  } else {
-                    serverModel.toggleService();
-                  }
-                },
-                label: Text(translate("Start service")))
-          ],
-        ));
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: q.warning.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(Icons.play_circle_outline_rounded,
+                color: q.warning, size: 28),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  translate("Service is not running"),
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  translate("android_start_service_tip"),
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 12,
+                    height: 1.28,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ]),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+              icon: const Icon(Icons.play_arrow_rounded),
+              onPressed: () {
+                if (gFFI.userModel.userName.value.isEmpty &&
+                    bind.mainGetLocalOption(key: "show-scam-warning") != "N") {
+                  showScamWarning(context, serverModel);
+                } else {
+                  serverModel.toggleService();
+                }
+              },
+              label: Text(translate("Start service"))),
+        )
+      ],
+    ));
   }
 }
 
@@ -469,15 +500,7 @@ class ServerInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
-
-    const Color colorPositive = Colors.green;
-    const Color colorNegative = Colors.red;
-    const double iconMarginRight = 15;
-    const double iconSize = 24;
-    const TextStyle textStyleHeading = TextStyle(
-        fontSize: 16.0, fontWeight: FontWeight.bold, color: Colors.grey);
-    const TextStyle textStyleValue =
-        TextStyle(fontSize: 25.0, fontWeight: FontWeight.bold);
+    final q = KqTheme.of(context);
 
     void copyToClipboard(String value) {
       Clipboard.setData(ClipboardData(text: value));
@@ -485,89 +508,199 @@ class ServerInfo extends StatelessWidget {
     }
 
     Widget ConnectionStateNotification() {
+      final Color color;
+      final IconData icon;
+      final String text;
       if (serverModel.connectStatus == -1) {
-        return Row(children: [
-          const Icon(Icons.warning_amber_sharp,
-                  color: colorNegative, size: iconSize)
-              .marginOnly(right: iconMarginRight),
-          Expanded(child: Text(translate('not_ready_status')))
-        ]);
+        color = q.offline;
+        icon = Icons.warning_amber_rounded;
+        text = translate('not_ready_status');
       } else if (serverModel.connectStatus == 0) {
-        return Row(children: [
-          SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-              .marginOnly(left: 4, right: iconMarginRight),
-          Expanded(child: Text(translate('connecting_status')))
-        ]);
+        color = q.warning;
+        icon = Icons.sync_rounded;
+        text = translate('connecting_status');
       } else {
-        return Row(children: [
-          const Icon(Icons.check, color: colorPositive, size: iconSize)
-              .marginOnly(right: iconMarginRight),
-          Expanded(child: Text(translate('Ready')))
-        ]);
+        color = q.online;
+        icon = Icons.verified_rounded;
+        text = translate('Ready');
       }
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withOpacity(0.24)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ]),
+      );
     }
 
     final showOneTime = serverModel.approveMode != 'click' &&
         serverModel.verificationMethod != kUsePermanentPassword;
     return PaddingCard(
-        title: translate('Your Device'),
         child: Column(
-          // ID
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(children: [
-              const Icon(Icons.perm_identity,
-                      color: Colors.grey, size: iconSize)
-                  .marginOnly(right: iconMarginRight),
-              Text(
-                translate('ID'),
-                style: textStyleHeading,
-              )
-            ]),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                model.serverId.value.text,
-                style: textStyleValue,
+            Container(
+              width: 52,
+              height: 52,
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: q.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(17),
+                border: Border.all(color: q.primary.withOpacity(0.2)),
               ),
-              IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.copy_outlined),
-                  onPressed: () {
-                    copyToClipboard(model.serverId.value.text.trim());
-                  })
-            ]).marginOnly(left: 39, bottom: 10),
-            // Password
-            Row(children: [
-              const Icon(Icons.lock_outline, color: Colors.grey, size: iconSize)
-                  .marginOnly(right: iconMarginRight),
-              Text(
-                translate('One-time Password'),
-                style: textStyleHeading,
-              )
-            ]),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                !showOneTime ? '-' : model.serverPasswd.value.text,
-                style: textStyleValue,
+              child: Image.asset('assets/logo.png', fit: BoxFit.contain),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    translate('Your Device'),
+                    style: TextStyle(
+                      color: q.ink,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    translate('Share screen'),
+                    style: TextStyle(
+                      color: q.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
-              !showOneTime
-                  ? SizedBox.shrink()
-                  : Row(children: [
-                      IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.refresh),
-                          onPressed: () => bind.mainUpdateTemporaryPassword()),
-                      IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: Icon(Icons.copy_outlined),
-                          onPressed: () {
-                            copyToClipboard(
-                                model.serverPasswd.value.text.trim());
-                          })
-                    ])
-            ]).marginOnly(left: 40, bottom: 15),
-            ConnectionStateNotification()
+            ),
+            const SizedBox(width: 8),
+            Flexible(child: ConnectionStateNotification()),
           ],
-        ));
+        ),
+        const SizedBox(height: 16),
+        _DeviceSecretTile(
+          label: translate('ID'),
+          value: model.serverId.value.text,
+          icon: Icons.perm_identity_rounded,
+          onCopy: () => copyToClipboard(model.serverId.value.text.trim()),
+        ),
+        const SizedBox(height: 10),
+        _DeviceSecretTile(
+          label: translate('One-time Password'),
+          value: !showOneTime ? '-' : model.serverPasswd.value.text,
+          icon: Icons.lock_outline_rounded,
+          onCopy: !showOneTime
+              ? null
+              : () => copyToClipboard(model.serverPasswd.value.text.trim()),
+          trailing: !showOneTime
+              ? null
+              : IconButton(
+                  tooltip: translate('Refresh Password'),
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.refresh_rounded, color: q.primary),
+                  onPressed: () => bind.mainUpdateTemporaryPassword(),
+                ),
+        ),
+      ],
+    ));
+  }
+}
+
+class _DeviceSecretTile extends StatelessWidget {
+  const _DeviceSecretTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.onCopy,
+    this.trailing,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final VoidCallback? onCopy;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 11, 8, 11),
+      decoration: BoxDecoration(
+        color: q.surfaceSoft.withOpacity(q.isDark ? 0.62 : 0.86),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: q.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Icon(icon, color: q.primary, size: 20),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: q.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: q.ink,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  height: 1.05,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) trailing!,
+        IconButton(
+          tooltip: translate('Copy'),
+          visualDensity: VisualDensity.compact,
+          icon: Icon(Icons.copy_outlined, color: q.primary),
+          onPressed: onCopy,
+        ),
+      ]),
+    );
   }
 }
 
@@ -579,9 +712,52 @@ class PermissionChecker extends StatefulWidget {
 }
 
 class _PermissionCheckerState extends State<PermissionChecker> {
+  bool _isCheckingAll = false;
+  bool _showAllPermissions = false;
+
+  Future<void> _runAllPermissionSteps({
+    required ServerModel serverModel,
+    required bool hasAudioPermission,
+    required bool hideStopService,
+    required bool permissionChangeLocked,
+  }) async {
+    if (_isCheckingAll) return;
+    setState(() => _isCheckingAll = true);
+    try {
+      if (!serverModel.mediaOk && !hideStopService) {
+        final needsScamWarning = gFFI.userModel.userName.value.isEmpty &&
+            bind.mainGetLocalOption(key: "show-scam-warning") != "N";
+        if (needsScamWarning) {
+          showScamWarning(context, serverModel);
+          return;
+        }
+        await serverModel.toggleService();
+      }
+      if (!serverModel.inputOk) {
+        await serverModel.toggleInput();
+      }
+      if (!permissionChangeLocked && !serverModel.fileOk) {
+        await serverModel.toggleFile();
+      }
+      if (!permissionChangeLocked &&
+          hasAudioPermission &&
+          !serverModel.audioOk) {
+        await serverModel.toggleAudio();
+      }
+      if (!serverModel.clipboardOk) {
+        await serverModel.toggleClipboard();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingAll = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
+    final q = KqTheme.of(context);
     final hasAudioPermission = androidVersion >= 30;
     final hideStopService = isAndroid &&
         bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
@@ -593,83 +769,485 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     final permissionChangeLocked = isAndroid &&
         serverModel.clients.any((c) => !c.disconnected) &&
         !allowPermChangeInAcceptWindow;
+    final permissionItems = [
+      _PermissionGuideData(
+        title: translate("Screen Capture"),
+        description: translate('kq_mobile_screen_capture_permission_tip'),
+        icon: Icons.mobile_screen_share_rounded,
+        color: q.primary,
+        isOk: serverModel.mediaOk,
+        enabled: !hideStopService || !serverModel.mediaOk,
+        actionLabel: serverModel.mediaOk
+            ? translate('Stop service')
+            : translate('Enable'),
+        onPressed: !serverModel.mediaOk &&
+                gFFI.userModel.userName.value.isEmpty &&
+                bind.mainGetLocalOption(key: "show-scam-warning") != "N"
+            ? () => showScamWarning(context, serverModel)
+            : serverModel.toggleService,
+      ),
+      _PermissionGuideData(
+        title: translate("Input Control"),
+        description: translate('kq_mobile_input_permission_tip'),
+        icon: Icons.touch_app_rounded,
+        color: q.warning,
+        isOk: serverModel.inputOk,
+        actionLabel: translate('Enable'),
+        onPressed: serverModel.toggleInput,
+      ),
+      _PermissionGuideData(
+        title: translate("Transfer file"),
+        description: translate('kq_mobile_file_permission_tip'),
+        icon: Icons.folder_copy_outlined,
+        color: q.online,
+        isOk: serverModel.fileOk,
+        enabled: !permissionChangeLocked,
+        actionLabel: translate('Enable'),
+        onPressed: serverModel.toggleFile,
+      ),
+      _PermissionGuideData(
+        title: translate("Audio Capture"),
+        description: hasAudioPermission
+            ? translate('kq_mobile_audio_permission_tip')
+            : translate("android_version_audio_tip"),
+        icon: Icons.mic_rounded,
+        color: const Color(0xFF8E7BFF),
+        isOk: hasAudioPermission ? serverModel.audioOk : false,
+        enabled: hasAudioPermission && !permissionChangeLocked,
+        actionLabel: translate('Enable'),
+        onPressed: serverModel.toggleAudio,
+      ),
+      _PermissionGuideData(
+        title: translate("Enable clipboard"),
+        description: translate('kq_mobile_clipboard_permission_tip'),
+        icon: Icons.content_paste_rounded,
+        color: q.primaryDeep,
+        isOk: serverModel.clipboardOk,
+        actionLabel: translate('Enable'),
+        onPressed: serverModel.toggleClipboard,
+      ),
+    ];
+    final actionableItems =
+        permissionItems.where((item) => item.enabled).toList(growable: false);
+    final doneCount = actionableItems.where((item) => item.isOk).length;
+    final totalCount = actionableItems.length;
+    final progress = totalCount == 0 ? 1.0 : doneCount / totalCount;
+    final allReady = totalCount > 0 && doneCount == totalCount;
+    final pendingItems = permissionItems
+        .where((item) => item.enabled && !item.isOk)
+        .toList(growable: false);
+    final visibleItems = _showAllPermissions
+        ? permissionItems
+        : pendingItems.take(3).toList(growable: false);
+    final hasHiddenItems = _showAllPermissions ||
+        pendingItems.length > visibleItems.length ||
+        pendingItems.length < permissionItems.length;
     return PaddingCard(
         title: translate("Permissions"),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          serverModel.mediaOk && !hideStopService
-              ? ElevatedButton.icon(
-                      style: ButtonStyle(
-                          backgroundColor:
-                              MaterialStateProperty.all(Colors.red)),
-                      icon: const Icon(Icons.stop),
-                      onPressed: serverModel.toggleService,
-                      label: Text(translate("Stop service")))
-                  .marginOnly(bottom: 8)
-              : SizedBox.shrink(),
-          if (!hideStopService || !serverModel.mediaOk)
-            PermissionRow(
-                translate("Screen Capture"),
-                serverModel.mediaOk,
-                !serverModel.mediaOk &&
-                        gFFI.userModel.userName.value.isEmpty &&
-                        bind.mainGetLocalOption(key: "show-scam-warning") != "N"
-                    ? () => showScamWarning(context, serverModel)
-                    : serverModel.toggleService),
-          PermissionRow(
-            translate("Input Control"),
-            serverModel.inputOk,
-            serverModel.toggleInput,
+          _PermissionProgressHeader(
+            progress: progress,
+            doneCount: doneCount,
+            totalCount: totalCount,
+            allReady: allReady,
+            isChecking: _isCheckingAll,
+            onPressed: allReady
+                ? null
+                : () => _runAllPermissionSteps(
+                      serverModel: serverModel,
+                      hasAudioPermission: hasAudioPermission,
+                      hideStopService: hideStopService,
+                      permissionChangeLocked: permissionChangeLocked,
+                    ),
           ),
-          PermissionRow(
-            translate("Transfer file"),
-            serverModel.fileOk,
-            serverModel.toggleFile,
-            enabled: !permissionChangeLocked,
-          ),
-          hasAudioPermission
-              ? PermissionRow(translate("Audio Capture"), serverModel.audioOk,
-                  serverModel.toggleAudio,
-                  enabled: !permissionChangeLocked)
-              : Row(children: [
-                  Icon(Icons.info_outline).marginOnly(right: 15),
-                  Expanded(
-                      child: Text(
-                    translate("android_version_audio_tip"),
-                    style: const TextStyle(color: MyTheme.darkGray),
-                  ))
-                ]),
-          PermissionRow(
-            translate("Enable clipboard"),
-            serverModel.clipboardOk,
-            serverModel.toggleClipboard,
-            enabled: !permissionChangeLocked,
-          ),
+          if (permissionChangeLocked)
+            _PermissionNotice(
+              icon: Icons.lock_outline_rounded,
+              text: translate("android_permission_may_not_change_tip"),
+            ).marginOnly(top: 12),
+          if (visibleItems.isNotEmpty)
+            ...visibleItems.map(
+              (item) => _PermissionGuideItem(item: item).marginOnly(top: 10),
+            ),
+          if (hasHiddenItems)
+            _PermissionDetailsToggle(
+              expanded: _showAllPermissions,
+              pendingCount: pendingItems.length,
+              totalCount: permissionItems.length,
+              onPressed: () {
+                setState(() => _showAllPermissions = !_showAllPermissions);
+              },
+            ).marginOnly(top: 8),
         ]));
   }
 }
 
-class PermissionRow extends StatelessWidget {
-  const PermissionRow(this.name, this.isOk, this.onPressed,
-      {Key? key, this.enabled = true})
-      : super(key: key);
+class _PermissionGuideData {
+  const _PermissionGuideData({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.color,
+    required this.isOk,
+    required this.actionLabel,
+    required this.onPressed,
+    this.enabled = true,
+  });
 
-  final String name;
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color color;
   final bool isOk;
+  final String actionLabel;
   final VoidCallback onPressed;
+  final bool enabled;
+}
+
+class _PermissionProgressHeader extends StatelessWidget {
+  const _PermissionProgressHeader({
+    required this.progress,
+    required this.doneCount,
+    required this.totalCount,
+    required this.allReady,
+    required this.isChecking,
+    required this.onPressed,
+  });
+
+  final double progress;
+  final int doneCount;
+  final int totalCount;
+  final bool allReady;
+  final bool isChecking;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: q.workSurfaceGradient,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: (allReady ? q.online : q.primary).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              allReady
+                  ? Icons.verified_rounded
+                  : Icons.admin_panel_settings_rounded,
+              color: allReady ? q.online : q.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  allReady
+                      ? translate('kq_mobile_permissions_ready')
+                      : translate('kq_mobile_permissions_need_setup'),
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  translate('kq_mobile_permissions_summary')
+                      .replaceAll('%done%', '$doneCount')
+                      .replaceAll('%total%', '$totalCount'),
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ]),
+        const SizedBox(height: 11),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: progress.clamp(0.0, 1.0),
+            minHeight: 7,
+            backgroundColor: q.line.withOpacity(0.55),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              allReady ? q.online : q.primary,
+            ),
+          ),
+        ),
+        if (!allReady) const SizedBox(height: 12),
+        if (!allReady)
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: isChecking ? null : onPressed,
+              icon: isChecking
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: q.muted,
+                      ),
+                    )
+                  : const Icon(Icons.playlist_add_check_circle_rounded),
+              label: Text(translate('kq_mobile_enable_missing_permissions')),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+class _PermissionDetailsToggle extends StatelessWidget {
+  const _PermissionDetailsToggle({
+    required this.expanded,
+    required this.pendingCount,
+    required this.totalCount,
+    required this.onPressed,
+  });
+
+  final bool expanded;
+  final int pendingCount;
+  final int totalCount;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final label = expanded ? translate('Hide') : translate('More');
+    final countText = pendingCount == 0
+        ? translate('Ready')
+        : translate('kq_mobile_permissions_summary')
+            .replaceAll('%done%', '${totalCount - pendingCount}')
+            .replaceAll('%total%', '$totalCount');
+    return Row(children: [
+      Expanded(
+        child: Text(
+          countText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: q.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      TextButton.icon(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        icon: Icon(
+          expanded ? Icons.keyboard_arrow_up_rounded : Icons.tune_rounded,
+          size: 18,
+        ),
+        label: Text(label),
+      ),
+    ]);
+  }
+}
+
+class _PermissionNotice extends StatelessWidget {
+  const _PermissionNotice({
+    required this.icon,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: q.warning.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: q.warning.withOpacity(0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: q.warning, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: q.ink,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionGuideItem extends StatelessWidget {
+  const _PermissionGuideItem({
+    required this.item,
+  });
+
+  final _PermissionGuideData item;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final color = item.enabled ? item.color : q.muted;
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 160),
+      opacity: item.enabled ? 1 : 0.62,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: q.surfaceSoft.withOpacity(q.isDark ? 0.56 : 0.76),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: item.isOk ? q.online.withOpacity(0.34) : q.line,
+          ),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(item.icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    item.title,
+                    style: TextStyle(
+                      color: q.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                _PermissionStatePill(isOk: item.isOk, enabled: item.enabled),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                item.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: q.muted,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: item.isOk
+                    ? TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: item.enabled ? item.onPressed : null,
+                        icon: const Icon(Icons.tune_rounded, size: 18),
+                        label: Text(translate('Manage')),
+                      )
+                    : OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          minimumSize: const Size(0, 34),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: item.enabled ? item.onPressed : null,
+                        icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                        label: Text(item.enabled
+                            ? item.actionLabel
+                            : translate('Not available')),
+                      ),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _PermissionStatePill extends StatelessWidget {
+  const _PermissionStatePill({
+    required this.isOk,
+    required this.enabled,
+  });
+
+  final bool isOk;
   final bool enabled;
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
-        visualDensity: VisualDensity.compact,
-        contentPadding: EdgeInsets.all(0),
-        title: Text(name),
-        value: isOk,
-        onChanged: enabled
-            ? (bool value) {
-                onPressed();
-              }
-            : null);
+    final q = KqTheme.of(context);
+    final color = !enabled
+        ? q.muted
+        : isOk
+            ? q.online
+            : q.offline;
+    final text = !enabled
+        ? translate('Not available')
+        : isOk
+            ? translate('Enabled')
+            : translate('Not enabled');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.24)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          height: 1,
+        ),
+      ),
+    );
   }
 }
 
@@ -679,56 +1257,53 @@ class ConnectionManager extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
-    return Column(
-        children: serverModel.clients
-            .map((client) => PaddingCard(
-                title: translate(
-                    client.isFileTransfer ? "Transfer file" : "Share screen"),
-                titleIcon: client.isFileTransfer
-                    ? Icon(Icons.folder_outlined)
-                    : Icon(Icons.mobile_screen_share),
-                child: Column(children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(child: ClientInfo(client)),
-                      Expanded(
-                          flex: -1,
-                          child: client.isFileTransfer || !client.authorized
-                              ? const SizedBox.shrink()
-                              : IconButton(
-                                  onPressed: () {
-                                    gFFI.chatModel.changeCurrentKey(
-                                        MessageKey(client.peerId, client.id));
-                                    final bar = navigationBarKey.currentWidget;
-                                    if (bar != null) {
-                                      bar as BottomNavigationBar;
-                                      bar.onTap!(1);
-                                    }
-                                  },
-                                  icon: unreadTopRightBuilder(
-                                      client.unreadChatMessageCount)))
-                    ],
-                  ),
-                  client.authorized
-                      ? const SizedBox.shrink()
-                      : Text(
-                          translate("android_new_connection_tip"),
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ).marginOnly(bottom: 5),
-                  client.authorized
-                      ? _buildDisconnectButton(client)
-                      : _buildNewConnectionHint(serverModel, client),
-                  if (client.incomingVoiceCall && !client.inVoiceCall)
-                    ..._buildNewVoiceCallHint(context, serverModel, client),
-                ])))
-            .toList());
+    final q = KqTheme.of(context);
+    final clients =
+        serverModel.clients.where((client) => !client.disconnected).toList();
+    if (clients.isEmpty) {
+      return PaddingCard(
+        title: translate('Current connections'),
+        titleIcon: Icon(Icons.link_off_rounded, color: q.muted),
+        child: _EmptyConnectionState(),
+      );
+    }
+    return PaddingCard(
+      title: translate('Current connections'),
+      titleIcon: Icon(Icons.hub_rounded, color: q.primary),
+      child: Column(
+        children: [
+          for (var i = 0; i < clients.length; i++) ...[
+            if (i > 0)
+              Divider(height: 20, thickness: 1, color: q.line.withOpacity(0.8)),
+            _ConnectionClientTile(
+              client: clients[i],
+              action: clients[i].authorized
+                  ? _buildDisconnectButton(context, clients[i])
+                  : _buildNewConnectionHint(serverModel, clients[i]),
+              prompt: clients[i].authorized
+                  ? null
+                  : translate("android_new_connection_tip"),
+              voiceCallPrompt:
+                  clients[i].incomingVoiceCall && !clients[i].inVoiceCall
+                      ? _buildNewVoiceCallHint(context, serverModel, clients[i])
+                      : const [],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
-  Widget _buildDisconnectButton(Client client) {
-    final disconnectButton = ElevatedButton.icon(
-      style: ButtonStyle(backgroundColor: MaterialStatePropertyAll(Colors.red)),
-      icon: const Icon(Icons.close),
+  Widget _buildDisconnectButton(BuildContext context, Client client) {
+    final q = KqTheme.of(context);
+    final disconnectButton = FilledButton.tonalIcon(
+      style: FilledButton.styleFrom(
+        foregroundColor: q.offline,
+        backgroundColor: q.offline.withOpacity(0.1),
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      icon: const Icon(Icons.close_rounded, size: 18),
       onPressed: () {
         bind.cmCloseConnection(connId: client.id);
         gFFI.invokeMethod("cancel_notification", client.id);
@@ -739,10 +1314,14 @@ class ConnectionManager extends StatelessWidget {
     if (client.inVoiceCall) {
       buttons.insert(
         0,
-        ElevatedButton.icon(
-          style: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.red)),
-          icon: const Icon(Icons.phone),
+        FilledButton.tonalIcon(
+          style: FilledButton.styleFrom(
+            foregroundColor: q.offline,
+            backgroundColor: q.offline.withOpacity(0.1),
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          icon: const Icon(Icons.phone_disabled_rounded, size: 18),
           label: Text(translate("Stop")),
           onPressed: () {
             bind.cmCloseVoiceCall(id: client.id);
@@ -753,57 +1332,217 @@ class ConnectionManager extends StatelessWidget {
     }
 
     if (buttons.length == 1) {
-      return Container(
-        alignment: Alignment.centerRight,
-        child: disconnectButton,
-      );
+      return disconnectButton;
     } else {
-      return Row(
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
         children: buttons,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
       );
     }
   }
 
   Widget _buildNewConnectionHint(ServerModel serverModel, Client client) {
-    return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-      TextButton(
-          child: Text(translate("Dismiss")),
-          onPressed: () {
-            serverModel.sendLoginResponse(client, false);
-          }).marginOnly(right: 15),
-      if (serverModel.approveMode != 'password')
-        ElevatedButton.icon(
-            icon: const Icon(Icons.check),
-            label: Text(translate("Accept")),
-            onPressed: () {
-              serverModel.sendLoginResponse(client, true);
-            }),
-    ]);
+    return Wrap(
+        alignment: WrapAlignment.end,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: const Icon(Icons.close_rounded, size: 18),
+              label: Text(translate("Dismiss")),
+              onPressed: () {
+                serverModel.sendLoginResponse(client, false);
+              }),
+          if (serverModel.approveMode != 'password')
+            FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(translate("Accept")),
+                onPressed: () {
+                  serverModel.sendLoginResponse(client, true);
+                }),
+        ]);
   }
 
   List<Widget> _buildNewVoiceCallHint(
       BuildContext context, ServerModel serverModel, Client client) {
+    final q = KqTheme.of(context);
     return [
       Text(
         translate("android_new_voice_call_tip"),
-        style: Theme.of(context).textTheme.bodyMedium,
-      ).marginOnly(bottom: 5),
-      Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-        TextButton(
-            child: Text(translate("Dismiss")),
+        style: TextStyle(
+          color: q.ink,
+          fontSize: 12,
+          height: 1.32,
+          fontWeight: FontWeight.w700,
+        ),
+      ).marginOnly(top: 10, bottom: 8),
+      Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 8, children: [
+        TextButton.icon(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            icon: const Icon(Icons.close_rounded, size: 18),
+            label: Text(translate("Dismiss")),
             onPressed: () {
               serverModel.handleVoiceCall(client, false);
-            }).marginOnly(right: 15),
+            }),
         if (serverModel.approveMode != 'password')
-          ElevatedButton.icon(
-              icon: const Icon(Icons.check),
+          FilledButton.icon(
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: const Icon(Icons.check_rounded, size: 18),
               label: Text(translate("Accept")),
               onPressed: () {
                 serverModel.handleVoiceCall(client, true);
               }),
       ])
     ];
+  }
+}
+
+class _ConnectionClientTile extends StatelessWidget {
+  const _ConnectionClientTile({
+    required this.client,
+    required this.action,
+    required this.voiceCallPrompt,
+    this.prompt,
+  });
+
+  final Client client;
+  final Widget action;
+  final String? prompt;
+  final List<Widget> voiceCallPrompt;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final statusColor = client.authorized ? q.online : q.warning;
+    final typeIcon = client.isFileTransfer
+        ? Icons.folder_rounded
+        : Icons.screen_share_rounded;
+    final typeText =
+        translate(client.isFileTransfer ? "Transfer file" : "Share screen");
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: q.surfaceSoft.withOpacity(q.isDark ? 0.5 : 0.72),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: ClientInfo(client)),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: statusColor.withOpacity(0.24)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(typeIcon, size: 14, color: statusColor),
+              const SizedBox(width: 4),
+              Text(
+                typeText,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ]),
+          ),
+        ]),
+        if (prompt != null)
+          _ConnectionPrompt(text: prompt!, color: q.warning)
+              .marginOnly(top: 10),
+        if (voiceCallPrompt.isNotEmpty) ...voiceCallPrompt,
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: action,
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _ConnectionPrompt extends StatelessWidget {
+  const _ConnectionPrompt({
+    required this.text,
+    required this.color,
+  });
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: q.ink,
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyConnectionState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Row(children: [
+      Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: q.primary.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Icon(Icons.devices_other_rounded, color: q.primary),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Text(
+          translate('No active connections'),
+          style: TextStyle(
+            color: q.muted,
+            fontSize: 13,
+            height: 1.35,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    ]);
   }
 }
 
@@ -818,35 +1557,47 @@ class PaddingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final children = [child];
+    final q = KqTheme.of(context);
     if (title != null) {
       children.insert(
           0,
           Padding(
-              padding: const EdgeInsets.fromLTRB(0, 5, 0, 8),
+              padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
               child: Row(
                 children: [
                   titleIcon?.marginOnly(right: 10) ?? const SizedBox.shrink(),
                   Expanded(
                     child: Text(title!,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.merge(TextStyle(fontWeight: FontWeight.bold))),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: q.ink,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            )),
                   )
                 ],
               )));
     }
     return SizedBox(
         width: double.maxFinite,
-        child: Card(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(13),
+        child: Container(
+          margin: const EdgeInsets.only(top: 12),
+          decoration: BoxDecoration(
+            color: q.panelStrong.withOpacity(q.isDark ? 0.78 : 0.92),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: q.line),
+            boxShadow: [
+              BoxShadow(
+                color: q.shadow,
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-          margin: const EdgeInsets.fromLTRB(12.0, 10.0, 12.0, 0),
           child: Padding(
             padding:
-                const EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
+                const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: children,
             ),
           ),

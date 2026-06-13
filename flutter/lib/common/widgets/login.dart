@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
+import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/kq_oauth.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/user_model.dart';
@@ -27,6 +28,25 @@ const kOpSvgList = [
 
 bool _isKqOauthCancellation(Object err) =>
     err is KqOauthException && err.message == 'Authorization canceled.';
+
+Future<void> _launchLoginUrl(Uri url) async {
+  await launchUrl(
+    url,
+    mode: isMobile ? LaunchMode.inAppWebView : LaunchMode.externalApplication,
+    webViewConfiguration: const WebViewConfiguration(
+      enableJavaScript: true,
+      enableDomStorage: true,
+    ),
+  );
+}
+
+Future<void> _closeLoginWebView() async {
+  try {
+    await closeInAppWebView();
+  } catch (_) {
+    // The login page may already be closed by the user or platform.
+  }
+}
 
 Future<bool?> _loginWithKqOauthDirect() async {
   try {
@@ -191,12 +211,15 @@ class _WidgetOPState extends State<WidgetOP> {
       if (_stateMsg != stateMsg || _failedMsg != failedMsg) {
         if (_url.isEmpty && url != null && url.isNotEmpty) {
           if (!urlLaunched) {
-            launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+            _launchLoginUrl(Uri.parse(url));
           }
           _url = url;
         }
         if (authBody != null) {
           _updateTimer?.cancel();
+          if (isMobile) {
+            unawaited(_closeLoginWebView());
+          }
           widget.curOP.value = '';
           widget.cbLogin(authBody as Map<String, dynamic>);
         }
@@ -489,12 +512,732 @@ class LoginWidgetKqOauth extends StatelessWidget {
   }
 }
 
+class _KqNativeMobileLoginPage extends StatefulWidget {
+  const _KqNativeMobileLoginPage();
+
+  @override
+  State<_KqNativeMobileLoginPage> createState() =>
+      _KqNativeMobileLoginPageState();
+}
+
+class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
+  final _accountController =
+      TextEditingController(text: UserModel.getLocalUserInfo()?['name'] ?? '');
+  final _passwordController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _smsCodeController = TextEditingController();
+  final _accountFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
+  final _phoneFocusNode = FocusNode();
+  final _smsCodeFocusNode = FocusNode();
+
+  bool _useSms = false;
+  bool _passwordVisible = false;
+  bool _isSubmitting = false;
+  bool _isSendingSms = false;
+  int _smsCountdown = 0;
+  String? _errorText;
+  Timer? _smsTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      (_useSms ? _phoneFocusNode : _accountFocusNode).requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _smsTimer?.cancel();
+    _accountController.dispose();
+    _passwordController.dispose();
+    _phoneController.dispose();
+    _smsCodeController.dispose();
+    _accountFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _phoneFocusNode.dispose();
+    _smsCodeFocusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_isSubmitting) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _errorText = null);
+
+    final account = _accountController.text.trim();
+    final password = _passwordController.text;
+    final phone = _phoneController.text.trim();
+    final code = _smsCodeController.text.trim();
+
+    if (_useSms) {
+      if (!_isValidPhone(phone)) {
+        setState(
+            () => _errorText = translate('Please enter a valid phone number'));
+        return;
+      }
+      if (code.isEmpty) {
+        setState(() => _errorText = translate('Please enter the SMS code'));
+        return;
+      }
+    } else {
+      if (account.isEmpty) {
+        setState(() => _errorText = translate('Username missed'));
+        return;
+      }
+      if (password.isEmpty) {
+        setState(() => _errorText = translate('Password missed'));
+        return;
+      }
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      final resp = _useSms
+          ? await KqOauth.loginWithSms(phone: phone, code: code)
+          : await KqOauth.loginWithPassword(
+              username: _normalizeAccountInput(account),
+              password: password,
+            );
+      await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
+      await UserModel.updateOtherModels();
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _errorText = _formatKqLoginError(err));
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  Future<void> _sendSmsCode() async {
+    if (_isSendingSms || _smsCountdown > 0) return;
+    final phone = _phoneController.text.trim();
+    if (!_isValidPhone(phone)) {
+      setState(
+          () => _errorText = translate('Please enter a valid phone number'));
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _errorText = null;
+      _isSendingSms = true;
+    });
+    try {
+      await KqOauth.sendSmsCode(phone: phone);
+      if (!mounted) return;
+      showToast(translate('SMS code sent'));
+      _startSmsCountdown();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _errorText = _formatKqLoginError(err));
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingSms = false);
+      }
+    }
+  }
+
+  void _startSmsCountdown() {
+    _smsTimer?.cancel();
+    setState(() => _smsCountdown = 60);
+    _smsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_smsCountdown <= 1) {
+        timer.cancel();
+        setState(() => _smsCountdown = 0);
+      } else {
+        setState(() => _smsCountdown--);
+      }
+    });
+  }
+
+  String _normalizeAccountInput(String value) {
+    final trimmed = value.trim();
+    if (trimmed.startsWith('+86')) {
+      final phone = trimmed.substring(3).replaceAll(RegExp(r'\s+'), '');
+      if (_isValidPhone(phone)) return phone;
+    }
+    return trimmed;
+  }
+
+  bool _isValidPhone(String value) => RegExp(r'^1[3-9]\d{9}$').hasMatch(value);
+
+  String _formatKqLoginError(Object err) {
+    var text = err.toString();
+    if (err is KqOauthException) {
+      text = err.message;
+    }
+    text = text.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+    return text.isEmpty ? translate('Kunqiong login failed') : translate(text);
+  }
+
+  void _switchMode(bool sms) {
+    if (_isSubmitting || _isSendingSms || sms == _useSms) return;
+    setState(() {
+      _useSms = sms;
+      _errorText = null;
+    });
+    Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      (_useSms ? _phoneFocusNode : _accountFocusNode).requestFocus();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: q.pageGradient,
+          ),
+        ),
+        child: SafeArea(
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(bottom: bottomInset > 0 ? 8 : 0),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+              children: [
+                _KqNativeLoginTopBar(q: q),
+                const SizedBox(height: 26),
+                _KqNativeLoginHero(q: q),
+                const SizedBox(height: 22),
+                _KqNativeLoginPanel(
+                  q: q,
+                  useSms: _useSms,
+                  passwordVisible: _passwordVisible,
+                  isSubmitting: _isSubmitting,
+                  isSendingSms: _isSendingSms,
+                  smsCountdown: _smsCountdown,
+                  errorText: _errorText,
+                  accountController: _accountController,
+                  passwordController: _passwordController,
+                  phoneController: _phoneController,
+                  smsCodeController: _smsCodeController,
+                  accountFocusNode: _accountFocusNode,
+                  passwordFocusNode: _passwordFocusNode,
+                  phoneFocusNode: _phoneFocusNode,
+                  smsCodeFocusNode: _smsCodeFocusNode,
+                  onSwitchMode: _switchMode,
+                  onSubmit: _submit,
+                  onSendSms: _sendSmsCode,
+                  onTogglePassword: () =>
+                      setState(() => _passwordVisible = !_passwordVisible),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KqNativeLoginTopBar extends StatelessWidget {
+  final KqTheme q;
+
+  const _KqNativeLoginTopBar({required this.q});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          tooltip: translate('Back'),
+          onPressed: () => Navigator.of(context).pop(false),
+          icon: const Icon(Icons.arrow_back_rounded),
+          color: q.ink,
+          style: IconButton.styleFrom(
+            backgroundColor: q.panel,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: q.line),
+            ),
+          ),
+        ),
+        const Spacer(),
+        TextButton(
+          onPressed: () => launchUrl(Uri.parse('https://kunqiongai.com/')),
+          style: TextButton.styleFrom(foregroundColor: q.primary),
+          child: Text(translate('Company website')),
+        ),
+      ],
+    );
+  }
+}
+
+class _KqNativeLoginHero extends StatelessWidget {
+  final KqTheme q;
+
+  const _KqNativeLoginHero({required this.q});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            color: q.panelStrong,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: q.line),
+            boxShadow: [
+              BoxShadow(
+                color: q.shadow,
+                blurRadius: 24,
+                offset: const Offset(0, 14),
+              ),
+            ],
+          ),
+          child: loadIcon(50),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          translate('Log in to Kunqiong Remote Desktop'),
+          style: TextStyle(
+            color: q.ink,
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            height: 1.12,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          translate(
+              'Use your Kunqiong account to sync devices, favorites, and membership benefits.'),
+          style: TextStyle(
+            color: q.muted,
+            fontSize: 14,
+            height: 1.55,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KqNativeLoginPanel extends StatelessWidget {
+  final KqTheme q;
+  final bool useSms;
+  final bool passwordVisible;
+  final bool isSubmitting;
+  final bool isSendingSms;
+  final int smsCountdown;
+  final String? errorText;
+  final TextEditingController accountController;
+  final TextEditingController passwordController;
+  final TextEditingController phoneController;
+  final TextEditingController smsCodeController;
+  final FocusNode accountFocusNode;
+  final FocusNode passwordFocusNode;
+  final FocusNode phoneFocusNode;
+  final FocusNode smsCodeFocusNode;
+  final void Function(bool) onSwitchMode;
+  final Future<void> Function() onSubmit;
+  final Future<void> Function() onSendSms;
+  final VoidCallback onTogglePassword;
+
+  const _KqNativeLoginPanel({
+    required this.q,
+    required this.useSms,
+    required this.passwordVisible,
+    required this.isSubmitting,
+    required this.isSendingSms,
+    required this.smsCountdown,
+    required this.errorText,
+    required this.accountController,
+    required this.passwordController,
+    required this.phoneController,
+    required this.smsCodeController,
+    required this.accountFocusNode,
+    required this.passwordFocusNode,
+    required this.phoneFocusNode,
+    required this.smsCodeFocusNode,
+    required this.onSwitchMode,
+    required this.onSubmit,
+    required this.onSendSms,
+    required this.onTogglePassword,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isBusy = isSubmitting || isSendingSms;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      decoration: BoxDecoration(
+        color: q.panel,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: q.line),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow,
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _KqLoginModeSwitch(
+            q: q,
+            useSms: useSms,
+            onSwitchMode: onSwitchMode,
+          ),
+          const SizedBox(height: 18),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: useSms
+                ? Column(
+                    key: const ValueKey('sms-login'),
+                    children: [
+                      _KqNativeTextField(
+                        q: q,
+                        controller: phoneController,
+                        focusNode: phoneFocusNode,
+                        label: translate('Phone number'),
+                        hint: translate('Enter phone number'),
+                        icon: Icons.phone_android_rounded,
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => smsCodeFocusNode.requestFocus(),
+                      ),
+                      const SizedBox(height: 12),
+                      _KqNativeTextField(
+                        q: q,
+                        controller: smsCodeController,
+                        focusNode: smsCodeFocusNode,
+                        label: translate('SMS code'),
+                        hint: translate('Enter SMS code'),
+                        icon: Icons.sms_outlined,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => onSubmit(),
+                        suffix: TextButton(
+                          onPressed:
+                              isBusy || smsCountdown > 0 ? null : onSendSms,
+                          child: isSendingSms
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: q.primary,
+                                  ),
+                                )
+                              : Text(
+                                  smsCountdown > 0
+                                      ? '${smsCountdown}s'
+                                      : translate('Get code'),
+                                ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    key: const ValueKey('password-login'),
+                    children: [
+                      _KqNativeTextField(
+                        q: q,
+                        controller: accountController,
+                        focusNode: accountFocusNode,
+                        label: translate('Account'),
+                        hint: translate('Username / phone / email'),
+                        icon: Icons.person_outline_rounded,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => passwordFocusNode.requestFocus(),
+                      ),
+                      const SizedBox(height: 12),
+                      _KqNativeTextField(
+                        q: q,
+                        controller: passwordController,
+                        focusNode: passwordFocusNode,
+                        label: translate('Password'),
+                        hint: translate('Enter your password'),
+                        icon: Icons.lock_outline_rounded,
+                        obscureText: !passwordVisible,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => onSubmit(),
+                        suffix: IconButton(
+                          tooltip: translate(passwordVisible ? 'Hide' : 'Show'),
+                          onPressed: onTogglePassword,
+                          icon: Icon(
+                            passwordVisible
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                          color: q.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            child: errorText == null || errorText!.isEmpty
+                ? const SizedBox(height: 14)
+                : Container(
+                    key: ValueKey(errorText),
+                    margin: const EdgeInsets.only(top: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: q.offline.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: q.offline.withOpacity(0.24)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline_rounded,
+                            color: q.offline, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            errorText!,
+                            style: TextStyle(
+                              color: q.offline,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: isSubmitting ? null : onSubmit,
+            style: FilledButton.styleFrom(
+              backgroundColor: q.primary,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: q.primary.withOpacity(0.42),
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: isSubmitting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    translate('Login'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            translate('Login is completed securely inside the app.'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: q.muted, fontSize: 12, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KqLoginModeSwitch extends StatelessWidget {
+  final KqTheme q;
+  final bool useSms;
+  final void Function(bool) onSwitchMode;
+
+  const _KqLoginModeSwitch({
+    required this.q,
+    required this.useSms,
+    required this.onSwitchMode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: q.surfaceSoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(
+        children: [
+          _KqLoginModeButton(
+            q: q,
+            selected: !useSms,
+            label: translate('Password login'),
+            onTap: () => onSwitchMode(false),
+          ),
+          _KqLoginModeButton(
+            q: q,
+            selected: useSms,
+            label: translate('SMS login'),
+            onTap: () => onSwitchMode(true),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KqLoginModeButton extends StatelessWidget {
+  final KqTheme q;
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+
+  const _KqLoginModeButton({
+    required this.q,
+    required this.selected,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? q.panelStrong : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: q.shadow,
+                      blurRadius: 14,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: selected ? q.primary : q.muted,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KqNativeTextField extends StatelessWidget {
+  final KqTheme q;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final Widget? suffix;
+  final ValueChanged<String>? onSubmitted;
+
+  const _KqNativeTextField({
+    required this.q,
+    required this.controller,
+    required this.focusNode,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    this.obscureText = false,
+    this.keyboardType,
+    this.textInputAction,
+    this.suffix,
+    this.onSubmitted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      focusNode: focusNode,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      onSubmitted: onSubmitted,
+      style: TextStyle(color: q.ink, fontSize: 15),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon, color: q.primary),
+        suffixIcon: suffix,
+        filled: true,
+        fillColor: q.field,
+        labelStyle: TextStyle(color: q.muted),
+        hintStyle: TextStyle(color: q.muted.withOpacity(0.7)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: q.line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: q.primary, width: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
 const kAuthReqTypeOidc = 'oidc/';
 
 // call this directly
 Future<bool?> loginDialog() async {
-  if (isDesktop || isMobile) {
+  if (isDesktop) {
     return _loginWithKqOauthDirect();
+  }
+  if (isMobile) {
+    final context = globalKey.currentContext ?? Get.context;
+    if (context == null) {
+      return false;
+    }
+    return Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const _KqNativeMobileLoginPage()),
+    );
   }
 
   var username =

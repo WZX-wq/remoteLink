@@ -171,9 +171,10 @@ class RustDeskMultiWindowManager {
         overrideType: type,
       ));
     }
-    if (isMacOS) {
-      Future.microtask(() => windowController.show());
-    }
+    Future.microtask(() async {
+      await windowController.show();
+      await windowController.focus();
+    });
     registerActiveWindow(windowId);
     windows.add(windowId);
     return windowId;
@@ -194,7 +195,7 @@ class RustDeskMultiWindowManager {
             type, remoteId, msg, windows, screenRect != null);
         return MultiWindowCallResult(windowId, null);
       } else {
-        return call(type, methodName, msg);
+        return call(type, methodName, msg, activate: true);
       }
     } else {
       if (_inactiveWindows.isNotEmpty) {
@@ -205,10 +206,7 @@ class RustDeskMultiWindowManager {
                   windowId: windowId, peerId: remoteId);
             }
             await DesktopMultiWindow.invokeMethod(windowId, methodName, msg);
-            if (methodName != kWindowEventNewRemoteDesktop) {
-              WindowController.fromWindowId(windowId).show();
-            }
-            registerActiveWindow(windowId);
+            await _activateSessionWindow(windowId);
             return MultiWindowCallResult(windowId, null);
           }
         }
@@ -259,6 +257,7 @@ class RustDeskMultiWindowManager {
       for (final windowId in windows) {
         if (await DesktopMultiWindow.invokeMethod(
             windowId, kWindowEventActiveSession, remoteId)) {
+          await _activateSessionWindow(windowId);
           return MultiWindowCallResult(windowId, null);
         }
       }
@@ -313,6 +312,9 @@ class RustDeskMultiWindowManager {
     bool? forceRelay,
     String? connToken,
   }) async {
+    if (!isViewCameraFeatureEnabled()) {
+      return MultiWindowCallResult(-1, false);
+    }
     return await newSession(
       WindowType.ViewCamera,
       kWindowEventNewViewCamera,
@@ -384,7 +386,8 @@ class RustDeskMultiWindowManager {
   }
 
   Future<MultiWindowCallResult> call(
-      WindowType type, String methodName, dynamic args) async {
+      WindowType type, String methodName, dynamic args,
+      {bool activate = false}) async {
     final wnds = _findWindowsByType(type);
     if (wnds.isEmpty) {
       return MultiWindowCallResult(kInvalidWindowId, null);
@@ -393,12 +396,25 @@ class RustDeskMultiWindowManager {
       if (_activeWindows.contains(windowId)) {
         final res =
             await DesktopMultiWindow.invokeMethod(windowId, methodName, args);
+        if (activate) {
+          await _activateSessionWindow(windowId);
+        }
         return MultiWindowCallResult(windowId, res);
       }
     }
     final res =
         await DesktopMultiWindow.invokeMethod(wnds[0], methodName, args);
+    if (activate) {
+      await _activateSessionWindow(wnds[0]);
+    }
     return MultiWindowCallResult(wnds[0], res);
+  }
+
+  Future<void> _activateSessionWindow(int windowId) async {
+    final controller = WindowController.fromWindowId(windowId);
+    await controller.show();
+    await controller.focus();
+    await registerActiveWindow(windowId);
   }
 
   List<int> _findWindowsByType(WindowType type) {
@@ -472,7 +488,8 @@ class RustDeskMultiWindowManager {
     }
     for (int i = 0; i < windows.length; i++) {
       final wId = windows[i];
-      final shouldSavePos = type != WindowType.Terminal || i == windows.length - 1;
+      final shouldSavePos =
+          type != WindowType.Terminal || i == windows.length - 1;
       if (shouldSavePos) {
         debugPrint("closing multi window, type: ${type.toString()} id: $wId");
         try {

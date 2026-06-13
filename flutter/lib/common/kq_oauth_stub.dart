@@ -19,7 +19,29 @@ class KqOauth {
 
   static void cancel() {}
 
+  static Future<void> logout() async {}
+
+  static Future<bool> checkLogin() async => false;
+
   static Future<LoginResponse> login() async {
     throw KqOauthException('Company OAuth login is only available on desktop.');
+  }
+
+  static Future<LoginResponse> loginWithPassword({
+    required String username,
+    required String password,
+  }) async {
+    throw KqOauthException('Company account login is only available in app.');
+  }
+
+  static Future<void> sendSmsCode({required String phone}) async {
+    throw KqOauthException('Company SMS login is only available in app.');
+  }
+
+  static Future<LoginResponse> loginWithSms({
+    required String phone,
+    required String code,
+  }) async {
+    throw KqOauthException('Company SMS login is only available in app.');
   }
 }

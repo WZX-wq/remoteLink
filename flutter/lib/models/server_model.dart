@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -23,6 +24,14 @@ const kUseTemporaryPassword = "use-temporary-password";
 const kUsePermanentPassword = "use-permanent-password";
 const kUseBothPasswords = "use-both-passwords";
 
+enum KqPasswordKind {
+  oneTime,
+  daily,
+  permanent,
+}
+
+const kKqTemporaryPasswordControlKey = "temporary-password";
+
 class ServerModel with ChangeNotifier {
   bool _isStart = false; // Android MainService status
   bool _mediaOk = false;
@@ -37,12 +46,19 @@ class ServerModel with ChangeNotifier {
   String _temporaryPasswordLength = "";
   bool _allowNumericOneTimePassword = false;
   String _approveMode = "";
+  bool _passwordServiceStopped = false;
+  bool _localPermanentPasswordSet = false;
+  bool _permanentPasswordSet = false;
+  bool _permanentPreviewAutofillAttempted = false;
+  KqPasswordKind _selectedPasswordKind = KqPasswordKind.oneTime;
   int _zeroClientLengthCounter = 0;
 
   late String _emptyIdShow;
   late final IDTextEditingController _serverId;
   final _serverPasswd =
       TextEditingController(text: translate("Generating ..."));
+  final _dailyPasswd = TextEditingController(text: "");
+  final _permanentPasswd = TextEditingController(text: "");
 
   final tabController = DesktopTabController(tabType: DesktopTabType.cm);
 
@@ -82,6 +98,199 @@ class ServerModel with ChangeNotifier {
 
   String get approveMode => _approveMode;
 
+  KqPasswordKind get selectedPasswordKind => _selectedPasswordKind;
+
+  bool get canUseOneTimePassword =>
+      _approveMode != 'click' && verificationMethod != kUsePermanentPassword;
+
+  bool get canUsePermanentPassword =>
+      _approveMode != 'click' && verificationMethod != kUseTemporaryPassword;
+
+  bool get localPermanentPasswordSet => _localPermanentPasswordSet;
+
+  bool get permanentPasswordSet => _permanentPasswordSet;
+
+  TextEditingController get dailyPasswd => _dailyPasswd;
+
+  TextEditingController get permanentPasswd => _permanentPasswd;
+
+  bool get isSelectedPasswordVisible {
+    return !_passwordServiceStopped;
+  }
+
+  String get selectedPasswordLabel {
+    switch (_selectedPasswordKind) {
+      case KqPasswordKind.oneTime:
+        return '一次性验证码';
+      case KqPasswordKind.daily:
+        return '今日验证码';
+      case KqPasswordKind.permanent:
+        return '长期验证码';
+    }
+  }
+
+  TextEditingController get selectedPasswordController {
+    switch (_selectedPasswordKind) {
+      case KqPasswordKind.oneTime:
+        return _serverPasswd;
+      case KqPasswordKind.daily:
+        return _dailyPasswd;
+      case KqPasswordKind.permanent:
+        return _permanentPasswd;
+    }
+  }
+
+  String get selectedPasswordText {
+    if (!isSelectedPasswordVisible) {
+      return '-';
+    }
+    final text = selectedPasswordController.text.trim();
+    if (text.isNotEmpty) {
+      return text;
+    }
+    return '--';
+  }
+
+  bool get selectedPasswordCanCopy {
+    final text = selectedPasswordText;
+    return isSelectedPasswordVisible &&
+        text.isNotEmpty &&
+        text != '-' &&
+        text != '--';
+  }
+
+  bool get selectedPasswordCanRefresh => isSelectedPasswordVisible;
+
+  bool get selectedPasswordCanShare {
+    if (!selectedPasswordCanCopy) {
+      return false;
+    }
+    switch (_selectedPasswordKind) {
+      case KqPasswordKind.oneTime:
+        return _approveMode != 'click';
+      case KqPasswordKind.daily:
+        return _approveMode != 'click';
+      case KqPasswordKind.permanent:
+        return canUsePermanentPassword;
+    }
+  }
+
+  void setSelectedPasswordKind(KqPasswordKind kind) {
+    if (_selectedPasswordKind == kind) {
+      return;
+    }
+    _selectedPasswordKind = kind;
+    notifyListeners();
+  }
+
+  String _todayPasswordDate() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  String _generatePassword({String? length, bool? numeric}) {
+    final len = int.tryParse(length ?? temporaryPasswordLength) ?? 6;
+    final count = len.clamp(6, bind.mainMaxEncryptLen()).toInt();
+    final charset = (numeric ?? _allowNumericOneTimePassword)
+        ? '0123456789'
+        : '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    final random = Random.secure();
+    return List.generate(
+      count,
+      (_) => charset[random.nextInt(charset.length)],
+    ).join();
+  }
+
+  Future<String> _ensureDailyPassword({
+    String? length,
+    bool? numeric,
+  }) async {
+    final today = _todayPasswordDate();
+    final date = await bind.mainGetOption(key: kOptionKqDailyPasswordDate);
+    var password = await bind.mainGetOption(key: kOptionKqDailyPassword);
+    if (date != today || password.trim().isEmpty) {
+      password = _generatePassword(length: length, numeric: numeric);
+      await bind.mainSetOption(key: kOptionKqDailyPassword, value: password);
+      await bind.mainSetOption(key: kOptionKqDailyPasswordDate, value: today);
+    }
+    return password.trim();
+  }
+
+  Future<void> refreshSelectedPassword() async {
+    switch (_selectedPasswordKind) {
+      case KqPasswordKind.oneTime:
+        await bind.mainUpdateTemporaryPassword();
+        break;
+      case KqPasswordKind.daily:
+        final password = _generatePassword();
+        await setDailyPassword(password);
+        return;
+      case KqPasswordKind.permanent:
+        final password = _generatePassword();
+        await setPermanentPasswordPreview(password);
+        return;
+    }
+    await updatePasswordModel();
+  }
+
+  Future<void> setOneTimePassword(String password) async {
+    final value = password.trim();
+    await bind.mainSetOption(key: kKqTemporaryPasswordControlKey, value: value);
+    if (_serverPasswd.text != value) {
+      _serverPasswd.text = value;
+      notifyListeners();
+    }
+    await updatePasswordModel();
+  }
+
+  Future<void> setDailyPassword(String password) async {
+    final value = password.trim();
+    await bind.mainSetOption(key: kOptionKqDailyPassword, value: value);
+    await bind.mainSetOption(
+      key: kOptionKqDailyPasswordDate,
+      value: _todayPasswordDate(),
+    );
+    if (_dailyPasswd.text != value) {
+      _dailyPasswd.text = value;
+      notifyListeners();
+    }
+    await updatePasswordModel();
+  }
+
+  Future<bool> setPermanentPasswordPreview(String password) async {
+    final value = password.trim();
+    final ok = await bind.mainSetPermanentPasswordWithResult(password: value);
+    if (!ok) {
+      return false;
+    }
+    await bind.mainSetOption(
+      key: kOptionKqPermanentPasswordPreview,
+      value: value,
+    );
+    _permanentPasswd.text = value;
+    _localPermanentPasswordSet = value.isNotEmpty;
+    _permanentPasswordSet = value.isNotEmpty;
+    notifyListeners();
+    await updatePasswordModel();
+    return true;
+  }
+
+  Future<bool> removePermanentPassword() async {
+    final ok = await bind.mainSetPermanentPasswordWithResult(password: "");
+    if (!ok) {
+      return false;
+    }
+    await bind.mainSetOption(key: kOptionKqPermanentPasswordPreview, value: "");
+    _permanentPasswd.text = "";
+    _localPermanentPasswordSet = false;
+    _permanentPasswordSet = false;
+    notifyListeners();
+    await updatePasswordModel();
+    return true;
+  }
+
   setVerificationMethod(String method) async {
     await bind.mainSetOption(key: kOptionVerificationMethod, value: method);
     /*
@@ -104,8 +313,13 @@ class ServerModel with ChangeNotifier {
     await bind.mainSetOption(key: "temporary-password-length", value: length);
   }
 
+  String _defaultApproveMode(String mode) {
+    return mode == defaultOptionApproveMode ? mode : defaultOptionApproveMode;
+  }
+
   setApproveMode(String mode) async {
-    await bind.mainSetOption(key: kOptionApproveMode, value: mode);
+    await bind.mainSetOption(
+        key: kOptionApproveMode, value: _defaultApproveMode(mode));
     /*
     if (mode != 'password') {
       await bind.mainSetOption(
@@ -234,9 +448,51 @@ class ServerModel with ChangeNotifier {
         await bind.mainGetOption(key: kOptionVerificationMethod);
     final temporaryPasswordLength =
         await bind.mainGetOption(key: "temporary-password-length");
-    final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
+    var approveMode = await bind.mainGetOption(key: kOptionApproveMode);
+    final normalizedApproveMode = _defaultApproveMode(approveMode);
+    if (approveMode != normalizedApproveMode) {
+      await bind.mainSetOption(
+          key: kOptionApproveMode, value: normalizedApproveMode);
+      approveMode = normalizedApproveMode;
+    }
     final numericOneTimePassword =
         await mainGetBoolOption(kOptionAllowNumericOneTimePassword);
+    final dailyPassword = await _ensureDailyPassword(
+      length: temporaryPasswordLength,
+      numeric: numericOneTimePassword,
+    );
+    var permanentPasswordPreview =
+        (await bind.mainGetOption(key: kOptionKqPermanentPasswordPreview))
+            .trim();
+    final localPermanentPasswordSet =
+        (await bind.mainGetCommon(key: "local-permanent-password-set")) ==
+            "true";
+    final permanentPasswordSet =
+        (await bind.mainGetCommon(key: "permanent-password-set")) == "true";
+    final stopped = await mainGetBoolOption(kOptionStopService);
+    if (!stopped &&
+        permanentPasswordSet &&
+        permanentPasswordPreview.isEmpty &&
+        !_permanentPreviewAutofillAttempted &&
+        !isChangePermanentPasswordDisabled()) {
+      _permanentPreviewAutofillAttempted = true;
+      final generated = _generatePassword(
+        length: temporaryPasswordLength,
+        numeric: numericOneTimePassword,
+      );
+      final ok =
+          await bind.mainSetPermanentPasswordWithResult(password: generated);
+      if (ok) {
+        permanentPasswordPreview = generated;
+        await bind.mainSetOption(
+          key: kOptionKqPermanentPasswordPreview,
+          value: generated,
+        );
+      }
+    }
+    if (!permanentPasswordSet || permanentPasswordPreview.isNotEmpty) {
+      _permanentPreviewAutofillAttempted = false;
+    }
     /*
     var hideCm = option2bool(
         'allow-hide-cm', await bind.mainGetOption(key: 'allow-hide-cm'));
@@ -249,11 +505,12 @@ class ServerModel with ChangeNotifier {
       _approveMode = approveMode;
       update = true;
     }
-    var stopped = await mainGetBoolOption(kOptionStopService);
+    if (_passwordServiceStopped != stopped) {
+      _passwordServiceStopped = stopped;
+      update = true;
+    }
     final oldPwdText = _serverPasswd.text;
-    if (stopped ||
-        verificationMethod == kUsePermanentPassword ||
-        _approveMode == 'click') {
+    if (stopped) {
       _serverPasswd.text = '-';
     } else {
       if (_serverPasswd.text != temporaryPassword &&
@@ -277,6 +534,23 @@ class ServerModel with ChangeNotifier {
     }
     if (_allowNumericOneTimePassword != numericOneTimePassword) {
       _allowNumericOneTimePassword = numericOneTimePassword;
+      update = true;
+    }
+    final nextDailyPassword = stopped ? '' : dailyPassword;
+    if (_dailyPasswd.text != nextDailyPassword) {
+      _dailyPasswd.text = nextDailyPassword;
+      update = true;
+    }
+    if (_permanentPasswd.text != permanentPasswordPreview) {
+      _permanentPasswd.text = permanentPasswordPreview;
+      update = true;
+    }
+    if (_localPermanentPasswordSet != localPermanentPasswordSet) {
+      _localPermanentPasswordSet = localPermanentPasswordSet;
+      update = true;
+    }
+    if (_permanentPasswordSet != permanentPasswordSet) {
+      _permanentPasswordSet = permanentPasswordSet;
       update = true;
     }
     /*
@@ -521,6 +795,10 @@ class ServerModel with ChangeNotifier {
     for (var clientJson in clientsJson) {
       try {
         final client = Client.fromJson(clientJson);
+        if (client.isViewCamera && !isViewCameraFeatureEnabled()) {
+          sendLoginResponse(client, false);
+          continue;
+        }
         _clients.add(client);
         _addTab(client);
       } catch (e) {
@@ -543,6 +821,10 @@ class ServerModel with ChangeNotifier {
   void addConnection(Map<String, dynamic> evt) {
     try {
       final client = Client.fromJson(jsonDecode(evt["client"]));
+      if (client.isViewCamera && !isViewCameraFeatureEnabled()) {
+        sendLoginResponse(client, false);
+        return;
+      }
       if (client.authorized) {
         parent.target?.dialogManager.dismissByTag(getLoginDialogTag(client.id));
         final index = _clients.indexWhere((c) => c.id == client.id);
@@ -550,11 +832,13 @@ class ServerModel with ChangeNotifier {
           _clients.add(client);
         } else {
           if (_clients[index].authorized) {
+            _clients[index].keyboard = client.keyboard;
             _clients[index].privacyMode = client.privacyMode;
             notifyListeners();
             return;
           }
           _clients[index].authorized = true;
+          _clients[index].keyboard = client.keyboard;
           _clients[index].privacyMode = client.privacyMode;
         }
       } else {
@@ -608,15 +892,17 @@ class ServerModel with ChangeNotifier {
   }
 
   void showLoginDialog(Client client) {
+    if (client.isViewCamera && !isViewCameraFeatureEnabled()) {
+      sendLoginResponse(client, false);
+      return;
+    }
     showClientDialog(
       client,
       client.isFileTransfer
           ? "Transfer file"
-          : client.isViewCamera
-              ? "View camera"
-              : client.isTerminal
-                  ? "Terminal"
-                  : "Share screen",
+          : client.isTerminal
+              ? "Terminal"
+              : "Share screen",
       'Do you accept?',
       'android_new_connection_tip',
       () => sendLoginResponse(client, false),

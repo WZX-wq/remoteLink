@@ -117,7 +117,11 @@ $kqAppName = [string]::Concat([char[]]@(
     0x684C,
     0x9762
 ))
-$kqTitleBrand = $kqAppName
+$kqTitleBrand = [string]::Concat(
+    [string]::Concat([char[]]@(0x9CB2, 0x7A79)),
+    "AI",
+    [string]::Concat([char[]]@(0x65D7, 0x4E0B, 0x4EA7, 0x54C1))
+)
 $exeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stagedRelease "rustdesk.exe")).Hash.ToLowerInvariant()
 $dllHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stagedRelease "librustdesk.dll")).Hash.ToLowerInvariant()
 $manifest = [ordered]@{
@@ -132,16 +136,20 @@ $manifest = [ordered]@{
     "oauth" = [ordered]@{
         "provider" = "kunqiong"
         "loginButtonText" = $kqLoginButton
-        "authorizeUrl" = "https://login.kunqiongai.com/authorize.html"
-        "tokenUrl" = "https://login.kunqiongai.com/api/oauth/token"
-        "redirectUri" = "http://localhost:6613/oauth/callback"
+        "apiBaseUrl" = "https://api-web.kunqiongai.com"
+        "webLoginUrlPath" = "/soft_desktop/get_web_login_url"
+        "desktopTokenPath" = "/user/desktop_get_token"
+        "checkLoginPath" = "/user/check_login"
+        "userInfoPath" = "/soft_desktop/get_user_info"
+        "logoutPath" = "/logout"
     }
     "ui" = [ordered]@{
-        "titleBrandText" = $kqTitleBrand
-        "titleBrandIcon" = "assets/icon.png"
+        "titleBrandText" = ""
+        "titleBrandIcon" = ""
+        "productTagline" = $kqTitleBrand
     }
     "manualVerificationRequired" = @(
-        "real Kunqiong OAuth account login",
+        "real Kunqiong web-login account login",
         "two-client remote screen control",
         "keyboard and mouse input",
         "clipboard sync",

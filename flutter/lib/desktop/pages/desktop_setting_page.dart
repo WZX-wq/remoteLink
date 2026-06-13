@@ -9,7 +9,6 @@ import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
 import 'package:flutter_hbb/mobile/widgets/dialog.dart';
@@ -38,6 +37,7 @@ const double _kCheckBoxLeftMargin = 10;
 const double _kRadioLeftMargin = 10;
 const double _kListViewBottomMargin = 15;
 const double _kTitleFontSize = 20;
+const double _kCardTitleFontSize = 18;
 const double _kContentFontSize = 15;
 const Color _accentColor = MyTheme.accent;
 const String _kSettingPageControllerTag = 'settingPageController';
@@ -49,6 +49,150 @@ class _TabInfo {
   late final IconData unselected;
   late final IconData selected;
   _TabInfo(this.key, this.label, this.unselected, this.selected);
+}
+
+class _SettingPalette {
+  final Color pageBackground;
+  final Color contentBackground;
+  final Color sidebarBackground;
+  final Color sidebarBorder;
+  final Color navText;
+  final Color navIcon;
+  final Color navSelectedText;
+  final Color navSelectedBackground;
+  final Color navHoverBackground;
+  final Color cardBackground;
+  final Color cardBorder;
+  final Color cardHeaderBackground;
+  final Color fieldFill;
+  final Color fieldBorder;
+  final Color primaryText;
+  final Color mutedText;
+  final Color disabledText;
+  final Color shadow;
+
+  const _SettingPalette({
+    required this.pageBackground,
+    required this.contentBackground,
+    required this.sidebarBackground,
+    required this.sidebarBorder,
+    required this.navText,
+    required this.navIcon,
+    required this.navSelectedText,
+    required this.navSelectedBackground,
+    required this.navHoverBackground,
+    required this.cardBackground,
+    required this.cardBorder,
+    required this.cardHeaderBackground,
+    required this.fieldFill,
+    required this.fieldBorder,
+    required this.primaryText,
+    required this.mutedText,
+    required this.disabledText,
+    required this.shadow,
+  });
+}
+
+_SettingPalette _settingPalette(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  if (isDark) {
+    return const _SettingPalette(
+      pageBackground: Color(0xFF0D1824),
+      contentBackground: Color(0xFF102235),
+      sidebarBackground: Color(0xFF12283B),
+      sidebarBorder: Color(0xFF284C67),
+      navText: Color(0xFFB7CFE4),
+      navIcon: Color(0xFF8FB6D5),
+      navSelectedText: Color(0xFFEAF7FF),
+      navSelectedBackground: Color(0xFF17466D),
+      navHoverBackground: Color(0xFF17354F),
+      cardBackground: Color(0xFF172B3F),
+      cardBorder: Color(0xFF315C7C),
+      cardHeaderBackground: Color(0xFF1A354D),
+      fieldFill: Color(0xFF102338),
+      fieldBorder: Color(0xFF3D6888),
+      primaryText: Color(0xFFEAF7FF),
+      mutedText: Color(0xFFA9C3D8),
+      disabledText: Color(0xFF7894AA),
+      shadow: Color(0x33000000),
+    );
+  }
+  return const _SettingPalette(
+    pageBackground: Color(0xFFEAF6FF),
+    contentBackground: Color(0xFFF5FBFF),
+    sidebarBackground: Color(0xFFE8F5FF),
+    sidebarBorder: Color(0xFFC7E4F8),
+    navText: Color(0xFF2F4D68),
+    navIcon: Color(0xFF4E789C),
+    navSelectedText: Color(0xFF005FBA),
+    navSelectedBackground: Color(0xFFDDF0FF),
+    navHoverBackground: Color(0xFFEFF8FF),
+    cardBackground: Colors.white,
+    cardBorder: Color(0xFFC4E1F5),
+    cardHeaderBackground: Color(0xFFF0F8FF),
+    fieldFill: Color(0xFFF8FCFF),
+    fieldBorder: Color(0xFFAED4EF),
+    primaryText: Color(0xFF18344F),
+    mutedText: Color(0xFF5B7892),
+    disabledText: Color(0xFF90A4B4),
+    shadow: Color(0x1A2377AA),
+  );
+}
+
+ThemeData _settingTheme(BuildContext context, _SettingPalette palette) {
+  final base = Theme.of(context);
+  final inputBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(8),
+    borderSide: BorderSide(color: palette.fieldBorder),
+  );
+  final activeControlColor = WidgetStateProperty.resolveWith<Color?>(
+    (states) {
+      if (states.contains(WidgetState.disabled)) {
+        return palette.disabledText.withOpacity(0.45);
+      }
+      if (states.contains(WidgetState.selected)) {
+        return _accentColor;
+      }
+      return palette.fieldFill;
+    },
+  );
+  return base.copyWith(
+    cardColor: palette.cardBackground,
+    scaffoldBackgroundColor: palette.contentBackground,
+    hoverColor: palette.navHoverBackground,
+    textTheme: base.textTheme.apply(
+      bodyColor: palette.primaryText,
+      displayColor: palette.primaryText,
+    ),
+    inputDecorationTheme: base.inputDecorationTheme.copyWith(
+      filled: true,
+      fillColor: palette.fieldFill,
+      isDense: true,
+      border: inputBorder,
+      enabledBorder: inputBorder,
+      focusedBorder: inputBorder.copyWith(
+        borderSide: const BorderSide(color: _accentColor, width: 1.4),
+      ),
+      disabledBorder: inputBorder.copyWith(
+        borderSide: BorderSide(color: palette.fieldBorder.withOpacity(0.55)),
+      ),
+    ),
+    checkboxTheme: base.checkboxTheme.copyWith(
+      fillColor: activeControlColor,
+      checkColor: WidgetStateProperty.all(Colors.white),
+      side: BorderSide(color: palette.fieldBorder, width: 1.2),
+    ),
+    radioTheme: base.radioTheme.copyWith(
+      fillColor: WidgetStateProperty.resolveWith<Color?>(
+        (states) {
+          if (states.contains(WidgetState.disabled)) {
+            return palette.disabledText.withOpacity(0.6);
+          }
+          return _accentColor;
+        },
+      ),
+    ),
+  );
 }
 
 enum SettingsTabKey {
@@ -277,43 +421,55 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
-      body: _buildBlock(
-        children: <Widget>[
-          SizedBox(
-            width: _kTabWidth,
-            child: Column(
-              children: [
-                _header(context),
-                Flexible(child: _listView(tabs: _settingTabs())),
-              ],
-            ),
-          ),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: Container(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: PageView(
-                controller: controller,
-                physics: NeverScrollableScrollPhysics(),
-                children: _children(),
+    final palette = _settingPalette(context);
+    return Theme(
+      data: _settingTheme(context, palette),
+      child: Scaffold(
+        backgroundColor: palette.pageBackground,
+        body: _buildBlock(
+          children: <Widget>[
+            Container(
+              width: _kTabWidth,
+              decoration: BoxDecoration(
+                color: palette.sidebarBackground,
+                border: Border(
+                  right: BorderSide(color: palette.sidebarBorder),
+                ),
+              ),
+              child: Column(
+                children: [
+                  _header(context),
+                  Flexible(child: _listView(tabs: _settingTabs())),
+                ],
               ),
             ),
-          )
-        ],
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: palette.contentBackground,
+                ),
+                child: PageView(
+                  controller: controller,
+                  physics: NeverScrollableScrollPhysics(),
+                  children: _children(),
+                ),
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
 
   Widget _header(BuildContext context) {
+    final palette = _settingPalette(context);
     final settingsText = Text(
       translate('Settings'),
       textAlign: TextAlign.left,
-      style: const TextStyle(
-        color: _accentColor,
+      style: TextStyle(
+        color: palette.navSelectedText,
         fontSize: _kTitleFontSize,
-        fontWeight: FontWeight.w400,
+        fontWeight: FontWeight.w700,
       ),
     );
     return Row(
@@ -349,6 +505,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     final scrollController = ScrollController();
     return ListView(
       controller: scrollController,
+      padding: const EdgeInsets.only(top: 8, bottom: 18),
       children: tabs.map((tab) => _listItem(tab: tab)).toList(),
     );
   }
@@ -356,39 +513,56 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   Widget _listItem({required _TabInfo tab}) {
     return Obx(() {
       bool selected = tab.key == selectedTab.value;
-      return SizedBox(
-        width: _kTabWidth,
-        height: _kTabHeight,
-        child: InkWell(
-          onTap: () {
-            if (selectedTab.value != tab.key) {
-              int index = DesktopSettingPage.tabKeys.indexOf(tab.key);
-              if (index == -1) {
-                return;
-              }
-              controller.jumpToPage(index);
-            }
-            selectedTab.value = tab.key;
-          },
-          child: Row(children: [
-            Container(
-              width: 4,
-              height: _kTabHeight * 0.7,
-              color: selected ? _accentColor : null,
+      final palette = _settingPalette(context);
+      final textColor = selected ? palette.navSelectedText : palette.navText;
+      final iconColor = selected ? _accentColor : palette.navIcon;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        child: SizedBox(
+          width: _kTabWidth - 20,
+          height: _kTabHeight,
+          child: Material(
+            color:
+                selected ? palette.navSelectedBackground : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              hoverColor: palette.navHoverBackground,
+              onTap: () {
+                if (selectedTab.value != tab.key) {
+                  int index = DesktopSettingPage.tabKeys.indexOf(tab.key);
+                  if (index == -1) {
+                    return;
+                  }
+                  controller.jumpToPage(index);
+                }
+                selectedTab.value = tab.key;
+              },
+              child: Row(children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  width: 4,
+                  height: selected ? _kTabHeight * 0.58 : 0,
+                  decoration: BoxDecoration(
+                    color: selected ? _accentColor : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ).marginOnly(left: 6),
+                Icon(
+                  selected ? tab.selected : tab.unselected,
+                  color: iconColor,
+                  size: 20,
+                ).marginOnly(left: 11, right: 10),
+                Text(
+                  translate(tab.label),
+                  style: TextStyle(
+                      color: textColor,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: _kContentFontSize),
+                ),
+              ]),
             ),
-            Icon(
-              selected ? tab.selected : tab.unselected,
-              color: selected ? _accentColor : null,
-              size: 20,
-            ).marginOnly(left: 13, right: 10),
-            Text(
-              translate(tab.label),
-              style: TextStyle(
-                  color: selected ? _accentColor : null,
-                  fontWeight: FontWeight.w400,
-                  fontSize: _kContentFontSize),
-            ),
-          ]),
+          ),
         ),
       );
     });
@@ -811,10 +985,6 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
               block: locked,
               child: Column(children: [
                 permissions(context),
-                password(context),
-                _Card(title: '2FA', children: [tfa()]),
-                if (!isChangeIdDisabled())
-                  _Card(title: 'ID', children: [changeId()]),
                 more(context),
               ]),
             ),
@@ -980,237 +1150,100 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
           break;
       }
 
-      return _Card(title: 'Permissions', children: [
-        ComboBox(
-            keys: [
-              defaultOptionAccessMode,
-              'full',
-              'view',
-            ],
-            values: [
-              translate('Custom'),
-              translate('Full Access'),
-              translate('Screen Share'),
-            ],
-            enabled: enabled && !isOptionFixed(kOptionAccessMode),
-            initialKey: initialKey,
-            onChanged: (mode) async {
-              await bind.mainSetOption(key: kOptionAccessMode, value: mode);
-              setState(() {});
-            }).marginOnly(left: _kContentHMargin),
-        Column(
+      return _FoldoutCard(
+          title: 'Permissions',
+          initiallyExpanded: true,
           children: [
-            _OptionCheckBox(
-                context, 'Enable keyboard/mouse', kOptionEnableKeyboard,
-                enabled: enabled, fakeValue: fakeValue),
-            if (isWindows)
-              _OptionCheckBox(
-                  context, 'Enable remote printer', kOptionEnableRemotePrinter,
-                  enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(context, 'Enable clipboard', kOptionEnableClipboard,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(
-                context, 'Enable file transfer', kOptionEnableFileTransfer,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(context, 'Enable audio', kOptionEnableAudio,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(context, 'Enable camera', kOptionEnableCamera,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(context, 'Enable terminal', kOptionEnableTerminal,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(
-                context, 'Enable TCP tunneling', kOptionEnableTunnel,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(
-                context, 'Enable remote restart', kOptionEnableRemoteRestart,
-                enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(
-                context, 'Enable recording session', kOptionEnableRecordSession,
-                enabled: enabled, fakeValue: fakeValue),
-            if (isWindows)
-              _OptionCheckBox(context, 'Enable blocking user input',
-                  kOptionEnableBlockInput,
-                  enabled: enabled, fakeValue: fakeValue),
-            if (bind.mainSupportedPrivacyModeImpls() != '[]')
-              _OptionCheckBox(
-                  context, 'Enable privacy mode', kOptionEnablePrivacyMode,
-                  enabled: enabled, fakeValue: fakeValue),
-            _OptionCheckBox(context, 'Enable remote configuration modification',
-                kOptionAllowRemoteConfigModification,
-                enabled: enabled, fakeValue: fakeValue),
-          ],
-        ),
-      ]);
+            ComboBox(
+                keys: [
+                  defaultOptionAccessMode,
+                  'full',
+                  'view',
+                ],
+                values: [
+                  translate('Custom'),
+                  translate('Full Access'),
+                  translate('Screen Share'),
+                ],
+                enabled: enabled && !isOptionFixed(kOptionAccessMode),
+                initialKey: initialKey,
+                onChanged: (mode) async {
+                  await bind.mainSetOption(key: kOptionAccessMode, value: mode);
+                  setState(() {});
+                }).marginOnly(left: _kContentHMargin),
+            _SettingSectionTitle(context, 'Control Remote Desktop'),
+            Column(
+              children: [
+                _OptionCheckBox(
+                    context, 'Enable keyboard/mouse', kOptionEnableKeyboard,
+                    enabled: enabled, fakeValue: fakeValue),
+                if (isWindows)
+                  _OptionCheckBox(context, 'Enable remote printer',
+                      kOptionEnableRemotePrinter,
+                      enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(
+                    context, 'Enable clipboard', kOptionEnableClipboard,
+                    enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(
+                    context, 'Enable file transfer', kOptionEnableFileTransfer,
+                    enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(context, 'Enable audio', kOptionEnableAudio,
+                    enabled: enabled, fakeValue: fakeValue),
+                _SettingSectionDivider(context),
+                _SettingSectionTitle(context, 'Other'),
+                _OptionCheckBox(
+                    context, 'Enable terminal', kOptionEnableTerminal,
+                    enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(
+                    context, 'Enable TCP tunneling', kOptionEnableTunnel,
+                    enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(context, 'Enable remote restart',
+                    kOptionEnableRemoteRestart,
+                    enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(context, 'Enable recording session',
+                    kOptionEnableRecordSession,
+                    enabled: enabled, fakeValue: fakeValue),
+                if (isWindows)
+                  _OptionCheckBox(context, 'Enable blocking user input',
+                      kOptionEnableBlockInput,
+                      enabled: enabled, fakeValue: fakeValue),
+                if (bind.mainSupportedPrivacyModeImpls() != '[]')
+                  _OptionCheckBox(
+                      context, 'Enable privacy mode', kOptionEnablePrivacyMode,
+                      enabled: enabled, fakeValue: fakeValue),
+                _OptionCheckBox(
+                    context,
+                    'Enable remote configuration modification',
+                    kOptionAllowRemoteConfigModification,
+                    enabled: enabled,
+                    fakeValue: fakeValue),
+              ],
+            ),
+          ]);
     }
 
     return tmpWrapper();
   }
 
-  Widget password(BuildContext context) {
-    return ChangeNotifierProvider.value(
-        value: gFFI.serverModel,
-        child: Consumer<ServerModel>(builder: ((context, model, child) {
-          List<String> passwordKeys = [
-            kUseTemporaryPassword,
-            kUsePermanentPassword,
-            kUseBothPasswords,
-          ];
-          List<String> passwordValues = [
-            translate('Use one-time password'),
-            translate('Use permanent password'),
-            translate('Use both passwords'),
-          ];
-          bool tmpEnabled = model.verificationMethod != kUsePermanentPassword;
-          bool permEnabled = model.verificationMethod != kUseTemporaryPassword;
-          String currentValue =
-              passwordValues[passwordKeys.indexOf(model.verificationMethod)];
-          List<Widget> radios = passwordValues
-              .map((value) => _Radio<String>(
-                    context,
-                    value: value,
-                    groupValue: currentValue,
-                    label: value,
-                    onChanged: locked
-                        ? null
-                        : ((value) async {
-                            callback() async {
-                              await model.setVerificationMethod(
-                                  passwordKeys[passwordValues.indexOf(value)]);
-                              await model.updatePasswordModel();
-                            }
-
-                            if (value ==
-                                    passwordValues[passwordKeys
-                                        .indexOf(kUsePermanentPassword)] &&
-                                (await bind.mainGetCommon(
-                                        key: "permanent-password-set")) !=
-                                    "true") {
-                              if (isChangePermanentPasswordDisabled()) {
-                                await callback();
-                                return;
-                              }
-                              setPasswordDialog(notEmptyCallback: callback);
-                            } else {
-                              await callback();
-                            }
-                          }),
-                  ))
-              .toList();
-
-          var onChanged = tmpEnabled && !locked
-              ? (value) {
-                  if (value != null) {
-                    () async {
-                      await model.setTemporaryPasswordLength(value.toString());
-                      await model.updatePasswordModel();
-                    }();
-                  }
-                }
-              : null;
-          List<Widget> lengthRadios = ['6', '8', '10']
-              .map((value) => GestureDetector(
-                    child: Row(
-                      children: [
-                        Radio(
-                            value: value,
-                            groupValue: model.temporaryPasswordLength,
-                            onChanged: onChanged),
-                        Text(
-                          value,
-                          style: TextStyle(
-                              color: disabledTextColor(
-                                  context, onChanged != null)),
-                        ),
-                      ],
-                    ).paddingOnly(right: 10),
-                    onTap: () => onChanged?.call(value),
-                  ))
-              .toList();
-
-          final isOptFixedNumOTP =
-              isOptionFixed(kOptionAllowNumericOneTimePassword);
-          final isNumOPTChangable = !isOptFixedNumOTP && tmpEnabled && !locked;
-          final numericOneTimePassword = GestureDetector(
-            child: InkWell(
-                child: Row(
-              children: [
-                Checkbox(
-                        value: model.allowNumericOneTimePassword,
-                        onChanged: isNumOPTChangable
-                            ? (bool? v) {
-                                model.switchAllowNumericOneTimePassword();
-                              }
-                            : null)
-                    .marginOnly(right: 5),
-                Expanded(
-                    child: Text(
-                  translate('Numeric one-time password'),
-                  style: TextStyle(
-                      color: disabledTextColor(context, isNumOPTChangable)),
-                ))
-              ],
-            )),
-            onTap: isNumOPTChangable
-                ? () => model.switchAllowNumericOneTimePassword()
-                : null,
-          ).marginOnly(left: _kContentHSubMargin - 5);
-
-          final modeKeys = <String>[
-            'password',
-            'click',
-            defaultOptionApproveMode
-          ];
-          final modeValues = [
-            translate('Accept sessions via password'),
-            translate('Accept sessions via click'),
-            translate('Accept sessions via both'),
-          ];
-          var modeInitialKey = model.approveMode;
-          if (!modeKeys.contains(modeInitialKey)) {
-            modeInitialKey = defaultOptionApproveMode;
-          }
-          final usePassword = model.approveMode != 'click';
-
-          final isApproveModeFixed = isOptionFixed(kOptionApproveMode);
-          return _Card(title: 'Password', children: [
-            ComboBox(
-              enabled: !locked && !isApproveModeFixed,
-              keys: modeKeys,
-              values: modeValues,
-              initialKey: modeInitialKey,
-              onChanged: (key) => model.setApproveMode(key),
-            ).marginOnly(left: _kContentHMargin),
-            if (usePassword) radios[0],
-            if (usePassword)
-              _SubLabeledWidget(
-                  context,
-                  'One-time password length',
-                  Row(
-                    children: [
-                      ...lengthRadios,
-                    ],
-                  ),
-                  enabled: tmpEnabled && !locked),
-            if (usePassword) numericOneTimePassword,
-            if (usePassword) radios[1],
-            if (usePassword && !isChangePermanentPasswordDisabled())
-              _SubButton('Set permanent password', setPasswordDialog,
-                  permEnabled && !locked),
-            // if (usePassword)
-            //   hide_cm(!locked).marginOnly(left: _kContentHSubMargin - 6),
-            if (usePassword) radios[2],
-          ]);
-        })));
-  }
-
   Widget more(BuildContext context) {
     bool enabled = !locked;
-    return _Card(title: 'Security', children: [
+    return _FoldoutCard(title: 'Security', children: [
+      _SettingSectionTitle(context, '2FA'),
+      tfa(),
+      if (!isChangeIdDisabled()) ...[
+        _SettingSectionDivider(context),
+        _SettingSectionTitle(context, 'ID'),
+        changeId(),
+      ],
+      _SettingSectionDivider(context),
       shareRdp(context, enabled),
+      _SettingSectionDivider(context),
+      _SettingSectionTitle(context, 'Network'),
       _OptionCheckBox(context, 'Deny LAN discovery', 'enable-lan-discovery',
           reverse: true, enabled: enabled),
       ...directIp(context),
       whitelist(),
+      _SettingSectionDivider(context),
       ...autoDisconnect(context),
       _OptionCheckBox(context, 'keep-awake-during-incoming-sessions-label',
           kOptionKeepAwakeDuringIncomingSessions,
@@ -1713,18 +1746,48 @@ class _DisplayState extends State<_Display> {
   @override
   Widget build(BuildContext context) {
     final scrollController = ScrollController();
+    final privacyModeChildren =
+        !isWeb ? privacyModeImpl(context) : const <Widget>[];
     return ListView(controller: scrollController, children: [
-      viewStyle(context),
-      scrollStyle(context),
-      imageQuality(context),
-      codec(context),
-      if (isDesktop) trackpadSpeed(context),
-      if (!isWeb) privacyModeImpl(context),
-      other(context),
+      _FoldoutCard(
+        title: 'Default View Style',
+        initiallyExpanded: true,
+        children: [
+          ...viewStyle(context),
+          _SettingSectionDivider(context),
+          _SettingSectionTitle(context, 'Default Scroll Style'),
+          ...scrollStyle(context),
+        ],
+      ),
+      _FoldoutCard(
+        title: 'Default Image Quality',
+        children: [
+          ...imageQuality(context),
+          _SettingSectionDivider(context),
+          _SettingSectionTitle(context, 'Default Codec'),
+          ...codec(context),
+          if (isDesktop) ...[
+            _SettingSectionDivider(context),
+            _SettingSectionTitle(context, 'Default trackpad speed'),
+            ...trackpadSpeed(context),
+          ],
+        ],
+      ),
+      _FoldoutCard(
+        title: 'Other Default Options',
+        children: [
+          if (privacyModeChildren.isNotEmpty) ...[
+            _SettingSectionTitle(context, 'Privacy mode'),
+            ...privacyModeChildren,
+            _SettingSectionDivider(context),
+          ],
+          ...other(context),
+        ],
+      ),
     ]).marginOnly(bottom: _kListViewBottomMargin);
   }
 
-  Widget viewStyle(BuildContext context) {
+  List<Widget> viewStyle(BuildContext context) {
     final isOptFixed = isOptionFixed(kOptionViewStyle);
     onChanged(String value) async {
       await bind.mainSetUserDefaultOption(key: kOptionViewStyle, value: value);
@@ -1732,7 +1795,7 @@ class _DisplayState extends State<_Display> {
     }
 
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionViewStyle);
-    return _Card(title: 'Default View Style', children: [
+    return [
       _Radio(context,
           value: kRemoteViewStyleOriginal,
           groupValue: groupValue,
@@ -1743,10 +1806,10 @@ class _DisplayState extends State<_Display> {
           groupValue: groupValue,
           label: 'Scale adaptive',
           onChanged: isOptFixed ? null : onChanged),
-    ]);
+    ];
   }
 
-  Widget scrollStyle(BuildContext context) {
+  List<Widget> scrollStyle(BuildContext context) {
     final isOptFixed = isOptionFixed(kOptionScrollStyle);
     onChanged(String value) async {
       await bind.mainSetUserDefaultOption(
@@ -1762,7 +1825,7 @@ class _DisplayState extends State<_Display> {
       setState(() {});
     }
 
-    return _Card(title: 'Default Scroll Style', children: [
+    return [
       _Radio(context,
           value: kRemoteScrollStyleAuto,
           groupValue: groupValue,
@@ -1790,10 +1853,10 @@ class _DisplayState extends State<_Display> {
                   : onEdgeScrollEdgeThicknessChanged,
             )),
       ],
-    ]);
+    ];
   }
 
-  Widget imageQuality(BuildContext context) {
+  List<Widget> imageQuality(BuildContext context) {
     onChanged(String value) async {
       await bind.mainSetUserDefaultOption(
           key: kOptionImageQuality, value: value);
@@ -1802,7 +1865,7 @@ class _DisplayState extends State<_Display> {
 
     final isOptFixed = isOptionFixed(kOptionImageQuality);
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionImageQuality);
-    return _Card(title: 'Default Image Quality', children: [
+    return [
       _Radio(context,
           value: kRemoteImageQualityBest,
           groupValue: groupValue,
@@ -1827,10 +1890,10 @@ class _DisplayState extends State<_Display> {
         offstage: groupValue != kRemoteImageQualityCustom,
         child: customImageQualitySetting(),
       )
-    ]);
+    ];
   }
 
-  Widget trackpadSpeed(BuildContext context) {
+  List<Widget> trackpadSpeed(BuildContext context) {
     final initSpeed =
         (int.tryParse(bind.mainGetUserDefaultOption(key: kKeyTrackpadSpeed)) ??
             kDefaultTrackpadSpeed);
@@ -1842,15 +1905,15 @@ class _DisplayState extends State<_Display> {
       // But it may also be ok to take effect in the next connection.
     }
 
-    return _Card(title: 'Default trackpad speed', children: [
+    return [
       TrackpadSpeedWidget(
         value: curSpeed,
         onDebouncer: onDebouncer,
       ),
-    ]);
+    ];
   }
 
-  Widget codec(BuildContext context) {
+  List<Widget> codec(BuildContext context) {
     onChanged(String value) async {
       await bind.mainSetUserDefaultOption(
           key: kOptionCodecPreference, value: value);
@@ -1882,7 +1945,7 @@ class _DisplayState extends State<_Display> {
     } catch (e) {
       debugPrint("failed to parse supported hwdecodings, err=$e");
     }
-    return _Card(title: 'Default Codec', children: [
+    return [
       _Radio(context,
           value: 'auto',
           groupValue: groupValue,
@@ -1904,20 +1967,20 @@ class _DisplayState extends State<_Display> {
           label: 'AV1',
           onChanged: isOptFixed ? null : onChanged),
       ...hwRadios,
-    ]);
+    ];
   }
 
-  Widget privacyModeImpl(BuildContext context) {
+  List<Widget> privacyModeImpl(BuildContext context) {
     final supportedPrivacyModeImpls = bind.mainSupportedPrivacyModeImpls();
     late final List<dynamic> privacyModeImpls;
     try {
       privacyModeImpls = jsonDecode(supportedPrivacyModeImpls);
     } catch (e) {
       debugPrint('failed to parse supported privacy mode impls, err=$e');
-      return Offstage();
+      return const [];
     }
     if (privacyModeImpls.length < 2) {
-      return Offstage();
+      return const [];
     }
 
     final key = 'privacy-mode-impl-key';
@@ -1930,17 +1993,14 @@ class _DisplayState extends State<_Display> {
     if (groupValue.isEmpty) {
       groupValue = bind.mainDefaultPrivacyModeImpl();
     }
-    return _Card(
-      title: 'Privacy mode',
-      children: privacyModeImpls.map((impl) {
-        final d = impl as List<dynamic>;
-        return _Radio(context,
-            value: d[0] as String,
-            groupValue: groupValue,
-            label: d[1] as String,
-            onChanged: onChanged);
-      }).toList(),
-    );
+    return privacyModeImpls.map((impl) {
+      final d = impl as List<dynamic>;
+      return _Radio(context,
+          value: d[0] as String,
+          groupValue: groupValue,
+          label: d[1] as String,
+          onChanged: onChanged);
+    }).toList();
   }
 
   Widget otherRow(String label, String key) {
@@ -1970,11 +2030,8 @@ class _DisplayState extends State<_Display> {
         onTap: isOptFixed ? null : () => onChanged(!value));
   }
 
-  Widget other(BuildContext context) {
-    final children =
-        otherDefaultSettings().map((e) => otherRow(e.$1, e.$2)).toList();
-    return _Card(title: 'Other Default Options', children: children);
-  }
+  List<Widget> other(BuildContext context) =>
+      otherDefaultSettings().map((e) => otherRow(e.$1, e.$2)).toList();
 }
 
 class _Account extends StatefulWidget {
@@ -3524,16 +3581,29 @@ class _AboutState extends State<_About> {
                         children: [
                           SizedBox(
                             width: 240,
-                            height: 74,
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Image.asset(
-                                'assets/kq_about_logo.png',
-                                width: 240,
-                                height: 49,
-                                fit: BoxFit.contain,
-                                filterQuality: FilterQuality.high,
-                              ),
+                            height: 92,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Image.asset(
+                                  'assets/kq_about_logo.png',
+                                  width: 56,
+                                  height: 56,
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.high,
+                                ),
+                                const SizedBox(height: 7),
+                                Text(
+                                  '鲲穹远程桌面',
+                                  style: TextStyle(
+                                    color: _accentColor,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(width: 28),
@@ -3633,35 +3703,232 @@ Widget _Card(
     {required String title,
     required List<Widget> children,
     List<Widget>? title_suffix}) {
-  return Row(
-    children: [
-      Flexible(
-        child: SizedBox(
-          width: _kCardFixedWidth,
-          child: Card(
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                        child: Text(
-                      translate(title),
-                      textAlign: TextAlign.start,
-                      style: const TextStyle(
-                        fontSize: _kTitleFontSize,
+  return Builder(builder: (context) {
+    final palette = _settingPalette(context);
+    return Row(
+      children: [
+        Flexible(
+          child: SizedBox(
+            width: _kCardFixedWidth,
+            child: Container(
+              margin: const EdgeInsets.only(left: _kCardLeftMargin, top: 15),
+              decoration: BoxDecoration(
+                color: palette.cardBackground,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: palette.cardBorder),
+                boxShadow: [
+                  BoxShadow(
+                    color: palette.shadow,
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Container(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _kContentHMargin,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: palette.cardHeaderBackground,
+                      border: Border(
+                        bottom: BorderSide(color: palette.cardBorder),
                       ),
-                    )),
-                    ...?title_suffix
-                  ],
-                ).marginOnly(left: _kContentHMargin, top: 10, bottom: 10),
-                ...children
-                    .map((e) => e.marginOnly(top: 4, right: _kContentHMargin)),
-              ],
-            ).marginOnly(bottom: 10),
-          ).marginOnly(left: _kCardLeftMargin, top: 15),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            translate(title),
+                            textAlign: TextAlign.start,
+                            style: TextStyle(
+                              color: palette.primaryText,
+                              fontSize: _kCardTitleFontSize,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        ...?title_suffix
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      top: 10,
+                      bottom: 12,
+                    ),
+                    child: Column(
+                      children: children
+                          .map((e) => e.marginOnly(
+                                top: 4,
+                                right: _kContentHMargin,
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  });
+}
+
+class _FoldoutCard extends StatefulWidget {
+  final String title;
+  final List<Widget> children;
+  final bool initiallyExpanded;
+
+  const _FoldoutCard({
+    required this.title,
+    required this.children,
+    this.initiallyExpanded = false,
+  });
+
+  @override
+  State<_FoldoutCard> createState() => _FoldoutCardState();
+}
+
+class _FoldoutCardState extends State<_FoldoutCard> {
+  late bool _expanded;
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded = widget.initiallyExpanded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _settingPalette(context);
+    return Row(
+      children: [
+        Flexible(
+          child: SizedBox(
+            width: _kCardFixedWidth,
+            child: Container(
+              margin: const EdgeInsets.only(left: _kCardLeftMargin, top: 15),
+              decoration: BoxDecoration(
+                color: palette.cardBackground,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: palette.cardBorder),
+                boxShadow: [
+                  BoxShadow(
+                    color: palette.shadow,
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Material(
+                    color: palette.cardHeaderBackground,
+                    child: InkWell(
+                      hoverColor: palette.navHoverBackground,
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: _kContentHMargin,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(color: palette.cardBorder),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                translate(widget.title),
+                                textAlign: TextAlign.start,
+                                style: TextStyle(
+                                  color: palette.primaryText,
+                                  fontSize: _kCardTitleFontSize,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            AnimatedRotation(
+                              turns: _expanded ? 0.5 : 0,
+                              duration: const Duration(milliseconds: 160),
+                              curve: Curves.easeOutCubic,
+                              child: Icon(
+                                Icons.expand_more_rounded,
+                                color: palette.navSelectedText,
+                                size: 22,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: _expanded
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 10, bottom: 12),
+                            child: Column(
+                              children: widget.children
+                                  .map((e) => e.marginOnly(
+                                        top: 4,
+                                        right: _kContentHMargin,
+                                      ))
+                                  .toList(),
+                            ),
+                          )
+                        : const SizedBox(width: double.infinity, height: 0),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+Widget _SettingSectionTitle(BuildContext context, String title) {
+  final palette = _settingPalette(context);
+  return Padding(
+    padding: const EdgeInsets.only(
+      left: _kContentHMargin,
+      top: 6,
+      bottom: 2,
+    ),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        translate(title),
+        style: TextStyle(
+          color: palette.mutedText,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
         ),
       ),
-    ],
+    ),
+  );
+}
+
+Widget _SettingSectionDivider(BuildContext context) {
+  final palette = _settingPalette(context);
+  return Divider(
+    height: 18,
+    thickness: 1,
+    color: palette.cardBorder.withOpacity(0.72),
+    indent: _kContentHMargin,
   );
 }
 
@@ -3709,31 +3976,55 @@ Widget _OptionCheckBox(
     enabled = false;
   }
 
-  return GestureDetector(
-    child: Obx(
-      () => Row(
-        children: [
-          Checkbox(
-                  value: ref.value,
-                  onChanged: enabled && !isOptFixed ? onChanged : null)
-              .marginOnly(right: 5),
-          Offstage(
-            offstage: !ref.value || checkedIcon == null,
-            child: checkedIcon?.marginOnly(right: 5),
+  final palette = _settingPalette(context);
+  final canChange = enabled && !isOptFixed;
+  return Obx(
+    () => Padding(
+      padding: const EdgeInsets.only(left: _kCheckBoxLeftMargin),
+      child: Material(
+        color: ref.value
+            ? _accentColor.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.14 : 0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          hoverColor: canChange ? palette.navHoverBackground : null,
+          onTap: canChange
+              ? () {
+                  onChanged(!ref.value);
+                }
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            child: Row(
+              children: [
+                Checkbox(
+                        value: ref.value,
+                        onChanged: canChange ? onChanged : null)
+                    .marginOnly(right: 6),
+                Offstage(
+                  offstage: !ref.value || checkedIcon == null,
+                  child: checkedIcon?.marginOnly(right: 6),
+                ),
+                Expanded(
+                  child: Text(
+                    translate(label),
+                    style: TextStyle(
+                      color: canChange
+                          ? palette.primaryText
+                          : palette.disabledText,
+                      fontSize: _kContentFontSize,
+                      fontWeight: ref.value ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                )
+              ],
+            ),
           ),
-          Expanded(
-              child: Text(
-            translate(label),
-            style: TextStyle(color: disabledTextColor(context, enabled)),
-          ))
-        ],
+        ),
       ),
-    ).marginOnly(left: _kCheckBoxLeftMargin),
-    onTap: enabled && !isOptFixed
-        ? () {
-            onChanged(!ref.value);
-          }
-        : null,
+    ),
   );
 }
 
@@ -3751,21 +4042,47 @@ Widget _Radio<T>(BuildContext context,
           }
         }
       : null;
-  return GestureDetector(
-    child: Row(
-      children: [
-        Radio<T>(value: value, groupValue: groupValue, onChanged: onChange2),
-        Expanded(
-          child: Text(translate(label),
+  final palette = _settingPalette(context);
+  final selected = value == groupValue;
+  return Padding(
+    padding: const EdgeInsets.only(left: _kRadioLeftMargin),
+    child: Material(
+      color: selected
+          ? _accentColor.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.14 : 0.08)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: onChange2 != null ? palette.navHoverBackground : null,
+        onTap: () => onChange2?.call(value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: [
+              Radio<T>(
+                value: value,
+                groupValue: groupValue,
+                onChanged: onChange2,
+              ),
+              Expanded(
+                child: Text(
+                  translate(label),
                   overflow: autoNewLine ? null : TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: _kContentFontSize,
-                      color: disabledTextColor(context, onChange2 != null)))
-              .marginOnly(left: 5),
+                    fontSize: _kContentFontSize,
+                    color: onChange2 != null
+                        ? palette.primaryText
+                        : palette.disabledText,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ).marginOnly(left: 5),
+              ),
+            ],
+          ),
         ),
-      ],
-    ).marginOnly(left: _kRadioLeftMargin),
-    onTap: () => onChange2?.call(value),
+      ),
+    ),
   );
 }
 
@@ -3877,7 +4194,7 @@ class _WaylandCardState extends State<WaylandCard> {
       showConfirmMsgBox,
       tip: 'clear_Wayland_screen_selection_tip',
       style: ButtonStyle(
-        backgroundColor: MaterialStateProperty.all<Color>(
+        backgroundColor: WidgetStateProperty.all<Color>(
             Theme.of(context).colorScheme.error.withOpacity(0.75)),
       ),
     );
@@ -3920,7 +4237,7 @@ class _WaylandCardState extends State<WaylandCard> {
         showConfirmMsgBox,
         tip: 'clear-shortcuts-inhibitor-permission-tip',
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all<Color>(
+          backgroundColor: WidgetStateProperty.all<Color>(
               Theme.of(context).colorScheme.error.withOpacity(0.75)),
         ),
       ),
@@ -3947,20 +4264,6 @@ Widget _Button(String label, Function() onPressed,
   return Row(children: [
     child,
   ]).marginOnly(left: _kContentHMargin);
-}
-
-// ignore: non_constant_identifier_names
-Widget _SubButton(String label, Function() onPressed, [bool enabled = true]) {
-  return Row(
-    children: [
-      ElevatedButton(
-        onPressed: enabled ? onPressed : null,
-        child: Text(
-          translate(label),
-        ).marginSymmetric(horizontal: 15),
-      ),
-    ],
-  ).marginOnly(left: _kContentHSubMargin);
 }
 
 // ignore: non_constant_identifier_names

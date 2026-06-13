@@ -2288,6 +2288,9 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
         i++;
         break;
       case '--view-camera':
+        if (!kShowViewCameraConnectAction) {
+          return true;
+        }
         type = UriLinkType.viewCamera;
         id = args[i + 1];
         i++;
@@ -2358,6 +2361,9 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
         });
         break;
       case UriLinkType.viewCamera:
+        if (!isViewCameraFeatureEnabled()) {
+          break;
+        }
         Future.delayed(Duration.zero, () {
           recordKqConnectionHistory(targetId,
               isFileTransfer: false,
@@ -2420,7 +2426,7 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     "connect",
     "play",
     "file-transfer",
-    "view-camera",
+    if (isViewCameraFeatureEnabled()) "view-camera",
     "port-forward",
     "rdp",
     "terminal",
@@ -2514,7 +2520,9 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     if (command == '--file-transfer') {
       connect(Get.context!, id,
           isFileTransfer: true, forceRelay: forceRelay, password: password);
-    } else if (command == '--view-camera') {
+    } else if (command == '--view-camera' && !isViewCameraFeatureEnabled()) {
+      return null;
+    } else if (command == '--view-camera' && isViewCameraFeatureEnabled()) {
       connect(Get.context!, id,
           isViewCamera: true, forceRelay: forceRelay, password: password);
     } else if (command == '--terminal') {
@@ -2621,6 +2629,9 @@ Future<bool> connectMainDesktop(String id,
     String? connToken,
     bool? isSharedPassword,
     bool checkRecursiveLoop = true}) async {
+  if (isViewCamera && !isViewCameraFeatureEnabled()) {
+    return false;
+  }
   if (checkRecursiveLoop) {
     final blocked = await _blockKqRecursiveRemoteDesktopIfNeeded(
       id,
@@ -2681,6 +2692,9 @@ connect(BuildContext context, String id,
     String? connToken,
     bool? isSharedPassword}) async {
   if (id == '') return;
+  if (isViewCamera && !isViewCameraFeatureEnabled()) {
+    return;
+  }
   if (!isDesktop || desktopType == DesktopType.main) {
     try {
       if (Get.isRegistered<IDTextEditingController>()) {
@@ -3181,7 +3195,10 @@ String getWindowName({WindowType? overrideType}) {
     case WindowType.FileTransfer:
       return "File Transfer - $name";
     case WindowType.ViewCamera:
-      return "View Camera - $name";
+      if (!isViewCameraFeatureEnabled()) {
+        return name;
+      }
+      return "Unavailable - $name";
     case WindowType.PortForward:
       return "Port Forward - $name";
     case WindowType.RemoteDesktop:
@@ -3456,7 +3473,16 @@ String getDesktopTabLabel(String peerId, String alias) {
   } catch (e) {
     debugPrint("Failed to get hostname:$e");
   }
-  return label;
+  return kqTrimDesktopTabHostSuffix(label);
+}
+
+String kqTrimDesktopTabHostSuffix(String label) {
+  final atIndex = label.indexOf('@');
+  if (atIndex < 0) {
+    return label;
+  }
+  final trimmed = label.substring(0, atIndex).trim();
+  return trimmed.isEmpty ? label : trimmed;
 }
 
 sessionRefreshVideo(SessionID sessionId, PeerInfo pi) async {

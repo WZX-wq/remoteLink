@@ -45,7 +45,7 @@ def get_connection_type_name(conn_type):
         0: "Remote Desktop",
         1: "File Transfer",
         2: "Port Transfer",
-        3: "View Camera",
+        3: "Unavailable",
         4: "Terminal"
     }
     return type_map.get(conn_type, f"Unknown ({conn_type})")
@@ -307,7 +307,7 @@ def main():
     # Audit filters (simplified)
     parser.add_argument("--remote", help="Remote peer ID filter (for conn/file audits)")
     parser.add_argument("--device", help="Device ID filter (for alarm audits)")
-    parser.add_argument("--conn-type", type=int, help="Connection type filter (for conn audits only): 0=Remote Desktop, 1=File Transfer, 2=Port Transfer, 3=View Camera, 4=Terminal")
+    parser.add_argument("--conn-type", type=int, help="Connection type filter (for conn audits only): 0=Remote Desktop, 1=File Transfer, 2=Port Transfer, 3=Unavailable, 4=Terminal")
     parser.add_argument("--operator", help="Operator filter (for console audits only)")
 
     args = parser.parse_args()

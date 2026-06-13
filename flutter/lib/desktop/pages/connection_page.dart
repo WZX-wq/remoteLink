@@ -707,20 +707,17 @@ class _ConnectionPageState extends State<ConnectionPage>
                                 _menuOpen.value = true;
                                 final x = offset.dx;
                                 final y = offset.dy;
+                                final menuItems = <(String, VoidCallback)>[
+                                  (
+                                    'Terminal',
+                                    () => onConnect(isTerminal: true)
+                                  ),
+                                ];
                                 await mod_menu
                                     .showMenu(
                                   context: context,
                                   position: RelativeRect.fromLTRB(x, y, x, y),
-                                  items: [
-                                    (
-                                      'View camera',
-                                      () => onConnect(isViewCamera: true)
-                                    ),
-                                    (
-                                      '${translate('Terminal')} (beta)',
-                                      () => onConnect(isTerminal: true)
-                                    ),
-                                  ]
+                                  items: menuItems
                                       .map((e) => MenuEntryButton<String>(
                                             childBuilder: (TextStyle? style) =>
                                                 Text(

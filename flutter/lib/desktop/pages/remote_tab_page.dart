@@ -135,13 +135,8 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
       body: DesktopTab(
         controller: tabController,
         onWindowCloseButton: handleWindowCloseButton,
-        tail: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _RelativeMouseModeHint(tabController: tabController),
-            const AddButton(),
-          ],
-        ),
+        tabTail: const AddButton(),
+        tail: _RelativeMouseModeHint(tabController: tabController),
         selectedBorderColor: MyTheme.accent,
         pageViewBuilder: (pageView) => pageView,
         labelGetter: DesktopTab.tablabelGetter,

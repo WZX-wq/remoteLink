@@ -457,7 +457,12 @@ impl<T: InvokeUiSession> Remote<T> {
             // It's better to distinguish the server side and client side.
             // But it' not necessary for now, because it's not a common case.
             // And it is immediately known when the input device is changed.
-            crate::audio_service::set_voice_call_input_device(get_default_sound_input(), false);
+            let voice_call_input = get_default_sound_input().unwrap_or_default();
+            log::info!(
+                "Starting voice call recorder with input device {:?}",
+                voice_call_input
+            );
+            crate::audio_service::set_voice_call_input_device(Some(voice_call_input), false);
             // Create a channel to receive error or closed message
             let (tx, rx) = std::sync::mpsc::channel();
             let (tx_audio_data, mut rx_audio_data) =
@@ -473,6 +478,7 @@ impl<T: InvokeUiSession> Remote<T> {
             );
             let tx_audio = self.sender.clone();
             std::thread::spawn(move || {
+                let mut voice_call_audio_frames_sent: u64 = 0;
                 loop {
                     // check if client is closed
                     match rx.try_recv() {
@@ -492,11 +498,28 @@ impl<T: InvokeUiSession> Remote<T> {
                     match rx_audio_data.try_recv() {
                         Ok((_instant, msg)) => match &msg.union {
                             Some(message::Union::AudioFrame(frame)) => {
+                                voice_call_audio_frames_sent += 1;
+                                if voice_call_audio_frames_sent == 1
+                                    || voice_call_audio_frames_sent % 500 == 0
+                                {
+                                    log::info!(
+                                        "Voice call sent microphone frame #{}, {} bytes",
+                                        voice_call_audio_frames_sent,
+                                        frame.data.len()
+                                    );
+                                }
                                 let mut msg = Message::new();
                                 msg.set_audio_frame(frame.clone());
                                 tx_audio.send(Data::Message(msg)).ok();
                             }
                             Some(message::Union::Misc(misc)) => {
+                                if let Some(misc::Union::AudioFormat(format)) = &misc.union {
+                                    log::info!(
+                                        "Voice call sent microphone format: sample_rate={}, channels={}",
+                                        format.sample_rate,
+                                        format.channels
+                                    );
+                                }
                                 let mut msg = Message::new();
                                 msg.set_misc(misc.clone());
                                 tx_audio.send(Data::Message(msg)).ok();

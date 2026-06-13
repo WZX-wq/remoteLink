@@ -19,9 +19,21 @@ macro_rules! configure_http_client {
         match $tls_type {
             TlsType::Plain => {}
             TlsType::NativeTls => {
-                builder = builder.use_native_tls();
-                if $danger_accept_invalid_cert {
-                    builder = builder.danger_accept_invalid_certs(true);
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                match hbb_common::verifier::client_config($danger_accept_invalid_cert) {
+                    Ok(client_config) => {
+                        builder = builder.use_preconfigured_tls(client_config);
+                    }
+                    Err(e) => {
+                        hbb_common::log::error!("Failed to get client config: {}", e);
+                    }
+                }
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                {
+                    builder = builder.use_native_tls();
+                    if $danger_accept_invalid_cert {
+                        builder = builder.danger_accept_invalid_certs(true);
+                    }
                 }
             }
             TlsType::Rustls => {

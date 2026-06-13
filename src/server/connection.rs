@@ -59,16 +59,116 @@ use std::{
     num::NonZeroI64,
     path::PathBuf,
     str::FromStr,
-    sync::{atomic::AtomicI64, mpsc as std_mpsc},
+    sync::{
+        atomic::{AtomicBool, AtomicI64, AtomicU32},
+        mpsc as std_mpsc,
+    },
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use system_shutdown;
+#[cfg(target_os = "windows")]
+use winapi::{
+    shared::{
+        minwindef::{LPARAM, LRESULT, WPARAM},
+        windef::HHOOK,
+    },
+    um::winuser::{
+        CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
+        HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
+        WH_KEYBOARD_LL, WH_MOUSE_LL,
+    },
+};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 
 #[cfg(windows)]
 use crate::virtual_display_manager;
 pub type Sender = mpsc::UnboundedSender<(Instant, Arc<Message>)>;
+
+const KQ_VIEW_CAMERA_FEATURE_ENABLED: bool = false;
+
+#[cfg(target_os = "windows")]
+static KQ_CONTROLLED_SIDE_LOCAL_INPUT_HOOK_STARTED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static KQ_CONTROLLED_SIDE_LOCAL_INPUT_TICK: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn kq_controlled_side_keyboard_hook(
+    code: i32,
+    w_param: WPARAM,
+    l_param: LPARAM,
+) -> LRESULT {
+    if code == HC_ACTION {
+        let info = &*(l_param as *const KBDLLHOOKSTRUCT);
+        if info.flags & LLKHF_INJECTED == 0 {
+            KQ_CONTROLLED_SIDE_LOCAL_INPUT_TICK.store(info.time, Ordering::SeqCst);
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, w_param, l_param)
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn kq_controlled_side_mouse_hook(
+    code: i32,
+    w_param: WPARAM,
+    l_param: LPARAM,
+) -> LRESULT {
+    if code == HC_ACTION {
+        let info = &*(l_param as *const MSLLHOOKSTRUCT);
+        if info.flags & LLMHF_INJECTED == 0 {
+            KQ_CONTROLLED_SIDE_LOCAL_INPUT_TICK.store(info.time, Ordering::SeqCst);
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, w_param, l_param)
+}
+
+#[cfg(target_os = "windows")]
+fn kq_controlled_side_local_input_tick() -> u32 {
+    KQ_CONTROLLED_SIDE_LOCAL_INPUT_TICK.load(Ordering::SeqCst)
+}
+
+#[cfg(target_os = "windows")]
+fn kq_ensure_controlled_side_local_input_hook() {
+    if KQ_CONTROLLED_SIDE_LOCAL_INPUT_HOOK_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| unsafe {
+        let keyboard_hook: HHOOK = SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(kq_controlled_side_keyboard_hook),
+            std::ptr::null_mut(),
+            0,
+        );
+        if keyboard_hook.is_null() {
+            KQ_CONTROLLED_SIDE_LOCAL_INPUT_HOOK_STARTED.store(false, Ordering::SeqCst);
+            log::warn!(
+                "KQ controlled-side local keyboard hook failed: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+        let mouse_hook: HHOOK = SetWindowsHookExW(
+            WH_MOUSE_LL,
+            Some(kq_controlled_side_mouse_hook),
+            std::ptr::null_mut(),
+            0,
+        );
+        if mouse_hook.is_null() {
+            KQ_CONTROLLED_SIDE_LOCAL_INPUT_HOOK_STARTED.store(false, Ordering::SeqCst);
+            log::warn!(
+                "KQ controlled-side local mouse hook failed: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+
+        let mut msg: MSG = std::mem::zeroed();
+        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    });
+}
 
 lazy_static::lazy_static! {
     static ref LOGIN_FAILURES: [Arc::<Mutex<HashMap<String, (i32, i32, i32)>>>; 2] = Default::default();
@@ -317,6 +417,7 @@ pub struct Connection {
     from_switch: bool,
     voice_call_request_timestamp: Option<NonZeroI64>,
     voice_calling: bool,
+    voice_call_audio_frames_to_cm: u64,
     options_in_login: Option<OptionMessage>,
     #[cfg(not(any(target_os = "ios")))]
     pressed_modifiers: HashSet<rdev::Key>,
@@ -354,6 +455,12 @@ pub struct Connection {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     terminal_user_token: Option<TerminalUserToken>,
     terminal_generic_service: Option<Box<GenericService>>,
+    #[cfg(target_os = "windows")]
+    kq_controlled_side_local_input_tick: u32,
+    #[cfg(target_os = "windows")]
+    kq_keyboard_auto_paused: bool,
+    #[cfg(target_os = "windows")]
+    kq_last_controlled_side_local_input_at: Option<Instant>,
 }
 
 impl ConnInner {
@@ -502,6 +609,7 @@ impl Connection {
             audio_sender: None,
             voice_call_request_timestamp: None,
             voice_calling: false,
+            voice_call_audio_frames_to_cm: 0,
             options_in_login: None,
             #[cfg(not(any(target_os = "ios")))]
             pressed_modifiers: Default::default(),
@@ -532,6 +640,12 @@ impl Connection {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             terminal_user_token: None,
             terminal_generic_service: None,
+            #[cfg(target_os = "windows")]
+            kq_controlled_side_local_input_tick: kq_controlled_side_local_input_tick(),
+            #[cfg(target_os = "windows")]
+            kq_keyboard_auto_paused: false,
+            #[cfg(target_os = "windows")]
+            kq_last_controlled_side_local_input_at: None,
         };
         let addr = hbb_common::try_into_v4(addr);
         if !conn.on_open(addr).await {
@@ -651,21 +765,16 @@ impl Connection {
                         ipc::Data::SwitchPermission{name, enabled} => {
                             log::info!("Change permission {} -> {}", name, enabled);
                             if &name == "keyboard" {
-                                conn.keyboard = enabled;
-                                conn.send_permission(Permission::Keyboard, enabled).await;
-                                if let Some(s) = conn.server.upgrade() {
-                                    s.write().unwrap().subscribe(
-                                        super::clipboard_service::NAME,
-                                        conn.inner.clone(), conn.can_sub_clipboard_service());
-                                    #[cfg(feature = "unix-file-copy-paste")]
-                                    s.write().unwrap().subscribe(
-                                        super::clipboard_service::FILE_NAME,
-                                        conn.inner.clone(),
-                                        conn.can_sub_file_clipboard_service(),
-                                    );
-                                    s.write().unwrap().subscribe(
-                                        NAME_CURSOR,
-                                        conn.inner.clone(), enabled || conn.show_remote_cursor);
+                                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                                conn.set_keyboard_permission(
+                                    enabled,
+                                    false,
+                                    "controlled-side manual switch",
+                                ).await;
+                                #[cfg(any(target_os = "android", target_os = "ios"))]
+                                {
+                                    conn.keyboard = enabled;
+                                    conn.send_permission(Permission::Keyboard, enabled).await;
                                 }
                             } else if &name == "clipboard" {
                                 conn.clipboard = enabled;
@@ -1007,6 +1116,8 @@ impl Connection {
                 _ = second_timer.tick() => {
                     #[cfg(windows)]
                     conn.portable_check();
+                    #[cfg(target_os = "windows")]
+                    conn.kq_restore_control_after_controlled_side_idle().await;
                     raii::AuthedConnID::check_wake_lock_on_setting_changed();
                     if let Some((instant, minute)) = conn.auto_disconnect_timer.as_ref() {
                         if instant.elapsed().as_secs() > minute * 60 {
@@ -1273,6 +1384,146 @@ impl Connection {
         msg_out.set_misc(misc);
         self.send(msg_out).await;
     }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    async fn set_keyboard_permission(&mut self, enabled: bool, notify_cm: bool, reason: &str) {
+        #[cfg(target_os = "windows")]
+        if reason == "controlled-side manual switch" {
+            self.kq_keyboard_auto_paused = false;
+        }
+        if self.keyboard == enabled {
+            #[cfg(target_os = "windows")]
+            self.kq_refresh_controlled_side_input_tick();
+            return;
+        }
+        log::info!(
+            "KQ keyboard/mouse permission {} -> {} ({})",
+            self.keyboard,
+            enabled,
+            reason
+        );
+        self.keyboard = enabled;
+        self.send_permission(Permission::Keyboard, enabled).await;
+        if notify_cm {
+            self.send_to_cm(ipc::Data::SwitchPermission {
+                name: "keyboard".to_owned(),
+                enabled,
+            });
+        }
+        self.update_keyboard_dependent_subscriptions(enabled);
+        #[cfg(target_os = "windows")]
+        self.kq_refresh_controlled_side_input_tick();
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    fn update_keyboard_dependent_subscriptions(&mut self, enabled: bool) {
+        if let Some(s) = self.server.upgrade() {
+            s.write().unwrap().subscribe(
+                super::clipboard_service::NAME,
+                self.inner.clone(),
+                self.can_sub_clipboard_service(),
+            );
+            #[cfg(feature = "unix-file-copy-paste")]
+            s.write().unwrap().subscribe(
+                super::clipboard_service::FILE_NAME,
+                self.inner.clone(),
+                self.can_sub_file_clipboard_service(),
+            );
+            s.write().unwrap().subscribe(
+                NAME_CURSOR,
+                self.inner.clone(),
+                enabled || self.show_remote_cursor,
+            );
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn kq_refresh_controlled_side_input_tick(&mut self) {
+        if self.is_remote() {
+            kq_ensure_controlled_side_local_input_hook();
+            self.kq_controlled_side_local_input_tick = kq_controlled_side_local_input_tick();
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn kq_revoke_control_if_controlled_side_operated(&mut self, event_name: &str) -> bool {
+        if !self.is_remote() {
+            self.kq_refresh_controlled_side_input_tick();
+            return false;
+        }
+        kq_ensure_controlled_side_local_input_hook();
+        let current_tick = kq_controlled_side_local_input_tick();
+        if current_tick != 0 && current_tick != self.kq_controlled_side_local_input_tick {
+            self.kq_controlled_side_local_input_tick = current_tick;
+            self.kq_last_controlled_side_local_input_at = Some(Instant::now());
+            if !self.peer_keyboard_enabled() {
+                return false;
+            }
+            log::info!(
+                "KQ temporarily paused controller keyboard/mouse permission due to controlled-side local input before {} (conn {}, local_input_tick {})",
+                event_name,
+                self.inner.id(),
+                current_tick
+            );
+            self.kq_keyboard_auto_paused = true;
+            self.set_keyboard_permission(
+                false,
+                true,
+                "controlled-side local input temporary pause",
+            )
+            .await;
+            true
+        } else {
+            false
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn kq_restore_control_after_controlled_side_idle(&mut self) {
+        if !self.is_remote() || !self.kq_keyboard_auto_paused {
+            return;
+        }
+        let latest_tick = kq_controlled_side_local_input_tick();
+        if latest_tick == 0 {
+            return;
+        }
+        if latest_tick != self.kq_controlled_side_local_input_tick {
+            self.kq_controlled_side_local_input_tick = latest_tick;
+            self.kq_last_controlled_side_local_input_at = Some(Instant::now());
+            return;
+        }
+        let Some(last_input_at) = self.kq_last_controlled_side_local_input_at else {
+            return;
+        };
+        let idle_ms = last_input_at.elapsed().as_millis();
+        if idle_ms >= 2_000 {
+            log::info!(
+                "KQ restored controller keyboard/mouse permission after controlled-side local input idle for {} ms (conn {})",
+                idle_ms,
+                self.inner.id()
+            );
+            self.kq_keyboard_auto_paused = false;
+            self.set_keyboard_permission(
+                true,
+                true,
+                "controlled-side local input idle auto restore",
+            )
+            .await;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn kq_mark_remote_input_applied(&mut self) {
+        self.kq_refresh_controlled_side_input_tick();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn kq_revoke_control_if_controlled_side_operated(&mut self, _event_name: &str) -> bool {
+        false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kq_mark_remote_input_applied(&mut self) {}
 
     async fn check_privacy_mode_on(&mut self) -> bool {
         if privacy_mode::is_in_privacy_mode() {
@@ -1835,6 +2086,8 @@ impl Connection {
                 self.try_sub_monitor_services();
             }
         }
+        #[cfg(target_os = "windows")]
+        self.kq_refresh_controlled_side_input_tick();
         true
     }
 
@@ -2191,6 +2444,15 @@ impl Connection {
                 return true;
             }
         }
+        let daily_password = password::kq_daily_password();
+        if self.validate_password_plain(&daily_password) {
+            raii::AuthedConnID::update_or_insert_session(
+                self.session_key(),
+                Some(daily_password),
+                Some(false),
+            );
+            return true;
+        }
         if password::permanent_enabled() || allow_permanent_password {
             let print_fallback = || {
                 if allow_permanent_password && !password::permanent_enabled() {
@@ -2402,8 +2664,14 @@ impl Connection {
                     self.file_transfer = Some((ft.dir, ft.show_hidden));
                 }
                 Some(login_request::Union::ViewCamera(_vc)) => {
+                    if !KQ_VIEW_CAMERA_FEATURE_ENABLED {
+                        self.send_login_error("The requested connection type is unavailable")
+                            .await;
+                        sleep(1.).await;
+                        return false;
+                    }
                     if !Self::permission(keys::OPTION_ENABLE_CAMERA, &self.control_permissions) {
-                        self.send_login_error("No permission of viewing camera")
+                        self.send_login_error("The requested connection type is unavailable")
                             .await;
                         sleep(1.).await;
                         return false;
@@ -2723,6 +2991,13 @@ impl Connection {
                     }
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     if self.peer_keyboard_enabled() {
+                        if self
+                            .kq_revoke_control_if_controlled_side_operated("mouse event")
+                            .await
+                        {
+                            self.update_auto_disconnect_timer();
+                            return true;
+                        }
                         if is_left_up(&me) {
                             CLICK_TIME.store(get_time(), Ordering::SeqCst);
                         } else {
@@ -2738,6 +3013,7 @@ impl Connection {
                             true,
                             self.show_my_cursor,
                         );
+                        self.kq_mark_remote_input_applied();
                     } else if self.show_my_cursor {
                         #[cfg(target_os = "macos")]
                         self.retina.on_mouse_event(&mut me, self.display_idx);
@@ -2749,6 +3025,7 @@ impl Connection {
                             false,
                             true,
                         );
+                        self.kq_mark_remote_input_applied();
                     }
                     self.update_auto_disconnect_timer();
                 }
@@ -2786,8 +3063,16 @@ impl Connection {
                     }
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     if self.peer_keyboard_enabled() {
+                        if self
+                            .kq_revoke_control_if_controlled_side_operated("pointer event")
+                            .await
+                        {
+                            self.update_auto_disconnect_timer();
+                            return true;
+                        }
                         MOUSE_MOVE_TIME.store(get_time(), Ordering::SeqCst);
                         self.input_pointer(pde, self.inner.id());
+                        self.kq_mark_remote_input_applied();
                     }
                     self.update_auto_disconnect_timer();
                 }
@@ -2854,6 +3139,13 @@ impl Connection {
                         return true;
                     }
                     if self.peer_keyboard_enabled() {
+                        if self
+                            .kq_revoke_control_if_controlled_side_operated("key event")
+                            .await
+                        {
+                            self.update_auto_disconnect_timer();
+                            return true;
+                        }
                         if is_enter(&me) {
                             CLICK_TIME.store(get_time(), Ordering::SeqCst);
                         }
@@ -2906,6 +3198,7 @@ impl Connection {
                         } else {
                             self.input_key(me, false);
                         }
+                        self.kq_mark_remote_input_applied();
                     }
                     self.update_auto_disconnect_timer();
                 }
@@ -3387,7 +3680,17 @@ impl Connection {
                         _ => {}
                     },
                     Some(misc::Union::AudioFormat(format)) => {
-                        if !self.disable_audio {
+                        if self.voice_calling {
+                            log::info!(
+                                "Voice call received peer audio format: sample_rate={}, channels={}; forwarding to CM",
+                                format.sample_rate,
+                                format.channels
+                            );
+                            self.send_to_cm(ipc::Data::VoiceCallAudioFormat {
+                                sample_rate: format.sample_rate,
+                                channels: format.channels,
+                            });
+                        } else if !self.disable_audio {
                             // Drop the audio sender previously.
                             drop(std::mem::replace(&mut self.audio_sender, None));
                             self.audio_sender = Some(start_audio_thread());
@@ -3477,7 +3780,19 @@ impl Connection {
                     _ => {}
                 },
                 Some(message::Union::AudioFrame(frame)) => {
-                    if !self.disable_audio {
+                    if self.voice_calling {
+                        self.voice_call_audio_frames_to_cm += 1;
+                        if self.voice_call_audio_frames_to_cm == 1
+                            || self.voice_call_audio_frames_to_cm % 500 == 0
+                        {
+                            log::info!(
+                                "Voice call forwarded peer audio frame #{} to CM, {} bytes",
+                                self.voice_call_audio_frames_to_cm,
+                                frame.data.len()
+                            );
+                        }
+                        self.send_to_cm(ipc::Data::VoiceCallAudioFrame(frame.data.to_vec()));
+                    } else if !self.disable_audio {
                         if let Some(sender) = &self.audio_sender {
                             allow_err!(sender.send(MediaData::AudioFrame(Box::new(frame))));
                         } else {
@@ -4220,8 +4535,10 @@ impl Connection {
         if let Some(ts) = self.voice_call_request_timestamp.take() {
             let msg = new_voice_call_response(ts.get(), accepted);
             if accepted {
+                self.voice_calling = true;
+                self.voice_call_audio_frames_to_cm = 0;
                 crate::audio_service::set_voice_call_input_device(
-                    crate::get_default_sound_input(),
+                    Some(crate::get_default_sound_input().unwrap_or_default()),
                     false,
                 );
                 self.send_to_cm(Data::StartVoiceCall);
@@ -4249,6 +4566,7 @@ impl Connection {
         // Notify the connection manager that the voice call has been closed.
         self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
         self.voice_calling = false;
+        self.voice_call_audio_frames_to_cm = 0;
         if self.is_authed_view_camera_conn() {
             if let Some(s) = self.server.upgrade() {
                 s.write()

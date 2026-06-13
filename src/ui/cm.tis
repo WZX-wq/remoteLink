@@ -75,7 +75,6 @@ class Body: Reactor.Component
                 </div></div>
                 }
                 {c.is_file_transfer ? <div>{translate('Transfer file')}</div> : ""}
-                {c.is_view_camera ? <div>{translate('View camera')}</div> : ""}
                 {c.is_terminal ? <div>{translate('Terminal')}</div> : ""}
                 {c.port_forward ? <div>Port Forwarding: {c.port_forward}</div> : ""}
                 <div style="size:*"/>
@@ -398,6 +397,7 @@ handler.addConnection = function(id, is_file_transfer, is_view_camera, is_termin
     });
     if (conn) {
         conn.authorized = authorized;
+        conn.keyboard = keyboard;
         conn.privacy_mode = privacy_mode;
         update();
         return;

@@ -181,9 +181,12 @@ Invoke-Step "Server deployment template check" {
 
 Invoke-Step "Kunqiong desktop branding source check" {
     $tabbar = Get-Content .\flutter\lib\desktop\widgets\tabbar_widget.dart -Raw -Encoding UTF8
+    $homePageSource = Get-Content .\flutter\lib\desktop\pages\desktop_home_page.dart -Raw -Encoding UTF8
     $login = Get-Content .\flutter\lib\common\widgets\login.dart -Raw -Encoding UTF8
     $cnLang = Get-Content .\src\lang\cn.rs -Raw -Encoding UTF8
-    $brandText = [string]::Concat([char]0x9CB2, [char]0x7A79, [char]0x8FDC, [char]0x7A0B, [char]0x684C, [char]0x9762)
+    $titleBrandText = [string]::Concat([char[]]@(0x9CB2, 0x7A79)) +
+        "AI" +
+        [string]::Concat([char[]]@(0x65D7, 0x4E0B, 0x4EA7, 0x54C1))
     $loginText = [string]::Concat(
         [char]0x767B,
         [char]0x5F55,
@@ -192,11 +195,14 @@ Invoke-Step "Kunqiong desktop branding source check" {
         [char]0x8D26,
         [char]0x53F7
     )
-    if ($tabbar -notmatch $brandText) {
-        throw "Desktop title bar brand text was not found."
+    if ($tabbar -match [regex]::Escape($titleBrandText)) {
+        throw "Desktop title bar brand text should be hidden."
     }
-    if ($tabbar -notmatch "assets/icon\.png") {
-        throw "Desktop title bar icon asset was not found."
+    if ($tabbar -match "assets/icon\.png") {
+        throw "Desktop title bar icon should be hidden."
+    }
+    if ($homePageSource -notmatch [regex]::Escape($titleBrandText) -or $homePageSource -notmatch "class _KqProductTagline") {
+        throw "Desktop home product tagline was not found."
     }
     if ($login -notmatch [regex]::Escape("Log in to your Kunqiong account") -or $cnLang -notmatch [regex]::Escape($loginText)) {
         throw "Kunqiong OAuth login button text was not found."

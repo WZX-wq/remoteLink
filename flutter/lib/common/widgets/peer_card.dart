@@ -29,6 +29,20 @@ const _kqCardOnline = Color(0xFF16A77A);
 const _kqCardOffline = Color(0xFFD65B68);
 const _kqFavoriteGold = Color(0xFFFFB020);
 
+String _kqPeerCardText(String key) {
+  if (!localeName.toString().toLowerCase().startsWith('zh')) {
+    return translate(key);
+  }
+  switch (key) {
+    case 'Online':
+      return '在线';
+    case 'Offline':
+      return '离线';
+    default:
+      return translate(key);
+  }
+}
+
 class _PeerCard extends StatefulWidget {
   final Peer peer;
   final PeerTabIndex tab;
@@ -102,13 +116,208 @@ class _PeerCardState extends State<_PeerCard>
 
   Widget _buildPortrait() {
     final peer = super.widget.peer;
-    return Card(
-        margin: EdgeInsets.symmetric(horizontal: 2),
-        child: gestureDetector(
-          child: Container(
-              padding: EdgeInsets.only(left: 12, top: 8, bottom: 8),
-              child: _buildPeerTile(context, peer, null)),
-        ));
+    return gestureDetector(child: _buildPortraitPreviewCard(context, peer));
+  }
+
+  Widget _buildPortraitPreviewCard(BuildContext context, Peer peer) {
+    hideUsernameOnCard ??=
+        bind.mainGetBuildinOption(key: kHideUsernameOnCard) == 'Y';
+    final PeerTabModel peerTabModel = Provider.of(context);
+    final selected = peerTabModel.isPeerSelected(peer.id);
+    final q = KqTheme.of(context);
+    final name = hideUsernameOnCard == true
+        ? peer.hostname
+        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final displayName = name.trim().isEmpty ? peer.platform : name.trim();
+    final title = peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
+    final statusColor = peer.online ? _kqCardOnline : _kqCardOffline;
+    final colors = _frontN(peer.tags, 25)
+        .map((e) => gFFI.abModel.getCurrentAbTagColor(e))
+        .toList();
+
+    Widget stopTap(Widget child) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
+        onLongPress: () {},
+        child: child,
+      );
+    }
+
+    return Tooltip(
+      message: '',
+      child: AspectRatio(
+        aspectRatio: 2.08,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? q.primary.withOpacity(0.88) : q.line,
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: q.isDark
+                    ? Colors.black.withOpacity(0.28)
+                    : const Color(0xFF0B3C68).withOpacity(0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 9),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: Stack(
+              children: [
+                Positioned.fill(child: _KqDesktopPreviewBackground()),
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.04),
+                          Colors.black.withOpacity(0.12),
+                          Colors.black.withOpacity(0.72),
+                        ],
+                        stops: const [0.0, 0.58, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+                if (colors.isNotEmpty)
+                  Positioned(
+                    top: 12,
+                    left: 14,
+                    child: CustomPaint(
+                      painter: TagPainter(radius: 4, colors: colors),
+                    ),
+                  ),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: stopTap(Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _favoriteButton(peer, compact: false),
+                      const SizedBox(width: 4),
+                      if (peerTabModel.multiSelectionMode)
+                        Container(
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.42),
+                            ),
+                          ),
+                          child: Icon(
+                            selected
+                                ? Icons.check_box_rounded
+                                : Icons.check_box_outline_blank_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        )
+                      else
+                        checkBoxOrActionMorePortrait(peer),
+                    ],
+                  )),
+                ),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 15,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        margin: const EdgeInsets.only(bottom: 7),
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: statusColor.withOpacity(0.58),
+                              blurRadius: 8,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: getPlatformImage(peer.platform, size: 21),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                height: 1.05,
+                              ),
+                            ),
+                            if (displayName.isNotEmpty ||
+                                _shouldBuildPasswordIcon(peer)) ...[
+                              const SizedBox(height: 5),
+                              Row(
+                                children: [
+                                  if (_shouldBuildPasswordIcon(peer))
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 5),
+                                      child: Icon(
+                                        Icons.key_rounded,
+                                        color: Colors.white70,
+                                        size: 13,
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: Text(
+                                      peer.online
+                                          ? _kqPeerCardText('Online')
+                                          : _kqPeerCardText('Offline'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildLandscape() {
@@ -483,8 +692,15 @@ class _PeerCardState extends State<_PeerCard>
       );
     } else {
       return InkWell(
-          child: const Padding(
-              padding: EdgeInsets.all(12), child: Icon(Icons.more_vert)),
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                Icons.more_vert_rounded,
+                color: stateGlobal.isPortrait.isTrue
+                    ? Colors.white
+                    : KqTheme.of(context).muted,
+              )),
           onTapDown: (e) {
             final x = e.globalPosition.dx;
             final y = e.globalPosition.dy;
@@ -710,13 +926,11 @@ abstract class BasePeerCard extends StatelessWidget {
     );
   }
 
-  @protected
-  MenuEntryBase<String> _viewCameraAction(BuildContext context) {
-    return _connectCommonAction(
-      context,
-      translate('View camera'),
-      isViewCamera: true,
-    );
+  List<MenuEntryBase<String>> _viewCameraActions(BuildContext context) {
+    if (!kShowViewCameraConnectAction) {
+      return [];
+    }
+    return [];
   }
 
   @protected
@@ -1000,7 +1214,7 @@ class RecentPeerCard extends BasePeerCard {
     final List<MenuEntryBase<String>> menuItems = [
       _connectAction(context),
       _transferFileAction(context),
-      _viewCameraAction(context),
+      ..._viewCameraActions(context),
     ];
 
     final List favs = (await bind.mainGetFav()).toList();
@@ -1050,7 +1264,7 @@ class FavoritePeerCard extends BasePeerCard {
     final List<MenuEntryBase<String>> menuItems = [
       _connectAction(context),
       _transferFileAction(context),
-      _viewCameraAction(context),
+      ..._viewCameraActions(context),
     ];
 
     if (isWindows) {
@@ -1095,7 +1309,7 @@ class DiscoveredPeerCard extends BasePeerCard {
     final List<MenuEntryBase<String>> menuItems = [
       _connectAction(context),
       _transferFileAction(context),
-      _viewCameraAction(context),
+      ..._viewCameraActions(context),
     ];
 
     final List favs = (await bind.mainGetFav()).toList();
@@ -1139,7 +1353,7 @@ class AddressBookPeerCard extends BasePeerCard {
     final List<MenuEntryBase<String>> menuItems = [
       _connectAction(context),
       _transferFileAction(context),
-      _viewCameraAction(context),
+      ..._viewCameraActions(context),
     ];
 
     if (isWindows) {
@@ -1281,7 +1495,7 @@ class MyGroupPeerCard extends BasePeerCard {
     final List<MenuEntryBase<String>> menuItems = [
       _connectAction(context),
       _transferFileAction(context),
-      _viewCameraAction(context),
+      ..._viewCameraActions(context),
     ];
 
     if (isWindows) {
@@ -1343,6 +1557,139 @@ class _StatusPill extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _KqDesktopPreviewBackground extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _KqDesktopPreviewPainter(KqTheme.of(context).isDark),
+    );
+  }
+}
+
+class _KqDesktopPreviewPainter extends CustomPainter {
+  const _KqDesktopPreviewPainter(this.isDark);
+
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final bgPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: isDark
+            ? const [
+                Color(0xFF061426),
+                Color(0xFF0A3150),
+                Color(0xFF07101F),
+              ]
+            : const [
+                Color(0xFF082548),
+                Color(0xFF0B5A85),
+                Color(0xFF061B35),
+              ],
+      ).createShader(rect);
+    canvas.drawRect(rect, bgPaint);
+
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(0.62, -0.15),
+        radius: 0.95,
+        colors: [
+          const Color(0xFF37D3C5).withOpacity(0.52),
+          const Color(0xFF1277D9).withOpacity(0.20),
+          Colors.transparent,
+        ],
+      ).createShader(rect);
+    canvas.drawRect(rect, glowPaint);
+
+    final linePaint = Paint()
+      ..color = Colors.white.withOpacity(0.08)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 5; i++) {
+      final x = size.width * i / 5;
+      canvas.drawLine(
+          Offset(x, 0), Offset(x - size.width * 0.12, size.height), linePaint);
+    }
+
+    final panePaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          const Color(0xFF4FE0D0).withOpacity(0.52),
+          const Color(0xFF1E8CFF).withOpacity(0.20),
+        ],
+      ).createShader(rect);
+    final darkPanePaint = Paint()..color = const Color(0xFF031126);
+
+    final leftTop = Path()
+      ..moveTo(size.width * 0.13, size.height * 0.20)
+      ..lineTo(size.width * 0.52, size.height * 0.12)
+      ..lineTo(size.width * 0.51, size.height * 0.48)
+      ..lineTo(size.width * 0.10, size.height * 0.50)
+      ..close();
+    final rightTop = Path()
+      ..moveTo(size.width * 0.56, size.height * 0.12)
+      ..lineTo(size.width * 0.86, size.height * 0.22)
+      ..lineTo(size.width * 0.86, size.height * 0.48)
+      ..lineTo(size.width * 0.55, size.height * 0.48)
+      ..close();
+    final leftBottom = Path()
+      ..moveTo(size.width * 0.10, size.height * 0.54)
+      ..lineTo(size.width * 0.51, size.height * 0.52)
+      ..lineTo(size.width * 0.51, size.height * 0.86)
+      ..lineTo(size.width * 0.15, size.height * 0.72)
+      ..close();
+    final rightBottom = Path()
+      ..moveTo(size.width * 0.55, size.height * 0.52)
+      ..lineTo(size.width * 0.86, size.height * 0.52)
+      ..lineTo(size.width * 0.84, size.height * 0.78)
+      ..lineTo(size.width * 0.56, size.height * 0.86)
+      ..close();
+
+    canvas.drawPath(leftTop, panePaint);
+    canvas.drawPath(rightTop, panePaint);
+    canvas.drawPath(leftBottom, panePaint);
+    canvas.drawPath(rightBottom, panePaint);
+
+    final separatorPaint = Paint()
+      ..color = darkPanePaint.color.withOpacity(0.82)
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.square;
+    canvas.drawLine(
+      Offset(size.width * 0.535, size.height * 0.12),
+      Offset(size.width * 0.535, size.height * 0.88),
+      separatorPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.10, size.height * 0.51),
+      Offset(size.width * 0.87, size.height * 0.50),
+      separatorPaint,
+    );
+
+    final sheenPaint = Paint()
+      ..color = Colors.white.withOpacity(0.09)
+      ..strokeWidth = 2;
+    canvas.drawLine(
+      Offset(size.width * 0.16, size.height * 0.25),
+      Offset(size.width * 0.50, size.height * 0.18),
+      sheenPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.58, size.height * 0.20),
+      Offset(size.width * 0.82, size.height * 0.28),
+      sheenPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _KqDesktopPreviewPainter oldDelegate) {
+    return oldDelegate.isDark != isDark;
   }
 }
 

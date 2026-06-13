@@ -2314,9 +2314,9 @@ pub mod sessions {
 pub(super) mod async_tasks {
     use hbb_common::{bail, tokio, ResultType};
     use std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         sync::{
-            mpsc::{sync_channel, SyncSender},
+            mpsc::{sync_channel, SyncSender, TrySendError},
             Arc, Mutex,
         },
     };
@@ -2324,6 +2324,7 @@ pub(super) mod async_tasks {
     type TxQueryOnlines = SyncSender<Vec<String>>;
     lazy_static::lazy_static! {
         static ref TX_QUERY_ONLINES: Arc<Mutex<Option<TxQueryOnlines>>> = Default::default();
+        static ref PENDING_QUERY_ONLINES: Arc<Mutex<HashSet<String>>> = Default::default();
     }
 
     #[inline]
@@ -2345,6 +2346,7 @@ pub(super) mod async_tasks {
         loop {
             match rx_onlines.recv() {
                 Ok(ids) => {
+                    let ids = merge_pending_query_onlines(ids);
                     crate::client::peer_online::query_online_states(ids, handle_query_onlines).await
                 }
                 _ => {
@@ -2355,10 +2357,31 @@ pub(super) mod async_tasks {
         }
     }
 
+    fn merge_pending_query_onlines(mut ids: Vec<String>) -> Vec<String> {
+        let mut seen: HashSet<String> = ids.iter().cloned().collect();
+        let mut pending = PENDING_QUERY_ONLINES.lock().unwrap();
+        if pending.is_empty() {
+            return ids;
+        }
+        for id in pending.drain() {
+            if seen.insert(id.clone()) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
     pub fn query_onlines(ids: Vec<String>) -> ResultType<()> {
         if let Some(tx) = TX_QUERY_ONLINES.lock().unwrap().as_ref() {
-            // Ignore if the channel is full.
-            let _ = tx.try_send(ids)?;
+            match tx.try_send(ids) {
+                Ok(()) => {}
+                Err(TrySendError::Full(ids)) => {
+                    PENDING_QUERY_ONLINES.lock().unwrap().extend(ids);
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    bail!("No tx_query_onlines");
+                }
+            }
         } else {
             bail!("No tx_query_onlines");
         }

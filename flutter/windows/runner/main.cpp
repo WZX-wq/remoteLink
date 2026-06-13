@@ -19,6 +19,14 @@ const std::vector<std::string> parameters_white_list = {"--install", "--cm"};
 
 const wchar_t* getWindowClassName();
 
+static void GrantForegroundPermissionToWindowProcess(HWND hwnd) {
+  DWORD process_id = 0;
+  ::GetWindowThreadProcessId(hwnd, &process_id);
+  if (process_id != 0) {
+    ::AllowSetForegroundWindow(process_id);
+  }
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command)
 {
@@ -88,6 +96,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     if (!allow_multiple_instances) {
       if (!command_line_arguments.empty()) {
         // Dispatch command line arguments
+        GrantForegroundPermissionToWindowProcess(hwnd);
         DispatchToUniLinksDesktop(hwnd);
       } else {
         // Not called with arguments, or just open the app shortcut on desktop.

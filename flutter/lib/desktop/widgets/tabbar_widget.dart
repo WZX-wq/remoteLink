@@ -250,6 +250,7 @@ class DesktopTab extends StatefulWidget {
   // Right click tab menu
   final TabMenuBuilder? tabMenuBuilder;
   final Widget? tail;
+  final Widget? tabTail;
   final VoidCallback? onAccountBadgeTap;
   final Future<bool> Function()? onWindowCloseButton;
   final TabBuilder? tabBuilder;
@@ -276,6 +277,7 @@ class DesktopTab extends StatefulWidget {
     this.pageViewBuilder,
     this.tabMenuBuilder,
     this.tail,
+    this.tabTail,
     this.onAccountBadgeTap,
     this.onWindowCloseButton,
     this.tabBuilder,
@@ -312,6 +314,7 @@ class _DesktopTabState extends State<DesktopTab>
       widget.pageViewBuilder;
   TabMenuBuilder? get tabMenuBuilder => widget.tabMenuBuilder;
   Widget? get tail => widget.tail;
+  Widget? get tabTail => widget.tabTail;
   VoidCallback? get onAccountBadgeTap => widget.onAccountBadgeTap;
   Future<bool> Function()? get onWindowCloseButton =>
       widget.onWindowCloseButton;
@@ -637,13 +640,6 @@ class _DesktopTabState extends State<DesktopTab>
                         child: const SizedBox(
                           width: 78,
                         )),
-                    Offstage(
-                      offstage: kUseCompatibleUiMode || isMacOS,
-                      child: _KqTitleBrand(showLogo: showLogo).marginOnly(
-                        left: 5,
-                        right: 10,
-                      ),
-                    ),
                     Expanded(
                         child: Listener(
                             // handle mouse wheel
@@ -673,6 +669,7 @@ class _DesktopTabState extends State<DesktopTab>
                               unSelectedTabBackgroundColor:
                                   unSelectedTabBackgroundColor,
                               selectedBorderColor: selectedBorderColor,
+                              tabTail: tabTail,
                             ))),
                   ],
                 ))),
@@ -833,57 +830,6 @@ class WindowActionPanelState extends State<WindowActionPanel> {
   }
 }
 
-class _KqTitleBrand extends StatelessWidget {
-  final bool showLogo;
-
-  const _KqTitleBrand({required this.showLogo});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 32,
-      padding: const EdgeInsets.only(left: 6, right: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.72),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _kqLine.withOpacity(0.78)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (showLogo)
-            Container(
-              width: 26,
-              height: 26,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: _kqLine),
-              ),
-              child: Image.asset(
-                'assets/icon.png',
-                fit: BoxFit.contain,
-              ),
-            ),
-          const SizedBox(width: 8),
-          const Text(
-            '鲲穹远程桌面',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: _kqInk,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _AccountBadge extends StatelessWidget {
   final VoidCallback? onTap;
 
@@ -988,6 +934,20 @@ class _AccountAvatar extends StatelessWidget {
   }
 }
 
+class _TabTail extends StatelessWidget {
+  final Widget child;
+
+  const _TabTail({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _kTabBarHeight,
+      child: Center(child: child),
+    );
+  }
+}
+
 void startDragging(bool isMainWindow) {
   if (isMainWindow) {
     windowManager.startDragging();
@@ -1086,6 +1046,7 @@ class _ListView extends StatelessWidget {
   final Color? selectedTabBackgroundColor;
   final Color? selectedBorderColor;
   final Color? unSelectedTabBackgroundColor;
+  final Widget? tabTail;
 
   Rx<DesktopTabState> get state => controller.state;
 
@@ -1099,6 +1060,7 @@ class _ListView extends StatelessWidget {
     this.selectedTabBackgroundColor,
     this.unSelectedTabBackgroundColor,
     this.selectedBorderColor,
+    this.tabTail,
   });
 
   /// Check whether to show ListView
@@ -1126,57 +1088,68 @@ class _ListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Obx(() => ListView(
-        controller: state.value.scrollController,
-        scrollDirection: Axis.horizontal,
-        shrinkWrap: true,
-        physics: const BouncingScrollPhysics(),
-        children: isHideSingleItem()
-            ? List.empty()
-            : state.value.tabs.asMap().entries.map((e) {
-                final index = e.key;
-                final tab = e.value;
-                final label = labelGetter == null
-                    ? Rx<String>(tab.label)
-                    : labelGetter!(tab.label);
-                final child = VisibilityDetector(
+    return Obx(() {
+      final hideSingleItem = isHideSingleItem();
+      final tabChildren = hideSingleItem
+          ? <Widget>[]
+          : state.value.tabs.asMap().entries.map((e) {
+              final index = e.key;
+              final tab = e.value;
+              final label = labelGetter == null
+                  ? Rx<String>(tab.label)
+                  : labelGetter!(tab.label);
+              final child = VisibilityDetector(
+                key: ValueKey(tab.key),
+                onVisibilityChanged: onVisibilityChanged,
+                child: _Tab(
                   key: ValueKey(tab.key),
-                  onVisibilityChanged: onVisibilityChanged,
-                  child: _Tab(
-                    key: ValueKey(tab.key),
-                    index: index,
-                    tabInfoKey: tab.key,
-                    label: label,
-                    tabType: controller.tabType,
-                    selectedIcon: tab.selectedIcon,
-                    unselectedIcon: tab.unselectedIcon,
-                    closable: tab.closable,
-                    selected: state.value.selected,
-                    onClose: () {
-                      if (tab.onTabCloseButton != null) {
-                        tab.onTabCloseButton!();
-                      } else {
-                        controller.remove(index);
-                      }
-                    },
-                    onTap: () {
-                      controller.jumpTo(index);
-                      tab.onTap?.call();
-                    },
-                    tabBuilder: tabBuilder,
-                    tabMenuBuilder: tabMenuBuilder,
-                    maxLabelWidth: maxLabelWidth,
-                    selectedTabBackgroundColor: selectedTabBackgroundColor ??
-                        MyTheme.tabbar(context).selectedTabBackgroundColor,
-                    unSelectedTabBackgroundColor: unSelectedTabBackgroundColor,
-                    selectedBorderColor: selectedBorderColor,
-                  ),
-                );
-                return GestureDetector(
-                  onPanStart: (e) {},
-                  child: child,
-                );
-              }).toList()));
+                  index: index,
+                  tabInfoKey: tab.key,
+                  label: label,
+                  tabType: controller.tabType,
+                  selectedIcon: tab.selectedIcon,
+                  unselectedIcon: tab.unselectedIcon,
+                  closable: tab.closable,
+                  selected: state.value.selected,
+                  onClose: () {
+                    if (tab.onTabCloseButton != null) {
+                      tab.onTabCloseButton!();
+                    } else {
+                      controller.remove(index);
+                    }
+                  },
+                  onTap: () {
+                    controller.jumpTo(index);
+                    tab.onTap?.call();
+                  },
+                  tabBuilder: tabBuilder,
+                  tabMenuBuilder: tabMenuBuilder,
+                  maxLabelWidth: maxLabelWidth,
+                  selectedTabBackgroundColor: selectedTabBackgroundColor ??
+                      MyTheme.tabbar(context).selectedTabBackgroundColor,
+                  unSelectedTabBackgroundColor: unSelectedTabBackgroundColor,
+                  selectedBorderColor: selectedBorderColor,
+                ),
+              );
+              return GestureDetector(
+                onPanStart: (e) {},
+                child: child,
+              );
+            }).toList();
+      state.value.scrollController.itemCount =
+          tabChildren.length + (!hideSingleItem && tabTail != null ? 1 : 0);
+      return SingleChildScrollView(
+          controller: state.value.scrollController,
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...tabChildren,
+              if (!hideSingleItem && tabTail != null) _TabTail(child: tabTail!),
+            ],
+          ));
+    });
   }
 }
 
@@ -1478,10 +1451,11 @@ class AddButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ActionIcon(
         message: 'New Connection',
-        icon: IconFont.add,
+        icon: Icons.add_rounded,
         onTap: () => rustDeskWinManager.call(
             WindowType.Main, kWindowMainWindowOnTop, ""),
-        isClose: false);
+        isClose: false,
+        iconSize: 22);
   }
 }
 

@@ -217,10 +217,14 @@ class _PeersViewState extends State<_PeersView>
 
   onVisibilityChanged(VisibilityInfo info) {
     final peerId = _peerId((info.key as ValueKey).value);
+    final normalizedPeerId = kqNormalizePeerId(peerId);
+    if (normalizedPeerId.isEmpty) {
+      return;
+    }
     if (info.visibleFraction > 0.00001) {
-      _curPeers.add(peerId);
+      _curPeers.add(normalizedPeerId);
     } else {
-      _curPeers.remove(peerId);
+      _curPeers.remove(normalizedPeerId);
     }
     _lastChangeTime = DateTime.now();
   }
@@ -265,10 +269,11 @@ class _PeersViewState extends State<_PeersView>
             // Simple demo can reproduce this issue.
             final Widget child = Obx(() => stateGlobal.isPortrait.isTrue
                 ? ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 104),
                     itemCount: peers.length,
                     itemBuilder: (BuildContext context, int index) {
-                      return buildOnePeer(peers[index], true).marginOnly(
-                          top: index == 0 ? 0 : space / 2, bottom: space / 2);
+                      return buildOnePeer(peers[index], true)
+                          .marginOnly(top: index == 0 ? 0 : 12, bottom: 4);
                     },
                   )
                 : peerCardUiType.value == PeerUiType.list
@@ -293,7 +298,9 @@ class _PeersViewState extends State<_PeersView>
 
             if (updateEvent == UpdateEvent.load) {
               _curPeers.clear();
-              _curPeers.addAll(peers.map((e) => e.id));
+              _curPeers.addAll(peers
+                  .map((e) => kqNormalizePeerId(e.id))
+                  .where((id) => id.isNotEmpty));
               _queryOnlines(true);
             }
             return child;

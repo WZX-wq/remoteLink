@@ -2769,6 +2769,11 @@ pub fn send_message_to_hnwd(
             log::warn!("no such window {}:{}", class_name, window_name);
             return false;
         }
+        let mut process_id: DWORD = 0;
+        GetWindowThreadProcessId(window, &mut process_id);
+        if process_id != 0 {
+            AllowSetForegroundWindow(process_id);
+        }
         let mut data_struct = COPYDATASTRUCT::default();
         data_struct.dwData = dw_data;
         let mut data_zero: String = data.chars().chain(Some('\0').into_iter()).collect();

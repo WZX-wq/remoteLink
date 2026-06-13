@@ -376,6 +376,11 @@ pub enum Data {
     StartVoiceCall,
     VoiceCallResponse(bool),
     CloseVoiceCall(String),
+    VoiceCallAudioFormat {
+        sample_rate: u32,
+        channels: u32,
+    },
+    VoiceCallAudioFrame(Vec<u8>),
     #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     Plugin(Plugin),
@@ -892,7 +897,7 @@ async fn handle(data: Data, stream: &mut Connection) {
                     Config::set_key_confirmed(false);
                     Config::set_id(&value);
                 } else if name == "temporary-password" {
-                    password::update_temporary_password();
+                    password::set_temporary_password(&value);
                 } else if name == "permanent-password" {
                     if Config::is_disable_change_permanent_password() {
                         log::warn!("Changing permanent password is disabled");

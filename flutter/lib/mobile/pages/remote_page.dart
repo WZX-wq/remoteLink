@@ -519,18 +519,18 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                           futureBuilder(
                               future: gFFI.invokeMethod(
                                   "get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
-                              hasData: (isSupportVoiceCall) => IconButton(
-                                    color: Colors.white,
-                                    icon: isAndroid && isSupportVoiceCall
-                                        ? SvgPicture.asset('assets/chat.svg',
-                                            colorFilter: ColorFilter.mode(
-                                                Colors.white, BlendMode.srcIn))
-                                        : Icon(Icons.message),
-                                    onPressed: () =>
-                                        isAndroid && isSupportVoiceCall
-                                            ? showChatOptions(widget.id)
-                                            : onPressedTextChat(widget.id),
-                                  ))
+                              hasData: (isSupportVoiceCall) {
+                                final showVoiceCall =
+                                    isAndroid && isSupportVoiceCall;
+                                if (!showVoiceCall) {
+                                  return const SizedBox.shrink();
+                                }
+                                return IconButton(
+                                  color: Colors.white,
+                                  icon: const Icon(Icons.call_rounded),
+                                  onPressed: () => showChatOptions(widget.id),
+                                );
+                              })
                         ]) +
                   [
                     IconButton(
@@ -712,11 +712,6 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     }();
   }
 
-  onPressedTextChat(String id) {
-    gFFI.chatModel.changeCurrentKey(MessageKey(id, ChatModel.clientModeID));
-    gFFI.chatModel.toggleChatOverlay();
-  }
-
   showChatOptions(String id) async {
     onPressVoiceCall() => bind.sessionRequestVoiceCall(sessionId: sessionId);
     onPressEndVoiceCall() => bind.sessionCloseVoiceCall(sessionId: sessionId);
@@ -742,8 +737,6 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       VoiceCallStatus.connected
     ].contains(gFFI.chatModel.voiceCallStatus.value);
     final menus = [
-      makeTextMenu('Text chat', Icon(Icons.message, color: MyTheme.accent),
-          () => onPressedTextChat(widget.id)),
       isInVoice
           ? makeTextMenu(
               'End voice call',

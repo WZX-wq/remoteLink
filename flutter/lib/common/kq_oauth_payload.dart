@@ -1,3 +1,26 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:uuid/uuid.dart';
+
+class KqDesktopLoginNonce {
+  final String nonce;
+  final int timestamp;
+  final String signature;
+
+  const KqDesktopLoginNonce({
+    required this.nonce,
+    required this.timestamp,
+    required this.signature,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'nonce': nonce,
+        'timestamp': timestamp,
+        'signature': signature,
+      };
+}
+
 class KqOauthLoginPayload {
   final String accessToken;
   final Map<String, dynamic> user;
@@ -8,108 +31,116 @@ class KqOauthLoginPayload {
   });
 }
 
-Uri buildKqOauthAuthorizeUri({
-  required String authorizeUrl,
-  required String clientId,
-  required String redirectUri,
-  required String state,
+KqDesktopLoginNonce generateKqDesktopLoginNonce({
+  required String secretKey,
+  String? nonce,
+  int? timestamp,
 }) {
-  return Uri.parse(authorizeUrl).replace(queryParameters: {
-    'response_type': 'code',
-    'client_id': clientId,
-    'redirect_uri': redirectUri,
-    'state': state,
+  final rawNonce = nonce ?? const Uuid().v4().replaceAll('-', '');
+  final ts = timestamp ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final message = utf8.encode('$rawNonce|$ts');
+  final key = utf8.encode(secretKey);
+  final signature = base64Encode(Hmac(sha256, key).convert(message).bytes);
+  return KqDesktopLoginNonce(
+    nonce: rawNonce,
+    timestamp: ts,
+    signature: signature,
+  );
+}
+
+String encodeKqDesktopLoginNonce(KqDesktopLoginNonce signedNonce) {
+  final json = jsonEncode(signedNonce.toJson());
+  return base64UrlEncode(utf8.encode(json)).replaceAll('=', '');
+}
+
+Uri buildKqDesktopLoginUri({
+  required String webLoginUrl,
+  required String clientNonce,
+}) {
+  return Uri.parse(webLoginUrl).replace(queryParameters: {
+    'client_type': 'desktop',
+    'client_nonce': clientNonce,
   });
 }
 
-String parseKqOauthCallbackCode(Uri uri, String expectedState,
-    {String callbackPath = '/oauth/callback'}) {
-  final params = uri.queryParameters;
-  if (uri.path != callbackPath) {
-    throw const FormatException('Unexpected OAuth callback path.');
-  }
-  if (params['state'] != expectedState) {
-    throw const FormatException('Invalid OAuth state.');
-  }
-  final error = params['error'];
-  if (error != null && error.isNotEmpty) {
-    throw FormatException(error);
-  }
-  final code = params['code'];
-  if (code == null || code.isEmpty) {
-    throw const FormatException('Authorization code is missing.');
-  }
-  return code;
-}
-
-String? parseKqOauthCallbackError(Uri uri, String expectedState,
-    {String callbackPath = '/oauth/callback'}) {
-  final params = uri.queryParameters;
-  if (uri.path != callbackPath || params['state'] != expectedState) {
-    return null;
-  }
-  final error = params['error'];
-  if (error == null || error.isEmpty) {
-    return null;
-  }
-  return error;
-}
-
-bool isKqOauthCallbackSuccess(Uri uri, String expectedState,
-    {String callbackPath = '/oauth/callback'}) {
-  try {
-    parseKqOauthCallbackCode(uri, expectedState, callbackPath: callbackPath);
-    return true;
-  } on FormatException {
-    return false;
-  }
-}
-
-Map<String, dynamic> extractKqOauthTokenData(Map<String, dynamic> body) {
+Map<String, dynamic> extractKqApiData(Map<String, dynamic> body,
+    {String fallbackMessage = 'Kunqiong API request failed'}) {
   if (!_isSuccessCode(body['code'])) {
-    final message = body['message']?.toString();
-    throw FormatException(message == null || message.isEmpty
-        ? 'OAuth token exchange failed'
-        : message);
+    final message = (body['msg'] ?? body['message'])?.toString();
+    throw FormatException(
+        message == null || message.isEmpty ? fallbackMessage : message);
+  }
+  final data = body['data'];
+  if (data is Map) {
+    return Map<String, dynamic>.from(data);
+  }
+  if (data == null) {
+    return {};
+  }
+  throw const FormatException('Kunqiong API response data is invalid.');
+}
+
+String extractKqWebLoginUrl(Map<String, dynamic> body) {
+  final data = extractKqApiData(body,
+      fallbackMessage: 'Failed to get Kunqiong web login URL.');
+  final loginUrl = data['login_url']?.toString().trim();
+  if (loginUrl == null || loginUrl.isEmpty) {
+    throw const FormatException('Kunqiong web login URL is missing.');
+  }
+  return loginUrl;
+}
+
+String? extractKqDesktopTokenIfReady(Map<String, dynamic> body) {
+  if (!_isSuccessCode(body['code'])) {
+    return null;
   }
   final data = body['data'];
   if (data is! Map) {
-    throw const FormatException('Token response data is missing.');
+    return null;
   }
-  return Map<String, dynamic>.from(data);
+  final token = data['token']?.toString().trim();
+  return token == null || token.isEmpty ? null : token;
 }
 
-KqOauthLoginPayload parseKqOauthLoginPayload(Map<String, dynamic> data) {
-  final token = data['access_token']?.toString().trim();
-  final user = normalizeKqOauthUser(data['user']);
-  if (token == null || token.isEmpty || user == null) {
-    throw const FormatException('Token response is missing token or user.');
+bool parseKqCheckLoginResult(Map<String, dynamic> body) =>
+    _isSuccessCode(body['code']);
+
+KqOauthLoginPayload parseKqOauthLoginPayload({
+  required String token,
+  required Map<String, dynamic> userInfoResponse,
+}) {
+  final data = extractKqApiData(userInfoResponse,
+      fallbackMessage: 'Failed to get Kunqiong user info.');
+  final user = normalizeKqOauthUser(data['user_info']);
+  if (token.trim().isEmpty || user == null) {
+    throw const FormatException(
+        'Kunqiong login response is missing token or user.');
   }
-  return KqOauthLoginPayload(accessToken: token, user: user);
+  return KqOauthLoginPayload(accessToken: token.trim(), user: user);
 }
 
 bool _isSuccessCode(dynamic value) {
-  if (value is int) return value == 200;
-  if (value is String) return int.tryParse(value) == 200;
+  if (value is int) return value == 1;
+  if (value is String) return int.tryParse(value) == 1;
   return false;
 }
 
 Map<String, dynamic>? normalizeKqOauthUser(dynamic value) {
   if (value is! Map) return null;
-  final username = (value['username'] ?? value['name'] ?? value['id'] ?? '')
+  final nickname = (value['nickname'] ??
+          value['username'] ??
+          value['name'] ??
+          value['id'] ??
+          '')
       .toString()
       .trim();
-  if (username.isEmpty) return null;
-  final displayName = (value['nickname'] ??
-          value['display_name'] ??
-          value['displayName'] ??
-          username)
-      .toString();
+  if (nickname.isEmpty) return null;
+  final id = (value['id'] ?? nickname).toString();
   return {
-    'id': value['id']?.toString() ?? '',
-    'name': username,
-    'display_name': displayName,
-    'avatar': value['avatar']?.toString() ?? '',
+    'id': id,
+    'name': nickname,
+    'display_name': nickname,
+    'avatar': (value['avatar'] ?? value['avatar_url'])?.toString() ?? '',
     'email': value['email']?.toString() ?? '',
     'status': 1,
     'is_admin': false,

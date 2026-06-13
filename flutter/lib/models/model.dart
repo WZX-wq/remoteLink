@@ -948,8 +948,35 @@ class FfiModel with ChangeNotifier {
       if (!hasRetry) {
         hasRetry = shouldAutoRetryOnOffline(type, title, text);
       }
+      if (!hasRetry && shouldShowKqConnectionDiagnostics(type, title, text)) {
+        showKqNetworkDiagnosticsDialog(sessionId, 'kq-network-diagnostics',
+            title, text, dialogManager, peerId);
+        return;
+      }
       showMsgBox(sessionId, type, title, text, link, hasRetry, dialogManager);
     }
+  }
+
+  bool shouldShowKqConnectionDiagnostics(
+    String type,
+    String title,
+    String text,
+  ) {
+    if (type != 'error' || title != 'Connection Error') {
+      return false;
+    }
+    const diagnosticTexts = {
+      'Remote desktop is offline',
+      'Failed to connect to rendezvous server',
+      'Failed to connect to relay server',
+      'Failed to connect via rendezvous server',
+      'Failed to connect via relay server',
+      'Timeout',
+    };
+    return diagnosticTexts.contains(text) ||
+        text.contains('10054') ||
+        text.contains('Connection reset') ||
+        text.contains('timed out');
   }
 
   /// Auto-retry check for "Remote desktop is offline" error.
@@ -1170,6 +1197,7 @@ class FfiModel with ChangeNotifier {
           risk: risk,
           repairMessage: repairMessage,
           isRepairing: isRepairing,
+          isOffline: text == 'Remote desktop is offline',
         ),
         actions: [
           dialogButton('关闭', onPressed: onClose, isOutline: true),
@@ -1831,12 +1859,14 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
     required this.risk,
     required this.repairMessage,
     required this.isRepairing,
+    required this.isOffline,
   });
 
   final String errorText;
   final KqNetworkRisk risk;
   final String repairMessage;
   final bool isRepairing;
+  final bool isOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -1851,7 +1881,13 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
     final bodyColor =
         isDark ? const Color(0xFFC5D6E7) : const Color(0xFF40576F);
 
-    final items = [
+    final items = <_KqDiagnosticsItem>[
+      if (isOffline)
+        const _KqDiagnosticsItem(
+          title: '远程桌面不在线',
+          detail: '对方设备未连接到鲲穹服务器，或服务/网络已断开。请确认对方已开机、已登录系统、鲲穹远程桌面正在运行且网络可访问。',
+          state: _KqDiagnosticsState.warning,
+        ),
       _KqDiagnosticsItem(
         title: '本机防火墙',
         detail: risk.firewallRulesMissing
@@ -1929,7 +1965,9 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '已停止高风险连接，避免自动进入高延迟中继。请按清单处理后重试直连。',
+                        isOffline
+                            ? '对方当前不在线或无法被服务器确认在线。请先检查对方设备状态，再按清单排查网络。'
+                            : '连接失败可能来自防火墙、NAT、UDP 打洞或中继链路。请按清单处理后重试。',
                         style: TextStyle(color: bodyColor, height: 1.35),
                       ),
                     ],

@@ -171,57 +171,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Obx(() {
-            final ready = !svcStopped.value &&
-                stateGlobal.svcStatus.value == SvcStatus.ready;
-            final connecting =
-                stateGlobal.svcStatus.value == SvcStatus.connecting;
-            final color = ready
-                ? const Color(0xFF18A884)
-                : connecting
-                    ? const Color(0xFFE09B27)
-                    : const Color(0xFFD95067);
-            final text = ready
-                ? translate('Ready')
-                : connecting
-                    ? translate('connecting_status')
-                    : translate('not_ready_status');
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.09),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: color.withOpacity(0.24)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      text,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
         ],
       ),
     );
@@ -235,7 +184,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (bind.isCustomClient())
         Align(
           alignment: Alignment.center,
-          child: loadPowered(context),
+          child: const _KqProductTagline(),
         ),
       buildKqHero(context),
       if (!isOutgoingOnly) buildIDBoard(context),
@@ -506,15 +455,78 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     RxBool refreshHover = false.obs;
     RxBool shareHover = false.obs;
     RxBool editHover = false.obs;
-    final textColor = Theme.of(context).textTheme.titleLarge?.color;
     final q = KqTheme.of(context);
-    final showOneTime = model.approveMode != 'click' &&
-        model.verificationMethod != kUsePermanentPassword;
+    const actionButtonSize = 22.0;
+    const actionButtonGap = 2.0;
+    final actionButtons = <Widget>[
+      if (model.selectedPasswordCanRefresh)
+        AnimatedRotationWidget(
+          onPressed: () => model.refreshSelectedPassword(),
+          child: Tooltip(
+            message: translate('Refresh Password'),
+            child: _KqPasswordToolButton(
+              icon: Icons.refresh_rounded,
+              hover: refreshHover,
+              iconSize: 16,
+              size: actionButtonSize,
+            ),
+          ),
+          onHover: (value) => refreshHover.value = value,
+        ),
+      if (model.selectedPasswordCanShare)
+        InkWell(
+          borderRadius: BorderRadius.circular(999),
+          child: Tooltip(
+            message: '复制并分享',
+            child: _KqPasswordToolButton(
+              icon: Icons.ios_share_rounded,
+              hover: shareHover,
+              size: actionButtonSize,
+            ),
+          ),
+          onTap: () => _copyRemoteAssistShare(model),
+          onHover: (value) => shareHover.value = value,
+        ),
+      if (!bind.isDisableSettings())
+        InkWell(
+          borderRadius: BorderRadius.circular(999),
+          child: Tooltip(
+            message: translate('Change Password'),
+            child: _KqPasswordToolButton(
+              icon: Icons.edit_rounded,
+              hover: editHover,
+              size: actionButtonSize,
+            ),
+          ),
+          onTap: () => _showKqPasswordDialog(model),
+          onHover: (value) => editHover.value = value,
+        ),
+    ];
+    final actionButtonStack = <Widget>[];
+    for (final action in actionButtons) {
+      if (actionButtonStack.isNotEmpty) {
+        actionButtonStack.add(const SizedBox(height: actionButtonGap));
+      }
+      actionButtonStack.add(action);
+    }
+    final actionColumnHeight = actionButtons.isEmpty
+        ? 0.0
+        : actionButtons.length * actionButtonSize +
+            (actionButtons.length - 1) * actionButtonGap;
+    final compactContentHeight =
+        actionColumnHeight < 62.0 ? 62.0 : actionColumnHeight;
     return Container(
       margin: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 9, 9, 9),
       decoration: BoxDecoration(
-        color: q.panelStrong,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            q.panelStrong,
+            q.surfaceSoft.withOpacity(q.isDark ? 0.54 : 0.78),
+          ],
+        ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: q.line),
         boxShadow: [
@@ -525,103 +537,143 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              _KqSmallIcon(icon: Icons.password_rounded),
-              const SizedBox(width: 8),
-              Expanded(
-                child: AutoSizeText(
-                  translate("One-time Password"),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: q.muted,
-                    fontWeight: FontWeight.w700,
+          Expanded(
+            child: SizedBox(
+              key: const ValueKey('kq-password-compact-panel'),
+              height: compactContentHeight,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _KqSmallIcon(icon: Icons.password_rounded),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: PopupMenuButton<KqPasswordKind>(
+                            tooltip: '选择验证码类型',
+                            initialValue: model.selectedPasswordKind,
+                            onSelected: model.setSelectedPasswordKind,
+                            color: q.panelStrong,
+                            elevation: 8,
+                            shadowColor: q.primary.withOpacity(0.16),
+                            offset: const Offset(0, 4),
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(color: q.line),
+                            ),
+                            itemBuilder: (context) => KqPasswordKind.values
+                                .map(
+                                  (kind) => PopupMenuItem<KqPasswordKind>(
+                                    value: kind,
+                                    height: 40,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    child: _KqPasswordKindMenuItem(
+                                      label: _kqPasswordKindLabel(kind),
+                                      selected:
+                                          kind == model.selectedPasswordKind,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            child: Container(
+                              constraints: const BoxConstraints(
+                                minHeight: 26,
+                                maxWidth: 134,
+                              ),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 9),
+                              decoration: BoxDecoration(
+                                color: q.surfaceSoft,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: q.line),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: AutoSizeText(
+                                      model.selectedPasswordLabel,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: q.muted,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                      maxLines: 1,
+                                      minFontSize: 11,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    size: 18,
+                                    color: q.muted,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  maxLines: 1,
-                ),
-              ),
-              if (showOneTime)
-                AnimatedRotationWidget(
-                  onPressed: () => bind.mainUpdateTemporaryPassword(),
-                  child: Tooltip(
-                    message: translate('Refresh Password'),
-                    child: Obx(() => Icon(
-                          Icons.refresh_rounded,
-                          color: refreshHover.value
-                              ? q.primary
-                              : textColor?.withOpacity(0.45),
-                          size: 20,
-                        )),
-                  ),
-                  onHover: (value) => refreshHover.value = value,
-                ).marginOnly(right: 4),
-              if (showOneTime)
-                InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  child: Tooltip(
-                    message: '复制并分享',
-                    child: Obx(
-                      () => Icon(
-                        Icons.ios_share_rounded,
-                        color: shareHover.value
-                            ? q.primary
-                            : textColor?.withOpacity(0.45),
-                        size: 19,
-                      ).paddingAll(4),
+                  const SizedBox(height: 6),
+                  GestureDetector(
+                    onDoubleTap: () {
+                      if (model.selectedPasswordCanCopy) {
+                        Clipboard.setData(
+                            ClipboardData(text: model.selectedPasswordText));
+                        showToast(translate("Copied"));
+                      }
+                    },
+                    child: Container(
+                      key: const ValueKey('kq-password-value-row'),
+                      height: 28,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: AnimatedBuilder(
+                        animation: model.selectedPasswordController,
+                        builder: (context, _) => AutoSizeText(
+                          model.selectedPasswordText,
+                          maxLines: 1,
+                          minFontSize: 14,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: q.ink,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                  onTap: () => _copyRemoteAssistShare(model),
-                  onHover: (value) => shareHover.value = value,
-                ).marginOnly(right: 4),
-              if (!bind.isDisableSettings())
-                InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  child: Tooltip(
-                    message: translate('Change Password'),
-                    child: Obx(
-                      () => Icon(
-                        Icons.edit_rounded,
-                        color: editHover.value
-                            ? q.primary
-                            : textColor?.withOpacity(0.45),
-                        size: 19,
-                      ).paddingAll(4),
-                    ),
-                  ),
-                  onTap: () =>
-                      DesktopSettingPage.switch2page(SettingsTabKey.safety),
-                  onHover: (value) => editHover.value = value,
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          GestureDetector(
-            onDoubleTap: () {
-              if (showOneTime) {
-                Clipboard.setData(ClipboardData(text: model.serverPasswd.text));
-                showToast(translate("Copied"));
-              }
-            },
-            child: AnimatedBuilder(
-              animation: model.serverPasswd,
-              builder: (context, _) => Text(
-                model.serverPasswd.text.isEmpty
-                    ? '--'
-                    : model.serverPasswd.text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: q.ink,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                ),
+                ],
               ),
             ),
           ),
+          if (actionButtons.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              key: const ValueKey('kq-password-action-column'),
+              width: actionButtonSize,
+              height: compactContentHeight,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: actionButtonStack,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -629,9 +681,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Future<void> _copyRemoteAssistShare(ServerModel model) async {
     final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
-    final password = model.serverPasswd.text.trim();
-    if (id.isEmpty || id == '--' || password.isEmpty || password == '-') {
-      showToast('设备号或一次性密码还未就绪');
+    final password = model.selectedPasswordText.trim();
+    if (id.isEmpty || id == '--' || !model.selectedPasswordCanShare) {
+      showToast('设备号或验证码还未就绪');
       return;
     }
     final link = _buildKqInviteLink(id: id, password: password);
@@ -669,6 +721,181 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return '${apiBase.substring(0, apiBase.length - 4)}/invite';
     }
     return 'http://43.154.197.96/kq-api/invite';
+  }
+
+  String _kqPasswordKindLabel(KqPasswordKind kind) {
+    switch (kind) {
+      case KqPasswordKind.oneTime:
+        return '一次性验证码';
+      case KqPasswordKind.daily:
+        return '今日验证码';
+      case KqPasswordKind.permanent:
+        return '长期验证码';
+    }
+  }
+
+  void _showKqPasswordDialog(ServerModel model) {
+    final editingKind = model.selectedPasswordKind;
+    final controller = TextEditingController(
+      text: model.selectedPasswordCanCopy ? model.selectedPasswordText : '',
+    );
+    final confirmController = TextEditingController(text: '');
+    final maxLength = bind.mainMaxEncryptLen();
+    var errMsg = '';
+    var confirmErrMsg = '';
+    var submitting = false;
+
+    gFFI.dialogManager.show((setState, close, context) {
+      final isPermanent = editingKind == KqPasswordKind.permanent;
+      final title = _kqPasswordKindLabel(editingKind);
+      final canRemovePermanent =
+          isPermanent && model.localPermanentPasswordSet && !submitting;
+
+      submit() async {
+        if (submitting) {
+          return;
+        }
+        setState(() {
+          errMsg = '';
+          confirmErrMsg = '';
+          submitting = true;
+        });
+        final value = controller.text.trim();
+        if (value.isEmpty) {
+          setState(() {
+            errMsg = '验证码不能为空';
+            submitting = false;
+          });
+          return;
+        }
+        if (isPermanent && confirmController.text.trim() != value) {
+          setState(() {
+            confirmErrMsg = translate("The confirmation is not identical.");
+            submitting = false;
+          });
+          return;
+        }
+        var ok = true;
+        if (editingKind == KqPasswordKind.oneTime) {
+          await model.setOneTimePassword(value);
+        } else if (editingKind == KqPasswordKind.daily) {
+          await model.setDailyPassword(value);
+        } else {
+          ok = await model.setPermanentPasswordPreview(value);
+        }
+        if (!ok) {
+          setState(() {
+            errMsg = translate("Failed");
+            submitting = false;
+          });
+          return;
+        }
+        showToast('已更新$title');
+        close();
+      }
+
+      removePermanent() async {
+        if (submitting) {
+          return;
+        }
+        setState(() {
+          errMsg = '';
+          confirmErrMsg = '';
+          submitting = true;
+        });
+        final ok = await model.removePermanentPassword();
+        if (!ok) {
+          setState(() {
+            errMsg = translate("Failed");
+            submitting = false;
+          });
+          return;
+        }
+        showToast('已移除$title');
+        close();
+      }
+
+      return CustomAlertDialog(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.key_rounded, color: MyTheme.accent),
+            Text('修改$title').paddingOnly(left: 10),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 430),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                obscureText: false,
+                decoration: InputDecoration(
+                  labelText: title,
+                  errorText: errMsg.isEmpty ? null : errMsg,
+                ),
+                enabled: !submitting,
+                maxLength: maxLength,
+                onChanged: (_) {
+                  if (errMsg.isNotEmpty) {
+                    setState(() => errMsg = '');
+                  }
+                },
+              ).workaroundFreezeLinuxMint(),
+              if (isPermanent) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: confirmController,
+                  obscureText: false,
+                  decoration: InputDecoration(
+                    labelText: translate('Confirmation'),
+                    errorText: confirmErrMsg.isEmpty ? null : confirmErrMsg,
+                  ),
+                  enabled: !submitting,
+                  maxLength: maxLength,
+                  onChanged: (_) {
+                    if (confirmErrMsg.isNotEmpty) {
+                      setState(() => confirmErrMsg = '');
+                    }
+                  },
+                ).workaroundFreezeLinuxMint(),
+                const SizedBox(height: 4),
+                Text(
+                  '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                  style: TextStyle(
+                    color: KqTheme.of(context).muted,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+              if (submitting)
+                const LinearProgressIndicator().marginOnly(top: 12),
+            ],
+          ),
+        ),
+        actions: [
+          dialogButton("Cancel", onPressed: close, isOutline: true),
+          if (canRemovePermanent)
+            dialogButton(
+              "Remove",
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: removePermanent,
+              isOutline: true,
+            ),
+          dialogButton(
+            "OK",
+            icon: const Icon(Icons.done_rounded),
+            onPressed: submitting ? null : submit,
+          ),
+        ],
+        onSubmit: submitting ? null : submit,
+        onCancel: close,
+      );
+    });
   }
 
   buildTip(BuildContext context) {
@@ -1193,6 +1420,32 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 }
 
+class _KqProductTagline extends StatelessWidget {
+  const _KqProductTagline();
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(18, 12, 18, 2),
+      alignment: Alignment.center,
+      child: Text(
+        '鲲穹AI旗下产品',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: q.primaryDeep,
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          height: 1.1,
+          letterSpacing: 0,
+        ),
+      ),
+    );
+  }
+}
+
 class _KqSmallIcon extends StatelessWidget {
   final IconData icon;
 
@@ -1210,6 +1463,89 @@ class _KqSmallIcon extends StatelessWidget {
         border: Border.all(color: q.primary.withOpacity(0.2)),
       ),
       child: Icon(icon, size: 16, color: q.primary),
+    );
+  }
+}
+
+class _KqPasswordKindMenuItem extends StatelessWidget {
+  final String label;
+  final bool selected;
+
+  const _KqPasswordKindMenuItem({
+    required this.label,
+    required this.selected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: 136,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: selected ? q.surfaceSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected ? q.primaryDeep : q.ink,
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                height: 1.1,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+          if (selected) ...[
+            const SizedBox(width: 6),
+            Icon(Icons.check_rounded, size: 16, color: q.primary),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _KqPasswordToolButton extends StatelessWidget {
+  final IconData icon;
+  final RxBool hover;
+  final double iconSize;
+  final double size;
+
+  const _KqPasswordToolButton({
+    required this.icon,
+    required this.hover,
+    this.iconSize = 19,
+    this.size = 30,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final muted = Theme.of(context).textTheme.titleLarge?.color;
+    return Obx(
+      () => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: hover.value ? q.primary.withOpacity(0.12) : q.surfaceSoft,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: hover.value ? q.primary.withOpacity(0.24) : q.line,
+          ),
+        ),
+        child: Icon(
+          icon,
+          color: hover.value ? q.primary : muted?.withOpacity(0.52),
+          size: iconSize,
+        ),
+      ),
     );
   }
 }
@@ -1325,6 +1661,11 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
         });
         return;
       }
+      await bind.mainSetOption(
+        key: kOptionKqPermanentPasswordPreview,
+        value: pass,
+      );
+      await gFFI.serverModel.updatePasswordModel();
       if (pass.isNotEmpty) {
         notEmptyCallback?.call();
       }
@@ -1456,6 +1797,9 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
               });
               return;
             }
+            await bind.mainSetOption(
+                key: kOptionKqPermanentPasswordPreview, value: "");
+            await gFFI.serverModel.updatePasswordModel();
             close();
           },
           buttonStyle:

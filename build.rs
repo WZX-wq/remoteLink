@@ -8,6 +8,29 @@ fn build_windows() {
     println!("cargo:rerun-if-changed={}", file2);
 }
 
+fn gen_version() {
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    use std::io::prelude::*;
+
+    let mut file = std::fs::File::create("./src/version.rs").unwrap();
+    let lines = std::fs::read_to_string("Cargo.toml").unwrap_or_default();
+    for line in lines.lines() {
+        let ab: Vec<&str> = line.split('=').map(|x| x.trim()).collect();
+        if ab.len() == 2 && ab[0] == "version" {
+            file.write_all(format!("pub const VERSION: &str = {};\n", ab[1]).as_bytes())
+                .ok();
+            break;
+        }
+    }
+
+    let build_date = format!("{}", chrono::Local::now().format("%Y-%m-%d %H:%M"));
+    file.write_all(
+        format!("#[allow(dead_code)]\npub const BUILD_DATE: &str = \"{build_date}\";\n").as_bytes(),
+    )
+    .ok();
+    file.sync_all().ok();
+}
+
 #[cfg(target_os = "macos")]
 fn build_mac() {
     let file = "src/platform/macos.mm";
@@ -78,13 +101,15 @@ fn install_android_deps() {
 }
 
 fn main() {
-    hbb_common::gen_version();
+    gen_version();
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]
     build_manifest();
-    #[cfg(windows)]
-    build_windows();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if target_os == "windows" {
+        #[cfg(windows)]
+        build_windows();
+    }
     if target_os == "macos" {
         #[cfg(target_os = "macos")]
         build_mac();

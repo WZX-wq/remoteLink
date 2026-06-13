@@ -53,6 +53,9 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
   var connectionMap = RxList<Widget>.empty(growable: true);
 
   _ViewCameraTabPageState(Map<String, dynamic> params) {
+    if (!isViewCameraFeatureEnabled()) {
+      return;
+    }
     RemoteCountState.init();
     peerId = params['id'];
     final sessionId = params['session_id'];
@@ -386,11 +389,14 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
 
   Future<dynamic> _remoteMethodHandler(call, fromWindowId) async {
     debugPrint(
-        "[View Camera Page] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+        "[Unavailable Page] call ${call.method} with args ${call.arguments} from window $fromWindowId");
 
     dynamic returnValue;
     // for simplify, just replace connectionId
     if (call.method == kWindowEventNewViewCamera) {
+      if (!isViewCameraFeatureEnabled()) {
+        return null;
+      }
       final args = jsonDecode(call.arguments);
       final id = args['id'];
       final sessionId = args['session_id'];

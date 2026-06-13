@@ -32,9 +32,11 @@ else()
 endif()
 
 set(aom_target_cpu "")
-if(VCPKG_TARGET_IS_UWP OR (VCPKG_TARGET_IS_WINDOWS AND VCPKG_TARGET_ARCHITECTURE MATCHES "^arm"))
+if(VCPKG_TARGET_IS_UWP OR (VCPKG_TARGET_IS_WINDOWS AND VCPKG_TARGET_ARCHITECTURE MATCHES "^arm") OR VCPKG_TARGET_IS_ANDROID)
     # UWP + aom's assembler files result in weirdness and build failures
     # Also, disable assembly on ARM and ARM64 Windows to fix compilation issues.
+    # Android builds on Windows otherwise probe a bare "as" assembler instead of
+    # the NDK toolchain and fail before the Rust Android library can be built.
     set(aom_target_cpu "-DAOM_TARGET_CPU=generic")
 endif()
 

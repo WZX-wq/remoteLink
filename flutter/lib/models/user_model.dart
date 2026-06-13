@@ -815,6 +815,7 @@ class UserModel {
 
   Future<void> logOut({String? apiServer}) async {
     if (KqOauth.isActive) {
+      await KqOauth.logout();
       await reset(resetOther: true);
       return;
     }

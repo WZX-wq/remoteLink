@@ -268,6 +268,18 @@ fn kq_should_retry_punch_request_before_relay() -> bool {
     crate::get_app_name() == crate::common::KQ_APP_NAME
 }
 
+fn kq_punch_response_timeout_ms(attempt: u64) -> u64 {
+    if crate::get_app_name() == crate::common::KQ_APP_NAME {
+        match attempt {
+            1 => 1_500,
+            2 => 2_500,
+            _ => 3_500,
+        }
+    } else {
+        attempt * 3_000
+    }
+}
+
 fn kq_should_avoid_lan_relay() -> bool {
     crate::get_app_name() == crate::common::KQ_APP_NAME && !kq_force_relay_enabled()
 }
@@ -821,8 +833,17 @@ impl Client {
                 return Err(err);
             }
             // below timeout should not bigger than hbbs's connection timeout.
+            let punch_response_timeout = kq_punch_response_timeout_ms(i);
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                log::info!(
+                    "KQ {} punch response timeout for attempt #{}: {}ms",
+                    punch_type,
+                    i,
+                    punch_response_timeout
+                );
+            }
             if let Some(msg_in) =
-                crate::get_next_nonkeyexchange_msg(&mut socket, Some(i * 3000)).await
+                crate::get_next_nonkeyexchange_msg(&mut socket, Some(punch_response_timeout)).await
             {
                 match msg_in.union {
                     Some(rendezvous_message::Union::PunchHoleResponse(ph)) => {
