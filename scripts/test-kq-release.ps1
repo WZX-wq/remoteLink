@@ -92,6 +92,100 @@ function Test-SourceNotContains($Path, $Pattern, $Name) {
     }
 }
 
+function Test-SourceNotMatches($Path, $Pattern, $Name) {
+    if (-not (Test-Path $Path)) {
+        Add-Check $Name "SKIP" "Source file not available: $Path"
+        return
+    }
+    $content = Get-Content $Path -Raw -Encoding UTF8
+    if ($content -match $Pattern) {
+        Add-Check $Name "FAIL" "Forbidden pattern is present: $Pattern"
+    } else {
+        Add-Check $Name "PASS" "Forbidden pattern absent"
+    }
+}
+
+function Test-SourceMatches($Path, $Pattern, $Name) {
+    if (-not (Test-Path $Path)) {
+        Add-Check $Name "SKIP" "Source file not available: $Path"
+        return
+    }
+    $content = Get-Content $Path -Raw -Encoding UTF8
+    if ($content -match $Pattern) {
+        Add-Check $Name "PASS" "Required pattern present"
+    } else {
+        Add-Check $Name "FAIL" "Required pattern is missing: $Pattern"
+    }
+}
+
+function Test-MobileLanguageFallback {
+    Test-SourceContains ".\flutter\lib\common.dart" "String kqTranslateLocale()" "ui:translate-locale-helper"
+    Test-SourceContains ".\flutter\lib\common.dart" "platformFFI.translate(name, kqTranslateLocale())" "ui:translate-uses-active-lang"
+    Test-SourceContains ".\flutter\lib\common.dart" "bool kqUiPrefersSimplifiedChinese()" "ui:simplified-chinese-helper"
+    Test-SourceContains ".\flutter\lib\common.dart" "final kqMobileLanguageEpoch = 0.obs" "ui:mobile-language-refresh-epoch"
+    Test-SourceContains ".\flutter\lib\common.dart" "void kqNotifyMobileLanguageChanged()" "ui:mobile-language-refresh-helper"
+    Test-SourceContains ".\flutter\lib\common.dart" "final _kqMobileLanguageListeners = <VoidCallback>{};" "ui:mobile-language-refresh-listeners"
+    Test-SourceContains ".\flutter\lib\common.dart" "void kqRegisterMobileLanguageListener(VoidCallback listener)" "ui:mobile-language-refresh-register"
+    Test-SourceContains ".\flutter\lib\common.dart" "void kqUnregisterMobileLanguageListener(VoidCallback listener)" "ui:mobile-language-refresh-unregister"
+    Test-SourceContains ".\flutter\lib\common.dart" "for (final listener in _kqMobileLanguageListeners.toList())" "ui:mobile-language-refresh-notifies-listeners"
+    Test-SourceContains ".\flutter\lib\main.dart" "kqNotifyMobileLanguageChanged();" "ui:mobile-language-event-refreshes-current-route"
+    Test-SourceContains ".\flutter\lib\mobile\pages\home_page.dart" "kqMobileLanguageEpoch.value;" "ui:mobile-home-observes-language-refresh"
+    Test-SourceContains ".\flutter\lib\mobile\pages\home_page.dart" "kqRegisterMobileLanguageListener(refreshPages);" "ui:mobile-home-rebuilds-pages-on-language-refresh"
+    Test-SourceContains ".\flutter\lib\mobile\pages\home_page.dart" "kqUnregisterMobileLanguageListener(refreshPages);" "ui:mobile-home-unregisters-language-refresh"
+    Test-SourceContains ".\flutter\lib\mobile\pages\settings_page.dart" "kqMobileLanguageEpoch.value;" "ui:mobile-settings-observes-language-refresh"
+    Test-SourceContains ".\flutter\lib\mobile\pages\settings_page.dart" "kqNotifyMobileLanguageChanged();" "ui:mobile-language-picker-refreshes-immediately"
+    Test-SourceContains ".\flutter\lib\mobile\pages\account_page.dart" "kqMobileLanguageEpoch.value;" "ui:mobile-settings-detail-observes-language-refresh"
+    Test-SourceContains ".\flutter\lib\mobile\pages\account_page.dart" "final resolvedTitle = _mineText(title);" "ui:mobile-settings-detail-title-retranslated"
+    Test-SourceContains ".\flutter\lib\mobile\pages\account_page.dart" "title: 'General settings'," "ui:mobile-settings-detail-title-key-general"
+    Test-SourceNotMatches ".\flutter\lib\mobile\pages\account_page.dart" 'onTap:\s*\(\)\s*=>\s*_openSettingsDetail\(\s*title:\s*_mineText' "ui:mobile-settings-detail-no-pretranslated-title"
+    Test-SourceContains ".\flutter\lib\mobile\pages\account_page.dart" "kqUiPrefersSimplifiedChinese()" "ui:mobile-account-simplified-helper"
+    Test-SourceContains ".\flutter\lib\mobile\pages\settings_page.dart" "kqUiPrefersSimplifiedChinese()" "ui:mobile-settings-simplified-helper"
+    Test-SourceContains ".\src\lang.rs" "pub fn translate_explicit_locale" "ui:rust-explicit-locale-helper"
+    Test-SourceContains ".\src\flutter_ffi.rs" "crate::client::translate_explicit_locale(name, &locale)" "ui:flutter-ffi-uses-explicit-locale"
+    Test-SourceContains ".\src\flutter_ffi.rs" "crate::client::translate_explicit_locale(input, &locale)" "ui:android-jni-uses-explicit-locale"
+    Test-SourceContains ".\src\lang.rs" "test_translate_locale_prefers_explicit_locale_for_flutter" "ui:rust-explicit-locale-regression-test"
+
+    $mobileI18nKeys = @(
+        "Remote connection",
+        "Enter device ID to connect or transfer files.",
+        "Enter device id or alias",
+        "Remote password (optional)",
+        "Not logged in",
+        "Logged in",
+        "Sign in to unlock device sync and membership tools.",
+        "Current connections",
+        "No active connections",
+        "kq_mobile_permissions_ready",
+        "kq_mobile_permissions_need_setup",
+        "kq_mobile_permissions_summary",
+        "kq_mobile_enable_missing_permissions",
+        "kq_mobile_screen_capture_permission_tip",
+        "kq_mobile_input_permission_tip",
+        "kq_mobile_file_permission_tip",
+        "kq_mobile_audio_permission_tip",
+        "kq_mobile_clipboard_permission_tip",
+        "Enabled",
+        "Not enabled",
+        "Manage",
+        "Hide",
+        "More",
+        "Upgrade Kunqiong Membership",
+        "Membership unlocks 1080p / 60 FPS. Free users keep 720p / 30 FPS.",
+        "Personal center",
+        "Phone number",
+        "Not set",
+        "Remote quality and FPS"
+    )
+    foreach ($key in $mobileI18nKeys) {
+        $entry = "(`"$key`","
+        Test-SourceContains ".\src\lang\tw.rs" $entry "ui:lang-tw-mobile-$key"
+        Test-SourceContains ".\src\lang\ar.rs" $entry "ui:lang-ar-mobile-$key"
+        Test-SourceContains ".\src\lang\fr.rs" $entry "ui:lang-fr-mobile-$key"
+        Test-SourceContains ".\src\lang\es.rs" $entry "ui:lang-es-mobile-$key"
+        Test-SourceContains ".\src\lang\ru.rs" $entry "ui:lang-ru-mobile-$key"
+    }
+}
+
 function Test-KqTitleBarBrandRemoved {
     $path = ".\flutter\lib\desktop\widgets\tabbar_widget.dart"
     if (-not (Test-Path $path)) {
@@ -124,6 +218,589 @@ function Test-KqPasswordSharePolicy {
         Add-Check "password:one-time-share-not-blocked-by-verification-method" "FAIL" "one-time share button is still blocked by verification method"
     } else {
         Add-Check "password:one-time-share-not-blocked-by-verification-method" "PASS" "one-time share button is not blocked by verification method"
+    }
+}
+
+function Test-KqPasswordKindPersistence {
+    $modelPath = ".\flutter\lib\models\server_model.dart"
+    $constPath = ".\flutter\lib\consts.dart"
+    if (-not (Test-Path $modelPath) -or -not (Test-Path $constPath)) {
+        Add-Check "password:selected-kind-persistence" "SKIP" "Source files not available"
+        return
+    }
+    $model = Get-Content $modelPath -Raw -Encoding UTF8
+    $consts = Get-Content $constPath -Raw -Encoding UTF8
+
+    if ($consts -match 'kOptionKqSelectedPasswordKind\s*=\s*"kq-selected-password-kind"') {
+        Add-Check "password:selected-kind-option-key" "PASS" "selected password kind has a stable option key"
+    } else {
+        Add-Check "password:selected-kind-option-key" "FAIL" "selected password kind option key is missing"
+    }
+    if ($model -match 'KqPasswordKind\? _parseSelectedPasswordKind\(String value\)') {
+        Add-Check "password:selected-kind-parser" "PASS" "selected password kind parser exists"
+    } else {
+        Add-Check "password:selected-kind-parser" "FAIL" "selected password kind parser is missing"
+    }
+    if ($model -match '(?s)bind\.mainSetLocalOption\(\s*key:\s*kOptionKqSelectedPasswordKind,\s*value:\s*kind\.name\s*\)') {
+        Add-Check "password:selected-kind-saved-on-change" "PASS" "selected password kind is saved when changed"
+    } else {
+        Add-Check "password:selected-kind-saved-on-change" "FAIL" "selected password kind is not saved when changed"
+    }
+    if ($model -match 'bind\.mainGetLocalOption\(key: kOptionKqSelectedPasswordKind\)') {
+        Add-Check "password:selected-kind-restored-on-start" "PASS" "selected password kind is restored from local option"
+    } else {
+        Add-Check "password:selected-kind-restored-on-start" "FAIL" "selected password kind is not restored from local option"
+    }
+}
+
+function Test-KqAndroidMobilePasswordKinds {
+    $path = ".\flutter\lib\mobile\pages\server_page.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:mobile-password-kinds-source" "SKIP" "Source file not available: $path"
+        return
+    }
+    $content = Get-Content $path -Raw -Encoding UTF8
+
+    if ($content -match 'PopupMenuButton<KqPasswordKind>' -and
+        $content -match 'KqPasswordKind\.values' -and
+        $content -match 'onSelected:\s*serverModel\.setSelectedPasswordKind') {
+        Add-Check "android:mobile-password-kind-menu" "PASS" "mobile password card can switch between all password kinds"
+    } else {
+        Add-Check "android:mobile-password-kind-menu" "FAIL" "mobile password card does not expose the three password kinds"
+    }
+    if ($content -match 'serverModel\.selectedPasswordLabel' -and
+        $content -match 'serverModel\.selectedPasswordText' -and
+        $content -match 'serverModel\.selectedPasswordController') {
+        Add-Check "android:mobile-password-selected-model" "PASS" "mobile password card renders the selected password model"
+    } else {
+        Add-Check "android:mobile-password-selected-model" "FAIL" "mobile password card still reads only the old one-time password model"
+    }
+    if ($content -match 'serverModel\.refreshSelectedPassword\(\)' -and
+        $content -notmatch 'onPressed:\s*\(\)\s*=>\s*bind\.mainUpdateTemporaryPassword\(\)') {
+        Add-Check "android:mobile-password-refresh-selected" "PASS" "mobile refresh updates the selected password kind"
+    } else {
+        Add-Check "android:mobile-password-refresh-selected" "FAIL" "mobile refresh is still tied to only the one-time password"
+    }
+    if ($content -match 'serverModel\.selectedPasswordCanCopy' -and
+        $content -match 'copyToClipboard\(serverModel\.selectedPasswordText\.trim\(\)\)') {
+        Add-Check "android:mobile-password-copy-selected" "PASS" "mobile copy uses the selected password text"
+    } else {
+        Add-Check "android:mobile-password-copy-selected" "FAIL" "mobile copy does not use the selected password text"
+    }
+    if ($content -match '_showMobileKqPasswordDialog\(serverModel\)' -and
+        $content -match 'setOneTimePassword\(value\)' -and
+        $content -match 'setDailyPassword\(value\)' -and
+        $content -match 'setPermanentPasswordPreview\(value\)') {
+        Add-Check "android:mobile-password-edit-selected" "PASS" "mobile password card edits all three password kinds"
+    } else {
+        Add-Check "android:mobile-password-edit-selected" "FAIL" "mobile password card cannot edit all three password kinds"
+    }
+    if ($content -notmatch "label:\s*translate\('One-time Password'\)") {
+        Add-Check "android:mobile-password-no-old-one-time-card" "PASS" "old one-time-only mobile password tile was removed"
+    } else {
+        Add-Check "android:mobile-password-no-old-one-time-card" "FAIL" "old one-time-only mobile password tile is still present"
+    }
+}
+
+function Test-KqAndroidMobilePaymentMethod {
+    $path = ".\flutter\lib\mobile\pages\account_page.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:mobile-payment-method-source" "SKIP" "Source file not available: $path"
+        return
+    }
+    $content = Get-Content $path -Raw -Encoding UTF8
+
+    if ($content -match 'var payType = 1;' -and
+        $content -match "translate\('Payment method'\)" -and
+        $content -match "translate\('WeChat QR'\)" -and
+        $content -match "translate\('Alipay'\)" -and
+        $content -match 'ChoiceChip') {
+        Add-Check "android:mobile-payment-method-selector" "PASS" "mobile membership sheet lets users choose WeChat or Alipay"
+    } else {
+        Add-Check "android:mobile-payment-method-selector" "FAIL" "mobile membership sheet does not expose payment method choices"
+    }
+    if ($content -match 'payType:\s*payType' -and
+        $content -notmatch 'payType:\s*1,') {
+        Add-Check "android:mobile-payment-method-order-param" "PASS" "mobile membership order uses the selected payment method"
+    } else {
+        Add-Check "android:mobile-payment-method-order-param" "FAIL" "mobile membership order still hard-codes payType"
+    }
+    if ($content -match 'openAlipayCheckout\(KqMemberOrder order\)' -and
+        $content -match 'order\.alipaySubmitHtml\.trim\(\)' -and
+        $content -match 'final uri = Uri\.dataFromString' -and
+        $content -match 'launchUrl\(uri, mode: LaunchMode\.externalApplication\)' -and
+        $content -match 'payType == 2') {
+        Add-Check "android:mobile-payment-method-alipay-open" "PASS" "mobile Alipay orders open the cashier page"
+    } else {
+        Add-Check "android:mobile-payment-method-alipay-open" "FAIL" "mobile Alipay checkout is not handled"
+    }
+    if ($content -match 'statusText = payType == 1' -and
+        $content -match "translate\('Scan with WeChat to pay'\)" -and
+        $content -match "translate\('Alipay cashier opened'\)") {
+        Add-Check "android:mobile-payment-method-status-copy" "PASS" "mobile payment status reflects the selected method"
+    } else {
+        Add-Check "android:mobile-payment-method-status-copy" "FAIL" "mobile payment status copy does not reflect the selected method"
+    }
+}
+
+function Test-KqAndroidMobileProfileHeaderPersonalCenter {
+    $path = ".\flutter\lib\mobile\pages\account_page.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:mobile-profile-header-source" "SKIP" "Source file not available: $path"
+        return
+    }
+    $content = Get-Content $path -Raw -Encoding UTF8
+
+    if ($content -match '(?s)Future<void> _handleAccountTap\(bool isLogin\) async\s*\{\s*if \(isLogin\)\s*\{\s*_openPersonalCenterPage\(\);\s*\}\s*else\s*\{\s*await loginDialog\(\);\s*\}\s*\}') {
+        Add-Check "android:mobile-profile-header-opens-personal-center" "PASS" "logged-in profile header opens personal center"
+    } else {
+        Add-Check "android:mobile-profile-header-opens-personal-center" "FAIL" "logged-in profile header does not open personal center"
+    }
+    if ($content -notmatch '(?s)Future<void> _handleAccountTap\(bool isLogin\) async\s*\{\s*if \(isLogin\)\s*\{\s*logOutConfirmDialog\(\);') {
+        Add-Check "android:mobile-profile-header-no-logout-dialog" "PASS" "profile header no longer opens logout confirmation"
+    } else {
+        Add-Check "android:mobile-profile-header-no-logout-dialog" "FAIL" "profile header still opens logout confirmation"
+    }
+    $personalCenter = [regex]::Match($content, '(?s)class _PersonalCenterPage extends StatelessWidget.*?class _PersonalProfileCard extends StatelessWidget').Value
+    if ($content -match 'void _openPersonalCenterPage\(\)' -and
+        $personalCenter -match "title:\s*_mineText\('Username'\)" -and
+        $personalCenter -match "title:\s*_mineText\('Phone number'\)" -and
+        $personalCenter -match 'value:\s*_localUserPhoneNumber\(\)') {
+        Add-Check "android:mobile-personal-center-username-phone" "PASS" "personal center shows username and phone number"
+    } else {
+        Add-Check "android:mobile-personal-center-username-phone" "FAIL" "personal center does not show username and phone number"
+    }
+    if ($personalCenter -notmatch '_LogoutButton|logOutConfirmDialog|Icons\.workspace_premium_rounded|Icons\.high_quality_rounded|onOpenMembershipSheet|onOpenRemoteExperiencePage|_membershipDetail\(user\)|user\.remoteQualityLabel') {
+        Add-Check "android:mobile-personal-center-no-actions" "PASS" "personal center does not show logout, member, or quality action rows"
+    } else {
+        Add-Check "android:mobile-personal-center-no-actions" "FAIL" "personal center still shows logout, member, or quality action rows"
+    }
+    if ($content -match 'String _localUserPhoneNumber\(\)' -and
+        $content -match "external_auth_raw" -and
+        $content -match "phone_number" -and
+        $content -match "mobile") {
+        Add-Check "android:mobile-personal-center-phone-source" "PASS" "personal center reads phone from local user info and nested auth payloads"
+    } else {
+        Add-Check "android:mobile-personal-center-phone-source" "FAIL" "personal center phone lookup does not cover stored login payloads"
+    }
+    if ($content -match 'if \(kqUiPrefersChinese\(\)\) return _mineTw\[key\] \?\? translate\(key\);' -and
+        $content -match 'const _mineTw = ' -and
+        $content -match "'Personal center':") {
+        Add-Check "android:mobile-personal-center-chinese-title" "PASS" "personal center title has a Flutter-side Chinese fallback"
+    } else {
+        Add-Check "android:mobile-personal-center-chinese-title" "FAIL" "personal center title can fall back to English in Chinese UI"
+    }
+}
+
+function Test-KqAndroidMobileServerSettingsPrivacy {
+    $path = ".\flutter\lib\mobile\widgets\dialog.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:mobile-server-settings-privacy-source" "SKIP" "Source file not available: $path"
+        return
+    }
+
+    $content = Get-Content $path -Raw -Encoding UTF8
+    $hasManagedPrivacyUi = $content.Contains('_serverSettingsUsesManagedSummary(ServerConfig serverConfig)') -and $content.Contains('_managedServerSummary') -and $content.Contains('Dedicated network is configured')
+    $comparesBuildinServerConfig = $content.Contains("bind.mainGetBuildinOption(key: 'custom-rendezvous-server')") -and $content.Contains("bind.mainGetBuildinOption(key: 'relay-server')") -and $content.Contains("bind.mainGetBuildinOption(key: 'api-server')") -and $content.Contains("bind.mainGetBuildinOption(key: 'key')")
+    $managedBranchOnlyForBuildin = $content.Contains('if (_serverSettingsUsesManagedSummary(serverConfig))') -and -not $content.Contains('bool get _serverSettingsAreManaged => isMobile && !isWeb')
+    $managedSummaryHasCustomEntry = $content -match 'showServerSettingsWithValue\s*\(\s*ServerConfig\(\),\s*dialogManager,\s*upSetState\s*\)'
+    $hidesBuildinFieldsInCustomEditor = $content.Contains('_editableServerConfig(ServerConfig serverConfig)') -and $content -match "idServer:\s*_sameServerSettingValue\(\s*serverConfig\.idServer,\s*buildinConfig\.idServer\)\s*\?\s*''\s*:\s*serverConfig\.idServer" -and $content -match "relayServer:\s*_sameServerSettingValue\(\s*serverConfig\.relayServer,\s*buildinConfig\.relayServer\)\s*\?\s*''\s*:\s*serverConfig\.relayServer" -and $content -match "key:\s*_sameServerSettingValue\(serverConfig\.key, buildinConfig\.key\)\s*\?\s*''\s*:\s*serverConfig\.key"
+    $customConfigStillEditable = $content.Contains('ServerConfigImportExportWidgets.call(controllers, errMsgs)') -and $content.Contains('final editableConfig = _editableServerConfig(serverConfig)') -and $content.Contains('final initialIdServer = editableConfig.idServer') -and $content.Contains("buildField(translate('ID Server'), idCtrl")
+    if ($hasManagedPrivacyUi -and $comparesBuildinServerConfig -and $managedBranchOnlyForBuildin -and $managedSummaryHasCustomEntry -and $hidesBuildinFieldsInCustomEditor -and $customConfigStillEditable) {
+        Add-Check "android:mobile-server-settings-privacy" "PASS" "mobile server settings hide built-in project values but keep user custom config editable"
+    } else {
+        Add-Check "android:mobile-server-settings-privacy" "FAIL" "mobile server settings either expose built-in project values or block user custom config editing"
+    }
+}
+
+function Test-KqAndroidRecentDeviceGroups {
+    $path = ".\flutter\lib\common\widgets\peers_view.dart"
+    $tabPath = ".\flutter\lib\common\widgets\peer_tab_page.dart"
+    $apiPath = ".\flutter\lib\common\kq_project_api.dart"
+    $userModelPath = ".\flutter\lib\models\user_model.dart"
+    $peerModelPath = ".\flutter\lib\models\peer_model.dart"
+    $serverPath = ".\server\src\index.js"
+    if (-not (Test-Path $path) -or -not (Test-Path $tabPath)) {
+        Add-Check "android:recent-device-groups-source" "SKIP" "Source file not available: $path"
+        return
+    }
+    $content = Get-Content $path -Raw -Encoding UTF8
+    $tabContent = Get-Content $tabPath -Raw -Encoding UTF8
+    $apiContent = if (Test-Path $apiPath) { Get-Content $apiPath -Raw -Encoding UTF8 } else { "" }
+    $userModelContent = if (Test-Path $userModelPath) { Get-Content $userModelPath -Raw -Encoding UTF8 } else { "" }
+    $peerModelContent = if (Test-Path $peerModelPath) { Get-Content $peerModelPath -Raw -Encoding UTF8 } else { "" }
+    $serverContent = if (Test-Path $serverPath) { Get-Content $serverPath -Raw -Encoding UTF8 } else { "" }
+
+    if ($content -match 'enum _KqRecentDeviceSection' -and
+        $content -match '_KqRecentDeviceSection\.favorite' -and
+        $content -match '_KqRecentDeviceSection\.recent' -and
+        $content -match '_KqRecentDeviceSection\.desktop' -and
+        $content -match '_KqRecentDeviceSection\.mobile') {
+        Add-Check "android:recent-device-groups-four-sections" "PASS" "recent page has common, recent, mobile, and desktop sections"
+    } else {
+        Add-Check "android:recent-device-groups-four-sections" "FAIL" "recent page is not split into common, recent, mobile, and desktop sections"
+    }
+    if ($content -match 'bool get _shouldGroupRecentPeersByDeviceType' -and
+        $content -match 'widget\.peers\.loadEvent == LoadEvent\.recent' -and
+        $content -match 'stateGlobal\.isPortrait\.isTrue') {
+        Add-Check "android:recent-device-groups-mobile-recent-only" "PASS" "grouping is scoped to the mobile portrait recent list"
+    } else {
+        Add-Check "android:recent-device-groups-mobile-recent-only" "FAIL" "grouping is not scoped to the mobile portrait recent list"
+    }
+    if ($content -match 'Set<String> _recentFavoriteIds' -and
+        $content -match '_recentFavoriteIds = favIds' -and
+        $content -match '_KqRecentDeviceSection\.favorite:\s*peers\s*\.where\(\(peer\)\s*=>\s*_recentFavoriteIds\.contains\(peer\.id\)\)') {
+        Add-Check "android:recent-device-groups-favorites-source" "PASS" "common devices are local recent peers that are starred"
+    } else {
+        Add-Check "android:recent-device-groups-favorites-source" "FAIL" "common devices are not sourced only from starred local recent peers"
+    }
+    if ($content -match '_KqRecentDeviceSection\.recent:\s*peers' -and
+        $content -match "'Recent connections':") {
+        Add-Check "android:recent-device-groups-recent-source" "PASS" "recent connections section shows all local recent peers"
+    } else {
+        Add-Check "android:recent-device-groups-recent-source" "FAIL" "recent connections section is missing or not backed by all local recent peers"
+    }
+    if ($content -match '_accountDevicePeers' -and
+        $content -match 'KqProjectApi\.tryFetchAccountDevices\(\)' -and
+        $content -match 'KqProjectApi\.syncCurrentAccountDevice\(' -and
+        $content -match '_KqRecentDeviceSection\.mobile:\s*_accountDevicePeers\.where\(_isKqMobilePeer\)' -and
+        $content -match '_KqRecentDeviceSection\.desktop:\s*_accountDevicePeers\.where\(_isKqDesktopPeer\)') {
+        Add-Check "android:recent-device-groups-account-device-source" "PASS" "mobile and desktop sections use current account login devices"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-source" "FAIL" "mobile and desktop sections are not backed by account login devices"
+    }
+    if ($content -match '_dedupeAccountDevicePeers' -and
+        $content -match '_accountDeviceDisplayKey' -and
+        $content -match 'final dedupedAccountDevices\s*=\s*_dedupeAccountDevicePeers' -and
+        $content -match '_accountDevicePeers\s*=\s*dedupedAccountDevices') {
+        Add-Check "android:recent-device-groups-account-device-dedupes" "PASS" "account-device sections collapse stale duplicate rows for the same named device"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-dedupes" "FAIL" "account-device sections can show duplicate rows for the same named device"
+    }
+    if ($content -match '(?s)registerEventHandler\(\s*_kqQueryOnlinesEvent,\s*_accountDeviceOnlineHandlerName' -and
+        $content -match '_handleAccountDeviceOnlineState' -and
+        $content -match '_applyOnlineStateToAccountDevicePeers') {
+        Add-Check "android:recent-device-groups-account-device-online-callback" "PASS" "account-device cards receive online-state callbacks"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-online-callback" "FAIL" "account-device cards can stay in checking state because online callbacks only update local recent peers"
+    }
+    if ($content -match '_queryAccountDeviceOnlines\(dedupedAccountDevices\)' -and
+        $content -match 'bind\.queryOnlines\(ids:\s*ids\)' -and
+        $content -match '_accountDeviceIdsForOnlineQuery') {
+        Add-Check "android:recent-device-groups-account-device-online-query" "PASS" "account-device cards are explicitly included in online-state queries"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-online-query" "FAIL" "account-device cards may never leave checking because they are not queried for online state"
+    }
+    if ($content -match 'List<String> _onlineQueryIdsNow\(\)' -and
+        $content -match '_accountDeviceIdsForOnlineQuery\(_accountDevicePeers\)' -and
+        $content -match 'final ids\s*=\s*_onlineQueryIdsNow\(\)' -and
+        $content -match 'bind\.queryOnlines\(ids:\s*ids\)') {
+        Add-Check "android:recent-device-groups-account-device-periodic-online-query" "PASS" "periodic recent-page online refresh includes account-device cards"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-periodic-online-query" "FAIL" "account-device cards can stay checking if the first account-device online query is missed"
+    }
+    if ($apiContent -match 'static Future<List<Peer>\?> tryFetchAccountDevices\(\) async' -and
+        $apiContent -match 'KQ project API tryFetchAccountDevices failed' -and
+        $content -match 'final accountDevices\s*=\s*await KqProjectApi\.tryFetchAccountDevices\(\)' -and
+        $content -match 'if \(accountDevices == null\)' -and
+        $content -match '_scheduleAccountDeviceRetry\(\)' -and
+        $content -match '_accountDevicesLastFailedAt\s*=\s*DateTime\.now\(\)' -and
+        $content -match '_accountDevicePeers\s*=\s*dedupedAccountDevices') {
+        Add-Check "android:recent-device-groups-account-device-fetch-failure-keeps-state" "PASS" "account-device fetch failures keep existing cards and retry instead of caching an empty result"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-fetch-failure-keeps-state" "FAIL" "account-device fetch failures can still clear mobile/desktop sections to zero"
+    }
+    if ($apiContent -match 'kq_cached_account_devices' -and
+        $apiContent -match 'static List<Peer> loadCachedAccountDevices\(\)' -and
+        $apiContent -match 'static void cacheAccountDevices\(List<Peer> peers\)' -and
+        $content -match '_restoreCachedAccountDevices\(\)' -and
+        $content -match 'KqProjectApi\.loadCachedAccountDevices\(\)' -and
+        $content -match 'KqProjectApi\.cacheAccountDevices\(dedupedAccountDevices\)') {
+        Add-Check "android:recent-device-groups-account-device-first-paint-cache" "PASS" "mobile and desktop sections restore the last successful account-device list before the async fetch returns"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-first-paint-cache" "FAIL" "mobile and desktop sections can first paint as zero while account devices are still loading"
+    }
+    if ($content -match 'bool get _isAccountDeviceInitialLoading' -and
+        $content -match '_recentSectionCountLabel\(' -and
+        $content -match "_buildRecentGroupHeader\(section, sectionPeers\.length, isExpanded\)" -and
+        $content -match "final countLabel = _recentSectionCountLabel\(section, count\)" -and
+        $content -match "return _kqPeersText\('Loading'\)" -and
+        $content -match 'section == _KqRecentDeviceSection\.mobile \|\|\s*section == _KqRecentDeviceSection\.desktop') {
+        Add-Check "android:recent-device-groups-account-device-loading-not-zero" "PASS" "account-device headers show loading instead of a definite zero before the first fetch completes"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-loading-not-zero" "FAIL" "account-device headers can show 0 while the first account-device fetch is still in flight"
+    }
+    if ($content -match 'finally\s*\{\s*(?:(?!setState).)*_accountDevicesLoading\s*=\s*false;\s*(?:(?!setState).)*\}\s*\)\(\s*\);' -or
+        $content -match 'setState\(\s*\(\)\s*\{\s*_accountDevicesLoading\s*=\s*false;' -or
+        $content -match 'setState\(\s*\(\)\s*=>\s*_accountDevicesLoading\s*=\s*false\s*\)' ) {
+        Add-Check "android:recent-device-groups-account-device-loading-state-cleared" "PASS" "account-device loading state is cleared through a rebuild when fetch completes"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-loading-state-cleared" "FAIL" "account-device loading state can remain stuck on the loading label after the fetch completes"
+    }
+    if ($content -match '_applyLocalAliasesToAccountDevices' -and
+        $content -match 'bind\.mainGetPeerOption\(id:\s*peer\.id,\s*key:\s*''alias''\)' -and
+        $content -match '_applyLocalAliasesToAccountDevices\(dedupedAccountDevices\)' -and
+        $content -match '_applyLocalAliasesToAccountDevices\(cached\)') {
+        Add-Check "android:recent-device-groups-account-device-local-alias" "PASS" "account-device cards use the same local alias as recent connection cards"
+    } else {
+        Add-Check "android:recent-device-groups-account-device-local-alias" "FAIL" "renaming a peer only updates recent connections, not mobile/desktop account-device cards"
+    }
+    if ($content -match 'final currentDeviceKey\s*=\s*await KqProjectApi\.currentAccountDeviceKey\(\)' -and
+        $content -match '_isCurrentAccountDevice\(\s*peer,\s*currentDeviceKey,\s*currentDeviceId\)' -and
+        $content -match 'final peerDeviceKey\s*=\s*peer\.accountDeviceKey\.trim\(\)' -and
+        $content -match 'peerDeviceKey\.isNotEmpty') {
+        Add-Check "android:recent-device-groups-exclude-current-device" "PASS" "account device sections exclude only the current login device instance"
+    } else {
+        Add-Check "android:recent-device-groups-exclude-current-device" "FAIL" "account device sections still filter by connectable ID instead of login device instance"
+    }
+    if ($content -match '_isLegacyAccountDeviceKey' -and
+        $content -match 'peerDeviceKey\.isNotEmpty\s*&&\s*!_isLegacyAccountDeviceKey' -and
+        $content -match 'kqNormalizePeerId\(peerDeviceKey\)\s*==\s*kqNormalizePeerId\(peer\.id\)') {
+        Add-Check "android:recent-device-groups-exclude-legacy-self-row" "PASS" "legacy account-device rows keyed by peer ID still fall back to peer-ID self filtering"
+    } else {
+        Add-Check "android:recent-device-groups-exclude-legacy-self-row" "FAIL" "legacy account-device rows can still show the current phone as another mobile device"
+    }
+    if ($apiContent -match 'static Future<String> currentAccountDeviceKey\(\) async' -and
+        $apiContent -match 'await bind\.mainGetUuid\(\)' -and
+        $apiContent -match "'device_key': deviceKey" -and
+        $apiContent -match "'id': peerId") {
+        Add-Check "android:account-device-sync-login-key" "PASS" "client sends a stable login-device key while preserving the connectable peer ID"
+    } else {
+        Add-Check "android:account-device-sync-login-key" "FAIL" "client does not distinguish login-device key from connectable peer ID"
+    }
+    if ($content -match 'bool _lastAccountDeviceLoadWasManualRefresh' -and
+        $content -match 'widget\.peers\.event == UpdateEvent\.load' -and
+        $content -match '_ensureAccountDevicesLoaded\(force: forceAccountDeviceReload\)' -and
+        $content -match '!\s*force\s*&&') {
+        Add-Check "android:recent-device-groups-refresh-forces-account-devices" "PASS" "manual recent refresh bypasses the account-device cache"
+    } else {
+        Add-Check "android:recent-device-groups-refresh-forces-account-devices" "FAIL" "manual recent refresh can still be blocked by the account-device cache"
+    }
+    if ($peerModelContent -match 'String accountDeviceKey' -and
+        $peerModelContent -match "json\['device_key'\]" -and
+        $peerModelContent -match "'device_key': accountDeviceKey" -and
+        $peerModelContent -match 'accountDeviceKey: other\.accountDeviceKey') {
+        Add-Check "android:account-device-peer-model-key" "PASS" "Peer preserves the account login-device key from API responses"
+    } else {
+        Add-Check "android:account-device-peer-model-key" "FAIL" "Peer does not preserve the account login-device key"
+    }
+    if ($apiContent -match 'Future<void> syncCurrentAccountDevice\(' -and
+        $apiContent -match 'Future<List<Peer>> fetchAccountDevices\(\)' -and
+        $apiContent -match '/account-devices/current' -and
+        $apiContent -match '/account-devices') {
+        Add-Check "android:recent-device-groups-account-api-client" "PASS" "Flutter client can sync and fetch account login devices"
+    } else {
+        Add-Check "android:recent-device-groups-account-api-client" "FAIL" "Flutter client account-device sync/fetch API is missing"
+    }
+    if ($userModelContent -match "package:flutter_hbb/common/kq_project_api.dart" -and
+        $userModelContent -match 'KqProjectApi\.syncCurrentAccountDevice\(\)' -and
+        $userModelContent -match 'static Future<void> updateOtherModels\(\) async') {
+        Add-Check "android:recent-device-groups-account-sync-on-login" "PASS" "current account device is registered after login/account refresh"
+    } else {
+        Add-Check "android:recent-device-groups-account-sync-on-login" "FAIL" "current account device is not registered from the login/account refresh path"
+    }
+    if ($serverContent -match 'CREATE TABLE IF NOT EXISTS kq_account_devices' -and
+        $serverContent -match "app\.get\('/api/account-devices'" -and
+        $serverContent -match "app\.post\('/api/account-devices/current'" -and
+        $serverContent -match 'saveAccountDevice' -and
+        $serverContent -match 'mapAccountDeviceRow') {
+        Add-Check "android:recent-device-groups-account-api-server" "PASS" "server stores and returns account login devices"
+    } else {
+        Add-Check "android:recent-device-groups-account-api-server" "FAIL" "server account-device table/API is missing"
+    }
+    if ($serverContent -match 'async function loadUserIdentityContext\(req\)' -and
+        $serverContent -match "(?s)app\.get\('/api/account-devices'.*?const ctx = await loadUserIdentityContext\(req\)" -and
+        $serverContent -match "(?s)app\.post\('/api/account-devices/current'.*?const ctx = await loadUserIdentityContext\(req\)" -and
+        $serverContent -match "(?s)app\.get\('/api/connection-history'.*?const ctx = await loadUserIdentityContext\(req\)" -and
+        $serverContent -match "(?s)app\.post\('/api/connection-history'.*?const ctx = await loadUserIdentityContext\(req\)" -and
+        $serverContent -match "(?s)app\.get\('/api/member/packages'.*?const ctx = await loadUserContext\(req\)") {
+        Add-Check "android:recent-device-groups-account-api-not-blocked-by-member-api" "PASS" "account-device/history APIs do not fail just because the member API is unavailable"
+    } else {
+        Add-Check "android:recent-device-groups-account-api-not-blocked-by-member-api" "FAIL" "account-device/history APIs still depend on the full member context"
+    }
+    if ($serverContent -match 'device_key VARCHAR\(128\) NOT NULL' -and
+        $serverContent -match 'UNIQUE KEY uniq_user_device_key \(user_id, device_key\)' -and
+        $serverContent -match 'ensureAccountDeviceSchema' -and
+        $serverContent -match 'DROP INDEX uniq_user_device' -and
+        $serverContent -match 'ON DUPLICATE KEY UPDATE' -and
+        $serverContent -match 'device_key: row\.device_key') {
+        Add-Check "android:account-device-server-login-key-upsert" "PASS" "server stores account devices by login-device key, not only peer ID"
+    } else {
+        Add-Check "android:account-device-server-login-key-upsert" "FAIL" "server can still collapse two login devices that share the same peer ID"
+    }
+    if ($serverContent -match 'deleteLegacyAccountDeviceRows' -and
+        $serverContent -match 'device_key = device_id' -and
+        $serverContent -match 'device_key <> \?') {
+        Add-Check "android:account-device-server-cleans-legacy-self-row" "PASS" "server removes old peer-ID-keyed account-device rows after UUID-keyed sync"
+    } else {
+        Add-Check "android:account-device-server-cleans-legacy-self-row" "FAIL" "server can leave old peer-ID-keyed rows that make the current phone reappear"
+    }
+    if ($serverContent -match 'data\?\.user_info' -and
+        $serverContent -match 'source\?\.nickname' -and
+        $serverContent -match 'source\?\.avatar_url') {
+        Add-Check "android:account-device-server-normalizes-user-info" "PASS" "server uses api-web data.user_info instead of falling back to per-token hashes"
+    } else {
+        Add-Check "android:account-device-server-normalizes-user-info" "FAIL" "server can treat each api-web token as a different account because it ignores data.user_info"
+    }
+    if ($serverContent -match 'mergeLegacyAccountRowsForUser' -and
+        $serverContent -match 'JSON_EXTRACT\(raw_user_json' -and
+        $serverContent -match 'INSERT INTO kq_account_devices' -and
+        $serverContent -match 'DELETE FROM kq_account_devices\s+WHERE user_id IN') {
+        Add-Check "android:account-device-server-merges-token-hash-users" "PASS" "server moves account-device rows saved under old per-token users into the normalized account"
+    } else {
+        Add-Check "android:account-device-server-merges-token-hash-users" "FAIL" "old account-device rows saved before the user-info fix can remain invisible"
+    }
+    if ($serverContent -match 'const \[legacyDevices\] = await pool\.query' -and
+        $serverContent -match 'for \(const row of legacyDevices\)' -and
+        $serverContent -match 'VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)' -and
+        $serverContent -notmatch '(?s)SELECT\s+\?,\s*device_key.*?FROM kq_account_devices.*?ON DUPLICATE KEY UPDATE') {
+        Add-Check "android:account-device-server-merge-no-self-insert" "PASS" "account-device merge avoids self INSERT...SELECT upserts that are ambiguous in MySQL"
+    } else {
+        Add-Check "android:account-device-server-merge-no-self-insert" "FAIL" "account-device merge can fail with ambiguous columns if it self-inserts from kq_account_devices"
+    }
+    if ($content -match 'kPeerPlatformAndroid' -and
+        $content -match 'kPeerPlatformWindows' -and
+        $content -match 'kPeerPlatformMacOS' -and
+        $content -match 'kPeerPlatformLinux') {
+        Add-Check "android:recent-device-groups-platform-types" "PASS" "device type grouping uses peer platform values"
+    } else {
+        Add-Check "android:recent-device-groups-platform-types" "FAIL" "device type grouping does not use peer platform values"
+    }
+    if ($content -match '_buildRecentGroupedPortraitList\(peers, buildOnePeer\)' -and
+        $content -match '_buildRecentGroupHeader' -and
+        $content -match '_KqRecentDeviceSection\.favorite,\s*_KqRecentDeviceSection\.recent,\s*_KqRecentDeviceSection\.mobile,\s*_KqRecentDeviceSection\.desktop') {
+        Add-Check "android:recent-device-groups-rendered-order" "PASS" "mobile recent list renders grouped headers in the expected order"
+    } else {
+        Add-Check "android:recent-device-groups-rendered-order" "FAIL" "mobile recent list does not render grouped headers in the expected order"
+    }
+    if ($content -notmatch 'sectionPeers\.isEmpty\)\s*\{\s*continue;' -and
+        $content -match '_buildRecentGroupHeader\(section,\s*sectionPeers\.length,\s*isExpanded\)') {
+        Add-Check "android:recent-device-groups-empty-sections-visible" "PASS" "mobile recent device groups keep empty section headers visible"
+    } else {
+        Add-Check "android:recent-device-groups-empty-sections-visible" "FAIL" "mobile recent device groups still hide empty section headers"
+    }
+    if ($content -match 'Map<_KqRecentDeviceSection, bool> _recentExpandedSections' -and
+        $content -match 'setState\(\(\)\s*=>\s*_recentExpandedSections\[section\]\s*=\s*!isExpanded\)' -and
+        $content -match 'Icons\.keyboard_arrow_down_rounded' -and
+        $content -match 'Icons\.keyboard_arrow_right_rounded') {
+        Add-Check "android:recent-device-groups-expand-collapse" "PASS" "each recent section has an expand/collapse control"
+    } else {
+        Add-Check "android:recent-device-groups-expand-collapse" "FAIL" "recent sections do not have expand/collapse controls"
+    }
+    if ($tabContent -match '_shouldHideMobileRecentTabTitle\(model\)' -and
+        $tabContent -match 'model\.currentTab == PeerTabIndex\.recent\.index' -and
+        $tabContent -match 'if \(showMobileTabTitle\)') {
+        Add-Check "android:recent-device-groups-no-outer-recent-title" "PASS" "mobile recent page hides the outer tab title when device groups render inside the list"
+    } else {
+        Add-Check "android:recent-device-groups-no-outer-recent-title" "FAIL" "mobile recent page still shows the outer recent tab title above device groups"
+    }
+}
+
+function Test-KqAndroidBuiltInTouchMapping {
+    $path = ".\flutter\lib\common\widgets\remote_input.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:built-in-touch-mapping-source" "SKIP" "Source file not available: $path"
+        return
+    }
+
+    $content = Get-Content $path -Raw -Encoding UTF8
+    if ($content -notmatch '_useSunloginTouchpadMapping' -and
+        $content -notmatch 'Sunlogin-style touchpad mapping') {
+        Add-Check "android:built-in-touch-mapping-no-custom-helper" "PASS" "mobile remote input uses the built-in touch mapping"
+    } else {
+        Add-Check "android:built-in-touch-mapping-no-custom-helper" "FAIL" "Custom Sunlogin-style touchpad mapping is still present"
+    }
+    if ($content -match '(?s)onOneFingerPanStart\(BuildContext context, DragStartDetails d\).*?if \(handleTouch\).*?if \(!inputModel\.relativeMouseMode\.value\)\s*\{\s*await inputModel\.sendMouse\(''down'', MouseButtons\.left\);') {
+        Add-Check "android:built-in-touch-mapping-pan-left-down" "PASS" "one-finger pan follows the built-in drag behavior shown in gesture help"
+    } else {
+        Add-Check "android:built-in-touch-mapping-pan-left-down" "FAIL" "One-finger pan no longer follows the built-in drag behavior"
+    }
+    if ($content -match '(?s)onOneFingerPanEnd\(DragEndDetails d\).*?if \(handleTouch\).*?if \(!inputModel\.relativeMouseMode\.value\)\s*\{\s*await inputModel\.sendMouse\(''up'', MouseButtons\.left\);') {
+        Add-Check "android:built-in-touch-mapping-pan-left-up" "PASS" "one-finger pan end follows the built-in drag release behavior"
+    } else {
+        Add-Check "android:built-in-touch-mapping-pan-left-up" "FAIL" "One-finger pan end no longer follows the built-in drag release behavior"
+    }
+    if ($content -match '(?s)onHoldDragStart\(DragStartDetails d\).*?if \(!handleTouch\).*?await inputModel\.sendMouse\(''down'', MouseButtons\.left\);' -and
+        $content -match '(?s)onHoldDragEnd\(DragEndDetails d\).*?if \(!handleTouch\).*?await inputModel\.sendMouse\(''up'', MouseButtons\.left\);') {
+        Add-Check "android:built-in-touch-mapping-hold-drag" "PASS" "hold-drag keeps the built-in mouse-mode-only handling"
+    } else {
+        Add-Check "android:built-in-touch-mapping-hold-drag" "FAIL" "Hold-drag still contains custom touchpad mapping behavior"
+    }
+    if ($content -notmatch 'focalPointDelta\.dy\s*/\s*4') {
+        Add-Check "android:built-in-touch-mapping-no-custom-scroll" "PASS" "two-finger gestures use the built-in scale/pan paths"
+    } else {
+        Add-Check "android:built-in-touch-mapping-no-custom-scroll" "FAIL" "Custom two-finger touchpad scroll is still present"
+    }
+}
+
+function Test-KqAndroidRemoteDesktopLandscapeFullscreen {
+    $path = ".\flutter\lib\mobile\pages\remote_page.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:remote-desktop-landscape-source" "SKIP" "Source file not available: $path"
+        return
+    }
+
+    $content = Get-Content $path -Raw -Encoding UTF8
+    if ($content -match 'bool get _shouldUseDesktopPeerLandscapeFullscreen' -and
+        $content -match 'kPeerPlatformWindows' -and
+        $content -match 'kPeerPlatformMacOS' -and
+        $content -match 'kPeerPlatformLinux' -and
+        $content -notmatch '_shouldUseDesktopPeerLandscapeFullscreen\s*=>\s*.*kPeerPlatformAndroid') {
+        Add-Check "android:remote-desktop-landscape-desktop-peer-helper" "PASS" "landscape fullscreen is scoped to desktop peers"
+    } else {
+        Add-Check "android:remote-desktop-landscape-desktop-peer-helper" "FAIL" "Missing desktop-peer-only landscape fullscreen helper"
+    }
+    if ($content -match '(?s)Future<void> _applyDesktopPeerLandscapeFullscreen\(\).*?SystemChrome\.setPreferredOrientations\(\s*\[\s*DeviceOrientation\.landscapeLeft,\s*DeviceOrientation\.landscapeRight,\s*\]\s*\)') {
+        Add-Check "android:remote-desktop-landscape-lock" "PASS" "desktop peer remote page locks to landscape orientations"
+    } else {
+        Add-Check "android:remote-desktop-landscape-lock" "FAIL" "desktop peer remote page does not lock to landscape"
+    }
+    if ($content -match '(?s)Future<void> _applyDesktopPeerLandscapeFullscreen\(\).*?SystemChrome\.setEnabledSystemUIMode\(SystemUiMode\.manual,\s*overlays:\s*\[\]\)') {
+        Add-Check "android:remote-desktop-fullscreen-immersive" "PASS" "desktop peer remote page keeps immersive fullscreen"
+    } else {
+        Add-Check "android:remote-desktop-fullscreen-immersive" "FAIL" "desktop peer remote page does not keep immersive fullscreen"
+    }
+    if ($content -match '(?s)gFFI\.imageModel\.addCallbackOnFirstImage\(\(String peerId\).*?_applyDesktopPeerLandscapeFullscreen\(\);') {
+        Add-Check "android:remote-desktop-landscape-after-peer-ready" "PASS" "landscape fullscreen is applied after peer information is ready"
+    } else {
+        Add-Check "android:remote-desktop-landscape-after-peer-ready" "FAIL" "landscape fullscreen is not applied after peer information is ready"
+    }
+    if ($content -match '(?s)dispose\(\) async.*?SystemChrome\.setPreferredOrientations\(\s*\[\]\s*\)') {
+        Add-Check "android:remote-desktop-landscape-restore" "PASS" "remote page restores default orientation on dispose"
+    } else {
+        Add-Check "android:remote-desktop-landscape-restore" "FAIL" "remote page does not restore default orientation on dispose"
+    }
+}
+
+function Test-KqAndroidRemoteSideControls {
+    $remotePath = ".\flutter\lib\mobile\pages\remote_page.dart"
+    $toolbarPath = ".\flutter\lib\common\widgets\toolbar.dart"
+    if (-not (Test-Path $remotePath) -or -not (Test-Path $toolbarPath)) {
+        Add-Check "android:remote-side-controls-source" "SKIP" "Source files not available"
+        return
+    }
+
+    $remote = Get-Content $remotePath -Raw -Encoding UTF8
+    $toolbar = Get-Content $toolbarPath -Raw -Encoding UTF8
+    if ($remote -match 'Widget _remoteSideActionRail\(' -and
+        $remote -match 'Widget _remoteSideActionButton\(' -and
+        $remote -match '(?s)Positioned\(\s*right:\s*12,.*?top:\s*MediaQuery\.of\(context\)\.padding\.top \+ 24,') {
+        Add-Check "android:remote-side-controls-right-rail" "PASS" "remote controls are moved to a right-side rail"
+    } else {
+        Add-Check "android:remote-side-controls-right-rail" "FAIL" "Remote controls are not rendered as a right-side rail"
+    }
+    if ($remote -notmatch 'Widget getBottomAppBar\(\)' -and
+        $remote -notmatch 'BottomAppBar\(\s*elevation:\s*10,\s*color:\s*MyTheme\.accent') {
+        Add-Check "android:remote-side-controls-no-blue-bottom-bar" "PASS" "blue bottom control bar is removed"
+    } else {
+        Add-Check "android:remote-side-controls-no-blue-bottom-bar" "FAIL" "Blue bottom control bar is still present"
+    }
+    if ($toolbar -match 'bool includeFingerprint = true' -and
+        $toolbar -match 'includeFingerprint && !\(isDesktop \|\| isWebDesktop\)' -and
+        $remote -match 'toolbarControls\(context, id, gFFI,\s*includeFingerprint:\s*false\)') {
+        Add-Check "android:remote-side-controls-no-copy-fingerprint" "PASS" "mobile remote actions menu excludes copy fingerprint"
+    } else {
+        Add-Check "android:remote-side-controls-no-copy-fingerprint" "FAIL" "Mobile remote actions menu still includes copy fingerprint"
     }
 }
 
@@ -337,6 +1014,7 @@ Test-InstallerUpgradePolicy
 Test-InstallerWizardImagesUseCurrentIcon
 Test-KqWebIconAsset
 Test-VoiceCallAudioRouting
+Test-MobileLanguageFallback
 
 $kqLoginButton = [string]::Concat([char[]]@(
     0x767B,
@@ -564,6 +1242,26 @@ function Test-BuiltInPrivateServerDefaults {
     } else {
         Add-Check "private-server:built-in-defaults" "FAIL" "Missing defaults: $($missing -join ', ')"
     }
+    if ($content -match '#\[cfg\(target_os = "android"\)\]\s*let register_device = "Y";' -and
+        $content -match '#\[cfg\(not\(target_os = "android"\)\)\]\s*let register_device = "N";' -and
+        $content -match '(keys::)?OPTION_REGISTER_DEVICE\.to_owned\(\),\s*register_device\.to_owned\(\)') {
+        Add-Check "private-server:android-register-device-enabled" "PASS" "Android can register with the private rendezvous server"
+    } else {
+        Add-Check "private-server:android-register-device-enabled" "FAIL" "Android register-device default must be enabled while non-Android remains disabled"
+    }
+
+    $rendezvousSource = ".\src\rendezvous_mediator.rs"
+    if (-not (Test-Path $rendezvousSource)) {
+        Add-Check "private-server:android-rendezvous-uses-udp-default" "SKIP" "Source file not available: $rendezvousSource"
+        return
+    }
+    $rendezvousContent = Get-Content $rendezvousSource -Raw -Encoding UTF8
+    if ($rendezvousContent -notmatch 'kq_android_private_server' -and
+        $rendezvousContent -notmatch '!\s*crate::using_public_server\(\)\s*;\s*//If the investment agent type is http or https, then tcp forwarding is enabled\.\s*if') {
+        Add-Check "private-server:android-rendezvous-uses-udp-default" "PASS" "Android private-server rendezvous is not forced onto the TCP handshake path"
+    } else {
+        Add-Check "private-server:android-rendezvous-uses-udp-default" "FAIL" "Android private-server rendezvous must keep the UDP default unless proxy/WebSocket/disable-UDP is explicitly enabled"
+    }
 }
 
 $manifestPath = Join-Path $repo "KQ_RELEASE_MANIFEST.json"
@@ -679,6 +1377,10 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "tabChildren.length + (!hideSingleItem && tabTail != null ? 1 : 0)" "ui:remote-tab-scroll-count-includes-plus"
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "if (!hideSingleItem && tabTail != null)" "ui:remote-tab-tail-after-tabs"
     Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "class _TabTail extends StatelessWidget" "ui:remote-tab-tail-fixed-wrapper"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "behavior: HitTestBehavior.opaque" "ui:titlebar-drag-empty-area-hit-test"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "hitTestBehavior: HitTestBehavior.deferToChild" "ui:titlebar-scrollview-does-not-cover-empty-drag-area"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "the Home tab stays visible" "ui:titlebar-home-tab-persistent-comment"
+    Test-SourceNotContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "controller.tabType == DesktopTabType.main ||" "ui:titlebar-home-tab-not-hidden-as-single-tab"
     Test-SourceNotContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "children.add(tabTail!);" "ui:remote-tab-tail-not-inside-listview"
     Test-SourceNotContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "FlexFit.loose" "ui:remote-tab-list-no-loose-flex"
     Test-SourceNotContains ".\flutter\lib\desktop\widgets\tabbar_widget.dart" "shrinkWrap: true" "ui:remote-tab-list-no-shrinkwrap"
@@ -699,6 +1401,15 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "bool get selectedPasswordCanRefresh => isSelectedPasswordVisible;" "password:permanent-refresh-button-visible"
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "return canUsePermanentPassword;" "password:permanent-share-button-visible"
     Test-KqPasswordSharePolicy
+    Test-KqPasswordKindPersistence
+Test-KqAndroidMobilePasswordKinds
+Test-KqAndroidMobilePaymentMethod
+Test-KqAndroidMobileProfileHeaderPersonalCenter
+Test-KqAndroidMobileServerSettingsPrivacy
+Test-KqAndroidRecentDeviceGroups
+Test-KqAndroidBuiltInTouchMapping
+    Test-KqAndroidRemoteDesktopLandscapeFullscreen
+    Test-KqAndroidRemoteSideControls
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "await setPermanentPasswordPreview(password);" "password:permanent-refresh-updates-real-password"
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "String _defaultApproveMode(String mode)" "password:approve-mode-default-helper"
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "final normalizedApproveMode = _defaultApproveMode(approveMode);" "password:approve-mode-normalized-on-refresh"
@@ -735,6 +1446,11 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\libs\hbb_common\src\config.rs" "OPTION_KQ_DAILY_PASSWORD" "password:config-daily-option"
     Test-SourceContains ".\libs\hbb_common\src\config.rs" "OPTION_KQ_PERMANENT_PASSWORD_PREVIEW" "password:config-permanent-preview-option"
     Test-SourceContains ".\libs\hbb_common\src\password_security.rs" "pub fn kq_daily_password() -> String" "password:security-daily-helper"
+    Test-SourceContains ".\flutter\lib\consts.dart" "const double kDefaultQuality = 80" "quality:ui-default-bitrate-80"
+    Test-SourceContains ".\libs\hbb_common\src\config.rs" "self.get_num_string(key, 80.0, 10.0, 0xFFF as f64)" "quality:user-default-bitrate-80"
+    Test-SourceContains ".\libs\hbb_common\src\config.rs" ".unwrap_or(80.0)" "quality:peer-default-bitrate-80"
+    Test-SourceContains ".\src\client.rs" "const KQ_FREE_IMAGE_QUALITY: i32 = 80" "quality:kq-free-default-bitrate-80"
+    Test-SourceContains ".\src\client.rs" "const KQ_MEMBER_IMAGE_QUALITY: i32 = 80" "quality:kq-member-default-bitrate-80"
     Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "_sortRecentPeersWithFavoritesFirst" "ui:recent-favorites-first-sort"
     Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "widget.peers.loadEvent == LoadEvent.recent" "ui:recent-favorites-sort-only-recent"
     Test-SourceContains ".\flutter\lib\models\peer_model.dart" "online = json['online'] == true || json['online'] == 'true'" "ui:peer-online-json-preserved"
@@ -746,6 +1462,24 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\models\peer_model.dart" "onlineStates[kqNormalizePeerId(peer.id)]" "ui:recent-online-restore-normalized-key"
     Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "final normalizedPeerId = kqNormalizePeerId(peerId);" "ui:visible-peer-query-normalizes-id"
     Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "map((e) => kqNormalizePeerId(e.id))" "ui:load-peer-query-normalizes-id"
+    Test-SourceContains ".\flutter\lib\models\peer_model.dart" "Future<void> deleteKqRecentPeer(String id)" "ui:recent-delete-shared-helper"
+    Test-SourceContains ".\flutter\lib\models\peer_model.dart" "KqProjectApi.markRecentPeerDeleted(peerId)" "ui:recent-delete-tombstone-before-reload"
+    Test-SourceContains ".\flutter\lib\models\peer_model.dart" "KqProjectApi.filterDeletedRecentPeers(remotePeers)" "ui:recent-delete-filters-remote-history"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "await deleteKqRecentPeer(id)" "ui:recent-card-delete-uses-database-helper"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_tab_page.dart" "await deleteKqRecentPeer(p.id)" "ui:recent-multiselect-delete-uses-database-helper"
+    Test-SourceContains ".\flutter\lib\common\kq_project_api.dart" "static Future<void> deleteConnectionHistory(String peerId)" "api:connection-history-client-delete"
+    Test-SourceContains ".\flutter\lib\common\kq_project_api.dart" 'connection-history/${Uri.encodeComponent(peerId)}' "api:connection-history-delete-peer-url"
+    Test-SourceContains ".\server\src\index.js" "app.delete('/api/connection-history/:peerId'" "server:connection-history-delete-route"
+    Test-SourceContains ".\server\src\index.js" "DELETE FROM kq_connection_history WHERE user_id = ? AND peer_id = ?" "server:connection-history-delete-scope"
+    Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "_kqRecentOnlineQueryInterval = Duration(seconds: 5)" "ui:recent-online-refresh-fast-interval"
+    Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "_isRecentPeers || _queryCount < _maxQueryCount || !p" "ui:recent-online-refresh-not-capped"
+    Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "_queryOnlinesNow();" "ui:online-refresh-focus-immediate-query"
+    Test-SourceContains ".\flutter\lib\models\peer_model.dart" "bool onlineStateKnown = false" "ui:peer-online-known-state-field"
+    Test-SourceContains ".\flutter\lib\models\peer_model.dart" "if (!peer.onlineStateKnown)" "ui:peer-online-unknown-triggers-notify"
+    Test-SourceContains ".\flutter\lib\models\peer_model.dart" "if (peer.onlineStateKnown)" "ui:peer-online-cache-only-known-states"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "_StatusPill(online: peer.online, known: peer.onlineStateKnown)" "ui:peer-card-status-pill-knows-unknown"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "_kqPeerStatusText(online)" "ui:peer-card-known-status-text"
+    Test-SourceContains ".\flutter\lib\common\widgets\peer_card.dart" "_kqPeerCardText('Checking')" "ui:peer-card-unknown-status-text"
     Test-SourceContains ".\flutter\lib\models\peer_model.dart" "unawaited(_syncRecentPeersWithDatabase())" "ui:recent-online-sync-uses-current-state"
     Test-SourceNotContains ".\flutter\lib\models\peer_model.dart" "_syncRecentPeersWithDatabase(onlineStates)" "ui:recent-online-no-stale-snapshot"
     Test-SourceContains ".\flutter\lib\models\peer_model.dart" "if (state != null) {" "ui:peer-online-does-not-default-overwrite"
@@ -855,6 +1589,9 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\src\flutter.rs" "Err(TrySendError::Full(ids))" "remote:online-query-full-not-dropped"
     Test-SourceContains ".\src\flutter.rs" "merge_pending_query_onlines(ids)" "remote:online-query-merges-before-run"
     Test-SourceNotContains ".\src\flutter.rs" "let _ = tx.try_send(ids)?" "remote:online-query-no-drop-on-full"
+    Test-SourceContains ".\src\client.rs" 'bail!("Failed to create peers online stream: {e}")' "remote:online-query-connect-failure-unknown"
+    Test-SourceContains ".\src\client.rs" 'bail!("Failed to send peers online states query: {e}")' "remote:online-query-send-failure-unknown"
+    Test-SourceNotContains ".\src\client.rs" "return Ok((vec![], ids.clone()));" "remote:online-query-transport-failure-not-offline"
     Test-SourceContains ".\src\client.rs" "fn kq_punch_response_timeout_ms" "remote:kq-punch-timeout-helper"
     Test-SourceContains ".\src\client.rs" "1 => 1_500" "remote:kq-punch-timeout-first-fast"
     Test-SourceContains ".\src\client.rs" "2 => 2_500" "remote:kq-punch-timeout-second-fast"
@@ -862,6 +1599,13 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\src\client.rs" "attempt * 3_000" "remote:non-kq-punch-timeout-unchanged"
     Test-SourceContains ".\src\client.rs" "KQ {} punch response timeout for attempt #{}: {}ms" "remote:kq-punch-timeout-log"
     Test-SourceNotContains ".\src\client.rs" "Some(i * 3000)" "remote:kq-punch-no-old-slow-wait"
+    Test-SourceContains ".\src\client.rs" '#[cfg(not(any(target_os = "ios", target_os = "android")))]' "android:audio-output-no-fixed-64-buffer"
+    Test-SourceNotMatches ".\src\client.rs" '(?s)#\[cfg\(not\(target_os = "ios"\)\)\]\s*\{\s*// this makes ios audio output not work\s*config\.buffer_size = cpal::BufferSize::Fixed\(64\);' "android:audio-output-old-ios-only-buffer-gate"
+    Test-SourceContains ".\src\client.rs" '#[cfg(target_os = "android")]' "android:audio-output-has-android-format-gate"
+    Test-SourceContains ".\src\client.rs" "let sample_format = cpal::SampleFormat::I16;" "android:audio-output-forces-i16"
+    Test-SourceMatches ".\src\client.rs" '(?s)#\[cfg\(not\(target_os = "android"\)\)\]\s*let sample_format = config\.sample_format\(\);' "android:audio-output-default-format-non-android-only"
+    Test-SourceContains ".\src\client.rs" "KQ Android skips remote audio playback because MuMu/Houdini can crash inside Oboe open_stream" "android:audio-output-skips-oboe-on-android"
+    Test-SourceMatches ".\src\client.rs" '(?s)#\[cfg\(target_os = "android"\)\]\s*\{\s*log::warn!\(\s*"KQ Android skips remote audio playback because MuMu/Houdini can crash inside Oboe open_stream"\s*\);\s*return;' "android:audio-output-returns-before-oboe"
     Test-SourceContains ".\src\common.rs" "kqremote://" "deeplink:kqremote-prefix"
     Test-SourceContains ".\scripts\new-kq-inno-installer.ps1" "HKEY_CLASSES_ROOT\kqremote" "installer:kqremote-protocol"
     Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" "FindVersionedIconPath" "windows:versioned-window-icon-helper"

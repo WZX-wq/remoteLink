@@ -145,24 +145,29 @@ function envIsDisabled(value) {
 }
 
 function normalizeUserPayload(data, token) {
-  const source = data?.user && typeof data.user === 'object' ? data.user : data;
-  const externalUserId = String(
-    source?.id ??
-      source?.user_id ??
-      source?.uid ??
-      source?.uuid ??
-      source?.username ??
-      source?.name ??
-      sha256(token).slice(0, 32),
-  );
-  const username = String(source?.username ?? source?.name ?? externalUserId);
+  const source =
+    data?.user && typeof data.user === 'object'
+      ? data.user
+      : data?.user_info && typeof data.user_info === 'object'
+        ? data.user_info
+        : data;
+  const nickname = String(
+    source?.nickname ?? source?.display_name ?? source?.displayName ?? source?.name ?? '',
+  ).trim();
+  const stableId = String(
+    source?.id ?? source?.user_id ?? source?.uid ?? source?.uuid ?? source?.account_id ?? '',
+  ).trim();
+  const fallbackName = String(source?.username ?? source?.name ?? nickname).trim();
+  const externalUserId = stableId || (nickname ? `nickname:${nickname}` : sha256(token).slice(0, 32));
+  const username = fallbackName || externalUserId;
   return {
     externalUserId,
     username,
-    nickname: String(source?.nickname ?? source?.display_name ?? source?.displayName ?? username),
+    nickname: nickname || fallbackName || username,
     email: String(source?.email ?? ''),
     avatarUrl: String(source?.avatar ?? source?.avatar_url ?? ''),
     raw: data ?? {},
+    mergeNickname: nickname,
   };
 }
 
@@ -218,8 +223,24 @@ async function loadUserContext(req) {
     memberActive: toBool(memberInfo.web_member_active),
     memberExpireAt: memberInfo.web_member_expire_at || null,
   });
+  await mergeLegacyAccountRowsForUser(dbUser, user);
   await saveMemberSnapshot(dbUser, memberInfo);
   return { token, user: dbUser, userInfo, memberInfo };
+}
+
+async function loadUserIdentityContext(req) {
+  const token = getAuthToken(req);
+  if (!token) {
+    throw Object.assign(new Error('missing token'), { statusCode: 401 });
+  }
+  const userInfo = await postApiWeb('user_all_info', token);
+  const user = normalizeUserPayload(userInfo, token);
+  const dbUser = await upsertUserIdentity({
+    ...user,
+    tokenHash: sha256(token),
+  });
+  await mergeLegacyAccountRowsForUser(dbUser, user);
+  return { token, user: dbUser, userInfo };
 }
 
 async function ensureDatabase() {
@@ -296,6 +317,31 @@ async function ensureDatabase() {
       CONSTRAINT fk_history_user FOREIGN KEY (user_id) REFERENCES kq_users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kq_account_devices (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NOT NULL,
+      device_key VARCHAR(128) NOT NULL,
+      device_id VARCHAR(128) NOT NULL,
+      device_name VARCHAR(255) NOT NULL DEFAULT '',
+      device_alias VARCHAR(255) NOT NULL DEFAULT '',
+      device_hostname VARCHAR(255) NOT NULL DEFAULT '',
+      device_platform VARCHAR(64) NOT NULL DEFAULT '',
+      device_type VARCHAR(64) NOT NULL DEFAULT '',
+      metadata JSON NULL,
+      first_login_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_login_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_user_device_key (user_id, device_key),
+      KEY idx_user_device_seen (user_id, last_seen_at),
+      CONSTRAINT fk_account_device_user FOREIGN KEY (user_id) REFERENCES kq_users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await ensureAccountDeviceSchema();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS kq_member_orders (
@@ -378,6 +424,40 @@ async function upsertUser(user) {
   return rows[0];
 }
 
+async function upsertUserIdentity(user) {
+  await pool.execute(
+    `
+      INSERT INTO kq_users (
+        external_provider, external_user_id, username, nickname, email, avatar_url,
+        token_hash, raw_user_json, last_login_at, last_seen_at
+      )
+      VALUES ('kunqiong', ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        username = VALUES(username),
+        nickname = VALUES(nickname),
+        email = VALUES(email),
+        avatar_url = VALUES(avatar_url),
+        token_hash = VALUES(token_hash),
+        raw_user_json = VALUES(raw_user_json),
+        last_seen_at = NOW()
+    `,
+    [
+      user.externalUserId,
+      user.username,
+      user.nickname,
+      user.email,
+      user.avatarUrl,
+      user.tokenHash,
+      JSON.stringify(user.raw),
+    ],
+  );
+  const [rows] = await pool.execute(
+    'SELECT * FROM kq_users WHERE external_provider = ? AND external_user_id = ? LIMIT 1',
+    ['kunqiong', user.externalUserId],
+  );
+  return rows[0];
+}
+
 async function saveMemberSnapshot(user, memberInfo) {
   const packages = Array.isArray(memberInfo?.packages) ? memberInfo.packages : [];
   const snapshotJson = JSON.stringify(memberInfo ?? {});
@@ -406,6 +486,83 @@ async function saveMemberSnapshot(user, memberInfo) {
       snapshotJson,
     ],
   );
+}
+
+async function mergeLegacyAccountRowsForUser(user, normalizedUser) {
+  const nickname = String(normalizedUser?.mergeNickname || '').trim();
+  if (!nickname) return;
+  const [legacyUsers] = await pool.execute(
+    `
+      SELECT id
+      FROM kq_users
+      WHERE id <> ?
+        AND external_provider = 'kunqiong'
+        AND (
+          JSON_UNQUOTE(JSON_EXTRACT(raw_user_json, '$.user_info.nickname')) = ?
+          OR JSON_UNQUOTE(JSON_EXTRACT(raw_user_json, '$.nickname')) = ?
+          OR JSON_UNQUOTE(JSON_EXTRACT(raw_user_json, '$.user.nickname')) = ?
+        )
+    `,
+    [user.id, nickname, nickname, nickname],
+  );
+  const legacyUserIds = legacyUsers
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+  if (!legacyUserIds.length) return;
+
+  const [legacyDevices] = await pool.query(
+    `
+      SELECT
+        device_key, device_id, device_name, device_alias, device_hostname,
+        device_platform, device_type, metadata, first_login_at, last_login_at, last_seen_at
+      FROM kq_account_devices
+      WHERE user_id IN (?)
+    `,
+    [legacyUserIds],
+  );
+  for (const row of legacyDevices) {
+    const metadata =
+      row.metadata == null || typeof row.metadata === 'string'
+        ? row.metadata
+        : JSON.stringify(row.metadata);
+    await pool.execute(
+      `
+        INSERT INTO kq_account_devices (
+          user_id, device_key, device_id, device_name, device_alias, device_hostname,
+          device_platform, device_type, metadata, first_login_at, last_login_at, last_seen_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          device_id = VALUES(device_id),
+          device_name = VALUES(device_name),
+          device_alias = VALUES(device_alias),
+          device_hostname = VALUES(device_hostname),
+          device_platform = VALUES(device_platform),
+          device_type = VALUES(device_type),
+          metadata = VALUES(metadata),
+          first_login_at = LEAST(first_login_at, VALUES(first_login_at)),
+          last_login_at = GREATEST(last_login_at, VALUES(last_login_at)),
+          last_seen_at = GREATEST(last_seen_at, VALUES(last_seen_at))
+      `,
+      [
+        user.id,
+        row.device_key || row.device_id || '',
+        row.device_id || '',
+        row.device_name || '',
+        row.device_alias || row.device_name || '',
+        row.device_hostname || row.device_name || '',
+        row.device_platform || '',
+        row.device_type || '',
+        metadata,
+        row.first_login_at,
+        row.last_login_at,
+        row.last_seen_at,
+      ],
+    );
+  }
+  await pool.query('DELETE FROM kq_account_devices WHERE user_id IN (?)', [
+    legacyUserIds,
+  ]);
 }
 
 function normalizeDateTime(value) {
@@ -1111,6 +1268,87 @@ function normalizePeer(input) {
   };
 }
 
+async function tableColumnExists(tableName, columnName) {
+  const [rows] = await pool.execute(
+    `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+    `,
+    [tableName, columnName],
+  );
+  return rows.length > 0;
+}
+
+async function tableIndexExists(tableName, indexName) {
+  const [rows] = await pool.execute(
+    `
+      SELECT 1
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND INDEX_NAME = ?
+      LIMIT 1
+    `,
+    [tableName, indexName],
+  );
+  return rows.length > 0;
+}
+
+async function ensureAccountDeviceSchema() {
+  if (!(await tableColumnExists('kq_account_devices', 'device_key'))) {
+    await pool.query(`
+      ALTER TABLE kq_account_devices
+      ADD COLUMN device_key VARCHAR(128) NOT NULL DEFAULT '' AFTER user_id
+    `);
+  }
+  await pool.query(`
+    UPDATE kq_account_devices
+    SET device_key = device_id
+    WHERE device_key = ''
+  `);
+  if (await tableIndexExists('kq_account_devices', 'uniq_user_device')) {
+    await pool.query('ALTER TABLE kq_account_devices DROP INDEX uniq_user_device');
+  }
+  if (!(await tableIndexExists('kq_account_devices', 'uniq_user_device_key'))) {
+    await pool.query(`
+      ALTER TABLE kq_account_devices
+      ADD UNIQUE KEY uniq_user_device_key (user_id, device_key)
+    `);
+  }
+}
+
+function normalizeAccountDevice(input) {
+  const source = input?.device && typeof input.device === 'object' ? input.device : input;
+  const deviceId = String(source?.device_id ?? source?.peer_id ?? source?.id ?? '').trim();
+  if (!deviceId) {
+    throw Object.assign(new Error('device_id is required'), { statusCode: 400 });
+  }
+  const deviceKey = String(
+    source?.device_key ??
+      source?.login_device_id ??
+      source?.account_device_key ??
+      source?.uuid ??
+      deviceId,
+  ).trim();
+  const deviceName = String(source?.device_name ?? source?.name ?? '').trim();
+  const alias = String(source?.device_alias ?? source?.alias ?? deviceName);
+  const hostname = String(source?.device_hostname ?? source?.hostname ?? deviceName);
+  return {
+    deviceKey: deviceKey || deviceId,
+    deviceId,
+    name: deviceName,
+    alias,
+    hostname,
+    platform: String(source?.device_platform ?? source?.platform ?? ''),
+    type: String(source?.device_type ?? source?.type ?? ''),
+    metadata: source?.metadata ?? source ?? {},
+  };
+}
+
 async function savePeerHistory(user, peer) {
   await pool.execute(
     `
@@ -1143,6 +1381,53 @@ async function savePeerHistory(user, peer) {
   await trimPeerHistory(user);
 }
 
+async function saveAccountDevice(user, device) {
+  await pool.execute(
+    `
+      INSERT INTO kq_account_devices (
+        user_id, device_key, device_id, device_name, device_alias, device_hostname,
+        device_platform, device_type, metadata, first_login_at, last_login_at, last_seen_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        device_id = VALUES(device_id),
+        device_name = VALUES(device_name),
+        device_alias = VALUES(device_alias),
+        device_hostname = VALUES(device_hostname),
+        device_platform = VALUES(device_platform),
+        device_type = VALUES(device_type),
+        metadata = VALUES(metadata),
+        last_login_at = NOW(),
+        last_seen_at = NOW()
+    `,
+    [
+      user.id,
+      device.deviceKey,
+      device.deviceId,
+      device.name,
+      device.alias,
+      device.hostname,
+      device.platform,
+      device.type,
+      JSON.stringify(device.metadata),
+    ],
+  );
+  await deleteLegacyAccountDeviceRows(user, device);
+}
+
+async function deleteLegacyAccountDeviceRows(user, device) {
+  await pool.execute(
+    `
+      DELETE FROM kq_account_devices
+      WHERE user_id = ?
+        AND device_id = ?
+        AND device_key = device_id
+        AND device_key <> ?
+    `,
+    [user.id, device.deviceId, device.deviceKey],
+  );
+}
+
 async function trimPeerHistory(user) {
   const limit = connectionLimitFor(user);
   const [rows] = await pool.execute(
@@ -1170,6 +1455,20 @@ function mapHistoryRow(row) {
     platform: row.peer_platform || '',
     conn_type: row.conn_type || 'remote',
     connect_count: row.connect_count,
+    last_seen_at: row.last_seen_at,
+  };
+}
+
+function mapAccountDeviceRow(row) {
+  return {
+    id: row.device_id,
+    device_key: row.device_key || '',
+    alias: row.device_alias || row.device_name || '',
+    username: '',
+    hostname: row.device_hostname || row.device_name || '',
+    platform: row.device_platform || '',
+    device_type: row.device_type || '',
+    last_login_at: row.last_login_at,
     last_seen_at: row.last_seen_at,
   };
 }
@@ -1280,9 +1579,38 @@ app.get('/api/me', async (req, res, next) => {
   }
 });
 
+app.get('/api/account-devices', async (req, res, next) => {
+  try {
+    const ctx = await loadUserIdentityContext(req);
+    const [rows] = await pool.execute(
+      `
+        SELECT *
+        FROM kq_account_devices
+        WHERE user_id = ?
+        ORDER BY last_seen_at DESC, id DESC
+      `,
+      [ctx.user.id],
+    );
+    res.json({ ok: true, items: rows.map(mapAccountDeviceRow) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/account-devices/current', async (req, res, next) => {
+  try {
+    const ctx = await loadUserIdentityContext(req);
+    const device = normalizeAccountDevice(req.body);
+    await saveAccountDevice(ctx.user, device);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/connection-history', async (req, res, next) => {
   try {
-    const ctx = await loadUserContext(req);
+    const ctx = await loadUserIdentityContext(req);
     const limit = connectionLimitFor(ctx.user);
     const [rows] = await pool.execute(
       `
@@ -1302,7 +1630,7 @@ app.get('/api/connection-history', async (req, res, next) => {
 
 app.post('/api/connection-history', async (req, res, next) => {
   try {
-    const ctx = await loadUserContext(req);
+    const ctx = await loadUserIdentityContext(req);
     const peer = normalizePeer(req.body);
     await savePeerHistory(ctx.user, peer);
     const limit = connectionLimitFor(ctx.user);
@@ -1312,9 +1640,26 @@ app.post('/api/connection-history', async (req, res, next) => {
   }
 });
 
+app.delete('/api/connection-history/:peerId', async (req, res, next) => {
+  try {
+    const ctx = await loadUserIdentityContext(req);
+    const peerId = String(req.params.peerId || '').trim();
+    if (!peerId) {
+      throw Object.assign(new Error('peer_id is required'), { statusCode: 400 });
+    }
+    const [result] = await pool.execute(
+      'DELETE FROM kq_connection_history WHERE user_id = ? AND peer_id = ?',
+      [ctx.user.id, peerId],
+    );
+    res.json({ ok: true, deleted: result.affectedRows || 0 });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/connection-history/bulk', async (req, res, next) => {
   try {
-    const ctx = await loadUserContext(req);
+    const ctx = await loadUserIdentityContext(req);
     const peers = Array.isArray(req.body?.peers) ? req.body.peers : [];
     for (const item of peers.slice(0, connectionLimitFor(ctx.user))) {
       await savePeerHistory(ctx.user, normalizePeer(item));
