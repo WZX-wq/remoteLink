@@ -716,6 +716,14 @@ function Test-KqAndroidRecentDeviceGroups {
     } else {
         Add-Check "android:recent-device-groups-expand-collapse" "FAIL" "recent sections do not have expand/collapse controls"
     }
+    if ($content -match '_KqRecentDeviceSection\.favorite:\s*false' -and
+        $content -match '_KqRecentDeviceSection\.recent:\s*false' -and
+        $content -match '_KqRecentDeviceSection\.mobile:\s*false' -and
+        $content -match '_KqRecentDeviceSection\.desktop:\s*false') {
+        Add-Check "android:recent-device-groups-default-collapsed" "PASS" "recent device groups are collapsed by default"
+    } else {
+        Add-Check "android:recent-device-groups-default-collapsed" "FAIL" "recent device groups are still expanded by default"
+    }
     if ($tabContent -match '_shouldHideMobileRecentTabTitle\(model\)' -and
         $tabContent -match 'model\.currentTab == PeerTabIndex\.recent\.index' -and
         $tabContent -match 'if \(showMobileTabTitle\)') {
