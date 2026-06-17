@@ -73,6 +73,9 @@ const downloadLimiter = {
   active: 0,
   clients: new Map(),
 };
+const identityContextCache = new Map();
+const identityContextInFlight = new Map();
+const identityContextCacheTtlMs = 60 * 1000;
 
 function mustEnv(name) {
   const value = process.env[name];
@@ -207,25 +210,72 @@ async function postApiWeb(path, token, params = {}) {
   return json.data ?? {};
 }
 
+function getCachedIdentityContext(tokenHash) {
+  const cached = identityContextCache.get(tokenHash);
+  if (!cached) return null;
+  if (Date.now() - cached.cachedAt > identityContextCacheTtlMs) {
+    identityContextCache.delete(tokenHash);
+    return null;
+  }
+  return cached.ctx;
+}
+
+function cacheIdentityContext(tokenHash, ctx) {
+  identityContextCache.set(tokenHash, {
+    cachedAt: Date.now(),
+    ctx,
+  });
+}
+
+async function loadUserIdentityContextForToken(token, tokenHash) {
+  const cached = getCachedIdentityContext(tokenHash);
+  if (cached) return cached;
+
+  const inFlight = identityContextInFlight.get(tokenHash);
+  if (inFlight) return await inFlight;
+
+  const refreshPromise = (async () => {
+    const userInfo = await postApiWeb('user_all_info', token);
+    const user = normalizeUserPayload(userInfo, token);
+    const dbUser = await upsertUserIdentity({
+      ...user,
+      tokenHash,
+    });
+    await mergeLegacyAccountRowsForUser(dbUser, user);
+    const ctx = { token, user: dbUser, userInfo };
+    cacheIdentityContext(tokenHash, ctx);
+    return ctx;
+  })();
+
+  identityContextInFlight.set(tokenHash, refreshPromise);
+  try {
+    return await refreshPromise;
+  } finally {
+    identityContextInFlight.delete(tokenHash);
+  }
+}
+
 async function loadUserContext(req) {
   const token = getAuthToken(req);
   if (!token) {
     throw Object.assign(new Error('missing token'), { statusCode: 401 });
   }
-  const userInfo = await postApiWeb('user_all_info', token);
+  const tokenHash = sha256(token);
+  const identity = await loadUserIdentityContextForToken(token, tokenHash);
   const memberInfo = await postApiWeb('get_web_member_package_info', token, {
     subsite_name: config.subsiteName,
   });
-  const user = normalizeUserPayload(userInfo, token);
+  const user = normalizeUserPayload(identity.userInfo, token);
   const dbUser = await upsertUser({
     ...user,
-    tokenHash: sha256(token),
+    tokenHash,
     memberActive: toBool(memberInfo.web_member_active),
     memberExpireAt: memberInfo.web_member_expire_at || null,
   });
   await mergeLegacyAccountRowsForUser(dbUser, user);
   await saveMemberSnapshot(dbUser, memberInfo);
-  return { token, user: dbUser, userInfo, memberInfo };
+  cacheIdentityContext(tokenHash, { token, user: dbUser, userInfo: identity.userInfo });
+  return { token, user: dbUser, userInfo: identity.userInfo, memberInfo };
 }
 
 async function loadUserIdentityContext(req) {
@@ -233,14 +283,8 @@ async function loadUserIdentityContext(req) {
   if (!token) {
     throw Object.assign(new Error('missing token'), { statusCode: 401 });
   }
-  const userInfo = await postApiWeb('user_all_info', token);
-  const user = normalizeUserPayload(userInfo, token);
-  const dbUser = await upsertUserIdentity({
-    ...user,
-    tokenHash: sha256(token),
-  });
-  await mergeLegacyAccountRowsForUser(dbUser, user);
-  return { token, user: dbUser, userInfo };
+  const tokenHash = sha256(token);
+  return await loadUserIdentityContextForToken(token, tokenHash);
 }
 
 async function ensureDatabase() {

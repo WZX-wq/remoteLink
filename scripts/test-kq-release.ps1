@@ -618,6 +618,24 @@ function Test-KqAndroidRecentDeviceGroups {
     } else {
         Add-Check "android:recent-device-groups-account-api-not-blocked-by-member-api" "FAIL" "account-device/history APIs still depend on the full member context"
     }
+    if ($serverContent -match 'const identityContextCache = new Map\(\)' -and
+        $serverContent -match 'const identityContextInFlight = new Map\(\)' -and
+        $serverContent -match 'identityContextCacheTtlMs' -and
+        $serverContent -match 'function getCachedIdentityContext' -and
+        $serverContent -match 'function cacheIdentityContext') {
+        Add-Check "android:account-device-server-identity-cache" "PASS" "account-device/history APIs reuse recently verified identity instead of hitting api-web on every request"
+    } else {
+        Add-Check "android:account-device-server-identity-cache" "FAIL" "account-device/history APIs can still time out because every request hits api-web for identity"
+    }
+    if ($serverContent -match 'async function loadUserIdentityContextForToken\(token, tokenHash\)' -and
+        $serverContent -match 'identityContextInFlight\.get\(tokenHash\)' -and
+        $serverContent -match 'identityContextInFlight\.set\(tokenHash, refreshPromise\)' -and
+        $serverContent -match 'identityContextInFlight\.delete\(tokenHash\)' -and
+        $serverContent -match "(?s)async function loadUserContext\(req\).*?loadUserIdentityContextForToken\(token, tokenHash\)") {
+        Add-Check "android:account-device-server-identity-inflight-dedupe" "PASS" "simultaneous mobile recent-page requests share one api-web identity lookup"
+    } else {
+        Add-Check "android:account-device-server-identity-inflight-dedupe" "FAIL" "simultaneous mobile recent-page requests can fan out duplicate api-web identity lookups"
+    }
     if ($serverContent -match 'device_key VARCHAR\(128\) NOT NULL' -and
         $serverContent -match 'UNIQUE KEY uniq_user_device_key \(user_id, device_key\)' -and
         $serverContent -match 'ensureAccountDeviceSchema' -and
