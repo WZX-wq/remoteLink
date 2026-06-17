@@ -653,6 +653,17 @@ function Test-KqAndroidRecentDeviceGroups {
     } else {
         Add-Check "android:account-device-server-cleans-legacy-self-row" "FAIL" "server can leave old peer-ID-keyed rows that make the current phone reappear"
     }
+    if ($serverContent -match 'deleteSupersededAccountDeviceRows' -and
+        $serverContent -match 'device_key <> \?' -and
+        $serverContent -match 'LOWER\(device_platform\) = LOWER\(\?\)' -and
+        $serverContent -match 'device_name IN \(\?\)' -and
+        $serverContent -match 'device_hostname IN \(\?\)' -and
+        $serverContent -match 'device_alias IN \(\?\)' -and
+        $serverContent -match 'await deleteSupersededAccountDeviceRows\(user, device\)') {
+        Add-Check "android:account-device-server-cleans-renewed-self-row" "PASS" "server removes old same-phone account-device rows after reinstall/UUID renewal"
+    } else {
+        Add-Check "android:account-device-server-cleans-renewed-self-row" "FAIL" "same phone can remain visible when reinstall or UUID renewal creates a new account-device key"
+    }
     if ($serverContent -match 'data\?\.user_info' -and
         $serverContent -match 'source\?\.nickname' -and
         $serverContent -match 'source\?\.avatar_url') {

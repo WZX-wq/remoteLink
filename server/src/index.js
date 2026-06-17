@@ -1393,6 +1393,17 @@ function normalizeAccountDevice(input) {
   };
 }
 
+function accountDeviceIdentityNames(device) {
+  return [
+    device.name,
+    device.hostname,
+    device.alias,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
 async function savePeerHistory(user, peer) {
   await pool.execute(
     `
@@ -1457,6 +1468,7 @@ async function saveAccountDevice(user, device) {
     ],
   );
   await deleteLegacyAccountDeviceRows(user, device);
+  await deleteSupersededAccountDeviceRows(user, device);
 }
 
 async function deleteLegacyAccountDeviceRows(user, device) {
@@ -1469,6 +1481,27 @@ async function deleteLegacyAccountDeviceRows(user, device) {
         AND device_key <> ?
     `,
     [user.id, device.deviceId, device.deviceKey],
+  );
+}
+
+async function deleteSupersededAccountDeviceRows(user, device) {
+  const platform = String(device.platform || '').trim();
+  const names = accountDeviceIdentityNames(device);
+  if (!platform || !names.length) return;
+
+  await pool.query(
+    `
+      DELETE FROM kq_account_devices
+      WHERE user_id = ?
+        AND device_key <> ?
+        AND LOWER(device_platform) = LOWER(?)
+        AND (
+          device_name IN (?)
+          OR device_hostname IN (?)
+          OR device_alias IN (?)
+        )
+    `,
+    [user.id, device.deviceKey, platform, names, names, names],
   );
 }
 
