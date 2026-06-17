@@ -22,10 +22,12 @@ class Peer {
   String rdpPort;
   String rdpUsername;
   bool online = false;
+  bool onlineStateKnown = false;
   String loginName; //login username
   String device_group_name;
   String note;
   bool? sameServer;
+  String accountDeviceKey;
 
   String getId() {
     if (alias != '') {
@@ -47,10 +49,21 @@ class Peer {
         rdpPort = json['rdpPort'] ?? '',
         rdpUsername = json['rdpUsername'] ?? '',
         online = json['online'] == true || json['online'] == 'true',
+        onlineStateKnown = json['onlineStateKnown'] == true ||
+            json['onlineStateKnown'] == 'true' ||
+            json['online_state_known'] == true ||
+            json['online_state_known'] == 'true' ||
+            json['online'] == true ||
+            json['online'] == 'true',
         loginName = json['loginName'] ?? '',
         device_group_name = json['device_group_name'] ?? '',
         note = json['note'] is String ? json['note'] : '',
-        sameServer = json['same_server'];
+        sameServer = json['same_server'],
+        accountDeviceKey = (json['device_key'] ??
+                json['account_device_key'] ??
+                json['login_device_id'] ??
+                '')
+            .toString();
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
@@ -66,10 +79,12 @@ class Peer {
       "rdpPort": rdpPort,
       "rdpUsername": rdpUsername,
       'online': online,
+      'onlineStateKnown': onlineStateKnown,
       'loginName': loginName,
       'device_group_name': device_group_name,
       'note': note,
       'same_server': sameServer,
+      'device_key': accountDeviceKey,
     };
   }
 
@@ -112,10 +127,12 @@ class Peer {
     required this.rdpPort,
     required this.rdpUsername,
     this.online = false,
+    this.onlineStateKnown = false,
     required this.loginName,
     required this.device_group_name,
     required this.note,
     this.sameServer,
+    this.accountDeviceKey = '',
   });
 
   Peer.loading()
@@ -149,7 +166,8 @@ class Peer {
         rdpUsername == other.rdpUsername &&
         device_group_name == other.device_group_name &&
         loginName == other.loginName &&
-        note == other.note;
+        note == other.note &&
+        accountDeviceKey == other.accountDeviceKey;
   }
 
   Peer.copy(Peer other)
@@ -166,10 +184,12 @@ class Peer {
             rdpPort: other.rdpPort,
             rdpUsername: other.rdpUsername,
             online: other.online,
+            onlineStateKnown: other.onlineStateKnown,
             loginName: other.loginName,
             device_group_name: other.device_group_name,
             note: other.note,
-            sameServer: other.sameServer);
+            sameServer: other.sameServer,
+            accountDeviceKey: other.accountDeviceKey);
 }
 
 String _kqConnectionHistoryType({
@@ -246,6 +266,16 @@ void recordKqConnectionHistory(String id,
   ));
 }
 
+Future<void> deleteKqRecentPeer(String id) async {
+  final peerId = _kqCleanHistoryPeerId(id);
+  if (peerId.isEmpty) {
+    return;
+  }
+  KqProjectApi.markRecentPeerDeleted(peerId);
+  await bind.mainRemovePeer(id: peerId);
+  await KqProjectApi.deleteConnectionHistory(peerId);
+}
+
 enum UpdateEvent { online, load }
 
 typedef GetInitPeers = RxList<Peer> Function();
@@ -261,6 +291,7 @@ class Peers extends ChangeNotifier {
   List<String> restPeerIds = List.empty(growable: true);
   final GetInitPeers? getInitPeers;
   UpdateEvent event = UpdateEvent.load;
+  int loadGeneration = 0;
   static const _cbQueryOnlines = 'callback_query_onlines';
 
   Peers(
@@ -310,13 +341,29 @@ class Peers extends ChangeNotifier {
     for (final peer in peers) {
       final id = kqNormalizePeerId(peer.id);
       if (onlineSet.contains(id)) {
+        var changed = false;
+        if (!peer.onlineStateKnown) {
+          changed = true;
+        }
         if (!peer.online) {
+          changed = true;
+        }
+        if (changed) {
           changedCount += 1;
+          peer.onlineStateKnown = true;
           peer.online = true;
         }
       } else if (offlineSet.contains(id)) {
+        var changed = false;
+        if (!peer.onlineStateKnown) {
+          changed = true;
+        }
         if (peer.online) {
+          changed = true;
+        }
+        if (changed) {
           changedCount += 1;
+          peer.onlineStateKnown = true;
           peer.online = false;
         }
       }
@@ -351,10 +398,12 @@ class Peers extends ChangeNotifier {
     for (var peer in peers) {
       final state = onlineStates[kqNormalizePeerId(peer.id)];
       if (state != null) {
+        peer.onlineStateKnown = true;
         peer.online = state;
       }
     }
     event = UpdateEvent.load;
+    loadGeneration += 1;
     notifyListeners();
     if (loadEvent == 'load_recent_peers') {
       unawaited(_syncRecentPeersWithDatabase());
@@ -364,19 +413,6 @@ class Peers extends ChangeNotifier {
   Future<void> _syncRecentPeersWithDatabase() async {
     final localPeers = peers.map((peer) => Peer.copy(peer)).toList();
     await KqProjectApi.syncRecentPeers(localPeers);
-    final remotePeers = await KqProjectApi.fetchConnectionHistory();
-    if (remotePeers.isEmpty) return;
-    final onlineStates = _getOnlineStates();
-    for (final peer in remotePeers) {
-      final state = onlineStates[kqNormalizePeerId(peer.id)];
-      if (state != null) {
-        peer.online = state;
-      }
-    }
-    peers = remotePeers;
-    restPeerIds = [];
-    event = UpdateEvent.load;
-    notifyListeners();
   }
 
   Map<String, bool> _getOnlineStates() {
@@ -384,7 +420,9 @@ class Peers extends ChangeNotifier {
     for (var peer in peers) {
       final id = kqNormalizePeerId(peer.id);
       if (id.isNotEmpty) {
-        onlineStates[id] = peer.online;
+        if (peer.onlineStateKnown) {
+          onlineStates[id] = peer.online;
+        }
       }
     }
     return onlineStates;
