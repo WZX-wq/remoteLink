@@ -104,7 +104,7 @@ prepare_android_signing() {
   mkdir -p "$(dirname "${keystore_path}")"
   printf '%s' "${keystore_b64}" | base64 --decode > "${keystore_path}"
   cat > "${key_properties_path}" <<EOF
-storeFile=kq-release.keystore
+storeFile=../kq-release.keystore
 storePassword=${keystore_password}
 keyAlias=${key_alias}
 keyPassword=${key_password}

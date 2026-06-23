@@ -2414,6 +2414,7 @@ Test-KqAndroidMobileSettingsNo2FA
     Test-SourceContains ".\.gitea\workflows\android-build.yml" 'KQ_ANDROID_EXPECTED_CERT_MD5: "037ec2069ddb32f065626cbb2b17dba9"' "android:release-signing-expected-md5"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" "prepare_android_signing()" "android:release-signing-setup-helper"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" "KQ_ANDROID_KEYSTORE_BASE64" "android:release-signing-secret-env"
+    Test-SourceContains ".\scripts\ci\android-build-step.sh" "storeFile=../kq-release.keystore" "android:release-signing-storefile-relative-to-app"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" "KQ Android release signing cert MD5" "android:release-signing-md5-verify"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" 'CI_ARTIFACT_DIR="$(make_absolute_path' "android:ci-artifact-dir-absolute"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" 'export PUB_CACHE="${PUB_CACHE:-${CI_ARTIFACT_DIR}/pub-cache}"' "android:flutter-pub-isolated-cache"
