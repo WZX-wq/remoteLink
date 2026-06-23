@@ -19,7 +19,7 @@ class RecentConnectionsPage extends StatelessWidget implements PageShape {
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: EdgeInsets.fromLTRB(16, 10, 16, 18),
       child: PeerTabPage(),
     );
   }

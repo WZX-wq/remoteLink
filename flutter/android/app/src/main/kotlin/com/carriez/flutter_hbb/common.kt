@@ -18,10 +18,14 @@ import android.provider.Settings.*
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import android.app.Activity
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat.getSystemService
+import com.alipay.sdk.app.PayTask
 import com.hjq.permissions.Permission
 import com.hjq.permissions.XXPermissions
+import com.tencent.mm.opensdk.modelpay.PayReq
+import com.tencent.mm.opensdk.openapi.WXAPIFactory
 import ffi.FFI
 import java.nio.ByteBuffer
 import java.util.*
@@ -48,12 +52,17 @@ const val GET_START_ON_BOOT_OPT = "get_start_on_boot_opt"
 const val SET_START_ON_BOOT_OPT = "set_start_on_boot_opt"
 const val SYNC_APP_DIR_CONFIG_PATH = "sync_app_dir"
 const val GET_VALUE = "get_value"
+const val OPEN_PAYMENT_URI = "open_payment_uri"
+const val OPEN_WECHAT_PAY = "open_wechat_pay"
+const val OPEN_ALIPAY_ORDER = "open_alipay_order"
+const val OPEN_ALIPAY_HTML = "open_alipay_html"
 
 const val KEY_IS_SUPPORT_VOICE_CALL = "KEY_IS_SUPPORT_VOICE_CALL"
 
 const val KEY_SHARED_PREFERENCES = "KEY_SHARED_PREFERENCES"
 const val KEY_START_ON_BOOT_OPT = "KEY_START_ON_BOOT_OPT"
 const val KEY_APP_DIR_CONFIG_PATH = "KEY_APP_DIR_CONFIG_PATH"
+const val KEY_WECHAT_PAY_APP_ID = "KEY_WECHAT_PAY_APP_ID"
 
 @SuppressLint("ConstantLocale")
 val LOCAL_NAME = Locale.getDefault().toString()
@@ -94,6 +103,110 @@ fun startAction(context: Context, action: String) {
         })
     } catch (e: Exception) {
         e.printStackTrace()
+    }
+}
+
+fun openPaymentUri(context: Context, uri: String): Boolean {
+    return try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (uri.startsWith("weixin://", true)) {
+                setPackage("com.tencent.mm")
+            } else if (uri.startsWith("alipays://", true) || uri.startsWith("alipayqr://", true)) {
+                setPackage("com.eg.android.AlipayGphone")
+            }
+        })
+        true
+    } catch (e: Exception) {
+        Log.e("common", "Failed to open payment uri: ${e.message}", e)
+        false
+    }
+}
+
+private fun mapStringArg(args: Map<*, *>, key: String): String {
+    return args[key]?.toString()?.trim() ?: ""
+}
+
+fun openWechatPay(activity: Activity, args: Map<*, *>): Map<String, Any> {
+    val appId = mapStringArg(args, "appId")
+    val partnerId = mapStringArg(args, "partnerId")
+    val prepayId = mapStringArg(args, "prepayId")
+    val packageValue = mapStringArg(args, "packageValue").ifEmpty { "Sign=WXPay" }
+    val nonceStr = mapStringArg(args, "nonceStr")
+    val timeStamp = mapStringArg(args, "timeStamp")
+    val sign = mapStringArg(args, "sign")
+
+    if (appId.isEmpty() || partnerId.isEmpty() || prepayId.isEmpty() ||
+        packageValue.isEmpty() || nonceStr.isEmpty() || timeStamp.isEmpty() || sign.isEmpty()
+    ) {
+        return mapOf(
+            "opened" to false,
+            "error" to "Missing WeChat Pay request parameter"
+        )
+    }
+
+    return try {
+        activity.getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_WECHAT_PAY_APP_ID, appId)
+            .apply()
+        val api = WXAPIFactory.createWXAPI(activity, appId, false)
+        api.registerApp(appId)
+        if (!api.isWXAppInstalled) {
+            return mapOf(
+                "opened" to false,
+                "error" to "WeChat is not installed"
+            )
+        }
+        val request = PayReq().apply {
+            this.appId = appId
+            this.partnerId = partnerId
+            this.prepayId = prepayId
+            this.packageValue = packageValue
+            this.nonceStr = nonceStr
+            this.timeStamp = timeStamp
+            this.sign = sign
+        }
+        val opened = api.sendReq(request)
+        mapOf(
+            "opened" to opened,
+            "error" to if (opened) "" else "WeChat OpenSDK sendReq returned false"
+        )
+    } catch (e: Exception) {
+        Log.e("common", "Failed to open WeChat Pay: ${e.message}", e)
+        mapOf(
+            "opened" to false,
+            "error" to (e.message ?: "WeChat Pay SDK launch failed")
+        )
+    }
+}
+
+fun openAlipayOrder(activity: Activity, orderInfo: String): Map<String, String> {
+    return try {
+        val result = PayTask(activity).payV2(orderInfo, true)
+        Log.d("common", "Alipay payV2 resultStatus=${result["resultStatus"]}, memo=${result["memo"]}")
+        result.mapValues { it.value?.toString() ?: "" }
+    } catch (e: Exception) {
+        Log.e("common", "Failed to open Alipay order: ${e.message}", e)
+        mapOf(
+            "resultStatus" to "",
+            "memo" to (e.message ?: "Alipay SDK launch failed"),
+            "result" to ""
+        )
+    }
+}
+
+fun openAlipayHtmlCheckout(context: Context, html: String): Boolean {
+    if (html.isBlank()) return false
+    return try {
+        context.startActivity(Intent(context, AlipayCheckoutActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(EXTRA_ALIPAY_HTML, html)
+        })
+        true
+    } catch (e: Exception) {
+        Log.e("common", "Failed to open Alipay HTML checkout: ${e.message}", e)
+        false
     }
 }
 

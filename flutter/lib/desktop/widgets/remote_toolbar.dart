@@ -1556,14 +1556,24 @@ class _DisplayMenuState extends State<_DisplayMenu> {
           return _SubmenuButton(
             ffi: widget.ffi,
             child: Text(translate('Image Quality')),
-            menuChildren: v
-                .map((e) => RdoMenuButton<String>(
-                    value: e.value,
-                    groupValue: e.groupValue,
-                    onChanged: e.onChanged,
-                    child: e.child,
-                    ffi: ffi))
-                .toList(),
+            menuChildren: v.map((e) {
+              final isSelectedCustom = e.value == kRemoteImageQualityCustom &&
+                  e.groupValue == kRemoteImageQualityCustom;
+              if (isSelectedCustom) {
+                return _CustomImageQualityMenuButton(
+                  ffi: ffi,
+                  child: e.child,
+                  onPressed: () =>
+                      customImageQualityDialog(ffi.sessionId, id, ffi),
+                );
+              }
+              return RdoMenuButton<String>(
+                  value: e.value,
+                  groupValue: e.groupValue,
+                  onChanged: e.onChanged,
+                  child: e.child,
+                  ffi: ffi);
+            }).toList(),
           );
         });
   }
@@ -2893,6 +2903,30 @@ class RdoMenuButton<T> extends StatelessWidget {
               onChanged?.call(value);
             }
           : null,
+    );
+  }
+}
+
+class _CustomImageQualityMenuButton extends StatelessWidget {
+  final FFI ffi;
+  final Widget child;
+  final VoidCallback onPressed;
+
+  const _CustomImageQualityMenuButton({
+    required this.ffi,
+    required this.child,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MenuItemButton(
+      leadingIcon: const Icon(Icons.radio_button_checked_rounded),
+      onPressed: () {
+        _menuDismissCallback(ffi);
+        onPressed();
+      },
+      child: child,
     );
   }
 }

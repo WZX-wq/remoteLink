@@ -27,10 +27,11 @@ bool? hideUsernameOnCard;
 
 const _kqCardOnline = Color(0xFF16A77A);
 const _kqCardOffline = Color(0xFFD65B68);
+const _kqCardUnknown = Color(0xFF2F8FD7);
 const _kqFavoriteGold = Color(0xFFFFB020);
 
 String _kqPeerCardText(String key) {
-  if (!localeName.toString().toLowerCase().startsWith('zh')) {
+  if (!kqUiPrefersChinese()) {
     return translate(key);
   }
   switch (key) {
@@ -38,10 +39,15 @@ String _kqPeerCardText(String key) {
       return '在线';
     case 'Offline':
       return '离线';
+    case 'Checking':
+      return '检测中';
     default:
       return translate(key);
   }
 }
+
+String _kqPeerStatusText(bool online) =>
+    _kqPeerCardText(online ? 'Online' : 'Offline');
 
 class _PeerCard extends StatefulWidget {
   final Peer peer;
@@ -130,7 +136,9 @@ class _PeerCardState extends State<_PeerCard>
         : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
     final displayName = name.trim().isEmpty ? peer.platform : name.trim();
     final title = peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
-    final statusColor = peer.online ? _kqCardOnline : _kqCardOffline;
+    final statusColor = peer.onlineStateKnown
+        ? (peer.online ? _kqCardOnline : _kqCardOffline)
+        : _kqCardUnknown;
     final colors = _frontN(peer.tags, 25)
         .map((e) => gFFI.abModel.getCurrentAbTagColor(e))
         .toList();
@@ -290,9 +298,9 @@ class _PeerCardState extends State<_PeerCard>
                                     ),
                                   Expanded(
                                     child: Text(
-                                      peer.online
-                                          ? _kqPeerCardText('Online')
-                                          : _kqPeerCardText('Offline'),
+                                      peer.onlineStateKnown
+                                          ? _kqPeerStatusText(peer.online)
+                                          : _kqPeerCardText('Checking'),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
@@ -419,7 +427,7 @@ class _PeerCardState extends State<_PeerCard>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  getOnline(7, peer.online),
+                  getOnline(7, peer.online, known: peer.onlineStateKnown),
                   Expanded(
                     child: Text(
                       title,
@@ -632,7 +640,7 @@ class _PeerCardState extends State<_PeerCard>
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _StatusPill(online: peer.online),
+                _StatusPill(online: peer.online, known: peer.onlineStateKnown),
                 const SizedBox(height: 4),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1045,7 +1053,7 @@ abstract class BasePeerCard extends StatelessWidget {
         onSubmit() async {
           switch (tab) {
             case PeerTabIndex.recent:
-              await bind.mainRemovePeer(id: id);
+              await deleteKqRecentPeer(id);
               bind.mainLoadRecentPeers();
               break;
             case PeerTabIndex.fav:
@@ -1519,13 +1527,16 @@ class MyGroupPeerCard extends BasePeerCard {
 
 class _StatusPill extends StatelessWidget {
   final bool online;
+  final bool known;
 
-  const _StatusPill({required this.online});
+  const _StatusPill({required this.online, required this.known});
 
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
-    final color = online ? q.online : q.offline;
+    final color = known ? (online ? q.online : q.offline) : q.primary;
+    final text =
+        known ? _kqPeerStatusText(online) : _kqPeerCardText('Checking');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
@@ -1546,7 +1557,7 @@ class _StatusPill extends StatelessWidget {
           ),
           const SizedBox(width: 5),
           Text(
-            translate(online ? 'Online' : 'Offline'),
+            text,
             style: TextStyle(
               color: color,
               fontSize: 11,
@@ -1693,15 +1704,16 @@ class _KqDesktopPreviewPainter extends CustomPainter {
   }
 }
 
-Widget getOnline(double rightPadding, bool online) {
+Widget getOnline(double rightPadding, bool online, {bool known = true}) {
+  final color =
+      known ? (online ? _kqCardOnline : _kqCardOffline) : _kqCardUnknown;
+  final text = known ? _kqPeerStatusText(online) : _kqPeerCardText('Checking');
   return Tooltip(
-      message: translate(online ? 'Online' : 'Offline'),
+      message: text,
       waitDuration: const Duration(seconds: 1),
       child: Padding(
           padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
-          child: CircleAvatar(
-              radius: 3,
-              backgroundColor: online ? _kqCardOnline : _kqCardOffline)));
+          child: CircleAvatar(radius: 3, backgroundColor: color)));
 }
 
 Widget build_more(BuildContext context, {bool invert = false}) {

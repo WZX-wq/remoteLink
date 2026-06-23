@@ -87,6 +87,28 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     gFFI.dialogManager.loadMobileActionsOverlayVisible();
   }
 
+  bool get _shouldUseDesktopPeerLandscapeFullscreen {
+    if (!isMobile) {
+      return false;
+    }
+    final platform = gFFI.ffiModel.pi.platform;
+    return platform == kPeerPlatformWindows ||
+        platform == kPeerPlatformMacOS ||
+        platform == kPeerPlatformLinux;
+  }
+
+  Future<void> _applyDesktopPeerLandscapeFullscreen() async {
+    if (!_shouldUseDesktopPeerLandscapeFullscreen) {
+      return;
+    }
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: []);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -111,7 +133,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     gFFI.chatModel
         .changeCurrentKey(MessageKey(widget.id, ChatModel.clientModeID));
     _blockableOverlayState.applyFfi(gFFI);
-    gFFI.imageModel.addCallbackOnFirstImage((String peerId) {
+    gFFI.imageModel.addCallbackOnFirstImage((String peerId) async {
+      await _applyDesktopPeerLandscapeFullscreen();
       gFFI.recordingModel
           .updateStatus(bind.sessionGetIsRecording(sessionId: gFFI.sessionId));
       if (gFFI.recordingModel.start) {
@@ -141,6 +164,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     gFFI.dialogManager.dismissAll();
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
+    await SystemChrome.setPreferredOrientations([]);
     WakelockManager.disable(_uniqueKey);
     await keyboardSubscription.cancel();
     removeSharedStates(widget.id);
@@ -342,11 +366,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _bottomWidget() => _showGestureHelp
-      ? getGestureHelp()
-      : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
-          ? getBottomAppBar()
-          : Offstage());
+  Widget _bottomWidget() => _showGestureHelp ? getGestureHelp() : Offstage();
 
   @override
   Widget build(BuildContext context) {
@@ -457,102 +477,103 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget getBottomAppBar() {
+  Widget _remoteSideActionRail() {
     final ffiModel = Provider.of<FfiModel>(context);
-    return BottomAppBar(
-      elevation: 10,
-      color: MyTheme.accent,
-      child: Row(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: <Widget>[
-          Row(
-              children: <Widget>[
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.clear),
-                      onPressed: () {
-                        clientClose(sessionId, gFFI);
-                      },
-                    ),
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.tv),
-                      onPressed: () {
-                        setState(() => _showEdit = false);
-                        showOptions(context, widget.id, gFFI.dialogManager);
-                      },
-                    )
-                  ] +
-                  (isWebDesktop || ffiModel.viewOnly || !ffiModel.keyboard
-                      ? []
-                      : gFFI.ffiModel.isPeerAndroid
-                          ? [
-                              IconButton(
-                                  color: Colors.white,
-                                  icon: Icon(Icons.keyboard),
-                                  onPressed: openKeyboard),
-                              IconButton(
-                                color: Colors.white,
-                                icon: const Icon(Icons.build),
-                                onPressed: () => gFFI.dialogManager
-                                    .toggleMobileActionsOverlay(ffi: gFFI),
-                              )
-                            ]
-                          : [
-                              IconButton(
-                                  color: Colors.white,
-                                  icon: Icon(Icons.keyboard),
-                                  onPressed: openKeyboard),
-                              IconButton(
-                                color: Colors.white,
-                                icon: Icon(gFFI.ffiModel.touchMode
-                                    ? Icons.touch_app
-                                    : Icons.mouse),
-                                onPressed: () => setState(
-                                    () => _showGestureHelp = !_showGestureHelp),
-                              ),
-                            ]) +
-                  (isWeb
-                      ? []
-                      : <Widget>[
-                          futureBuilder(
-                              future: gFFI.invokeMethod(
-                                  "get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
-                              hasData: (isSupportVoiceCall) {
-                                final showVoiceCall =
-                                    isAndroid && isSupportVoiceCall;
-                                if (!showVoiceCall) {
-                                  return const SizedBox.shrink();
-                                }
-                                return IconButton(
-                                  color: Colors.white,
-                                  icon: const Icon(Icons.call_rounded),
-                                  onPressed: () => showChatOptions(widget.id),
-                                );
-                              })
-                        ]) +
-                  [
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.more_vert),
-                      onPressed: () {
-                        setState(() => _showEdit = false);
-                        showActions(widget.id);
-                      },
-                    ),
-                  ]),
-          Obx(() => IconButton(
-                color: Colors.white,
-                icon: Icon(Icons.expand_more),
-                onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
-                    ? null
-                    : () {
-                        setState(() => _showBar = !_showBar);
-                      },
-              )),
-        ],
+    final keyboardIsVisible =
+        keyboardVisibilityController.isVisible && _showEdit;
+    if (!_showBar ||
+        keyboardIsVisible ||
+        _showGestureHelp ||
+        gFFI.ffiModel.pi.displays.isEmpty) {
+      return const Offstage();
+    }
+
+    final controls = <Widget>[
+      _remoteSideActionButton(
+        icon: Icons.clear,
+        onPressed: () => clientClose(sessionId, gFFI),
       ),
+      _remoteSideActionButton(
+        icon: Icons.tv,
+        onPressed: () {
+          setState(() => _showEdit = false);
+          showOptions(context, widget.id, gFFI.dialogManager);
+        },
+      ),
+      if (!isWebDesktop && !ffiModel.viewOnly && ffiModel.keyboard) ...[
+        _remoteSideActionButton(
+          icon: Icons.keyboard,
+          onPressed: openKeyboard,
+        ),
+        if (gFFI.ffiModel.isPeerAndroid)
+          _remoteSideActionButton(
+            icon: Icons.build,
+            onPressed: () =>
+                gFFI.dialogManager.toggleMobileActionsOverlay(ffi: gFFI),
+          )
+        else
+          _remoteSideActionButton(
+            icon: gFFI.ffiModel.touchMode ? Icons.touch_app : Icons.mouse,
+            onPressed: () =>
+                setState(() => _showGestureHelp = !_showGestureHelp),
+          ),
+      ],
+      if (!isWeb)
+        futureBuilder(
+          future: gFFI.invokeMethod("get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
+          hasData: (isSupportVoiceCall) {
+            final showVoiceCall = isAndroid && isSupportVoiceCall;
+            if (!showVoiceCall) {
+              return const SizedBox.shrink();
+            }
+            return _remoteSideActionButton(
+              icon: Icons.call_rounded,
+              onPressed: () => showChatOptions(widget.id),
+            );
+          },
+        ),
+      _remoteSideActionButton(
+        icon: Icons.more_vert,
+        onPressed: () {
+          setState(() => _showEdit = false);
+          showActions(widget.id);
+        },
+      ),
+      Obx(() => _remoteSideActionButton(
+            icon: Icons.chevron_right,
+            onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
+                ? null
+                : () => setState(() => _showBar = !_showBar),
+          )),
+    ];
+
+    return Positioned(
+      right: 12,
+      top: MediaQuery.of(context).padding.top + 24,
+      child: Material(
+        color: const Color(0xCC202124),
+        borderRadius: BorderRadius.circular(24),
+        elevation: 6,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: controls,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _remoteSideActionButton({
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return IconButton(
+      color: Colors.white,
+      disabledColor: Colors.white38,
+      icon: Icon(icon),
+      onPressed: onPressed,
     );
   }
 
@@ -619,6 +640,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               ffi: gFFI,
             ));
           }
+          paints.add(_remoteSideActionRail());
           return paints;
         }()));
   }
@@ -677,7 +699,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     final x = 120.0;
     final y = size.height;
     final mobileActionMenus = _getMobileActionMenus();
-    final menus = toolbarControls(context, id, gFFI);
+    final menus = toolbarControls(context, id, gFFI, includeFingerprint: false);
 
     final List<PopupMenuEntry<int>> more = [
       ...mobileActionMenus
@@ -1209,16 +1231,25 @@ void showOptions(
           : const SizedBox.shrink()),
       const Divider(color: MyTheme.border),
       for (var e in imageQualityRadios)
-        Obx(() => getRadio<String>(
-            e.child,
-            e.value,
-            imageQuality.value,
-            e.onChanged != null
-                ? (v) {
-                    e.onChanged?.call(v);
-                    if (v != null) imageQuality.value = v;
-                  }
-                : null)),
+        Obx(() {
+          final selectedCustom = e.value == kRemoteImageQualityCustom &&
+              imageQuality.value == kRemoteImageQualityCustom;
+          return getRadio<String>(
+              e.child,
+              e.value,
+              imageQuality.value,
+              e.onChanged != null
+                  ? (v) {
+                      if (v == null && selectedCustom) {
+                        e.onChanged?.call(e.value);
+                        return;
+                      }
+                      e.onChanged?.call(v);
+                      if (v != null) imageQuality.value = v;
+                    }
+                  : null,
+              toggleable: selectedCustom);
+        }),
       const Divider(color: MyTheme.border),
       for (var e in codecRadios)
         Obx(() => getRadio<String>(

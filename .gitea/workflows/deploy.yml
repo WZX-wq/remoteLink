@@ -93,4 +93,9 @@ jobs:
           KQ_DB_USER: ${{ secrets.KQ_DB_USER }}
           KQ_DB_PASSWORD: ${{ secrets.KQ_DB_PASSWORD }}
           KQ_DB_NAME: ${{ secrets.KQ_DB_NAME }}
+          KQ_ALIPAY_APP_ID: ${{ secrets.KQ_ALIPAY_APP_ID }}
+          KQ_ALIPAY_PRIVATE_KEY: ${{ secrets.KQ_ALIPAY_PRIVATE_KEY }}
+          KQ_ALIPAY_PUBLIC_KEY: ${{ secrets.KQ_ALIPAY_PUBLIC_KEY }}
+          KQ_ALIPAY_NOTIFY_URL: ${{ secrets.KQ_ALIPAY_NOTIFY_URL }}
+          KQ_ALIPAY_GATEWAY_URL: ${{ secrets.KQ_ALIPAY_GATEWAY_URL }}
         run: bash scripts/deploy/deploy.sh

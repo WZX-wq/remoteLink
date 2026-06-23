@@ -304,15 +304,41 @@ function Test-KqAndroidMobilePasswordKinds {
 
 function Test-KqAndroidMobilePaymentMethod {
     $path = ".\flutter\lib\mobile\pages\account_page.dart"
-    if (-not (Test-Path $path)) {
-        Add-Check "android:mobile-payment-method-source" "SKIP" "Source file not available: $path"
+    $modelPath = ".\flutter\lib\models\user_model.dart"
+    $serverPath = ".\server\src\index.js"
+    $manifestPath = ".\flutter\android\app\src\main\AndroidManifest.xml"
+    $constsPath = ".\flutter\lib\consts.dart"
+    $commonKtPath = ".\flutter\android\app\src\main\kotlin\com\carriez\flutter_hbb\common.kt"
+    $activityPath = ".\flutter\android\app\src\main\kotlin\com\carriez\flutter_hbb\MainActivity.kt"
+    $checkoutActivityPath = ".\flutter\android\app\src\main\kotlin\com\carriez\flutter_hbb\AlipayCheckoutActivity.kt"
+    $gradlePath = ".\flutter\android\app\build.gradle"
+    $deployScriptPath = ".\deploy\deploy-rustdesk-server.sh"
+    $composePath = ".\deploy\rustdesk-server.compose.yml"
+    $deployWorkflowPath = ".\.gitea\workflows\deploy.yml"
+    $deployRustdeskWorkflowPath = ".\.gitea\workflows\deploy-rustdesk-server.yml"
+    $alipayPath = ".\server\src\alipay.js"
+    if (-not (Test-Path $path) -or -not (Test-Path $modelPath) -or -not (Test-Path $serverPath) -or -not (Test-Path $manifestPath) -or -not (Test-Path $constsPath) -or -not (Test-Path $commonKtPath) -or -not (Test-Path $activityPath) -or -not (Test-Path $gradlePath) -or -not (Test-Path $checkoutActivityPath)) {
+        Add-Check "android:mobile-payment-method-source" "SKIP" "Source files not available"
         return
     }
     $content = Get-Content $path -Raw -Encoding UTF8
+    $model = Get-Content $modelPath -Raw -Encoding UTF8
+    $server = Get-Content $serverPath -Raw -Encoding UTF8
+    $manifest = Get-Content $manifestPath -Raw -Encoding UTF8
+    $consts = Get-Content $constsPath -Raw -Encoding UTF8
+    $commonKt = Get-Content $commonKtPath -Raw -Encoding UTF8
+    $activity = Get-Content $activityPath -Raw -Encoding UTF8
+    $checkoutActivity = Get-Content $checkoutActivityPath -Raw -Encoding UTF8
+    $gradle = Get-Content $gradlePath -Raw -Encoding UTF8
+    $deployScript = if (Test-Path $deployScriptPath) { Get-Content $deployScriptPath -Raw -Encoding UTF8 } else { "" }
+    $compose = if (Test-Path $composePath) { Get-Content $composePath -Raw -Encoding UTF8 } else { "" }
+    $deployWorkflow = if (Test-Path $deployWorkflowPath) { Get-Content $deployWorkflowPath -Raw -Encoding UTF8 } else { "" }
+    $deployRustdeskWorkflow = if (Test-Path $deployRustdeskWorkflowPath) { Get-Content $deployRustdeskWorkflowPath -Raw -Encoding UTF8 } else { "" }
+    $alipay = if (Test-Path $alipayPath) { Get-Content $alipayPath -Raw -Encoding UTF8 } else { "" }
 
     if ($content -match 'var payType = 1;' -and
         $content -match "translate\('Payment method'\)" -and
-        $content -match "translate\('WeChat QR'\)" -and
+        $content -match "translate\('WeChat Pay'\)" -and
         $content -match "translate\('Alipay'\)" -and
         $content -match 'ChoiceChip') {
         Add-Check "android:mobile-payment-method-selector" "PASS" "mobile membership sheet lets users choose WeChat or Alipay"
@@ -325,21 +351,375 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-method-order-param" "FAIL" "mobile membership order still hard-codes payType"
     }
-    if ($content -match 'openAlipayCheckout\(KqMemberOrder order\)' -and
-        $content -match 'order\.alipaySubmitHtml\.trim\(\)' -and
-        $content -match 'final uri = Uri\.dataFromString' -and
-        $content -match 'launchUrl\(uri, mode: LaunchMode\.externalApplication\)' -and
-        $content -match 'payType == 2') {
-        Add-Check "android:mobile-payment-method-alipay-open" "PASS" "mobile Alipay orders open the cashier page"
+    if ($content -match "_mineText\('Pay now'\)" -and
+        $content -match 'Icons\.payments_rounded' -and
+        $content -notmatch "translate\('Create payment order'\)") {
+        Add-Check "android:mobile-payment-pay-now-button" "PASS" "mobile membership primary action says pay now"
     } else {
-        Add-Check "android:mobile-payment-method-alipay-open" "FAIL" "mobile Alipay checkout is not handled"
+        Add-Check "android:mobile-payment-pay-now-button" "FAIL" "mobile membership primary action still looks like order generation"
     }
-    if ($content -match 'statusText = payType == 1' -and
-        $content -match "translate\('Scan with WeChat to pay'\)" -and
-        $content -match "translate\('Alipay cashier opened'\)") {
+    if ($content -match "_mineText\('Opening payment app\.\.\.'\)" -and
+        $content -match "ValueKey\('payment-loading'\)" -and
+        $content -match 'AnimatedSwitcher' -and
+        $content -match 'CircularProgressIndicator' -and
+        $content -match 'creatingOrder') {
+        Add-Check "android:mobile-payment-launch-loading" "PASS" "mobile membership payment shows a loading animation while launching the payment app"
+    } else {
+        Add-Check "android:mobile-payment-launch-loading" "FAIL" "mobile membership payment lacks a visible launch loading animation"
+    }
+    if ($server -match 'function normalizeMemberOrderPaymentLinks\(order\)' -and
+        $server -match 'wechat_app_url' -and
+        $server -match 'alipay_app_url' -and
+        $server -match 'payment_app_url' -and
+        $server -match 'normalizeMemberOrderPaymentLinks\(order\)') {
+        Add-Check "android:mobile-payment-server-normalized-app-links" "PASS" "project API normalizes payment app links"
+    } else {
+        Add-Check "android:mobile-payment-server-normalized-app-links" "FAIL" "project API does not expose normalized payment app links"
+    }
+    if ($model -match 'final String wechatAppUrl;' -and
+        $model -match 'final String alipayAppUrl;' -and
+        $model -match 'final String paymentAppUrl;' -and
+        $model -match "rawWechatAppUrl\s*=\s*_kqFirstString\(json, \[" -and
+        $model -match "wechatAppUrl:\s*kqWechatPaymentLaunchUrlFromText\(rawWechatAppUrl\)" -and
+        $model -match "alipayAppUrl: _kqFirstString\(json, \[") {
+        Add-Check "android:mobile-payment-model-app-links" "PASS" "member order model parses payment app links"
+    } else {
+        Add-Check "android:mobile-payment-model-app-links" "FAIL" "member order model does not parse payment app links"
+    }
+    if ($server -match 'function normalizeWechatAppPayRequest\(value\)' -and
+        $server -match 'wechat_app_pay' -and
+        $model -match 'class KqWechatAppPayRequest' -and
+        $model -match 'kqWechatAppPayRequestFromValue\(json\)' -and
+        $content -match 'Future<bool> openWechatPaymentApp\(KqMemberOrder order\)' -and
+        $content -match 'AndroidChannel\.kOpenWechatPay') {
+        Add-Check "android:mobile-payment-wechat-app-pay-params" "PASS" "WeChat App Pay parameters are normalized, parsed, and sent to Android OpenSDK"
+    } else {
+        Add-Check "android:mobile-payment-wechat-app-pay-params" "FAIL" "WeChat App Pay parameters are not wired through to Android OpenSDK"
+    }
+    if ($server -match 'function getWechatPayConfig\(\)' -and
+        $server -match 'function createWechatAppMemberOrder' -and
+        $server -match '/v3/pay/transactions/app' -and
+        $server -match 'function buildWechatAppPayRequest' -and
+        $server -match 'Sign=WXPay' -and
+        $server -match 'function queryWechatAppOrderStatus' -and
+        $server -match 'out-trade-no' -and
+        $server -match 'function markProjectMemberOrderPaid' -and
+        $server -match 'KQ_WECHAT_PAY_NOTIFY_URL or KQ_PUBLIC_API_URL is required for WeChat APP Pay' -and
+        $model -match "'client_platform': isAndroid \? 'android' : 'desktop'" -and
+        $server -match "clientPlatform === 'android'" -and
+        $server -match 'KQ_WECHAT_PAY_APPID' -and
+        $server -match 'KQ_WECHAT_PAY_MCHID' -and
+        $server -match 'KQ_WECHAT_PAY_PRIVATE_KEY') {
+        Add-Check "android:mobile-payment-wechat-server-app-pay" "PASS" "project API can create and confirm WeChat APP Pay orders when merchant credentials are configured"
+    } else {
+        Add-Check "android:mobile-payment-wechat-server-app-pay" "FAIL" "project API still depends on web/QR order payloads instead of creating WeChat APP Pay orders"
+    }
+    if ($deployScript -match 'KQ_WECHAT_PAY_ENV_NAMES' -and
+        $deployScript -match 'print_optional_wechat_pay_env' -and
+        $deployScript -match 'merge_optional_wechat_pay_env' -and
+        $deployScript -match 'KQ_WECHAT_PAY_PRIVATE_KEY_PATH' -and
+        $deployScript -match 'KQ_WECHAT_PAY_API_V3_KEY' -and
+        $deployScript -match 'KQ_WECHAT_PAY_NOTIFY_URL' -and
+        $compose -match 'KQ_WECHAT_PAY_APPID' -and
+        $compose -match 'KQ_WECHAT_PAY_MCHID' -and
+        $compose -match 'KQ_WECHAT_PAY_PRIVATE_KEY' -and
+        $compose -match 'KQ_WECHAT_PAY_API_V3_KEY') {
+        Add-Check "android:mobile-payment-wechat-deploy-env" "PASS" "deployment preserves WeChat APP Pay merchant configuration for the project API"
+    } else {
+        Add-Check "android:mobile-payment-wechat-deploy-env" "FAIL" "deployment can drop WeChat APP Pay merchant configuration"
+    }
+    if ($manifest -match '<data android:scheme="weixin" />' -and
+        $manifest -match '<data android:scheme="alipays" />' -and
+        $manifest -match '<data android:scheme="alipayqr" />' -and
+        $manifest -match '<package android:name="com.tencent.mm" />' -and
+        $manifest -match '<package android:name="com.eg.android.AlipayGphone" />') {
+        Add-Check "android:mobile-payment-app-query-schemes" "PASS" "Android manifest can query WeChat and Alipay payment schemes"
+    } else {
+        Add-Check "android:mobile-payment-app-query-schemes" "FAIL" "Android manifest does not declare payment app schemes"
+    }
+    if ($model -match 'if\s*\(selectedPayType == 1\)\s*kqWechatPaymentLaunchUrlFromText\(codeUrl\)' -and
+        $model -match 'String\?\s+kqWechatPaymentLaunchUrlFromText\(String value\)' -and
+        $content -match 'order\.appLaunchUrlsForPayType\(1\)' -and
+        $content -match 'openPaymentUri\(uri\)') {
+        Add-Check "android:mobile-payment-wechat-code-url-launch" "PASS" "WeChat payment launches code_url app links before QR fallback"
+    } else {
+        Add-Check "android:mobile-payment-wechat-code-url-launch" "FAIL" "WeChat payment code_url can still be rendered only as a QR code"
+    }
+    if ($server -match 'function normalizeMemberOrderPaymentLinks\(order\)' -and
+        $server -notmatch 'wx\.tenpay\.com' -and
+        $server -notmatch "lower\.includes\(''wechat''\)" -and
+        $server -match 'lower\.startsWith\(''weixin://''\)' -and
+        $model -match 'bool\s+_kqIsWeixinUrl\(String lower\)\s*=>\s*lower\.startsWith\(''weixin://''\)' -and
+        $model -match 'kqWechatPaymentLaunchUrlFromText\(wechatAppUrl\)') {
+        Add-Check "android:mobile-payment-wechat-no-web-url-app-link" "PASS" "WeChat web payment URLs are not exposed as native app links"
+    } else {
+        Add-Check "android:mobile-payment-wechat-no-web-url-app-link" "FAIL" "WeChat web payment URLs can be mistaken for native app links"
+    }
+    if ($model -match 'String\?\s+kqPaymentQrPayloadFromImageBytes\(List<int> bytes\)' -and
+        $model -match 'QRCodeReader\(\)\.decode\(bitmap\)\.text' -and
+        $content -match 'wechatLaunchUrlFromQrImage\(KqMemberOrder order\)' -and
+        $content -match 'kqPaymentQrPayloadFromImageBytes\(bytes\)' -and
+        $content -match 'kqWechatPaymentLaunchUrlFromText\(payload\)') {
+        Add-Check "android:mobile-payment-wechat-qr-image-decode-launch" "PASS" "WeChat payment decodes QR images before QR fallback"
+    } else {
+        Add-Check "android:mobile-payment-wechat-qr-image-decode-launch" "FAIL" "WeChat payment cannot launch from QR image payloads"
+    }
+    if ($commonKt -match 'uri\.startsWith\("weixin://",\s*true\)' -and
+        $commonKt -match 'setPackage\("com\.tencent\.mm"\)') {
+        Add-Check "android:mobile-payment-wechat-explicit-package" "PASS" "Android WeChat payment URI is targeted at the WeChat package"
+    } else {
+        Add-Check "android:mobile-payment-wechat-explicit-package" "FAIL" "Android WeChat payment URI is not targeted at WeChat"
+    }
+    if ($gradle -match 'com\.tencent\.mm\.opensdk:wechat-sdk-android:6\.8\.34' -and
+        $commonKt -match 'import com\.tencent\.mm\.opensdk\.modelpay\.PayReq' -and
+        $commonKt -match 'WXAPIFactory\.createWXAPI\(activity,\s*appId,\s*false\)' -and
+        $commonKt -match 'api\.sendReq\(request\)' -and
+        $activity -match 'OPEN_WECHAT_PAY' -and
+        $consts -match 'kOpenWechatPay\s*=\s*"open_wechat_pay"') {
+        Add-Check "android:mobile-payment-wechat-opensdk-payreq" "PASS" "Android WeChat Pay uses OpenSDK PayReq instead of QR-only handoff"
+    } else {
+        Add-Check "android:mobile-payment-wechat-opensdk-payreq" "FAIL" "Android WeChat Pay does not use OpenSDK PayReq"
+    }
+    $wxPayEntryPath = ".\flutter\android\app\src\main\kotlin\com\carriez\flutter_hbb\wxapi\WXPayEntryActivity.kt"
+    $wxPayEntry = if (Test-Path $wxPayEntryPath) { Get-Content $wxPayEntryPath -Raw -Encoding UTF8 } else { "" }
+    if ($manifest -match 'android:name="\.wxapi\.WXPayEntryActivity"' -and
+        $manifest -match 'android:launchMode="singleTask"' -and
+        $manifest -notmatch '(?s)android:name="\.wxapi\.WXPayEntryActivity".*?<intent-filter>' -and
+        $wxPayEntry -match 'class WXPayEntryActivity' -and
+        $wxPayEntry -match 'IWXAPIEventHandler' -and
+        $wxPayEntry -match 'handleIntent\(intent,\s*this\)' -and
+        $wxPayEntry -match 'onResp\(resp:\s*BaseResp\)') {
+        Add-Check "android:mobile-payment-wechat-callback-activity" "PASS" "Android WeChat Pay declares the SDK callback activity without an Android 13-blocked intent filter"
+    } else {
+        Add-Check "android:mobile-payment-wechat-callback-activity" "FAIL" "Android WeChat Pay callback activity is missing or misconfigured"
+    }
+    if ($content -match 'Future<bool> openPaymentApp\(KqMemberOrder order\)' -and
+        $content -match 'Future<bool> openWechatPaymentApp\(KqMemberOrder order\)' -and
+        $content -match 'Future<bool> openAlipayPaymentApp\(KqMemberOrder order\)' -and
+        $content -match 'AndroidChannel\.kOpenWechatPay' -and
+        $content -match 'openPaymentUri\(uri\)' -and
+        $content -match 'showQrFallback' -and
+        $content -match 'await openPaymentApp\(nextOrder\)') {
+        Add-Check "android:mobile-payment-launches-native-app" "PASS" "mobile payment first launches WeChat/Alipay apps with QR fallback"
+    } else {
+        Add-Check "android:mobile-payment-launches-native-app" "FAIL" "mobile payment does not first launch native payment apps"
+    }
+    if ($gradle -match 'com\.alipay\.sdk:alipaysdk-android:15\.8\.42' -and
+        $commonKt -match 'import com\.alipay\.sdk\.app\.PayTask' -and
+        $commonKt -match 'PayTask\(activity\)\.payV2\(orderInfo,\s*true\)' -and
+        $activity -match 'OPEN_ALIPAY_ORDER' -and
+        $activity -match 'Thread\s*\{' -and
+        $activity -match 'runOnUiThread\s*\{' -and
+        $consts -match 'kOpenAlipayOrder\s*=\s*"open_alipay_order"') {
+        Add-Check "android:mobile-payment-alipay-sdk-payv2" "PASS" "Android uses the official Alipay SDK payV2 path for App order strings"
+    } else {
+        Add-Check "android:mobile-payment-alipay-sdk-payv2" "FAIL" "Android does not use the official Alipay SDK payV2 path"
+    }
+    if ($content -match 'Future<bool> openAlipayPaymentApp\(KqMemberOrder order\)' -and
+        $content -match 'AndroidChannel\.kOpenAlipayOrder' -and
+        $content -match 'alipayAppOrderInfos' -and
+        $content -match 'openAlipayHtmlCheckout\(order\)' -and
+        $content -match 'AndroidChannel\.kOpenAlipayHtml' -and
+        $content -notmatch 'appId=20000125&orderSuffix=' -and
+        $content -notmatch 'appId=20000067&url=') {
+        Add-Check "android:mobile-payment-alipay-real-app-or-html" "PASS" "Alipay launches real App order strings or submits the checkout HTML fallback"
+    } else {
+        Add-Check "android:mobile-payment-alipay-real-app-or-html" "FAIL" "Alipay still relies on synthetic scheme URLs or lacks HTML checkout fallback"
+    }
+    if ($server -match 'function getAlipayPayConfig\(\)' -and
+        $server -match 'function createAlipayAppMemberOrder' -and
+        $server -match 'function queryAlipayAppOrderStatus' -and
+        $server -match 'function handleAlipayPayNotification' -and
+        $server -match "payType === '2' && clientPlatform === 'android'" -and
+        $server -match "payment_provider:\s*'alipay_app'" -and
+        $server -match 'KQ_ALIPAY_APP_ID' -and
+        $server -match 'KQ_ALIPAY_PRIVATE_KEY' -and
+        $server -match 'KQ_ALIPAY_PUBLIC_KEY' -and
+        $alipay -match 'buildAlipayAppPayOrderInfo' -and
+        $alipay -match 'alipay\.trade\.app\.pay' -and
+        $alipay -match 'alipay\.trade\.query' -and
+        $alipay -match 'verifyAlipaySignature' -and
+        $alipay -match 'verifyAlipayApiResponseSignature' -and
+        $alipay -match 'includeSignType = options\.includeSignType !== false' -and
+        $alipay -match 'extractRawJsonObjectValue' -and
+        $server -match 'verifyAlipaySignature\(body, cfg\.publicKey, \{ includeSignType: false \}\)') {
+        Add-Check "android:mobile-payment-alipay-server-app-pay" "PASS" "project API creates and confirms Android Alipay App Pay orders when merchant credentials are configured"
+    } else {
+        Add-Check "android:mobile-payment-alipay-server-app-pay" "FAIL" "project API still depends on web/QR payloads instead of creating Alipay App Pay orders"
+    }
+    if ($server -match "(?s)if \(payType === '2' && clientPlatform === 'android'\).*?if \(!appOrder\)\s*\{.*?Alipay APP Pay is not configured.*?throw" -and
+        $model -match 'final requiresProjectAppPay = isAndroid && payType == 2;' -and
+        $model -match 'forceProjectOrder: requiresProjectAppPay' -and
+        $model -match '(?s)if \(forceProjectOrder\)\s*\{\s*rethrow;\s*\}' -and
+        $model -match "(?s)if \(forceProjectOrder\)\s*\{\s*throw translate\('Failed to create membership order'\);") {
+        Add-Check "android:mobile-payment-alipay-no-qr-fallback" "PASS" "Android Alipay App Pay fails visibly instead of falling back to web/QR orders"
+    } else {
+        Add-Check "android:mobile-payment-alipay-no-qr-fallback" "FAIL" "Android Alipay can still silently fall back to web/QR orders"
+    }
+    if ($deployScript -match 'KQ_ALIPAY_ENV_NAMES' -and
+        $deployScript -match 'print_optional_alipay_env' -and
+        $deployScript -match 'merge_optional_alipay_env' -and
+        $deployScript -match 'KQ_ALIPAY_PRIVATE_KEY_PATH' -and
+        $deployScript -match 'KQ_ALIPAY_NOTIFY_URL' -and
+        $compose -match 'KQ_ALIPAY_APP_ID' -and
+        $compose -match 'KQ_ALIPAY_PRIVATE_KEY' -and
+        $compose -match 'KQ_ALIPAY_PRIVATE_KEY_PATH' -and
+        $compose -match 'KQ_ALIPAY_PUBLIC_KEY' -and
+        $compose -match 'KQ_ALIPAY_NOTIFY_URL' -and
+        $deployWorkflow -match 'KQ_ALIPAY_APP_ID:\s*\$\{\{\s*secrets\.KQ_ALIPAY_APP_ID\s*\}\}' -and
+        $deployWorkflow -match 'KQ_ALIPAY_PRIVATE_KEY:\s*\$\{\{\s*secrets\.KQ_ALIPAY_PRIVATE_KEY\s*\}\}' -and
+        $deployWorkflow -match 'KQ_ALIPAY_PUBLIC_KEY:\s*\$\{\{\s*secrets\.KQ_ALIPAY_PUBLIC_KEY\s*\}\}' -and
+        $deployWorkflow -match 'KQ_ALIPAY_NOTIFY_URL:\s*\$\{\{\s*secrets\.KQ_ALIPAY_NOTIFY_URL\s*\}\}' -and
+        $deployWorkflow -match 'KQ_ALIPAY_GATEWAY_URL:\s*\$\{\{\s*secrets\.KQ_ALIPAY_GATEWAY_URL\s*\}\}' -and
+        $deployRustdeskWorkflow -match "KQ_ALIPAY_APP_ID='\$\{\{\s*secrets\.KQ_ALIPAY_APP_ID\s*\}\}'" -and
+        $deployRustdeskWorkflow -match "KQ_ALIPAY_PRIVATE_KEY='\$\{\{\s*secrets\.KQ_ALIPAY_PRIVATE_KEY\s*\}\}'" -and
+        $deployRustdeskWorkflow -match "KQ_ALIPAY_PUBLIC_KEY='\$\{\{\s*secrets\.KQ_ALIPAY_PUBLIC_KEY\s*\}\}'" -and
+        $deployRustdeskWorkflow -match "KQ_ALIPAY_NOTIFY_URL='\$\{\{\s*secrets\.KQ_ALIPAY_NOTIFY_URL\s*\}\}'") {
+        Add-Check "android:mobile-payment-alipay-deploy-env" "PASS" "deployment preserves Alipay App Pay merchant configuration for the project API"
+    } else {
+        Add-Check "android:mobile-payment-alipay-deploy-env" "FAIL" "deployment can drop Alipay App Pay merchant configuration"
+    }
+    if ($manifest -match 'android:name="\.AlipayCheckoutActivity"' -and
+        $commonKt -match 'OPEN_ALIPAY_HTML' -and
+        $commonKt -match 'openAlipayHtmlCheckout' -and
+        $activity -match 'OPEN_ALIPAY_HTML' -and
+        $consts -match 'kOpenAlipayHtml\s*=\s*"open_alipay_html"' -and
+        $checkoutActivity -match 'class AlipayCheckoutActivity' -and
+        $checkoutActivity -match 'WebViewClient' -and
+        $checkoutActivity -match 'loadDataWithBaseURL' -and
+        $checkoutActivity -match 'shouldOverrideUrlLoading' -and
+        $checkoutActivity -match 'alipays://' -and
+        $checkoutActivity -match 'Intent\.parseUri') {
+        Add-Check "android:mobile-payment-alipay-html-native-webview" "PASS" "Alipay HTML fallback is rendered in a native WebView that can hand off to Alipay"
+    } else {
+        Add-Check "android:mobile-payment-alipay-html-native-webview" "FAIL" "Alipay HTML fallback is not handled by a native WebView handoff"
+    }
+    if ($manifest -match 'android:name="\.AlipayCheckoutActivity"(?s).*?android:theme="@style/Transparent"' -and
+        $checkoutActivity -match 'webView\.alpha\s*=\s*0f' -and
+        $checkoutActivity -match 'handoffStarted' -and
+        $checkoutActivity -match 'finish\(\)' -and
+        $checkoutActivity -notmatch 'webView\.alpha\s*=\s*1f') {
+        Add-Check "android:mobile-payment-alipay-html-hidden-handoff" "PASS" "Alipay HTML WebView never reveals the QR checkout during app handoff"
+    } else {
+        Add-Check "android:mobile-payment-alipay-html-hidden-handoff" "FAIL" "Alipay HTML WebView can reveal the QR checkout before app handoff"
+    }
+    if ($server -match 'function normalizeMemberOrderPaymentLinks\(order\)' -and
+        $server -notmatch "lower\.includes\('alipay\.com'\)" -and
+        $server -match 'lower\.startsWith\(''alipays://''\)' -and
+        $server -match 'lower\.startsWith\(''alipayqr://''\)') {
+        Add-Check "android:mobile-payment-alipay-no-web-url-app-link" "PASS" "Alipay web checkout URLs are not exposed as native app links"
+    } else {
+        Add-Check "android:mobile-payment-alipay-no-web-url-app-link" "FAIL" "Alipay web checkout URLs can still be exposed as native app links"
+    }
+    if ($content -match 'statusText = opened' -and
+        $content -match "_mineText\('WeChat payment opened'\)" -and
+        $content -match "_mineText\('Alipay cashier opened'\)" -and
+        $content -match "(?s)_mineText\(\s*'Payment app unavailable\. Scan the QR code to pay'\s*\)" -and
+        $content -match "'Payment app unavailable\. Scan the QR code to pay':" -and
+        $content -match "'WeChat payment opened':" -and
+        $content -match "'Alipay cashier opened':") {
         Add-Check "android:mobile-payment-method-status-copy" "PASS" "mobile payment status reflects the selected method"
     } else {
         Add-Check "android:mobile-payment-method-status-copy" "FAIL" "mobile payment status copy does not reflect the selected method"
+    }
+}
+
+function Test-KqAndroidMobileRecordingStopToast {
+    $path = ".\flutter\lib\models\model.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:mobile-recording-stop-save-path-toast" "SKIP" "Source file not available: $path"
+        return
+    }
+
+    $content = Get-Content $path -Raw -Encoding UTF8
+    $recordingStoppedSaveLocationCn = [string]::Concat([char[]]@(
+        0x5F55, 0x5C4F, 0x5DF2, 0x7ED3, 0x675F, 0xFF0C,
+        0x6587, 0x4EF6, 0x4FDD, 0x5B58, 0x4F4D, 0x7F6E, 0xFF1A
+    ))
+    $recordingStoppedSaveLocationTw = [string]::Concat([char[]]@(
+        0x9304, 0x5C4F, 0x5DF2, 0x7D50, 0x675F, 0xFF0C,
+        0x6A94, 0x6848, 0x5132, 0x5B58, 0x4F4D, 0x7F6E, 0xFF1A
+    ))
+    if ($content -match 'final\s+wasRecording\s*=\s*_start\s*;' -and
+        $content -match 'bind\.mainVideoSaveDirectory\(root:\s*false\)' -and
+        $content -match [regex]::Escape($recordingStoppedSaveLocationCn) -and
+        $content -match [regex]::Escape($recordingStoppedSaveLocationTw) -and
+        $content -match 'showToast\([^;]*recordingSaveDirectory') {
+        Add-Check "android:mobile-recording-stop-save-path-toast" "PASS" "mobile recording stop tells the user where the recording was saved"
+    } else {
+        Add-Check "android:mobile-recording-stop-save-path-toast" "FAIL" "mobile recording stop does not show the recording save directory"
+    }
+}
+
+function Test-KqDesktopRecordingSaveDirectory {
+    $uiPath = ".\src\ui_interface.rs"
+    $settingsPath = ".\flutter\lib\desktop\pages\desktop_setting_page.dart"
+    $configPath = ".\libs\hbb_common\src\config.rs"
+    if (-not (Test-Path $uiPath) -or -not (Test-Path $settingsPath) -or -not (Test-Path $configPath)) {
+        Add-Check "desktop:recording-save-directory-source" "SKIP" "Source files not available"
+        return
+    }
+
+    $ui = Get-Content $uiPath -Raw -Encoding UTF8
+    $settings = Get-Content $settingsPath -Raw -Encoding UTF8
+    $config = Get-Content $configPath -Raw -Encoding UTF8
+    $configuredIndex = $ui.IndexOf("configured_video_save_directory")
+    $rootIndex = $ui.IndexOf("if root")
+    $configuredBlock = if ($configuredIndex -ge 0 -and $rootIndex -gt $configuredIndex) {
+        $ui.Substring($configuredIndex, $rootIndex - $configuredIndex)
+    } else {
+        ""
+    }
+
+    if ($configuredIndex -ge 0 -and
+        $rootIndex -ge 0 -and
+        $configuredIndex -lt $rootIndex -and
+        $configuredBlock -match 'LocalConfig::get_option_from_file\(OPTION_VIDEO_SAVE_DIRECTORY\)' -and
+        $configuredBlock -match '(?<!Local)Config::get_option\(OPTION_VIDEO_SAVE_DIRECTORY\)' -and
+        $configuredBlock -match 'try_create\(std::path::Path::new\(&dir\)\)') {
+        Add-Check "desktop:recording-root-prefers-custom-directory" "PASS" "installed Windows incoming recordings prefer the selected recording directory before ProgramData fallback"
+    } else {
+        Add-Check "desktop:recording-root-prefers-custom-directory" "FAIL" "installed Windows incoming recordings can ignore the selected recording directory"
+    }
+
+    if ($settings -notmatch 'if\s*\(!\(showRootDir\s*&&\s*bind\.isIncomingOnly\(\)\)\)' -and
+        $settings -match 'final\s+editable_dir\s*=\s*showRootDir\s*&&\s*bind\.isIncomingOnly\(\)\s*\?\s*root_dir\s*:\s*user_dir;' -and
+        $settings -match 'bind\.mainGetLocalOption\(key:\s*kOptionVideoSaveDirectory\)' -and
+        $settings -match 'FilePicker\.platform\.getDirectoryPath' -and
+        $settings -match 'bind\.mainSetLocalOption\(\s*key:\s*kOptionVideoSaveDirectory' -and
+        $settings -match 'bind\.mainSetOption\(\s*key:\s*kOptionVideoSaveDirectory') {
+        Add-Check "desktop:recording-incoming-only-directory-picker" "PASS" "incoming-only desktop settings can choose the recording save directory"
+    } else {
+        Add-Check "desktop:recording-incoming-only-directory-picker" "FAIL" "incoming-only desktop settings still hide or miswire the recording directory picker"
+    }
+
+    if ($config -match '(?s)KEYS_SETTINGS:\s*&\[&str\].*?OPTION_VIDEO_SAVE_DIRECTORY' -and
+        $config -match '(?s)KEYS_LOCAL_SETTINGS:\s*&\[&str\].*?OPTION_VIDEO_SAVE_DIRECTORY') {
+        Add-Check "desktop:recording-directory-synced-to-service-config" "PASS" "recording save directory is allowed in both local and service-visible settings"
+    } else {
+        Add-Check "desktop:recording-directory-synced-to-service-config" "FAIL" "recording save directory is not service-visible"
+    }
+}
+
+function Test-KqDesktopRecordingPlaybackCodec {
+    $clientPath = ".\src\client.rs"
+    $recordPath = ".\libs\scrap\src\common\record.rs"
+    if (-not (Test-Path $clientPath) -or -not (Test-Path $recordPath)) {
+        Add-Check "desktop:recording-playback-codec-source" "SKIP" "Source files not available"
+        return
+    }
+
+    $client = Get-Content $clientPath -Raw -Encoding UTF8
+    $record = Get-Content $recordPath -Raw -Encoding UTF8
+    if ($client -match 'fn kq_force_h264_recording_supported_decoding\(' -and
+        $client -match '(?s)record_state.*kq_force_h264_recording_supported_decoding' -and
+        $client -match 'PreferCodec::H264' -and
+        $record -match 'fn kq_recordable_format\(' -and
+        $record -match 'CodecFormat::H265 => None' -and
+        $record -match 'KQ skips recording non-playback-friendly codec') {
+        Add-Check "desktop:recording-defaults-to-playback-friendly-h264" "PASS" "desktop recording avoids HEVC-only files when H264 is available"
+    } else {
+        Add-Check "desktop:recording-defaults-to-playback-friendly-h264" "FAIL" "desktop recording can still save HEVC/H265 files that Windows cannot play without the HEVC extension"
     }
 }
 
@@ -410,6 +790,42 @@ function Test-KqAndroidMobileServerSettingsPrivacy {
         Add-Check "android:mobile-server-settings-privacy" "PASS" "mobile server settings hide built-in project values but keep user custom config editable"
     } else {
         Add-Check "android:mobile-server-settings-privacy" "FAIL" "mobile server settings either expose built-in project values or block user custom config editing"
+    }
+}
+
+function Test-KqAndroidRestrictedInputPermissionGuide {
+    $modelPath = ".\flutter\lib\models\server_model.dart"
+    $cnLangPath = ".\src\lang\cn.rs"
+    $enLangPath = ".\src\lang\en.rs"
+    $twLangPath = ".\src\lang\tw.rs"
+    if (-not (Test-Path $modelPath)) {
+        Add-Check "android:restricted-input-guide-source" "SKIP" "Source file not available: $modelPath"
+        return
+    }
+
+    $model = Get-Content $modelPath -Raw -Encoding UTF8
+    $cn = if (Test-Path $cnLangPath) { Get-Content $cnLangPath -Raw -Encoding UTF8 } else { "" }
+    $en = if (Test-Path $enLangPath) { Get-Content $enLangPath -Raw -Encoding UTF8 } else { "" }
+    $tw = if (Test-Path $twLangPath) { Get-Content $twLangPath -Raw -Encoding UTF8 } else { "" }
+    $deniedSensitivePermissionCn = -join (0x5df2, 0x62d2, 0x7edd, 0x6b64, 0x5e94, 0x7528, 0x83b7, 0x53d6, 0x654f, 0x611f, 0x6743, 0x9650 | ForEach-Object { [char]$_ })
+    $allowRestrictedSettingsCn = -join (0x5141, 0x8bb8, 0x53d7, 0x9650, 0x8bbe, 0x7f6e | ForEach-Object { [char]$_ })
+
+    if ($model -match 'kActionApplicationDetailsSettings' -and
+        $model -match 'kActionAccessibilitySettings' -and
+        $model -match 'android_input_restricted_settings_tip') {
+        Add-Check "android:restricted-input-guide-app-info-action" "PASS" "input-permission guide can open app details before accessibility settings"
+    } else {
+        Add-Check "android:restricted-input-guide-app-info-action" "FAIL" "input-permission guide does not help users allow restricted settings from app details"
+    }
+
+    if ($cn -match 'android_input_restricted_settings_tip' -and
+        $cn -match [regex]::Escape($deniedSensitivePermissionCn) -and
+        $cn -match [regex]::Escape($allowRestrictedSettingsCn) -and
+        $en -match 'android_input_restricted_settings_tip' -and
+        $tw -match 'android_input_restricted_settings_tip') {
+        Add-Check "android:restricted-input-guide-copy" "PASS" "restricted input-permission guidance explains the blocked sensitive-permission path"
+    } else {
+        Add-Check "android:restricted-input-guide-copy" "FAIL" "restricted input-permission guidance copy is missing or unclear"
     }
 }
 
@@ -731,6 +1147,39 @@ function Test-KqAndroidRecentDeviceGroups {
     } else {
         Add-Check "android:recent-device-groups-no-outer-recent-title" "FAIL" "mobile recent page still shows the outer recent tab title above device groups"
     }
+    if ($tabContent -match 'bool _isMobileRecentPage\(PeerTabModel model\)' -and
+        $tabContent -match 'final isMobileRecentPage\s*=\s*_isMobileRecentPage\(model\)' -and
+        $tabContent -match 'if \(!isMobileRecentPage\)' -and
+        $tabContent -match "tooltip:\s*_kqPeerTabText\('Device groups'\)") {
+        Add-Check "android:recent-toolbar-no-group-button-on-recent" "PASS" "mobile recent page hides the extra top-right group/filter button"
+    } else {
+        Add-Check "android:recent-toolbar-no-group-button-on-recent" "FAIL" "mobile recent page can still show the extra top-right group/filter button"
+    }
+    if ($tabContent -match 'double _recentRefreshTurns\s*=\s*0' -and
+        $tabContent -match '_recentRefreshTurns\s*\+=\s*1' -and
+        $tabContent -match 'AnimatedRotation\(' -and
+        $tabContent -match 'rotationTurns:\s*_recentRefreshTurns') {
+        Add-Check "android:recent-toolbar-refresh-animation" "PASS" "mobile recent refresh button rotates when tapped"
+    } else {
+        Add-Check "android:recent-toolbar-refresh-animation" "FAIL" "mobile recent refresh button has no tap animation"
+    }
+}
+
+function Test-KqAndroidMobileSettingsNo2FA {
+    $path = ".\flutter\lib\mobile\pages\settings_page.dart"
+    if (-not (Test-Path $path)) {
+        Add-Check "android:mobile-settings-no-2fa-source" "SKIP" "Source file not available: $path"
+        return
+    }
+
+    $content = Get-Content $path -Raw -Encoding UTF8
+    if ($content -notmatch "SettingsSection\(title:\s*Text\('2FA'\)" -and
+        $content -notmatch 'final List<AbstractSettingsTile> tfaTiles' -and
+        $content -notmatch "_settingsText\('enable-2fa-title'\)") {
+        Add-Check "android:mobile-settings-no-2fa-section" "PASS" "mobile security settings no longer render the 2FA block"
+    } else {
+        Add-Check "android:mobile-settings-no-2fa-section" "FAIL" "mobile security settings still build or render the 2FA block"
+    }
 }
 
 function Test-KqAndroidBuiltInTouchMapping {
@@ -841,6 +1290,40 @@ function Test-KqAndroidRemoteSideControls {
     }
 }
 
+function Test-KqAndroidRemoteCustomImageQuality {
+    $commonPath = ".\flutter\lib\common.dart"
+    $remotePath = ".\flutter\lib\mobile\pages\remote_page.dart"
+    $cameraPath = ".\flutter\lib\mobile\pages\view_camera_page.dart"
+    if (-not (Test-Path $commonPath) -or -not (Test-Path $remotePath) -or -not (Test-Path $cameraPath)) {
+        Add-Check "android:remote-custom-quality-source" "SKIP" "Source files not available"
+        return
+    }
+
+    $common = Get-Content $commonPath -Raw -Encoding UTF8
+    $remote = Get-Content $remotePath -Raw -Encoding UTF8
+    $camera = Get-Content $cameraPath -Raw -Encoding UTF8
+
+    if ($common -match 'toggleable:\s*toggleable') {
+        Add-Check "android:radio-selected-tap-support" "PASS" "shared radio helper can emit selected-item taps"
+    } else {
+        Add-Check "android:radio-selected-tap-support" "FAIL" "shared radio helper cannot emit selected-item taps"
+    }
+    if ($remote -match '(?s)final selectedCustom =\s*e\.value == kRemoteImageQualityCustom &&\s*imageQuality\.value == kRemoteImageQualityCustom' -and
+        $remote -match '(?s)if \(v == null && selectedCustom\).*?e\.onChanged\?\.call\(e\.value\);' -and
+        $remote -match 'toggleable:\s*selectedCustom') {
+        Add-Check "android:remote-selected-custom-quality-reopens-dialog" "PASS" "remote page reopens custom quality dialog when selected custom is tapped"
+    } else {
+        Add-Check "android:remote-selected-custom-quality-reopens-dialog" "FAIL" "remote page selected custom quality tap is not handled"
+    }
+    if ($camera -match '(?s)final selectedCustom =\s*e\.value == kRemoteImageQualityCustom &&\s*imageQuality\.value == kRemoteImageQualityCustom' -and
+        $camera -match '(?s)if \(v == null && selectedCustom\).*?e\.onChanged\?\.call\(e\.value\);' -and
+        $camera -match 'toggleable:\s*selectedCustom') {
+        Add-Check "android:camera-selected-custom-quality-reopens-dialog" "PASS" "view camera page keeps selected custom quality tappable"
+    } else {
+        Add-Check "android:camera-selected-custom-quality-reopens-dialog" "FAIL" "view camera selected custom quality tap is not handled"
+    }
+}
+
 function Test-InstallerWizardImagesUseCurrentIcon {
     $python = Get-Command python -ErrorAction SilentlyContinue
     if (-not $python) {
@@ -894,7 +1377,8 @@ function Test-InstallerUpgradePolicy {
         @("installer:upgrade-default-dir", "DefaultDirName={code:GetDefaultInstallDir}"),
         @("installer:no-language-dialog", "ShowLanguageDialog=no"),
         @("installer:language-detect-ui", "LanguageDetectionMethod=uilanguage"),
-        @("installer:use-previous-dir", "UsePreviousAppDir=yes"),
+        @("installer:use-previous-dir-mode-aware", 'UsePreviousAppDir=$innoUsePreviousAppDir'),
+        @("installer:standard-use-previous-dir", '$innoUsePreviousAppDir = if ($LowFalsePositiveInstaller) { "no" } else { "yes" }'),
         @("installer:use-previous-language", "UsePreviousLanguage=yes"),
         @("installer:use-previous-tasks", "UsePreviousTasks=yes"),
         @("installer:read-existing-install-dir", "KqReadInstalledString('InstallLocation', KqExistingInstallDir)"),
@@ -904,7 +1388,7 @@ function Test-InstallerUpgradePolicy {
         @("installer:fresh-relay-only", 'Parameters: "--local-option kq-force-always-relay N"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'),
         @("installer:controlled-side-permission-window", 'Parameters: "--option enable-perm-change-in-accept-window Y"; Flags: runhidden waituntilterminated'),
         @("installer:block-remote-config-modification", 'Parameters: "--option allow-remote-config-modification N"; Flags: runhidden waituntilterminated'),
-        @("installer:fresh-postinstall-launch", 'Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent; Tasks: launch; Check: KqIsFreshInstall'),
+        @("installer:fresh-postinstall-launch", 'Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Tasks: launch; Check: KqIsFreshInstall'),
         @("installer:upgrade-install-detector", "function KqIsUpgradeInstall(): Boolean"),
         @("installer:upgrade-finish-launch-procedure", "procedure KqLaunchUpgradeAfterFinish()"),
         @("installer:upgrade-finish-launch-hook", "procedure DeinitializeSetup()"),
@@ -912,6 +1396,7 @@ function Test-InstallerUpgradePolicy {
         @("installer:upgrade-launch-success-gated", "if not KqInstallSucceeded then"),
         @("installer:upgrade-launch-not-silent", "if WizardSilent then"),
         @("installer:upgrade-launch-nowait", "ewNoWait"),
+        @("installer:upgrade-launch-original-user", "ExecAsOriginalUser(ExpandConstant('{app}\{#MyAppExeName}')"),
         @("installer:upgrade-skip-pages", "function ShouldSkipPage(PageID: Integer): Boolean"),
         @("installer:upgrade-copy-hook", "procedure ApplyUpgradeWizardText(CurPageID: Integer)"),
         @("installer:upgrade-welcome-copy", "WizardForm.WelcomeLabel1.Caption := '`$cnWelcomeTitle'"),
@@ -924,18 +1409,19 @@ function Test-InstallerUpgradePolicy {
         @("installer:reject-semver-downgrade-version", "Do not use 1.0.xxx because installed 2026.* packages will treat it as an older version."),
         @("installer:legacy-hkcu-migration", "function KqLegacyUninstallKey(): String"),
         @("installer:downgrade-guard", "KqCompareVersions(KqExistingVersion, '{#MyAppVersion}') > 0"),
-        @("installer:system-desktop-shortcut", 'Name: "{commondesktop}\{#MyAppName}"'),
-        @("installer:system-startup-shortcut", 'Name: "{commonstartup}\{#MyAppName}"'),
-        @("installer:versioned-shortcut-icon-name", '$shortcutIconFileName = "kq-icon-'),
-        @("installer:versioned-shortcut-icon-relative", '$shortcutIconRelativePath = "data\flutter_assets\assets\$shortcutIconFileName"'),
-        @("installer:versioned-shortcut-icon-copy", 'Copy-Item -LiteralPath $shortcutIconSourcePath -Destination $shortcutIconTargetPath -Force'),
-        @("installer:versioned-shortcut-icon-define", '#define ShortcutIconRelative "$shortcutIconRelativePath"'),
-        @("installer:shortcut-icon-asset", 'IconFilename: "{app}\{#ShortcutIconRelative}"'),
+        @("installer:desktop-shortcut-root-mode-aware", '$innoDesktopIconRoot = if ($LowFalsePositiveInstaller) { "{userdesktop}" } else { "{commondesktop}" }'),
+        @("installer:desktop-shortcut-uses-mode-aware-root", 'Name: "$innoDesktopIconRoot\{#MyAppName}"'),
+        @("installer:mode-aware-registry-section", '$innoRegistrySection'),
+        @("installer:remove-packaged-asset-icons-helper", "function Remove-KqPackagedAssetIcons"),
+        @("installer:remove-packaged-icon-asset", '"icon.ico"'),
+        @("installer:remove-versioned-shortcut-icons-filter", '"kq-icon-*.ico"'),
+        @("installer:remove-packaged-asset-icons-call", "Remove-KqPackagedAssetIcons -ReleasePath `$release.Path"),
+        @("installer:shortcut-icon-uses-exe", 'IconFilename: "{app}\{#MyAppExeName}"'),
         @("installer:repair-existing-shortcuts-hook", 'AfterInstall: KqRepairExistingShortcuts'),
         @("installer:repair-desktop-shortcut-icon", "KqRepairShortcut(ExpandConstant('{commondesktop}\{#MyAppName}.lnk'))"),
         @("installer:repair-taskbar-shortcut-icon", "KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppName}.lnk'))"),
-        @("installer:repair-shortcut-icon-location", "Shortcut.IconLocation := ExpandConstant('{app}\{#ShortcutIconRelative}')"),
-        @("installer:uninstall-icon-asset", 'UninstallDisplayIcon={app}\{#ShortcutIconRelative}'),
+        @("installer:repair-shortcut-icon-uses-exe", "Shortcut.IconLocation := ExpandConstant('{app}\{#MyAppExeName}') + ',0'"),
+        @("installer:uninstall-icon-uses-exe", 'UninstallDisplayIcon={app}\{#MyAppExeName}'),
         @("installer:refresh-icon-cache", 'Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"'),
         @("installer:motion-set-timer", "external 'SetTimer@user32.dll stdcall'"),
         @("installer:motion-kill-timer", "external 'KillTimer@user32.dll stdcall'"),
@@ -981,9 +1467,17 @@ function Test-InstallerUpgradePolicy {
         @("installer:no-disabled-language-detection", "LanguageDetectionMethod=none"),
         @("installer:no-user-desktop-task", 'Name: "{autodesktop}\{#MyAppName}"'),
         @("installer:no-user-startup-task", 'Name: "{userstartup}\{#MyAppName}"'),
+        @("installer:no-startup-shortcut-task", 'Name: "startup"; Description: "{cm:AutoStartProgram,{#MyAppName}}"'),
+        @("installer:no-system-startup-shortcut", 'Name: "{commonstartup}\{#MyAppName}"'),
+        @("installer:no-reg-exe-protocol-add", 'Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT'),
+        @("installer:no-reg-exe-protocol-delete", 'Filename: "{sys}\reg.exe"; Parameters: "delete HKEY_CLASSES_ROOT'),
+        @("installer:no-hkcr-kqremote-protocol", 'HKEY_CLASSES_ROOT\kqremote'),
         @("installer:no-stable-shortcut-icon-filename", 'IconFilename: "{app}\data\flutter_assets\assets\icon.ico"'),
         @("installer:no-stable-shortcut-icon-repair", "Shortcut.IconLocation := ExpandConstant('{app}\data\flutter_assets\assets\icon.ico')"),
         @("installer:no-stable-uninstall-icon", 'UninstallDisplayIcon={app}\data\flutter_assets\assets\icon.ico'),
+        @("installer:no-versioned-shortcut-icon-define", "#define ShortcutIconRelative"),
+        @("installer:no-versioned-shortcut-icon-copy", '$shortcutIconTargetPath'),
+        @("installer:no-packaged-icon-asset-required", '"data\flutter_assets\assets\icon.ico"'),
         @("installer:no-empty-motion-color", "StrToColor('')"),
         @("installer:no-motion-overlay-beam", "KqMotionBeam"),
         @("installer:no-motion-overlay-spark", "KqMotionSpark"),
@@ -992,7 +1486,8 @@ function Test-InstallerUpgradePolicy {
         @("installer:no-motion-title-rail", "KqMotionTitleRail"),
         @("installer:no-motion-title-dot", "KqMotionTitleDot"),
         @("installer:no-wizard-image-motion", "WizardForm.WizardBitmapImage.Top :="),
-        @("installer:no-semver-package-version", "-Version 1.0.")
+        @("installer:no-semver-package-version", "-Version 1.0."),
+        @("installer:no-ask-user-close-runtime", "Please close {#MyAppName} completely, including the tray/background process, then run Setup again.")
     )
     foreach ($pair in $forbidden) {
         if ($content -match [regex]::Escape($pair[1])) {
@@ -1001,6 +1496,190 @@ function Test-InstallerUpgradePolicy {
             Add-Check $pair[0] "PASS" "Forbidden policy absent"
         }
     }
+}
+
+function Test-LowFalsePositiveInstallerMode {
+    $source = ".\scripts\new-kq-inno-installer.ps1"
+    if (-not (Test-Path $source)) {
+        Add-Check "installer:lowfp-source" "SKIP" "Source file not available: $source"
+        return
+    }
+
+    $content = Get-Content $source -Raw -Encoding UTF8
+    $required = @(
+        @("installer:lowfp-switch", "[switch]`$LowFalsePositiveInstaller"),
+        @("installer:lowfp-allow-unsigned-switch", "[switch]`$AllowUnsignedLowFalsePositiveInstaller"),
+        @("installer:inno-sign-tool-name-param", "[string]`$InnoSignToolName = `$env:KQ_INNO_SIGN_TOOL_NAME"),
+        @("installer:inno-sign-tool-command-param", "[string]`$InnoSignToolCommand = `$env:KQ_INNO_SIGN_TOOL_COMMAND"),
+        @("installer:inno-signed-uninstaller-directive", 'SignedUninstaller=$innoSignedUninstaller'),
+        @("installer:inno-sign-tool-directive", '$innoSignToolLine'),
+        @("installer:inno-compiler-sign-tool-arg", '$isccArgs.Add("/S$InnoSignToolName=$InnoSignToolCommand")'),
+        @("installer:lowfp-run-lines-helper", "function Add-KqInnoRunLine"),
+        @("installer:lowfp-standard-only-helper", "function Add-KqInnoStandardRunLine"),
+        @("installer:lowfp-standard-only-condition", "if (-not `$LowFalsePositiveInstaller)"),
+        @("installer:lowfp-admin-for-background-stop", '$innoPrivilegesRequired = "admin"'),
+        @("installer:no-inno-close-applications-prompt", '$innoCloseApplications = "no"'),
+        @("installer:close-applications-filter-mode-aware", 'CloseApplicationsFilter=$innoCloseApplicationsFilter'),
+        @("installer:lowfp-close-applications-filter-white-label-and-legacy", '$innoCloseApplicationsFilter = if ($LowFalsePositiveInstaller) { "KQRemoteLink.exe,rustdesk.exe" } else { "rustdesk.exe" }'),
+        @("installer:lowfp-white-label-exe-name", '$myAppExeName = if ($LowFalsePositiveInstaller) { "KQRemoteLink.exe" } else { "rustdesk.exe" }'),
+        @("installer:myapp-exe-name-mode-aware", '#define MyAppExeName "$myAppExeName"'),
+        @("installer:legacy-exe-name-define", '#define LegacyExeName "$legacyExeName"'),
+        @("installer:lowfp-staged-payload-helper", "function New-KqInstallerPayload"),
+        @("installer:lowfp-staged-payload-source", 'Source: "$escapedPayload\\*"'),
+        @("installer:lowfp-payload-renames-main-exe", 'Rename-Item -LiteralPath $sourceExe -NewName $MyAppExeName'),
+        @("installer:lowfp-no-service-install", 'Parameters: "--install-service --no-launch"; Flags: runhidden waituntilterminated'),
+        @("installer:lowfp-no-service-uninstall", 'Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated; RunOnceId: "KQUninstallService"'),
+        @("installer:lowfp-registry-section-helper", '$innoRegistrySection = if ($LowFalsePositiveInstaller)'),
+        @("installer:standard-hkcu-kqremote-protocol", 'Root: HKCU; Subkey: "Software\Classes\kqremote"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""'),
+        @("installer:standard-hkcu-rustdesk-protocol", 'Root: HKCU; Subkey: "Software\Classes\rustdesk"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""'),
+        @("installer:preinstall-close-hook", "function PrepareToInstall(var NeedsRestart: Boolean): String"),
+        @("installer:preinstall-close-window", "FindWindowByWindowName('{#MyAppName}')"),
+        @("installer:preinstall-close-message", "KqPostCloseMessage"),
+        @("installer:preinstall-close-wm-close", "KqPostMessage(WindowHandle, 16, 0, 0)"),
+        @("installer:preinstall-detects-background-process", "function KqIsRuntimeProcessStillRunning(): Boolean"),
+        @("installer:preinstall-detects-process-by-name", "function KqIsRuntimeProcessNameStillRunning(ExeName: String): Boolean"),
+        @("installer:preinstall-process-wmi-query", "SELECT ProcessId FROM Win32_Process WHERE Name = ''' + ExeName + '''"),
+        @("installer:preinstall-legacy-process-check", "KqIsRuntimeProcessNameStillRunning('{#LegacyExeName}')"),
+        @("installer:preinstall-terminates-background-processes", "function KqTerminateRuntimeProcesses(): Boolean"),
+        @("installer:preinstall-terminates-background-processes-by-name", "function KqTerminateRuntimeProcessesByName(ExeName: String): Boolean"),
+        @("installer:preinstall-wmi-process-item", "Process := Processes.ItemIndex(I);"),
+        @("installer:preinstall-wmi-terminate-call", "Process.Terminate();"),
+        @("installer:preinstall-legacy-terminate-call", "KqTerminateRuntimeProcessesByName('{#LegacyExeName}')"),
+        @("installer:preinstall-waits-for-background-exit", "if not KqIsRuntimeProcessStillRunning() then begin"),
+        @("installer:preinstall-auto-close-failure-helper", "function KqAutoCloseRuntimeFailedMessage(): String"),
+        @("installer:lowfp-launch-route-finish-page", 'Add-KqInnoRunLine ''Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Tasks: launch; Check: KqIsFreshInstall'''),
+        @("installer:lowfp-repair-existing-shortcuts", 'AfterInstall: KqRepairExistingShortcuts'),
+        @("installer:lowfp-signed-release-guard", "function Assert-KqLowFalsePositiveReleaseSigned([string]`$ReleasePath)"),
+        @("installer:lowfp-signed-release-guard-uses-authenticode", 'Get-AuthenticodeSignature -LiteralPath $_.FullName'),
+        @("installer:lowfp-versioned-install-dir-helper", "function KqLowFalsePositiveInstallDir(): String"),
+        @("installer:lowfp-default-dir-program-files", "Result := ExpandConstant('{autopf}\KQRemoteLink\{#MyAppVersion}');"),
+        @("installer:lowfp-default-dir-isolated", "if LowFalsePositiveInstaller then begin"),
+        @("installer:lowfp-default-dir-versioned", "Result := KqLowFalsePositiveInstallDir();"),
+        @("installer:lowfp-existing-dir-not-reused", '$innoUsePreviousAppDir = if ($LowFalsePositiveInstaller) { "no" } else { "yes" }')
+    )
+    foreach ($pair in $required) {
+        if ($content -match [regex]::Escape($pair[1])) {
+            Add-Check $pair[0] "PASS" $pair[1]
+        } else {
+            Add-Check $pair[0] "FAIL" "Missing low false-positive installer support: $($pair[1])"
+        }
+    }
+
+    if ($content -match '\$innoRunLines' -and $content -match '\$innoUninstallRunLines' -and
+        $content -match '\$innoRunSection' -and $content -match '\$innoUninstallRunSection') {
+        Add-Check "installer:lowfp-generated-run-sections" "PASS" "run sections are generated from mode-aware lists"
+    } else {
+        Add-Check "installer:lowfp-generated-run-sections" "FAIL" "run sections are still hard-coded"
+    }
+    if ($content -match '(?s)procedure StopExistingKqRuntimeForInstall\(\);\s*begin\s*if LowFalsePositiveInstaller then\s*Exit;') {
+        Add-Check "installer:lowfp-no-preinstall-close-bypass" "FAIL" "low false-positive installer still bypasses app close before install"
+    } else {
+        Add-Check "installer:lowfp-no-preinstall-close-bypass" "PASS" "low false-positive installer does not bypass app close before install"
+    }
+    if ($content -match '(?s)\$innoRegistrySection\s*=\s*if\s*\(\$LowFalsePositiveInstaller\)\s*\{\s*""\s*\}\s*else\s*\{.*Software\\Classes\\kqremote.*Software\\Classes\\rustdesk' -and
+        $content -match '\[Files\][\s\S]*?\$innoRegistrySection[\s\S]*?\[Run\]') {
+        Add-Check "installer:lowfp-no-auto-url-protocol-registry" "PASS" "low false-positive installers omit URL protocol registry writes"
+    } else {
+        Add-Check "installer:lowfp-no-auto-url-protocol-registry" "FAIL" "low false-positive installers can still include URL protocol registry writes"
+    }
+    if ($content -match 'Name: "launch"; Description: "\{cm:LaunchProgram,\{#MyAppName\}\}"; GroupDescription: "\{cm:AdditionalIcons\}"; Flags: checkedonce' -and
+        $content -notmatch 'if \(-not \$LowFalsePositiveInstaller\)\s*\{\s*\$innoTasksLines\.Add\(''Name: "launch"') {
+        Add-Check "installer:lowfp-finish-launch-task" "PASS" "low false-positive installers keep the finish-page launch checkbox"
+    } else {
+        Add-Check "installer:lowfp-finish-launch-task" "FAIL" "low false-positive installers are missing the finish-page launch checkbox"
+    }
+    if ($content -match 'Add-KqInnoRunLine ''Filename: "\{app\}\\\{#MyAppExeName\}"; Description: "\{cm:LaunchProgram,\{#MyAppName\}\}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Tasks: launch; Check: KqIsFreshInstall''' -and
+        $content -notmatch 'Add-KqInnoStandardRunLine ''Filename: "\{app\}\\\{#MyAppExeName\}"; Description: "\{cm:LaunchProgram,\{#MyAppName\}\}"') {
+        Add-Check "installer:lowfp-fresh-launch-after-finish" "PASS" "low false-positive fresh installs launch only from the finish page"
+    } else {
+        Add-Check "installer:lowfp-fresh-launch-after-finish" "FAIL" "low false-positive fresh installs do not launch from the finish page"
+    }
+    if ($content -match '(?s)procedure KqLaunchUpgradeAfterFinish\(\);\s*var\s+ResultCode: Integer;\s*begin\s+if not KqUpgradeInstall then' -and
+        $content -notmatch '(?s)procedure KqLaunchUpgradeAfterFinish\(\);\s*var\s+ResultCode: Integer;\s*begin\s+if LowFalsePositiveInstaller then\s+Exit;') {
+        Add-Check "installer:lowfp-upgrade-launch-after-finish" "PASS" "low false-positive upgrades launch after the finish button"
+    } else {
+        Add-Check "installer:lowfp-upgrade-launch-after-finish" "FAIL" "low false-positive upgrades do not launch after the finish button"
+    }
+    if ($content -match 'Assert-KqLowFalsePositiveReleaseSigned -ReleasePath \$release\.Path' -and
+        $content -match 'if \(-not \$LowFalsePositiveInstaller -or \$AllowUnsignedLowFalsePositiveInstaller\)') {
+        Add-Check "installer:lowfp-requires-signed-release" "PASS" "low false-positive installers require signed inner binaries by default"
+    } else {
+        Add-Check "installer:lowfp-requires-signed-release" "FAIL" "low false-positive installers can still be built from unsigned inner binaries"
+    }
+    if ($content -match '\.Extension -in @\("\.exe", "\.dll"\)') {
+        Add-Check "installer:lowfp-signature-guard-signable-filter" "PASS" "signature guard checks only real exe/dll files"
+    } else {
+        Add-Check "installer:lowfp-signature-guard-signable-filter" "FAIL" "signature guard can include non-signable release assets"
+    }
+    Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" 'Filename: "{app}\{#MyAppExeName}"; Flags: nowait' "installer:lowfp-no-unguarded-app-launch"
+    Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" "{localappdata}\Programs\KQRemoteLink" "installer:lowfp-no-appdata-programs-dir"
+    Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" '#define MyAppExeName "rustdesk.exe"' "installer:lowfp-no-hardcoded-rustdesk-exe-entry"
+    if ($content -match [regex]::Escape('DefaultDirName={code:GetDefaultInstallDir}') -and
+        $content -match [regex]::Escape('UsePreviousAppDir=$innoUsePreviousAppDir') -and
+        $content -match '(?s)function GetDefaultInstallDir\(Param: String\): String;.*if LowFalsePositiveInstaller then begin.*Result := KqLowFalsePositiveInstallDir\(\);.*Exit;.*end;.*if KqExistingInstallDir <> '''' then') {
+        Add-Check "installer:lowfp-no-existing-dir-overwrite" "PASS" "low false-positive upgrade installs into an isolated version directory"
+    } else {
+        Add-Check "installer:lowfp-no-existing-dir-overwrite" "FAIL" "low false-positive upgrade can still reuse and overwrite the existing install directory"
+    }
+}
+
+function Test-PostInstallPermissionActions {
+    $settingsPath = ".\flutter\lib\desktop\pages\desktop_setting_page.dart"
+    $homePath = ".\flutter\lib\desktop\pages\desktop_home_page.dart"
+    $commonPath = ".\flutter\lib\common.dart"
+    $ffiPath = ".\src\flutter_ffi.rs"
+    $userInitiatedCopy = [string]::Concat([char[]]@(
+        0x7528,
+        0x6237,
+        0x4E3B,
+        0x52A8,
+        0x70B9,
+        0x51FB,
+        0x540E,
+        0x624D,
+        0x4F1A,
+        0x89E6,
+        0x53D1,
+        0x7CFB,
+        0x7EDF,
+        0x6388,
+        0x6743,
+        0x6216,
+        0x4FEE,
+        0x590D
+    ))
+    $homeReminderCopy = [string]::Concat([char[]]@(
+        0x7528,
+        0x6237,
+        0x4E3B,
+        0x52A8,
+        0x6388,
+        0x6743
+    ))
+
+    Test-SourceContains $settingsPath "kq-post-install-permission-actions" "post-install:settings-visible-entry-marker"
+    Test-SourceContains $settingsPath "repairKqFirewallRules()" "post-install:settings-firewall-repair-action"
+    Test-SourceContains $settingsPath "bind.mainStartService()" "post-install:settings-service-install-action"
+    Test-SourceContains $settingsPath "registerKqBrowserRemoteProtocols()" "post-install:settings-browser-remote-protocol-action"
+    Test-SourceContains $settingsPath "kOptionEnablePermChangeInAcceptWindow, value: 'Y'" "post-install:settings-accept-window-permission"
+    Test-SourceContains $settingsPath "kOptionAllowRemoteConfigModification, value: 'N'" "post-install:settings-disable-remote-config"
+    Test-SourceContains $settingsPath $userInitiatedCopy "post-install:settings-user-initiated-copy"
+    Test-SourceContains $settingsPath "if (!isChangeIdDisabled())" "post-install:settings-id-still-present"
+    Test-SourceNotContains $settingsPath "_SettingSectionTitle(context, '2FA')" "post-install:settings-2fa-section-removed"
+    Test-SourceNotContains $settingsPath "tfa()," "post-install:settings-2fa-widget-not-rendered"
+    Test-SourceContains $homePath "kq-home-post-install-permission-reminder" "post-install:home-visible-reminder-marker"
+    Test-SourceContains $homePath $homeReminderCopy "post-install:home-user-initiated-copy"
+    Test-SourceContains $homePath "repairKqFirewallRules()" "post-install:home-firewall-action"
+    Test-SourceContains $homePath "bind.mainStartService()" "post-install:home-service-action"
+    Test-SourceContains $homePath "registerKqBrowserRemoteProtocols()" "post-install:home-browser-remote-protocol-action"
+    Test-SourceContains $homePath "bind.mainIsInstalledDaemon(prompt: false)" "post-install:home-hides-after-service-installed"
+    Test-SourceContains ".\flutter\lib\common\kq_network_risk_io.dart" "registerKqBrowserRemoteProtocols() async" "post-install:protocol-registration-io-entry"
+    Test-SourceContains ".\flutter\lib\common\kq_network_risk_io.dart" "HKCU\\Software\\Classes\\kqremote" "post-install:protocol-registration-hkcu-kqremote"
+    Test-SourceContains ".\flutter\lib\common\kq_network_risk_io.dart" "HKCU\\Software\\Classes\\rustdesk" "post-install:protocol-registration-hkcu-rustdesk"
+    Test-SourceContains $commonPath "if (isWindows && is_start)" "post-install:home-start-service-windows-bridge"
+    Test-SourceContains $ffiPath '#[cfg(target_os = "windows")]' "post-install:ffi-windows-service-branch"
+    Test-SourceContains $ffiPath 'crate::platform::elevate("--install-service --no-launch")' "post-install:ffi-uac-service-install"
+    Test-SourceContains $ffiPath "Windows service install request was not accepted" "post-install:ffi-uac-failure-log"
 }
 
 function Test-VoiceCallAudioRouting {
@@ -1048,6 +1727,8 @@ Test-RequiredPath $release.Path "data\flutter_assets\assets\kq_toolbox_icon.svg"
 Test-RequiredPath $release.Path "drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf"
 Test-RequiredPath $release.Path "printer_driver_adapter.dll"
 Test-InstallerUpgradePolicy
+Test-LowFalsePositiveInstallerMode
+Test-PostInstallPermissionActions
 Test-InstallerWizardImagesUseCurrentIcon
 Test-KqWebIconAsset
 Test-VoiceCallAudioRouting
@@ -1299,6 +1980,16 @@ function Test-BuiltInPrivateServerDefaults {
     } else {
         Add-Check "private-server:android-rendezvous-uses-udp-default" "FAIL" "Android private-server rendezvous must keep the UDP default unless proxy/WebSocket/disable-UDP is explicitly enabled"
     }
+
+    $windowsSource = ".\src\platform\windows.rs"
+    if (Test-Path $windowsSource) {
+        $windowsContent = Get-Content $windowsSource -Raw -Encoding UTF8
+        if ($windowsContent -match 'copy /Y .*Tray\.lnk.*Startup') {
+            Add-Check "installer:no-service-bat-startup-copy" "FAIL" "Service install still copies Tray.lnk into the system Startup folder"
+        } else {
+            Add-Check "installer:no-service-bat-startup-copy" "PASS" "Service install no longer copies Tray.lnk into the system Startup folder"
+        }
+    }
 }
 
 $manifestPath = Join-Path $repo "KQ_RELEASE_MANIFEST.json"
@@ -1380,7 +2071,7 @@ if (Test-Path $manifestPath) {
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_SettingSectionTitle(context, 'Default Codec')" "ui:display-codec-folded-under-quality"
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_SettingSectionTitle(context, 'Privacy mode')" "ui:display-privacy-folded-under-other"
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_SettingSectionTitle(context, 'Control Remote Desktop')" "ui:safety-permissions-grouped"
-    Test-SourceContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_SettingSectionTitle(context, '2FA')" "ui:safety-2fa-grouped-under-security"
+    Test-SourceNotContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_SettingSectionTitle(context, '2FA')" "ui:safety-2fa-group-removed"
     Test-SourceContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_SettingSectionTitle(context, 'Network')" "ui:safety-network-grouped"
     Test-SourceNotContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "title: '2FA'," "ui:safety-no-standalone-2fa-foldout"
     Test-SourceNotContains ".\flutter\lib\desktop\pages\desktop_setting_page.dart" "_Card(title: 'Permissions'" "ui:safety-permissions-no-flat-card"
@@ -1440,13 +2131,19 @@ if (Test-Path $manifestPath) {
     Test-KqPasswordSharePolicy
     Test-KqPasswordKindPersistence
 Test-KqAndroidMobilePasswordKinds
-Test-KqAndroidMobilePaymentMethod
+    Test-KqAndroidMobilePaymentMethod
+    Test-KqAndroidMobileRecordingStopToast
+    Test-KqDesktopRecordingSaveDirectory
+    Test-KqDesktopRecordingPlaybackCodec
 Test-KqAndroidMobileProfileHeaderPersonalCenter
 Test-KqAndroidMobileServerSettingsPrivacy
+Test-KqAndroidRestrictedInputPermissionGuide
 Test-KqAndroidRecentDeviceGroups
-Test-KqAndroidBuiltInTouchMapping
+Test-KqAndroidMobileSettingsNo2FA
+    Test-KqAndroidBuiltInTouchMapping
     Test-KqAndroidRemoteDesktopLandscapeFullscreen
     Test-KqAndroidRemoteSideControls
+    Test-KqAndroidRemoteCustomImageQuality
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "await setPermanentPasswordPreview(password);" "password:permanent-refresh-updates-real-password"
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "String _defaultApproveMode(String mode)" "password:approve-mode-default-helper"
     Test-SourceContains ".\flutter\lib\models\server_model.dart" "final normalizedApproveMode = _defaultApproveMode(approveMode);" "password:approve-mode-normalized-on-refresh"
@@ -1488,6 +2185,10 @@ Test-KqAndroidBuiltInTouchMapping
     Test-SourceContains ".\libs\hbb_common\src\config.rs" ".unwrap_or(80.0)" "quality:peer-default-bitrate-80"
     Test-SourceContains ".\src\client.rs" "const KQ_FREE_IMAGE_QUALITY: i32 = 80" "quality:kq-free-default-bitrate-80"
     Test-SourceContains ".\src\client.rs" "const KQ_MEMBER_IMAGE_QUALITY: i32 = 80" "quality:kq-member-default-bitrate-80"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\remote_toolbar.dart" "_CustomImageQualityMenuButton" "ui:remote-image-quality-selected-custom-item"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\remote_toolbar.dart" "groupValue == kRemoteImageQualityCustom" "ui:remote-image-quality-selected-custom-detected"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\remote_toolbar.dart" "MenuItemButton(" "ui:remote-image-quality-selected-custom-clickable"
+    Test-SourceContains ".\flutter\lib\desktop\widgets\remote_toolbar.dart" "customImageQualityDialog(ffi.sessionId, id, ffi)" "ui:remote-image-quality-selected-custom-opens-dialog"
     Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "_sortRecentPeersWithFavoritesFirst" "ui:recent-favorites-first-sort"
     Test-SourceContains ".\flutter\lib\common\widgets\peers_view.dart" "widget.peers.loadEvent == LoadEvent.recent" "ui:recent-favorites-sort-only-recent"
     Test-SourceContains ".\flutter\lib\models\peer_model.dart" "online = json['online'] == true || json['online'] == 'true'" "ui:peer-online-json-preserved"
@@ -1646,11 +2347,13 @@ Test-KqAndroidBuiltInTouchMapping
     Test-SourceContains ".\src\client.rs" "KQ Android skips remote audio playback because MuMu/Houdini can crash inside Oboe open_stream" "android:audio-output-skips-oboe-on-android"
     Test-SourceMatches ".\src\client.rs" '(?s)#\[cfg\(target_os = "android"\)\]\s*\{\s*log::warn!\(\s*"KQ Android skips remote audio playback because MuMu/Houdini can crash inside Oboe open_stream"\s*\);\s*return;' "android:audio-output-returns-before-oboe"
     Test-SourceContains ".\src\common.rs" "kqremote://" "deeplink:kqremote-prefix"
-    Test-SourceContains ".\scripts\new-kq-inno-installer.ps1" "HKEY_CLASSES_ROOT\kqremote" "installer:kqremote-protocol"
-    Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" "FindVersionedIconPath" "windows:versioned-window-icon-helper"
-    Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" 'L"kq-icon-*.ico"' "windows:versioned-window-icon-pattern"
-    Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" 'assets_dir + L"icon.ico"' "windows:window-icon-fallback"
-    Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" "IsRegularIconFile(icon_path)" "windows:window-icon-regular-file-check"
+    Test-SourceContains ".\flutter\lib\common\kq_network_risk_io.dart" "registerKqBrowserRemoteProtocols" "deeplink:user-initiated-protocol-registration"
+    Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" "MAKEINTRESOURCE(IDI_APP_ICON)" "windows:window-icon-embedded-resource"
+    Test-SourceContains ".\flutter\windows\runner\win32_window.cpp" "WM_SETICON" "windows:window-icon-set-from-resource"
+    Test-SourceNotContains ".\flutter\windows\runner\win32_window.cpp" "FindVersionedIconPath" "windows:no-versioned-window-icon-file"
+    Test-SourceNotContains ".\flutter\windows\runner\win32_window.cpp" 'L"kq-icon-*.ico"' "windows:no-versioned-window-icon-pattern"
+    Test-SourceNotContains ".\flutter\windows\runner\win32_window.cpp" 'assets_dir + L"icon.ico"' "windows:no-window-icon-asset-file"
+    Test-SourceNotContains ".\flutter\windows\runner\win32_window.cpp" "LR_LOADFROMFILE" "windows:no-window-icon-load-from-file"
     Test-SourceContains ".\server\src\index.js" "app.get(['/invite', '/api/invite']" "server:invite-page"
     Test-SourceContains ".\server\src\index.js" "kqremote" "server:invite-kqremote-scheme"
     Test-SourceContains ".\server\src\index.js" "const kqIconAssetPath = 'assets/kq-icon.png';" "server:web-icon-path"
@@ -1758,48 +2461,80 @@ if ($PackageZip) {
     $zip = Resolve-Path $PackageZip
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.Path)
     try {
-        foreach ($entryName in @(
-            "Release\rustdesk.exe",
-            "Release\librustdesk.dll",
-            "Release\data\flutter_assets\AssetManifest.bin",
-            "Release\data\flutter_assets\assets\kq_toolbox_icon.svg",
-            "Release\drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf",
-            "Release\printer_driver_adapter.dll",
-            "KQ_RELEASE_MANIFEST.json",
-            "START_KQ_REMOTE_LINK.cmd",
-            "RUN_SMOKE_CHECKS.cmd",
-            "CREATE_MANUAL_TEST_REPORT.cmd",
-            "CREATE_TWO_PC_ACCEPTANCE.cmd",
-            "COLLECT_DIAGNOSTICS.cmd",
-            "README_START_HERE.txt",
-            "TESTING_KQ_REMOTE_LINK.md",
-            "ACCEPTANCE_CHECKLIST.md",
-            "GITEA_SERVER_DEPLOYMENT.md",
-            "SERVER_DEPLOYMENT.md",
-            "deploy\rustdesk-server.compose.yml",
-            "deploy\deploy-rustdesk-server.sh",
-            "deploy\check-rustdesk-server.sh",
-            "deploy\export-hbbs-public-key.sh",
-            ".gitea\workflows\deploy.yml",
-            ".gitea\workflows\deploy-rustdesk-server.yml",
-            "scripts\deploy\deploy.sh",
-            "scripts\collect-kq-diagnostics.ps1",
-            "scripts\new-kq-manual-test-report.ps1",
-            "scripts\new-kq-private-server-client-package.ps1",
-            "scripts\new-kq-server-key-pair.ps1",
-            "scripts\new-kq-server-port-request.ps1",
-            "scripts\new-kq-two-pc-acceptance.ps1",
-            "scripts\run-kq-smoke-suite.ps1",
-            "scripts\test-kq-oauth.ps1",
-            "scripts\test-kq-release.ps1",
-            "scripts\test-kq-server.ps1",
-            "tools\custom_client_signer\Cargo.toml"
-        )) {
-            $entry = $archive.Entries | Where-Object { $_.FullName -eq $entryName } | Select-Object -First 1
+        $entryNames = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+        $isLowFalsePositivePortable = $entryNames -contains "README_LOW_FALSE_POSITIVE.txt"
+        $requiredZipEntries = if ($isLowFalsePositivePortable) {
+            @(
+                "Release/rustdesk.exe",
+                "Release/librustdesk.dll",
+                "Release/flutter_windows.dll",
+                "Release/data/flutter_assets/AssetManifest.bin",
+                "Release/data/flutter_assets/assets/kq_toolbox_icon.svg",
+                "Release/drivers/RustDeskPrinterDriver/RustDeskPrinterDriver.inf",
+                "Release/printer_driver_adapter.dll",
+                "README_LOW_FALSE_POSITIVE.txt"
+            )
+        } else {
+            @(
+                "Release/rustdesk.exe",
+                "Release/librustdesk.dll",
+                "Release/data/flutter_assets/AssetManifest.bin",
+                "Release/data/flutter_assets/assets/kq_toolbox_icon.svg",
+                "Release/drivers/RustDeskPrinterDriver/RustDeskPrinterDriver.inf",
+                "Release/printer_driver_adapter.dll",
+                "KQ_RELEASE_MANIFEST.json",
+                "START_KQ_REMOTE_LINK.cmd",
+                "RUN_SMOKE_CHECKS.cmd",
+                "CREATE_MANUAL_TEST_REPORT.cmd",
+                "CREATE_TWO_PC_ACCEPTANCE.cmd",
+                "COLLECT_DIAGNOSTICS.cmd",
+                "README_START_HERE.txt",
+                "TESTING_KQ_REMOTE_LINK.md",
+                "ACCEPTANCE_CHECKLIST.md",
+                "GITEA_SERVER_DEPLOYMENT.md",
+                "SERVER_DEPLOYMENT.md",
+                "deploy/rustdesk-server.compose.yml",
+                "deploy/deploy-rustdesk-server.sh",
+                "deploy/check-rustdesk-server.sh",
+                "deploy/export-hbbs-public-key.sh",
+                ".gitea/workflows/deploy.yml",
+                ".gitea/workflows/deploy-rustdesk-server.yml",
+                "scripts/deploy/deploy.sh",
+                "scripts/collect-kq-diagnostics.ps1",
+                "scripts/new-kq-manual-test-report.ps1",
+                "scripts/new-kq-private-server-client-package.ps1",
+                "scripts/new-kq-server-key-pair.ps1",
+                "scripts/new-kq-server-port-request.ps1",
+                "scripts/new-kq-two-pc-acceptance.ps1",
+                "scripts/run-kq-smoke-suite.ps1",
+                "scripts/test-kq-oauth.ps1",
+                "scripts/test-kq-release.ps1",
+                "scripts/test-kq-server.ps1",
+                "tools/custom_client_signer/Cargo.toml"
+            )
+        }
+        foreach ($entryName in $requiredZipEntries) {
+            $entry = $archive.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq $entryName } | Select-Object -First 1
             if ($entry) {
                 Add-Check "zip:$entryName" "PASS" "$($entry.Length) bytes"
             } else {
                 Add-Check "zip:$entryName" "FAIL" "Missing zip entry"
+            }
+        }
+        if ($isLowFalsePositivePortable) {
+            $scriptEntries = @($entryNames | Where-Object { $_ -match '\.(ps1|cmd|bat|iss)$' })
+            $nonReleaseInstallers = @($entryNames | Where-Object {
+                    $_ -match '\.exe$' -and $_ -notmatch '^Release/[^/]+\.exe$'
+                })
+            if ($scriptEntries.Count -eq 0) {
+                Add-Check "zip:lowfp-no-scripts" "PASS" "No ps1/cmd/bat/iss entries"
+            } else {
+                Add-Check "zip:lowfp-no-scripts" "FAIL" ($scriptEntries -join ", ")
+            }
+            if ($nonReleaseInstallers.Count -eq 0) {
+                Add-Check "zip:lowfp-no-nested-installers" "PASS" "No non-Release exe entries"
+            } else {
+                Add-Check "zip:lowfp-no-nested-installers" "FAIL" ($nonReleaseInstallers -join ", ")
             }
         }
     } finally {

@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/kq_deploy_key -p "${{ inputs.port }}" "${{ inputs.user }}@${{ inputs.host }}" \
-            "cd '${{ inputs.install_dir }}/incoming' && chmod +x deploy-rustdesk-server.sh && INSTALL_DIR='${{ inputs.install_dir }}' KQ_HBBS_PUBLIC_KEY='${{ secrets.KQ_HBBS_PUBLIC_KEY }}' KQ_HBBS_SECRET_KEY='${{ secrets.KQ_HBBS_SECRET_KEY }}' ./deploy-rustdesk-server.sh"
+            "cd '${{ inputs.install_dir }}/incoming' && chmod +x deploy-rustdesk-server.sh && INSTALL_DIR='${{ inputs.install_dir }}' KQ_HBBS_PUBLIC_KEY='${{ secrets.KQ_HBBS_PUBLIC_KEY }}' KQ_HBBS_SECRET_KEY='${{ secrets.KQ_HBBS_SECRET_KEY }}' KQ_ALIPAY_APP_ID='${{ secrets.KQ_ALIPAY_APP_ID }}' KQ_ALIPAY_PRIVATE_KEY='${{ secrets.KQ_ALIPAY_PRIVATE_KEY }}' KQ_ALIPAY_PUBLIC_KEY='${{ secrets.KQ_ALIPAY_PUBLIC_KEY }}' KQ_ALIPAY_NOTIFY_URL='${{ secrets.KQ_ALIPAY_NOTIFY_URL }}' KQ_ALIPAY_GATEWAY_URL='${{ secrets.KQ_ALIPAY_GATEWAY_URL }}' ./deploy-rustdesk-server.sh"
 
       - name: Check hbbs/hbbr
         shell: bash

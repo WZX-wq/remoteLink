@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -10,11 +11,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../common.dart';
 import '../../common/kq_theme.dart';
 import '../../common/widgets/login.dart';
+import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/user_model.dart';
+import '../../utils/http_service.dart' as http;
 import 'page_shape.dart';
 import 'settings_page.dart';
+
+const _kqAndroidPaymentChannel = MethodChannel('mChannel');
 
 class AccountPage extends StatefulWidget implements PageShape {
   AccountPage({super.key});
@@ -51,10 +56,19 @@ class _AccountPageState extends State<AccountPage> {
 
   Future<void> _handleAccountTap(bool isLogin) async {
     if (isLogin) {
-      logOutConfirmDialog();
+      _openPersonalCenterPage();
     } else {
       await loginDialog();
     }
+  }
+
+  void _openPersonalCenterPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const _PersonalCenterPage(),
+      ),
+    );
   }
 
   Future<void> _openMembershipSheet() async {
@@ -76,16 +90,193 @@ class _AccountPageState extends State<AccountPage> {
   void _showMemberRechargeSheet(List<KqMemberPackage> packages) {
     final user = gFFI.userModel;
     var selectedPackage = packages.first;
+    var payType = 1;
     KqMemberOrder? order;
     var creatingOrder = false;
     var statusText = '';
     var statusIsError = false;
+    var showQrFallback = false;
     var alive = true;
     Timer? pollTimer;
 
     void stopPolling() {
       pollTimer?.cancel();
       pollTimer = null;
+    }
+
+    Uri? paymentUriFromText(String value) {
+      final text = value.trim();
+      if (text.isEmpty) return null;
+      final parsed = Uri.tryParse(text);
+      if (parsed != null && parsed.hasScheme) {
+        return parsed;
+      }
+      return null;
+    }
+
+    Future<String?> wechatLaunchUrlFromQrImage(KqMemberOrder order) async {
+      final image = order.qrcodeImgUrl.trim();
+      final direct = kqWechatPaymentLaunchUrlFromText(image);
+      if (direct != null) return direct;
+      if (image.isEmpty) return null;
+      List<int>? bytes;
+      try {
+        if (image.startsWith('data:image')) {
+          final comma = image.indexOf(',');
+          if (comma > 0) {
+            bytes = base64Decode(image.substring(comma + 1));
+          }
+        } else if (image.startsWith('http://') ||
+            image.startsWith('https://')) {
+          final response = await http
+              .get(Uri.parse(image))
+              .timeout(const Duration(seconds: 5));
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            bytes = response.bodyBytes;
+          }
+        }
+      } catch (e) {
+        debugPrint('KQ WeChat QR image fetch failed: $e');
+      }
+      if (bytes == null || bytes.isEmpty) return null;
+      final payload = kqPaymentQrPayloadFromImageBytes(bytes);
+      if (payload == null || payload.trim().isEmpty) return null;
+      return kqWechatPaymentLaunchUrlFromText(payload);
+    }
+
+    String? alipayAppOrderInfoFromText(String value) {
+      final text = value.trim();
+      if (text.isEmpty || text.toLowerCase().contains('<html')) return null;
+      if (text.contains('method=alipay.trade.app.pay') ||
+          text.contains('product_code=QUICK_MSECURITY_PAY')) {
+        return text;
+      }
+      return null;
+    }
+
+    Future<bool> openAlipayHtmlCheckout(KqMemberOrder order) async {
+      final html = order.alipaySubmitHtml.trim();
+      if (html.isEmpty) return false;
+      try {
+        if (isAndroid) {
+          final opened = await _kqAndroidPaymentChannel.invokeMethod(
+            AndroidChannel.kOpenAlipayHtml,
+            html,
+          );
+          return opened == true;
+        }
+        final uri = Uri.dataFromString(
+          html,
+          mimeType: 'text/html',
+          encoding: utf8,
+        );
+        return await launchUrl(
+          uri,
+          mode: LaunchMode.inAppWebView,
+          webViewConfiguration: const WebViewConfiguration(
+            enableJavaScript: true,
+          ),
+        );
+      } catch (e) {
+        debugPrint('KQ Alipay HTML checkout failed: $e');
+        return false;
+      }
+    }
+
+    Future<bool> openPaymentUri(Uri uri) async {
+      try {
+        if (isAndroid) {
+          final opened = await gFFI.invokeMethod(
+            AndroidChannel.kOpenPaymentUri,
+            uri.toString(),
+          );
+          return opened == true;
+        }
+        return await launchUrl(
+          uri,
+          mode: LaunchMode.externalNonBrowserApplication,
+        );
+      } catch (e) {
+        debugPrint('KQ payment app launch failed: $e');
+        return false;
+      }
+    }
+
+    Future<bool> openAlipayPaymentApp(KqMemberOrder order) async {
+      final alipayAppOrderInfos = order
+          .appLaunchUrlsForPayType(2)
+          .map(alipayAppOrderInfoFromText)
+          .whereType<String>()
+          .toList();
+      for (final orderInfo in alipayAppOrderInfos) {
+        try {
+          if (isAndroid) {
+            final result = await _kqAndroidPaymentChannel.invokeMethod(
+              AndroidChannel.kOpenAlipayOrder,
+              orderInfo,
+            );
+            debugPrint('KQ Alipay SDK result: $result');
+            if (result is Map) {
+              final status = (result['resultStatus'] ?? '').toString();
+              if (status == '9000' || status == '8000' || status == '6004') {
+                return true;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('KQ Alipay SDK launch failed: $e');
+        }
+      }
+      for (final url in order.appLaunchUrlsForPayType(2)) {
+        final lower = url.trim().toLowerCase();
+        if (!lower.startsWith('alipays://') &&
+            !lower.startsWith('alipayqr://')) {
+          continue;
+        }
+        final uri = Uri.tryParse(url.trim());
+        if (uri == null) continue;
+        if (await openPaymentUri(uri)) return true;
+      }
+      return openAlipayHtmlCheckout(order);
+    }
+
+    Future<bool> openWechatPaymentApp(KqMemberOrder order) async {
+      final appPayRequest = order.wechatAppPayRequest;
+      if (isAndroid && appPayRequest != null) {
+        try {
+          final result = await _kqAndroidPaymentChannel.invokeMethod(
+            AndroidChannel.kOpenWechatPay,
+            appPayRequest.toMethodChannelArgs(),
+          );
+          debugPrint('KQ WeChat OpenSDK result: $result');
+          if (result is Map && result['opened'] == true) {
+            return true;
+          }
+        } catch (e) {
+          debugPrint('KQ WeChat OpenSDK launch failed: $e');
+        }
+      }
+      for (final url in order.appLaunchUrlsForPayType(1)) {
+        final uri = paymentUriFromText(url);
+        if (uri == null) continue;
+        if (await openPaymentUri(uri)) return true;
+      }
+      final qrLaunchUrl = await wechatLaunchUrlFromQrImage(order);
+      if (qrLaunchUrl != null) {
+        final uri = paymentUriFromText(qrLaunchUrl);
+        if (uri != null && await openPaymentUri(uri)) return true;
+      }
+      return false;
+    }
+
+    Future<bool> openPaymentApp(KqMemberOrder order) async {
+      if (payType == 2) {
+        return openAlipayPaymentApp(order);
+      }
+      if (payType == 1) {
+        return openWechatPaymentApp(order);
+      }
+      return false;
     }
 
     showModalBottomSheet<void>(
@@ -156,18 +347,27 @@ class _AccountPageState extends State<AccountPage> {
               setSheetState(() {
                 creatingOrder = true;
                 order = null;
-                statusText = translate('Creating order...');
+                statusText = _mineText('Opening payment app...');
                 statusIsError = false;
+                showQrFallback = false;
               });
               try {
                 final nextOrder = await user.createMemberOrder(
                   packageId: selectedPackage.id,
-                  payType: 1,
+                  payType: payType,
                 );
+                if (!alive) return;
+                final opened = await openPaymentApp(nextOrder);
                 if (!alive) return;
                 setSheetState(() {
                   order = nextOrder;
-                  statusText = translate('Scan with WeChat to pay');
+                  showQrFallback = !opened;
+                  statusText = opened
+                      ? (payType == 1
+                          ? _mineText('WeChat payment opened')
+                          : _mineText('Alipay cashier opened'))
+                      : _mineText(
+                          'Payment app unavailable. Scan the QR code to pay');
                   statusIsError = false;
                 });
                 startPolling(nextOrder);
@@ -251,6 +451,7 @@ class _AccountPageState extends State<AccountPage> {
                                     order = null;
                                     statusText = '';
                                     statusIsError = false;
+                                    showQrFallback = false;
                                     stopPolling();
                                   });
                                 },
@@ -258,19 +459,95 @@ class _AccountPageState extends State<AccountPage> {
                             )
                             .toList(),
                       ),
-                      if (order != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        translate('Payment method'),
+                        style: TextStyle(
+                          color: q.ink,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            selected: payType == 1,
+                            label: Text(translate('WeChat Pay')),
+                            avatar:
+                                const Icon(Icons.qr_code_2_rounded, size: 17),
+                            onSelected: (_) => setSheetState(() {
+                              payType = 1;
+                              order = null;
+                              statusText = '';
+                              statusIsError = false;
+                              showQrFallback = false;
+                              stopPolling();
+                            }),
+                          ),
+                          ChoiceChip(
+                            selected: payType == 2,
+                            label: Text(translate('Alipay')),
+                            avatar: const Icon(Icons.open_in_browser_rounded,
+                                size: 17),
+                            onSelected: (_) => setSheetState(() {
+                              payType = 2;
+                              order = null;
+                              statusText = '';
+                              statusIsError = false;
+                              showQrFallback = false;
+                              stopPolling();
+                            }),
+                          ),
+                        ],
+                      ),
+                      if (order != null && showQrFallback) ...[
                         const SizedBox(height: 16),
                         _MemberOrderPanel(order: order!),
                       ],
                       if (statusText.isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        Text(
-                          statusText,
-                          style: TextStyle(
-                            color: statusIsError ? q.offline : q.primary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          child: creatingOrder
+                              ? Row(
+                                  key: const ValueKey('payment-loading'),
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                q.primary),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        statusText,
+                                        style: TextStyle(
+                                          color: q.primary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  statusText,
+                                  key: const ValueKey('payment-status'),
+                                  style: TextStyle(
+                                    color:
+                                        statusIsError ? q.offline : q.primary,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
                         ),
                       ],
                       const SizedBox(height: 16),
@@ -282,13 +559,16 @@ class _AccountPageState extends State<AccountPage> {
                               ? const SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
+                                  ),
                                 )
-                              : const Icon(Icons.qr_code_2_rounded),
+                              : const Icon(Icons.payments_rounded),
                           label: Text(creatingOrder
-                              ? translate('Creating')
-                              : translate('Create payment order')),
+                              ? _mineText('Opening payment app...')
+                              : _mineText('Pay now')),
                         ),
                       ),
                     ],
@@ -331,39 +611,6 @@ class _AccountPageState extends State<AccountPage> {
     );
   }
 
-  Future<void> _openLicenseDialog() async {
-    try {
-      final license = await bind.mainGetLicense();
-      if (!mounted) return;
-      final q = KqTheme.of(context);
-      showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(_mineText('Software license agreement')),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 420),
-            child: SingleChildScrollView(
-              child: Text(
-                license.trim().isEmpty
-                    ? _mineText('No license information')
-                    : license,
-                style: TextStyle(color: q.ink, height: 1.35),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(translate('Close')),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      showToast(e.toString());
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     Provider.of<FfiModel>(context);
@@ -372,7 +619,7 @@ class _AccountPageState extends State<AccountPage> {
       final isLogin = user.userName.value.isNotEmpty;
       final avatar = bind.mainResolveAvatarUrl(avatar: user.avatar.value);
       return ListView(
-        padding: const EdgeInsets.fromLTRB(22, 10, 22, 156),
+        padding: const EdgeInsets.fromLTRB(22, 10, 22, 24),
         children: [
           _MineToolbar(
             onNotificationTap: () => showToast(_mineText('No notifications')),
@@ -413,34 +660,26 @@ class _AccountPageState extends State<AccountPage> {
               _MenuRow(
                 title: _mineText('General settings'),
                 onTap: () => _openSettingsDetail(
-                  title: _mineText('General settings'),
+                  title: 'General settings',
                   groupTitle: 'Appearance',
                 ),
               ),
               _MenuRow(
                 title: _mineText('Security settings'),
                 onTap: () => _openSettingsDetail(
-                  title: _mineText('Security settings'),
+                  title: 'Security settings',
                   groupTitle: 'Remote Access',
                 ),
               ),
               _MenuRow(
                 title: _mineText('Mobile device management'),
                 onTap: () => _openSettingsDetail(
-                  title: _mineText('Mobile device management'),
+                  title: 'Mobile device management',
                   groupTitle: 'Connection & Network',
                 ),
               ),
               _MenuRow(
                 title: _mineText('Contact us'),
-                onTap: () => launchUrl(Uri.parse('https://kunqiongai.com/')),
-              ),
-              _MenuRow(
-                title: _mineText('Software license agreement'),
-                onTap: _openLicenseDialog,
-              ),
-              _MenuRow(
-                title: _mineText('Privacy policy'),
                 onTap: () => launchUrl(Uri.parse('https://kunqiongai.com/')),
                 showDivider: false,
               ),
@@ -887,6 +1126,323 @@ class _LogoutButton extends StatelessWidget {
         minimumSize: const Size.fromHeight(48),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
+    );
+  }
+}
+
+class _PersonalCenterPage extends StatelessWidget {
+  const _PersonalCenterPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      kqMobileLanguageEpoch.value;
+      final q = KqTheme.of(context);
+      final user = gFFI.userModel;
+      final avatar = bind.mainResolveAvatarUrl(avatar: user.avatar.value);
+      return Scaffold(
+        backgroundColor: q.surface,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: q.pageGradient,
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                _KqDetailHeader(title: _mineText('Personal center')),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+                    children: [
+                      _PersonalProfileCard(
+                        avatar: avatar,
+                        title: user.displayNameOrUserName,
+                        subtitle: user.accountLabelWithHandle,
+                        badge: user.membershipName,
+                        isMember: user.isMember.value,
+                      ),
+                      const SizedBox(height: 14),
+                      _PersonalInfoSection(
+                        children: [
+                          _PersonalInfoRow(
+                            icon: Icons.account_circle_rounded,
+                            title: _mineText('Username'),
+                            value: user.userName.value.trim(),
+                          ),
+                          _PersonalInfoRow(
+                            icon: Icons.phone_android_rounded,
+                            title: _mineText('Phone number'),
+                            value: _localUserPhoneNumber(),
+                            showDivider: false,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+String _localUserPhoneNumber() {
+  final userInfo = UserModel.getLocalUserInfo();
+  if (userInfo == null) return _mineText('Not set');
+  final values = <String>[];
+
+  void add(dynamic value) {
+    final text = (value ?? '').toString().trim();
+    if (text.isNotEmpty) {
+      values.add(text);
+    }
+  }
+
+  void collectFromMap(dynamic value) {
+    if (value is! Map) return;
+    for (final key in [
+      'phone',
+      'mobile',
+      'phone_number',
+      'phoneNumber',
+      'mobile_phone',
+      'mobilePhone',
+      'tel',
+    ]) {
+      add(value[key]);
+    }
+  }
+
+  collectFromMap(userInfo);
+  final raw = userInfo['external_auth_raw'];
+  collectFromMap(raw);
+  if (raw is Map) {
+    collectFromMap(raw['data']);
+    collectFromMap(raw['user']);
+    collectFromMap(raw['user_info']);
+    final data = raw['data'];
+    if (data is Map) {
+      collectFromMap(data['user']);
+      collectFromMap(data['user_info']);
+    }
+  }
+
+  return values.isEmpty ? _mineText('Not set') : values.first;
+}
+
+class _PersonalProfileCard extends StatelessWidget {
+  const _PersonalProfileCard({
+    required this.avatar,
+    required this.title,
+    required this.subtitle,
+    required this.badge,
+    required this.isMember,
+  });
+
+  final String avatar;
+  final String title;
+  final String subtitle;
+  final String badge;
+  final bool isMember;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final badgeColor = isMember ? const Color(0xFFEACB74) : q.primary;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.82 : 0.98),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: q.line.withOpacity(0.62)),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow.withOpacity(q.isDark ? 0.72 : 0.62),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: q.online.withOpacity(0.12),
+              shape: BoxShape.circle,
+              border: Border.all(color: q.line.withOpacity(0.72), width: 2),
+            ),
+            child: ClipOval(
+              child: buildAvatarWidget(
+                    avatar: avatar,
+                    size: 70,
+                    fallback: Icon(
+                      Icons.person_rounded,
+                      color: q.online,
+                      size: 40,
+                    ),
+                  ) ??
+                  Icon(Icons.person_rounded, color: q.online, size: 40),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: q.ink,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: badgeColor.withOpacity(0.24)),
+                      ),
+                      child: Text(
+                        isMember ? 'VIP' : badge,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: badgeColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PersonalInfoSection extends StatelessWidget {
+  const _PersonalInfoSection({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.78 : 0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line.withOpacity(0.56)),
+      ),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _PersonalInfoRow extends StatelessWidget {
+  const _PersonalInfoRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    this.showDivider = true,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: q.primary.withOpacity(0.11),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: q.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: q.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (showDivider)
+          Padding(
+            padding: const EdgeInsets.only(left: 64, right: 16),
+            child: Divider(height: 1, color: q.line.withOpacity(0.56)),
+          ),
+      ],
     );
   }
 }
@@ -1567,34 +2123,38 @@ class _SettingsDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    return Scaffold(
-      backgroundColor: q.surface,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: q.pageGradient,
+    return Obx(() {
+      kqMobileLanguageEpoch.value;
+      final q = KqTheme.of(context);
+      final resolvedTitle = _mineText(title);
+      return Scaffold(
+        backgroundColor: q.surface,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: q.pageGradient,
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _KqDetailHeader(title: title),
-              Expanded(
-                child: SettingsPage(
-                  showAccountGroup: false,
-                  initialGroupTitle: groupTitle,
-                  singleGroupOnly: true,
-                  detailTitle: title,
+          child: SafeArea(
+            child: Column(
+              children: [
+                _KqDetailHeader(title: resolvedTitle),
+                Expanded(
+                  child: SettingsPage(
+                    showAccountGroup: false,
+                    initialGroupTitle: groupTitle,
+                    singleGroupOnly: true,
+                    detailTitle: resolvedTitle,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -1606,12 +2166,16 @@ String _priceLabel(double price) {
 }
 
 String _mineText(String key) {
-  final zh = localeName.toString().toLowerCase().startsWith('zh');
-  final map = zh ? _mineZh : _mineEn;
-  return map[key] ?? translate(key);
+  if (kqUiPrefersSimplifiedChinese()) return _mineZh[key] ?? translate(key);
+  if (kqUiPrefersChinese()) return _mineTw[key] ?? translate(key);
+  return translate(key);
 }
 
 const _mineZh = {
+  'Personal center': '个人中心',
+  'Username': '用户名',
+  'Phone number': '手机号',
+  'Not set': '未设置',
   'Me': '我的',
   'Notifications': '通知',
   'No notifications': '暂无通知',
@@ -1621,39 +2185,31 @@ const _mineZh = {
   'Security settings': '安全设置',
   'Mobile device management': '网络与连接',
   'Contact us': '联系我们',
-  'Software license agreement': '软件许可协议',
-  'Privacy policy': '隐私政策',
-  'No license information': '暂无许可协议信息',
   'Balanced quality': '均衡清晰',
   'HD quality': '高清画质',
   'Members only': '会员专享',
   'Stable': '稳定流畅',
   'Smooth': '更顺滑',
+  'Pay now': '立即支付',
+  'Opening payment app...': '正在拉起支付...',
+  'WeChat Pay': '微信支付',
+  'WeChat payment opened': '已打开微信支付',
+  'Payment app unavailable. Scan the QR code to pay': '未能唤起支付应用，请扫码支付',
+  'Alipay cashier opened': '已打开支付宝收银台',
   'Membership quality unlocked': '会员画质已解锁，可使用 1080p 和 60 FPS。',
   'Upgrade to unlock 1080p and 60 FPS':
       '当前账号最多可用 720p / 30 FPS，开通会员后可使用 1080p / 60 FPS。',
 };
 
-const _mineEn = {
-  'Me': 'Me',
-  'Notifications': 'Notifications',
-  'No notifications': 'No notifications',
-  'Free plan': 'Free plan',
-  'Remote quality and FPS': 'Quality & FPS',
-  'General settings': 'General settings',
-  'Security settings': 'Security settings',
-  'Mobile device management': 'Network & Connection',
-  'Contact us': 'Contact us',
-  'Software license agreement': 'Software license agreement',
-  'Privacy policy': 'Privacy policy',
-  'No license information': 'No license information',
-  'Balanced quality': 'Balanced quality',
-  'HD quality': 'HD quality',
-  'Members only': 'Members only',
-  'Stable': 'Stable',
-  'Smooth': 'Smooth',
-  'Membership quality unlocked':
-      'Membership quality unlocked. 1080p and 60 FPS are available.',
-  'Upgrade to unlock 1080p and 60 FPS':
-      'Current account supports up to 720p / 30 FPS. Upgrade to use 1080p / 60 FPS.',
+const _mineTw = {
+  'Personal center': '個人中心',
+  'Username': '使用者名稱',
+  'Phone number': '手機號',
+  'Not set': '未設定',
+  'Pay now': '立即支付',
+  'Opening payment app...': '正在拉起支付...',
+  'WeChat Pay': '微信支付',
+  'WeChat payment opened': '已開啟微信支付',
+  'Payment app unavailable. Scan the QR code to pay': '未能喚起支付應用，請掃碼支付',
+  'Alipay cashier opened': '已開啟支付寶收銀台',
 };

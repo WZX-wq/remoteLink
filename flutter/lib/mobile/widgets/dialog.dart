@@ -65,15 +65,147 @@ void showServerSettings(OverlayDialogManager dialogManager,
       ServerConfig.fromOptions(options), dialogManager, setState);
 }
 
+String _managedServerSummary() {
+  if (kqUiPrefersChinese()) {
+    return '专用网络已配置';
+  }
+  return translate('Dedicated network is configured');
+}
+
+String _managedServerDescription() {
+  if (kqUiPrefersChinese()) {
+    return '服务器信息由应用内置管理，不在这里显示。';
+  }
+  return translate('Server information is managed by the app and hidden here.');
+}
+
+String _normalizeServerSettingValue(String value) {
+  var normalized = value.trim();
+  while (normalized.endsWith('/')) {
+    normalized = normalized.substring(0, normalized.length - 1);
+  }
+  return normalized;
+}
+
+bool _sameServerSettingValue(String a, String b) {
+  return _normalizeServerSettingValue(a) == _normalizeServerSettingValue(b);
+}
+
+ServerConfig _buildinServerConfig() {
+  return ServerConfig(
+    idServer: bind.mainGetBuildinOption(key: 'custom-rendezvous-server'),
+    relayServer: bind.mainGetBuildinOption(key: 'relay-server'),
+    apiServer: bind.mainGetBuildinOption(key: 'api-server'),
+    key: bind.mainGetBuildinOption(key: 'key'),
+  );
+}
+
+bool _serverSettingsUsesManagedSummary(ServerConfig serverConfig) {
+  if (!isMobile || isWeb) {
+    return false;
+  }
+  final buildinConfig = _buildinServerConfig();
+  final hasBuildinServerConfig = buildinConfig.idServer.isNotEmpty ||
+      buildinConfig.relayServer.isNotEmpty ||
+      buildinConfig.apiServer.isNotEmpty ||
+      buildinConfig.key.isNotEmpty;
+  if (!hasBuildinServerConfig) {
+    return false;
+  }
+  return _sameServerSettingValue(
+          serverConfig.idServer, buildinConfig.idServer) &&
+      _sameServerSettingValue(
+          serverConfig.relayServer, buildinConfig.relayServer) &&
+      _sameServerSettingValue(
+          serverConfig.apiServer, buildinConfig.apiServer) &&
+      _sameServerSettingValue(serverConfig.key, buildinConfig.key);
+}
+
+ServerConfig _editableServerConfig(ServerConfig serverConfig) {
+  if (!isMobile || isWeb) {
+    return serverConfig;
+  }
+  final buildinConfig = _buildinServerConfig();
+  return ServerConfig(
+    idServer:
+        _sameServerSettingValue(serverConfig.idServer, buildinConfig.idServer)
+            ? ''
+            : serverConfig.idServer,
+    relayServer: _sameServerSettingValue(
+            serverConfig.relayServer, buildinConfig.relayServer)
+        ? ''
+        : serverConfig.relayServer,
+    apiServer:
+        _sameServerSettingValue(serverConfig.apiServer, buildinConfig.apiServer)
+            ? ''
+            : serverConfig.apiServer,
+    key: _sameServerSettingValue(serverConfig.key, buildinConfig.key)
+        ? ''
+        : serverConfig.key,
+  );
+}
+
 void showServerSettingsWithValue(
     ServerConfig serverConfig,
     OverlayDialogManager dialogManager,
     void Function(VoidCallback)? upSetState) async {
+  if (_serverSettingsUsesManagedSummary(serverConfig)) {
+    dialogManager.show((setState, close, context) {
+      return CustomAlertDialog(
+        title: Text(translate('ID/Relay Server')),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.verified_user_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _managedServerSummary(),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _managedServerDescription(),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          dialogButton('Custom', onPressed: () {
+            close();
+            showServerSettingsWithValue(
+                ServerConfig(), dialogManager, upSetState);
+          }, isOutline: true),
+          dialogButton('OK', onPressed: close),
+        ],
+      );
+    }, backDismiss: true, clickMaskDismiss: true);
+    return;
+  }
+
   var isInProgress = false;
-  final idCtrl = TextEditingController(text: serverConfig.idServer);
-  final relayCtrl = TextEditingController(text: serverConfig.relayServer);
-  final apiCtrl = TextEditingController(text: serverConfig.apiServer);
-  final keyCtrl = TextEditingController(text: serverConfig.key);
+  final editableConfig = _editableServerConfig(serverConfig);
+  final initialIdServer = editableConfig.idServer;
+  final initialRelayServer = editableConfig.relayServer;
+  final initialApiServer = editableConfig.apiServer;
+  final initialKey = editableConfig.key;
+  final idCtrl = TextEditingController(text: initialIdServer);
+  final relayCtrl = TextEditingController(text: initialRelayServer);
+  final apiCtrl = TextEditingController(text: initialApiServer);
+  final keyCtrl = TextEditingController(text: initialKey);
 
   RxString idServerMsg = ''.obs;
   RxString relayServerMsg = ''.obs;
@@ -146,7 +278,7 @@ void showServerSettingsWithValue(
       title: Row(
         children: [
           Expanded(child: Text(translate('ID/Relay Server'))),
-          ...ServerConfigImportExportWidgets(controllers, errMsgs),
+          ...ServerConfigImportExportWidgets.call(controllers, errMsgs),
         ],
       ),
       content: ConstrainedBox(
@@ -178,7 +310,7 @@ void showServerSettingsWithValue(
                     },
                   ),
                   SizedBox(height: 8),
-                  buildField('Key', keyCtrl, ''),
+                  buildField(translate('Key'), keyCtrl, ''),
                   if (isInProgress)
                     Padding(
                       padding: EdgeInsets.only(top: 8),

@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
+import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:flutter_hbb/common/kq_oauth.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:get/get.dart';
+import 'package:image/image.dart' as img;
+import 'package:zxing2/qrcode.dart';
 
 import '../common.dart';
 import '../utils/http_service.dart' as http;
@@ -643,9 +647,15 @@ class UserModel {
     required String token,
     required int packageId,
     required int payType,
+    bool forceProjectOrder = false,
   }) async {
     final api = _projectApiBaseUrl;
-    if (api.isEmpty) return null;
+    if (api.isEmpty) {
+      if (forceProjectOrder) {
+        throw translate('Failed to create membership order');
+      }
+      return null;
+    }
     try {
       final response = await http
           .post(
@@ -654,17 +664,38 @@ class UserModel {
             body: jsonEncode({
               'package_id': packageId,
               'pay_type': payType,
+              'client_platform': isAndroid ? 'android' : 'desktop',
             }),
           )
           .timeout(const Duration(seconds: 10));
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (forceProjectOrder) {
+          try {
+            final body = jsonDecode(decode_http_response(response));
+            if (body is Map) {
+              throw body['error'] ??
+                  body['msg'] ??
+                  body['message'] ??
+                  translate('Failed to create membership order');
+            }
+          } catch (e) {
+            if (e is String) rethrow;
+          }
+          throw translate('Failed to create membership order');
+        }
         return null;
       }
       final body = jsonDecode(decode_http_response(response));
       if (body is Map && body['ok'] == true && body['order'] is Map) {
         return KqMemberOrder.fromJson(body['order'] as Map);
       }
+      if (forceProjectOrder) {
+        throw translate('Failed to create membership order');
+      }
     } catch (e) {
+      if (forceProjectOrder) {
+        rethrow;
+      }
       debugPrint('KQ project API create order fallback: $e');
     }
     return null;
@@ -704,15 +735,20 @@ class UserModel {
       throw translate('Please log in first');
     }
     Object? lastError;
+    final requiresProjectAppPay = isAndroid && payType == 2;
     for (final token in _memberTokenCandidates()) {
       try {
         final projectOrder = await _createProjectMemberOrder(
           token: token,
           packageId: packageId,
           payType: payType,
+          forceProjectOrder: requiresProjectAppPay,
         );
         if (projectOrder != null) {
           return projectOrder;
+        }
+        if (requiresProjectAppPay) {
+          throw translate('Failed to create membership order');
         }
 
         final response = await _postMemberApi(
@@ -808,6 +844,7 @@ class UserModel {
   // update ab and group status
   static Future<void> updateOtherModels() async {
     await Future.wait([
+      KqProjectApi.syncCurrentAccountDevice(),
       gFFI.abModel.pullAb(force: ForcePullAb.listAndCurrent, quiet: false),
       gFFI.groupModel.pull()
     ]);
@@ -992,22 +1029,10 @@ class KqMemberPackage {
 
 final _kqHanTextPattern = RegExp('[\u4e00-\u9fff]');
 
-bool _kqUiPrefersChinese() {
-  final selectedLang =
-      bind.mainGetLocalOption(key: kCommConfKeyLang).trim().toLowerCase();
-  if (selectedLang == 'zh-cn' || selectedLang == 'zh-tw') {
-    return true;
-  }
-  if (selectedLang.isNotEmpty && selectedLang != defaultOptionLang) {
-    return false;
-  }
-  return localeName.toString().toLowerCase().startsWith('zh');
-}
-
 bool _kqShouldReplaceBackendText(String value) {
   final text = value.trim();
   return text.isEmpty ||
-      (!_kqUiPrefersChinese() && _kqHanTextPattern.hasMatch(text));
+      (!kqUiPrefersChinese() && _kqHanTextPattern.hasMatch(text));
 }
 
 String _kqMembershipPackageNameByDays(int days) {
@@ -1059,6 +1084,10 @@ class KqMemberOrder {
   final String qrcodeImgUrl;
   final String codeUrl;
   final String alipaySubmitHtml;
+  final String wechatAppUrl;
+  final String alipayAppUrl;
+  final String paymentAppUrl;
+  final KqWechatAppPayRequest? wechatAppPayRequest;
 
   const KqMemberOrder({
     required this.orderNo,
@@ -1071,9 +1100,20 @@ class KqMemberOrder {
     required this.qrcodeImgUrl,
     required this.codeUrl,
     required this.alipaySubmitHtml,
+    required this.wechatAppUrl,
+    required this.alipayAppUrl,
+    required this.paymentAppUrl,
+    required this.wechatAppPayRequest,
   });
 
   factory KqMemberOrder.fromJson(Map json) {
+    final rawWechatAppUrl = _kqFirstString(json, [
+      'wechat_app_url',
+      'wechatAppUrl',
+      'wx_app_url',
+      'wxAppUrl',
+    ]);
+    final discoveredWechatAppUrl = kqWechatPaymentLaunchUrlFromValue(json);
     return KqMemberOrder(
       orderNo: (json['order_no'] ?? '').toString(),
       packageId: int.tryParse((json['package_id'] ?? '').toString()) ?? 0,
@@ -1085,13 +1125,298 @@ class KqMemberOrder {
       qrcodeImgUrl: (json['qrcode_img_url'] ?? '').toString(),
       codeUrl: (json['code_url'] ?? '').toString(),
       alipaySubmitHtml: (json['alipaysubmit_html'] ?? '').toString(),
+      wechatAppUrl: kqWechatPaymentLaunchUrlFromText(rawWechatAppUrl) ??
+          discoveredWechatAppUrl ??
+          rawWechatAppUrl,
+      alipayAppUrl: _kqFirstString(json, [
+        'alipay_app_url',
+        'alipayAppUrl',
+        'alipay_url',
+        'alipayUrl',
+      ]),
+      paymentAppUrl: _kqFirstString(json, [
+        'payment_app_url',
+        'paymentAppUrl',
+        'pay_app_url',
+        'payAppUrl',
+      ]),
+      wechatAppPayRequest: kqWechatAppPayRequestFromValue(json),
     );
+  }
+
+  List<String> appLaunchUrlsForPayType(int selectedPayType) {
+    final urls = <String>[
+      if (selectedPayType == 1)
+        kqWechatPaymentLaunchUrlFromText(wechatAppUrl) ?? '',
+      if (selectedPayType == 1) kqWechatPaymentLaunchUrlFromText(codeUrl) ?? '',
+      if (selectedPayType == 2) alipayAppUrl,
+      if (selectedPayType == 1)
+        kqWechatPaymentLaunchUrlFromText(paymentAppUrl) ?? '',
+      if (selectedPayType == 2) paymentAppUrl,
+      if (selectedPayType == 2) alipaySubmitHtml,
+    ];
+    final seen = <String>{};
+    return urls
+        .map((url) => url.trim())
+        .where((url) => url.isNotEmpty && seen.add(url))
+        .toList();
   }
 
   String get displayPackageName => _kqLocalizedMembershipPackageName(
         rawName: packageName,
         days: packageDays,
       );
+}
+
+class KqWechatAppPayRequest {
+  final String appId;
+  final String partnerId;
+  final String prepayId;
+  final String packageValue;
+  final String nonceStr;
+  final String timeStamp;
+  final String sign;
+
+  const KqWechatAppPayRequest({
+    required this.appId,
+    required this.partnerId,
+    required this.prepayId,
+    required this.packageValue,
+    required this.nonceStr,
+    required this.timeStamp,
+    required this.sign,
+  });
+
+  Map<String, String> toMethodChannelArgs() => {
+        'appId': appId,
+        'partnerId': partnerId,
+        'prepayId': prepayId,
+        'packageValue': packageValue,
+        'nonceStr': nonceStr,
+        'timeStamp': timeStamp,
+        'sign': sign,
+      };
+}
+
+String _kqFirstString(Map json, List<String> keys) {
+  for (final key in keys) {
+    final value = (json[key] ?? '').toString().trim();
+    if (value.isNotEmpty) return value;
+  }
+  return '';
+}
+
+KqWechatAppPayRequest? kqWechatAppPayRequestFromValue(Object? value) {
+  for (final map in _kqCollectObjectMaps(value)) {
+    final appId = _kqFirstString(map, ['appId', 'appid', 'app_id']);
+    final partnerId = _kqFirstString(map, [
+      'partnerId',
+      'partnerid',
+      'partner_id',
+      'mchId',
+      'mchid',
+      'mch_id',
+    ]);
+    final prepayId = _kqFirstString(map, [
+      'prepayId',
+      'prepayid',
+      'prepay_id',
+    ]);
+    var packageValue = _kqFirstString(map, [
+      'packageValue',
+      'package_value',
+      'package',
+      'packageStr',
+    ]);
+    final nonceStr = _kqFirstString(map, [
+      'nonceStr',
+      'noncestr',
+      'nonce_str',
+      'nonce',
+    ]);
+    final timeStamp = _kqFirstString(map, [
+      'timeStamp',
+      'timestamp',
+      'time_stamp',
+    ]);
+    final sign = _kqFirstString(map, ['sign', 'paySign', 'paysign']);
+    if (packageValue.isEmpty &&
+        appId.isNotEmpty &&
+        partnerId.isNotEmpty &&
+        prepayId.isNotEmpty) {
+      packageValue = 'Sign=WXPay';
+    }
+    if (appId.isEmpty ||
+        partnerId.isEmpty ||
+        prepayId.isEmpty ||
+        packageValue.isEmpty ||
+        nonceStr.isEmpty ||
+        timeStamp.isEmpty ||
+        sign.isEmpty) {
+      continue;
+    }
+    return KqWechatAppPayRequest(
+      appId: appId,
+      partnerId: partnerId,
+      prepayId: prepayId,
+      packageValue: packageValue,
+      nonceStr: nonceStr,
+      timeStamp: timeStamp,
+      sign: sign,
+    );
+  }
+  return null;
+}
+
+List<Map> _kqCollectObjectMaps(Object? value, [List<Map>? out]) {
+  final maps = out ?? <Map>[];
+  if (value == null) return maps;
+  if (value is Map) {
+    maps.add(value);
+    final preferredKeys = [
+      'wechat_app_pay',
+      'wechatAppPay',
+      'wechat_pay',
+      'wechatPay',
+      'wx_pay',
+      'wxPay',
+      'app_pay',
+      'appPay',
+      'pay_params',
+      'payParams',
+      'payment_params',
+      'paymentParams',
+      'payment',
+    ];
+    for (final key in preferredKeys) {
+      if (value.containsKey(key)) {
+        _kqCollectObjectMaps(value[key], maps);
+      }
+    }
+    for (final item in value.values) {
+      _kqCollectObjectMaps(item, maps);
+    }
+  } else if (value is Iterable) {
+    for (final item in value) {
+      _kqCollectObjectMaps(item, maps);
+    }
+  } else if (value is String) {
+    final text = value.trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        _kqCollectObjectMaps(jsonDecode(text), maps);
+      } catch (_) {
+        // Not every string field is structured JSON.
+      }
+    }
+  }
+  return maps;
+}
+
+String? kqWechatPaymentLaunchUrlFromValue(Object? value) {
+  return _kqFirstPaymentUrl(value, _kqIsWeixinUrl);
+}
+
+String? kqWechatPaymentLaunchUrlFromText(String value) {
+  return _kqFirstPaymentUrl(value, _kqIsWeixinUrl);
+}
+
+String? kqPaymentQrPayloadFromImageBytes(List<int> bytes) {
+  try {
+    final image = img.decodeImage(Uint8List.fromList(bytes));
+    if (image == null) return null;
+    final source = RGBLuminanceSource(
+      image.width,
+      image.height,
+      image.getBytes(order: img.ChannelOrder.abgr).buffer.asInt32List(),
+    );
+    final bitmap = BinaryBitmap(HybridBinarizer(source));
+    return QRCodeReader().decode(bitmap).text;
+  } catch (e) {
+    debugPrint('KQ payment QR decode failed: $e');
+    return null;
+  }
+}
+
+bool _kqIsWeixinUrl(String lower) => lower.startsWith('weixin://');
+
+String? _kqFirstPaymentUrl(
+  Object? value,
+  bool Function(String lower) matcher,
+) {
+  for (final text in _kqCollectStringValues(value)) {
+    for (final variant in _kqPaymentTextVariants(text)) {
+      final direct = variant.trim();
+      if (direct.isNotEmpty && matcher(direct.toLowerCase())) {
+        return direct;
+      }
+      final match = RegExp(
+        r'''weixin://[^\s"'<>\\]+''',
+        caseSensitive: false,
+      ).firstMatch(variant);
+      if (match == null) continue;
+      final candidate = _kqHtmlUnescape(match.group(0) ?? '').trim();
+      if (candidate.isNotEmpty && matcher(candidate.toLowerCase())) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+List<String> _kqCollectStringValues(Object? value, [List<String>? out]) {
+  final values = out ?? <String>[];
+  if (value == null) return values;
+  if (value is String) {
+    values.add(value);
+    return values;
+  }
+  if (value is num || value is bool) return values;
+  if (value is Iterable) {
+    for (final item in value) {
+      _kqCollectStringValues(item, values);
+    }
+    return values;
+  }
+  if (value is Map) {
+    for (final item in value.values) {
+      _kqCollectStringValues(item, values);
+    }
+  }
+  return values;
+}
+
+List<String> _kqPaymentTextVariants(String value) {
+  final variants = <String>{};
+  void addVariant(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isNotEmpty) variants.add(trimmed);
+  }
+
+  addVariant(value);
+  for (var round = 0; round < 2; round++) {
+    final current = variants.toList();
+    for (final text in current) {
+      addVariant(_kqHtmlUnescape(text));
+      try {
+        addVariant(Uri.decodeFull(text));
+      } catch (_) {}
+      try {
+        addVariant(Uri.decodeComponent(text));
+      } catch (_) {}
+    }
+  }
+  return variants.toList();
+}
+
+String _kqHtmlUnescape(String value) {
+  return value
+      .replaceAll('&amp;', '&')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#34;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>');
 }
 
 class KqMemberOrderStatus {

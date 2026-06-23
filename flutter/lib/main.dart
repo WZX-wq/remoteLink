@@ -586,6 +586,11 @@ _registerEventHandler() {
     platformFFI.registerEventHandler('language', 'language', (_) async {
       reloadAllWindows();
     });
+  } else if (isMobile) {
+    platformFFI.registerEventHandler('language', 'language', (_) async {
+      kqNotifyMobileLanguageChanged();
+      HomePage.homeKey.currentState?.refreshPages();
+    });
   }
   // Register native handlers.
   if (isDesktop) {

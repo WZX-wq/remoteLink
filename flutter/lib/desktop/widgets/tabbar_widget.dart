@@ -592,11 +592,10 @@ class _DesktopTabState extends State<DesktopTab>
   /// Check whether to show ListView
   ///
   /// Conditions:
-  /// - hide single item when only has one item (home) on [DesktopTabPage].
+  /// - hide single item only for install windows; the Home tab stays visible.
   bool isHideSingleItem() {
     return state.value.tabs.length == 1 &&
-        (controller.tabType == DesktopTabType.main ||
-            controller.tabType == DesktopTabType.install);
+        controller.tabType == DesktopTabType.install;
   }
 
   Widget _buildBar() {
@@ -605,6 +604,7 @@ class _DesktopTabState extends State<DesktopTab>
       children: [
         Expanded(
             child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 // custom double tap handler
                 onTap: !isIncomingHomePage && showMaximize
                     ? () {
@@ -1066,10 +1066,9 @@ class _ListView extends StatelessWidget {
   /// Check whether to show ListView
   ///
   /// Conditions:
-  /// - hide single item when only has one item (home) on [DesktopTabPage].
+  /// - hide single item only for install windows; the Home tab stays visible.
   bool isHideSingleItem() {
     return state.value.tabs.length == 1 &&
-            controller.tabType == DesktopTabType.main ||
         controller.tabType == DesktopTabType.install;
   }
 
@@ -1141,6 +1140,7 @@ class _ListView extends StatelessWidget {
       return SingleChildScrollView(
           controller: state.value.scrollController,
           scrollDirection: Axis.horizontal,
+          hitTestBehavior: HitTestBehavior.deferToChild,
           physics: const BouncingScrollPhysics(),
           child: Row(
             mainAxisSize: MainAxisSize.min,

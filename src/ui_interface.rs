@@ -937,12 +937,36 @@ pub fn video_save_directory(root: bool) -> String {
         if !path.exists() {
             std::fs::create_dir_all(path).ok();
         }
-        if path.exists() {
+        if path.is_dir() {
             path.to_string_lossy().to_string()
         } else {
             "".to_string()
         }
     };
+
+    // Get directory from config file otherwise --server will use the old value from global var.
+    let configured_video_save_directory = || {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let dir = {
+            let local_dir = LocalConfig::get_option_from_file(OPTION_VIDEO_SAVE_DIRECTORY);
+            if local_dir.is_empty() {
+                Config::get_option(OPTION_VIDEO_SAVE_DIRECTORY)
+            } else {
+                local_dir
+            }
+        };
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let dir = LocalConfig::get_option(OPTION_VIDEO_SAVE_DIRECTORY);
+        if dir.is_empty() {
+            "".to_string()
+        } else {
+            try_create(std::path::Path::new(&dir))
+        }
+    };
+    let dir = configured_video_save_directory();
+    if !dir.is_empty() {
+        return dir;
+    }
 
     if root {
         // Currently, only installed windows run as root
@@ -953,14 +977,6 @@ pub fn video_save_directory(root: bool) -> String {
                 std::path::PathBuf::from(format!("{drive}\\ProgramData\\{appname}\\recording",));
             return dir.to_string_lossy().to_string();
         }
-    }
-    // Get directory from config file otherwise --server will use the old value from global var.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let dir = LocalConfig::get_option_from_file(OPTION_VIDEO_SAVE_DIRECTORY);
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    let dir = LocalConfig::get_option(OPTION_VIDEO_SAVE_DIRECTORY);
-    if !dir.is_empty() {
-        return dir;
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     if let Ok(home) = config::APP_HOME_DIR.read() {

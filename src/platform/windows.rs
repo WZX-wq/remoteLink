@@ -1699,14 +1699,7 @@ if exist \"{tmp_path}\\{app_name} Tray.lnk\" del /f /q \"{tmp_path}\\{app_name} 
         Config::set_option("api-server".into(), lic.api);
     }
 
-    let tray_shortcuts = if config::is_outgoing_only() {
-        "".to_owned()
-    } else {
-        format!("
-cscript \"{tray_shortcut}\"
-copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
-")
-    };
+    let tray_shortcuts = "".to_owned();
 
     let install_remote_printer = if install_printer {
         // No need to use `|| true` here.
@@ -3271,9 +3264,7 @@ pub fn install_service_no_launch() -> bool {
 fn install_service_(launch_runtime: bool) -> bool {
     log::info!("Installing service...");
     let _installing = crate::platform::InstallingService::new();
-    let (_, path, _, exe) = get_install_info();
-    let tmp_path = std::env::temp_dir().to_string_lossy().to_string();
-    let tray_shortcut = get_tray_shortcut(&path, &exe, &exe, &tmp_path).unwrap_or_default();
+    let (_, _, _, exe) = get_install_info();
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     Config::set_option("stop-service".into(), "".into());
     crate::ipc::EXIT_RECV_CLOSE.store(false, Ordering::Relaxed);
@@ -3281,11 +3272,8 @@ fn install_service_(launch_runtime: bool) -> bool {
         "
 chcp 65001
 taskkill /F /IM {app_name}.exe{filter}
-cscript \"{tray_shortcut}\"
-copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
 {import_config}
 {create_service}
-if exist \"{tray_shortcut}\" del /f /q \"{tray_shortcut}\"
     ",
         app_name = crate::get_app_name(),
         import_config = get_import_config(&exe),

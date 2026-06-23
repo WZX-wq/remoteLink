@@ -42,7 +42,7 @@ EdgeInsets? _menuPadding() {
 }
 
 String _kqPeerTabText(String key) {
-  if (!localeName.toString().toLowerCase().startsWith('zh')) {
+  if (!kqUiPrefersChinese()) {
     return translate(key);
   }
   switch (key) {
@@ -82,6 +82,7 @@ class _PeerTabPageState extends State<PeerTabPage>
     ),
   ];
   RelativeRect? mobileTabContextMenuPos;
+  double _recentRefreshTurns = 0;
 
   final isOptVisiableFixed = isOptionFixed(kOptionPeerTabVisible);
 
@@ -124,7 +125,9 @@ class _PeerTabPageState extends State<PeerTabPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Obx(() => SizedBox(
-              height: stateGlobal.isPortrait.isTrue ? 102 : 44,
+              height: stateGlobal.isPortrait.isTrue
+                  ? _mobilePortraitToolbarHeight(model)
+                  : 44,
               child: Container(
                 margin: stateGlobal.isPortrait.isTrue
                     ? const EdgeInsets.fromLTRB(0, 16, 0, 0)
@@ -153,6 +156,8 @@ class _PeerTabPageState extends State<PeerTabPage>
     final model = Provider.of<PeerTabModel>(context);
     final q = KqTheme.of(context);
     final count = model.currentTabCachedPeers.length;
+    final isMobileRecentPage = _isMobileRecentPage(model);
+    final showMobileTabTitle = !_shouldHideMobileRecentTabTitle(model);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -166,47 +171,68 @@ class _PeerTabPageState extends State<PeerTabPage>
               context,
               icon: Icons.refresh_rounded,
               tooltip: translate('Refresh'),
+              rotationTurns: _recentRefreshTurns,
               onTap: () {
+                setState(() => _recentRefreshTurns += 1);
                 if (gFFI.peerTabModel.currentTab < entries.length) {
                   entries[gFFI.peerTabModel.currentTab].load?.call();
                 }
               },
             ),
-            const SizedBox(width: 10),
-            _mobileToolbarButton(
-              context,
-              icon: Icons.tune_rounded,
-              tooltip: _kqPeerTabText('Device groups'),
-              onTap: _showMobileTabSelector,
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        InkWell(
-          borderRadius: BorderRadius.circular(999),
-          onTap: _showMobileTabSelector,
-          onLongPress: mobileShowTabVisibilityMenu,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.keyboard_arrow_down_rounded, color: q.muted, size: 22),
-              const SizedBox(width: 4),
-              Text(
-                '${model.tabTooltip(model.currentTab)}($count)',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: q.ink,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                  height: 1.1,
-                ),
+            if (!isMobileRecentPage) ...[
+              const SizedBox(width: 10),
+              _mobileToolbarButton(
+                context,
+                icon: Icons.tune_rounded,
+                tooltip: _kqPeerTabText('Device groups'),
+                onTap: _showMobileTabSelector,
               ),
             ],
-          ),
+          ],
         ),
+        if (showMobileTabTitle) const SizedBox(height: 18),
+        if (showMobileTabTitle)
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: _showMobileTabSelector,
+            onLongPress: mobileShowTabVisibilityMenu,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.keyboard_arrow_down_rounded,
+                    color: q.muted, size: 22),
+                const SizedBox(width: 4),
+                Text(
+                  '${model.tabTooltip(model.currentTab)}($count)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    height: 1.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
+  }
+
+  double _mobilePortraitToolbarHeight(PeerTabModel model) {
+    if (model.multiSelectionMode) return 102;
+    return _shouldHideMobileRecentTabTitle(model) ? 64 : 102;
+  }
+
+  bool _shouldHideMobileRecentTabTitle(PeerTabModel model) {
+    return _isMobileRecentPage(model);
+  }
+
+  bool _isMobileRecentPage(PeerTabModel model) {
+    return isMobile &&
+        stateGlobal.isPortrait.isTrue &&
+        model.currentTab == PeerTabIndex.recent.index;
   }
 
   Widget _mobileToolbarButton(
@@ -214,6 +240,7 @@ class _PeerTabPageState extends State<PeerTabPage>
     required IconData icon,
     required String tooltip,
     required VoidCallback onTap,
+    double rotationTurns = 0,
   }) {
     final q = KqTheme.of(context);
     return Tooltip(
@@ -236,7 +263,12 @@ class _PeerTabPageState extends State<PeerTabPage>
               ),
             ],
           ),
-          child: Icon(icon, color: q.primary, size: 24),
+          child: AnimatedRotation(
+            turns: rotationTurns,
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOutCubic,
+            child: Icon(icon, color: q.primary, size: 24),
+          ),
         ),
       ),
     );
@@ -579,7 +611,7 @@ class _PeerTabPageState extends State<PeerTabPage>
             switch (model.currentTab) {
               case 0:
                 for (var p in peers) {
-                  await bind.mainRemovePeer(id: p.id);
+                  await deleteKqRecentPeer(p.id);
                 }
                 bind.mainLoadRecentPeers();
                 break;

@@ -16,8 +16,10 @@ mod es;
 mod et;
 mod eu;
 mod fa;
-mod gu;
+mod fi;
 mod fr;
+mod ge;
+mod gu;
 mod he;
 mod hi;
 mod hr;
@@ -29,6 +31,7 @@ mod ko;
 mod kz;
 mod lt;
 mod lv;
+mod ml;
 mod nb;
 mod nl;
 mod pl;
@@ -41,15 +44,12 @@ mod sl;
 mod sq;
 mod sr;
 mod sv;
+mod ta;
 mod th;
 mod tr;
 mod tw;
 mod uk;
 mod vi;
-mod ta;
-mod ge;
-mod fi;
-mod ml;
 
 pub const LANGS: &[(&str, &str)] = &[
     ("en", "English"),
@@ -113,24 +113,43 @@ pub fn translate_locale(name: String, locale: &str) -> String {
     let locale = locale.to_lowercase();
     let mut lang = hbb_common::config::LocalConfig::get_option("lang").to_lowercase();
     if lang.is_empty() {
-        // zh_CN on Linux, zh-Hans-CN on mac, zh_CN_#Hans on Android
-        if locale.starts_with("zh") {
-            lang = (if locale.contains("tw") {
-                "zh-tw"
-            } else {
-                "zh-cn"
-            })
-            .to_owned();
-        }
+        lang = lang_from_locale(&locale);
     }
+    translate_with_lang(name, &lang)
+}
+
+pub fn translate_explicit_locale(name: String, locale: &str) -> String {
+    let locale = locale.to_lowercase();
+    let mut lang = lang_from_locale(&locale);
     if lang.is_empty() {
-        lang = locale
-            .split("-")
-            .next()
-            .map(|x| x.split("_").next().unwrap_or_default())
-            .unwrap_or_default()
-            .to_owned();
+        lang = hbb_common::config::LocalConfig::get_option("lang").to_lowercase();
     }
+    translate_with_lang(name, &lang)
+}
+
+fn lang_from_locale(locale: &str) -> String {
+    // zh_CN on Linux, zh-Hans-CN on mac, zh_CN_#Hans on Android
+    if locale.starts_with("zh") {
+        return (if locale.contains("tw")
+            || locale.contains("hk")
+            || locale.contains("mo")
+            || locale.contains("hant")
+        {
+            "zh-tw"
+        } else {
+            "zh-cn"
+        })
+        .to_owned();
+    }
+    locale
+        .split("-")
+        .next()
+        .map(|x| x.split("_").next().unwrap_or_default())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn translate_with_lang(name: String, lang: &str) -> String {
     let lang = lang.to_lowercase();
     let m = match lang.as_str() {
         "fr" => fr::T.deref(),
@@ -250,7 +269,10 @@ fn extract_placeholder(input: &str) -> (String, Option<String>) {
     (input.to_string(), None)
 }
 
+#[cfg(test)]
 mod test {
+    use hbb_common::config::LocalConfig;
+
     #[test]
     fn test_extract_placeholders() {
         use super::extract_placeholder as f;
@@ -271,5 +293,17 @@ mod test {
             f("{2} times {4} makes {8}"),
             ("{} times {4} makes {8}".to_string(), Some("2".to_string()))
         );
+    }
+
+    #[test]
+    fn test_translate_locale_prefers_explicit_locale_for_flutter() {
+        let prev_lang = LocalConfig::get_option("lang");
+        LocalConfig::set_option("lang".to_owned(), "en".to_owned());
+
+        let translated =
+            super::translate_explicit_locale("Current connections".to_owned(), "zh-tw");
+
+        LocalConfig::set_option("lang".to_owned(), prev_lang);
+        assert_eq!(translated, "目前連線");
     }
 }

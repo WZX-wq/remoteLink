@@ -4,6 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import mysql from 'mysql2/promise';
+import {
+  buildAlipayAppPayOrderInfo,
+  isAlipayTradePaid,
+  queryAlipayTradeByOutTradeNo,
+  verifyAlipaySignature,
+} from './alipay.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const defaultInstallerPath = path.resolve(
@@ -63,6 +69,32 @@ const config = {
       '2026.06.08.93',
     sha256: process.env.KQ_ANDROID_DOWNLOAD_SHA256 || '',
   },
+  wechatPay: {
+    appId: process.env.KQ_WECHAT_PAY_APPID || '',
+    mchId: process.env.KQ_WECHAT_PAY_MCHID || '',
+    merchantSerialNo: process.env.KQ_WECHAT_PAY_MERCHANT_SERIAL_NO || '',
+    privateKey:
+      process.env.KQ_WECHAT_PAY_PRIVATE_KEY ||
+      readOptionalSecretFile(process.env.KQ_WECHAT_PAY_PRIVATE_KEY_PATH),
+    apiV3Key: process.env.KQ_WECHAT_PAY_API_V3_KEY || '',
+    notifyUrl: process.env.KQ_WECHAT_PAY_NOTIFY_URL || '',
+    apiBaseUrl:
+      (process.env.KQ_WECHAT_PAY_API_BASE_URL || 'https://api.mch.weixin.qq.com')
+        .replace(/\/+$/, ''),
+  },
+  alipayPay: {
+    appId: process.env.KQ_ALIPAY_APP_ID || process.env.KQ_ALIPAY_APPID || '',
+    privateKey:
+      process.env.KQ_ALIPAY_PRIVATE_KEY ||
+      readOptionalSecretFile(process.env.KQ_ALIPAY_PRIVATE_KEY_PATH),
+    publicKey:
+      process.env.KQ_ALIPAY_PUBLIC_KEY ||
+      readOptionalSecretFile(process.env.KQ_ALIPAY_PUBLIC_KEY_PATH),
+    notifyUrl: process.env.KQ_ALIPAY_NOTIFY_URL || '',
+    gatewayUrl:
+      (process.env.KQ_ALIPAY_GATEWAY_URL || 'https://openapi.alipay.com/gateway.do')
+        .replace(/\/+$/, ''),
+  },
   appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
 };
 
@@ -83,6 +115,17 @@ function mustEnv(name) {
     throw new Error(`${name} is required`);
   }
   return value.trim();
+}
+
+function readOptionalSecretFile(filePath) {
+  const text = String(filePath || '').trim();
+  if (!text) return '';
+  try {
+    return fs.readFileSync(text, 'utf8').trim();
+  } catch (error) {
+    console.error(`Failed to read secret file ${text}: ${error.message}`);
+    return '';
+  }
 }
 
 function deriveDownloadUrl(publicApiUrl, platform = 'windows') {
@@ -126,6 +169,642 @@ function getAuthToken(req) {
 
 function jsonError(res, status, message) {
   return res.status(status).json({ ok: false, error: message });
+}
+
+function collectStringValues(value, out = []) {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (text) {
+      out.push(text);
+      const matches = text.match(/[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi);
+      if (matches) {
+        out.push(...matches.map((item) => item.trim()).filter(Boolean));
+      }
+    }
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStringValues(item, out);
+    }
+    return out;
+  }
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) {
+      collectStringValues(item, out);
+    }
+  }
+  return out;
+}
+
+function firstPaymentUrl(values, matchers) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const lower = text.toLowerCase();
+    if (matchers.some((matcher) => matcher(lower, text))) {
+      return text;
+    }
+  }
+  return '';
+}
+
+function collectObjectValues(value, out = []) {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        collectObjectValues(JSON.parse(text), out);
+      } catch (_) {
+        // Plain text fields are expected in payment payloads.
+      }
+    }
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectObjectValues(item, out);
+    }
+    return out;
+  }
+  if (value && typeof value === 'object') {
+    out.push(value);
+    const preferredKeys = [
+      'wechat_app_pay',
+      'wechatAppPay',
+      'wechat_pay',
+      'wechatPay',
+      'wx_pay',
+      'wxPay',
+      'app_pay',
+      'appPay',
+      'pay_params',
+      'payParams',
+      'payment_params',
+      'paymentParams',
+      'payment',
+    ];
+    for (const key of preferredKeys) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        collectObjectValues(value[key], out);
+      }
+    }
+    for (const item of Object.values(value)) {
+      collectObjectValues(item, out);
+    }
+  }
+  return out;
+}
+
+function firstObjectString(source, keys) {
+  for (const key of keys) {
+    const text = String(source?.[key] ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function normalizeWechatAppPayRequest(value) {
+  for (const source of collectObjectValues(value)) {
+    const appId = firstObjectString(source, ['appId', 'appid', 'app_id']);
+    const partnerId = firstObjectString(source, [
+      'partnerId',
+      'partnerid',
+      'partner_id',
+      'mchId',
+      'mchid',
+      'mch_id',
+    ]);
+    const prepayId = firstObjectString(source, ['prepayId', 'prepayid', 'prepay_id']);
+    const packageValue = firstObjectString(source, [
+      'packageValue',
+      'package_value',
+      'package',
+      'packageStr',
+    ]) || (appId && partnerId && prepayId ? 'Sign=WXPay' : '');
+    const nonceStr = firstObjectString(source, [
+      'nonceStr',
+      'noncestr',
+      'nonce_str',
+      'nonce',
+    ]);
+    const timeStamp = firstObjectString(source, ['timeStamp', 'timestamp', 'time_stamp']);
+    const sign = firstObjectString(source, ['sign', 'paySign', 'paysign']);
+    if (!appId || !partnerId || !prepayId || !packageValue || !nonceStr || !timeStamp || !sign) {
+      continue;
+    }
+    return { appId, partnerId, prepayId, packageValue, nonceStr, timeStamp, sign };
+  }
+  return null;
+}
+
+function normalizeMemberOrderPaymentLinks(order) {
+  const values = collectStringValues(order);
+  const wechatMatchers = [
+    (lower) => lower.startsWith('weixin://'),
+  ];
+  const alipayMatchers = [
+    (lower) => lower.startsWith('alipays://'),
+    (lower) => lower.startsWith('alipayqr://'),
+  ];
+  const wechatAppUrl =
+    firstPaymentUrl([order?.wechat_app_url, order?.wechatAppUrl], wechatMatchers) ||
+    firstPaymentUrl(values, wechatMatchers);
+  const alipayAppUrl =
+    firstPaymentUrl([order?.alipay_app_url, order?.alipayAppUrl], alipayMatchers) ||
+    firstPaymentUrl(values, alipayMatchers);
+  const payType = Number(order?.pay_type || 0);
+  const paymentAppUrl =
+    firstPaymentUrl(
+      [order?.payment_app_url, order?.paymentAppUrl],
+      payType === 2 ? alipayMatchers : wechatMatchers,
+    ) || (payType === 2 ? alipayAppUrl : wechatAppUrl);
+  const normalized = {
+    ...order,
+    wechat_app_url: wechatAppUrl,
+    alipay_app_url: alipayAppUrl,
+    payment_app_url: paymentAppUrl,
+  };
+  const wechatAppPay = normalizeWechatAppPayRequest(order);
+  if (wechatAppPay) {
+    normalized.wechat_app_pay = wechatAppPay;
+  }
+  return normalized;
+}
+
+function getWechatPayConfig() {
+  const cfg = config.wechatPay;
+  if (
+    !cfg.appId.trim() ||
+    !cfg.mchId.trim() ||
+    !cfg.merchantSerialNo.trim() ||
+    !cfg.privateKey.trim()
+  ) {
+    return null;
+  }
+  return {
+    appId: cfg.appId.trim(),
+    mchId: cfg.mchId.trim(),
+    merchantSerialNo: cfg.merchantSerialNo.trim(),
+    privateKey: cfg.privateKey.trim().replace(/\\n/g, '\n'),
+    apiV3Key: cfg.apiV3Key.trim(),
+    notifyUrl: cfg.notifyUrl.trim(),
+    apiBaseUrl: cfg.apiBaseUrl,
+  };
+}
+
+function getAlipayPayConfig() {
+  const cfg = config.alipayPay;
+  if (!cfg.appId.trim() || !cfg.privateKey.trim() || !cfg.publicKey.trim()) {
+    return null;
+  }
+  return {
+    appId: cfg.appId.trim(),
+    privateKey: cfg.privateKey.trim(),
+    publicKey: cfg.publicKey.trim(),
+    notifyUrl: cfg.notifyUrl.trim(),
+    gatewayUrl: cfg.gatewayUrl,
+  };
+}
+
+function wechatNonce(size = 16) {
+  return crypto.randomBytes(size).toString('hex').slice(0, 32);
+}
+
+function signWechatRsaSha256(message, privateKey) {
+  return crypto
+    .createSign('RSA-SHA256')
+    .update(message)
+    .end()
+    .sign(privateKey, 'base64');
+}
+
+function buildWechatAuthorization(method, pathWithQuery, body, cfg) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = wechatNonce();
+  const message = `${method}\n${pathWithQuery}\n${timestamp}\n${nonce}\n${body}\n`;
+  const signature = signWechatRsaSha256(message, cfg.privateKey);
+  return `WECHATPAY2-SHA256-RSA2048 mchid="${cfg.mchId}",nonce_str="${nonce}",timestamp="${timestamp}",serial_no="${cfg.merchantSerialNo}",signature="${signature}"`;
+}
+
+async function requestWechatPay(method, pathWithQuery, payload, cfg) {
+  const body = payload == null ? '' : JSON.stringify(payload);
+  const response = await fetch(`${cfg.apiBaseUrl}${pathWithQuery}`, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      Authorization: buildWechatAuthorization(method, pathWithQuery, body, cfg),
+      'Content-Type': 'application/json',
+    },
+    body: method === 'GET' ? undefined : body,
+  });
+  const text = await response.text();
+  let json = {};
+  if (text.trim()) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw Object.assign(new Error('WeChat Pay returned invalid JSON'), {
+        statusCode: 502,
+        upstreamBody: text.slice(0, 200),
+      });
+    }
+  }
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(json.message || json.code || `WeChat Pay failed: ${response.status}`),
+      { statusCode: 502, upstream: json },
+    );
+  }
+  return json;
+}
+
+function buildWechatAppPayRequest(prepayId, cfg) {
+  const timeStamp = Math.floor(Date.now() / 1000).toString();
+  const nonceStr = wechatNonce();
+  const message = `${cfg.appId}\n${timeStamp}\n${nonceStr}\n${prepayId}\n`;
+  return {
+    appId: cfg.appId,
+    partnerId: cfg.mchId,
+    prepayId,
+    packageValue: 'Sign=WXPay',
+    nonceStr,
+    timeStamp,
+    sign: signWechatRsaSha256(message, cfg.privateKey),
+  };
+}
+
+function makeProjectMemberOrderNo(userId, packageId) {
+  const suffix = crypto.randomBytes(4).toString('hex');
+  return `KQ${Date.now().toString(36).toUpperCase()}${Number(userId || 0).toString(36).toUpperCase()}${Number(packageId || 0).toString(36).toUpperCase()}${suffix}`.slice(0, 32);
+}
+
+function findMemberPackage(memberInfo, packageId) {
+  const packages = Array.isArray(memberInfo?.packages) ? memberInfo.packages : [];
+  return packages.find((item) => Number(item?.id || 0) === Number(packageId));
+}
+
+function centsFromYuan(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.round(amount * 100);
+}
+
+function isoExpireAfterMinutes(minutes) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString().replace('.000Z', '+00:00');
+}
+
+function addDays(date, days) {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function formatMysqlDateTime(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function localMemberExpireAtFromOrder(row) {
+  const days = Number(row?.package_days || 0);
+  if (days >= 999999) return '9999-12-31 23:59:59';
+  const base = row?.expire_at ? new Date(row.expire_at) : new Date();
+  if (Number.isNaN(base.getTime())) return formatMysqlDateTime(addDays(new Date(), Math.max(1, days)));
+  return formatMysqlDateTime(addDays(base, Math.max(1, days)));
+}
+
+function overlayProjectMemberInfo(memberInfo, activeOrder) {
+  if (!activeOrder) return memberInfo;
+  return {
+    ...(memberInfo || {}),
+    web_member_active: true,
+    web_member_expire_at: activeOrder.expire_at,
+    subsite_name: memberInfo?.subsite_name || config.subsiteName,
+  };
+}
+
+async function latestPaidProjectMemberOrder(userId) {
+  const [rows] = await pool.execute(
+    `
+      SELECT *
+      FROM kq_member_orders
+      WHERE user_id = ? AND pay_status = 1
+        AND (expire_at IS NULL OR expire_at > NOW())
+      ORDER BY expire_at DESC, updated_at DESC
+      LIMIT 1
+    `,
+    [userId],
+  );
+  return rows[0] || null;
+}
+
+async function markProjectMemberOrderPaid(orderNo, wechatOrder = {}) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM kq_member_orders WHERE order_no = ? LIMIT 1',
+    [orderNo],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const expireAt = row.expire_at || localMemberExpireAtFromOrder(row);
+  let previousRaw = {};
+  try {
+    previousRaw =
+      typeof row.raw_order_json === 'string'
+        ? JSON.parse(row.raw_order_json || '{}')
+        : row.raw_order_json || {};
+  } catch (_) {
+    previousRaw = {};
+  }
+  const raw = {
+    ...previousRaw,
+    wechat_order: wechatOrder,
+  };
+  await pool.execute(
+    `
+      UPDATE kq_member_orders
+      SET pay_status = 1, expire_at = ?, raw_order_json = ?, updated_at = NOW()
+      WHERE order_no = ?
+    `,
+    [expireAt, JSON.stringify(raw), orderNo],
+  );
+  await pool.execute(
+    `
+      UPDATE kq_users
+      SET member_active = 1, member_expire_at = ?, last_seen_at = NOW()
+      WHERE id = ?
+    `,
+    [expireAt, row.user_id],
+  );
+  return {
+    ...row,
+    pay_status: 1,
+    expire_at: expireAt,
+  };
+}
+
+async function queryWechatAppOrderStatus(orderNo, cfg) {
+  const pathWithQuery =
+    `/v3/pay/transactions/out-trade-no/${encodeURIComponent(orderNo)}?mchid=${encodeURIComponent(cfg.mchId)}`;
+  return await requestWechatPay('GET', pathWithQuery, null, cfg);
+}
+
+async function createWechatAppMemberOrder({ ctx, packageId, req }) {
+  const cfg = getWechatPayConfig();
+  if (!cfg) return null;
+  const memberPackage = findMemberPackage(ctx.memberInfo, packageId);
+  if (!memberPackage) {
+    throw Object.assign(new Error('Membership package not found'), { statusCode: 404 });
+  }
+  const total = centsFromYuan(memberPackage.price_yuan);
+  if (total <= 0) {
+    throw Object.assign(new Error('Membership package price is invalid'), { statusCode: 400 });
+  }
+  const orderNo = makeProjectMemberOrderNo(ctx.user.id, packageId);
+  const notifyUrl =
+    cfg.notifyUrl ||
+    (config.publicApiUrl
+      ? `${config.publicApiUrl.replace(/\/+$/, '')}/wechat-pay/notify`
+      : '');
+  if (!notifyUrl) {
+    throw Object.assign(new Error('KQ_WECHAT_PAY_NOTIFY_URL or KQ_PUBLIC_API_URL is required for WeChat APP Pay'), {
+      statusCode: 500,
+    });
+  }
+  const packageName = String(memberPackage.name || 'Kunqiong membership').slice(0, 80);
+  const packageDays = Number(memberPackage.days || 0);
+  const payload = {
+    appid: cfg.appId,
+    mchid: cfg.mchId,
+    description: packageName || 'Kunqiong membership',
+    out_trade_no: orderNo,
+    time_expire: isoExpireAfterMinutes(30),
+    attach: JSON.stringify({ user_id: ctx.user.id, package_id: packageId }).slice(0, 128),
+    notify_url: notifyUrl,
+    amount: {
+      total,
+      currency: 'CNY',
+    },
+    scene_info: {
+      payer_client_ip: getClientIp(req),
+    },
+  };
+  const result = await requestWechatPay('POST', '/v3/pay/transactions/app', payload, cfg);
+  const prepayId = String(result.prepay_id || '').trim();
+  if (!prepayId) {
+    throw Object.assign(new Error('WeChat Pay did not return prepay_id'), {
+      statusCode: 502,
+      upstream: result,
+    });
+  }
+  const order = normalizeMemberOrderPaymentLinks({
+    order_no: orderNo,
+    package_id: packageId,
+    package_name: packageName,
+    package_days: packageDays,
+    pay_amount: total / 100,
+    pay_type: 1,
+    subsite_name: config.subsiteName,
+    qrcode_img_url: '',
+    code_url: '',
+    wechat_app_pay: buildWechatAppPayRequest(prepayId, cfg),
+    payment_provider: 'wechat_app',
+    prepay_id: prepayId,
+  });
+  await pool.execute(
+    `
+      INSERT INTO kq_member_orders (
+        user_id, order_no, package_id, package_name, package_days,
+        pay_amount, pay_type, raw_order_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      ctx.user.id,
+      order.order_no,
+      Number(order.package_id || 0),
+      String(order.package_name || ''),
+      Number(order.package_days || 0),
+      Number(order.pay_amount || 0),
+      Number(order.pay_type || 0),
+      JSON.stringify(order),
+    ],
+  );
+  return order;
+}
+
+function localMemberOrderRawJson(row) {
+  if (!row) return {};
+  try {
+    return typeof row.raw_order_json === 'string'
+      ? JSON.parse(row.raw_order_json || '{}')
+      : row.raw_order_json || {};
+  } catch {
+    return {};
+  }
+}
+
+function isProjectAlipayAppOrder(row) {
+  const raw = localMemberOrderRawJson(row);
+  return Number(row?.pay_type || 0) === 2 && raw?.payment_provider === 'alipay_app';
+}
+
+function alipayNotifyUrl(cfg) {
+  return cfg.notifyUrl ||
+    (config.publicApiUrl
+      ? `${config.publicApiUrl.replace(/\/+$/, '')}/alipay/notify`
+      : '');
+}
+
+function assertAlipayOrderMatches(row, trade, cfg) {
+  if (trade?.app_id && String(trade.app_id) !== cfg.appId) {
+    throw Object.assign(new Error('Alipay app_id does not match this application'), {
+      statusCode: 400,
+    });
+  }
+  const totalAmount = String(trade?.total_amount || '').trim();
+  if (!totalAmount) return;
+  const expected = Number(row?.pay_amount || 0).toFixed(2);
+  const actual = Number(totalAmount || 0).toFixed(2);
+  if (expected !== actual) {
+    throw Object.assign(new Error('Alipay total_amount does not match local order'), {
+      statusCode: 400,
+    });
+  }
+}
+
+async function createAlipayAppMemberOrder({ ctx, packageId }) {
+  const cfg = getAlipayPayConfig();
+  if (!cfg) return null;
+  const memberPackage = findMemberPackage(ctx.memberInfo, packageId);
+  if (!memberPackage) {
+    throw Object.assign(new Error('Membership package not found'), { statusCode: 404 });
+  }
+  const total = centsFromYuan(memberPackage.price_yuan);
+  if (total <= 0) {
+    throw Object.assign(new Error('Membership package price is invalid'), { statusCode: 400 });
+  }
+  const notifyUrl = alipayNotifyUrl(cfg);
+  if (!notifyUrl) {
+    throw Object.assign(new Error('KQ_ALIPAY_NOTIFY_URL or KQ_PUBLIC_API_URL is required for Alipay APP Pay'), {
+      statusCode: 500,
+    });
+  }
+  const orderNo = makeProjectMemberOrderNo(ctx.user.id, packageId);
+  const packageName = String(memberPackage.name || 'Kunqiong membership').slice(0, 80);
+  const packageDays = Number(memberPackage.days || 0);
+  const appOrderInfo = buildAlipayAppPayOrderInfo({
+    appId: cfg.appId,
+    privateKey: cfg.privateKey,
+    notifyUrl,
+    outTradeNo: orderNo,
+    totalAmount: total / 100,
+    subject: packageName || 'Kunqiong membership',
+    body: `package_id=${packageId};user_id=${ctx.user.id}`,
+  });
+  const order = {
+    ...normalizeMemberOrderPaymentLinks({
+      order_no: orderNo,
+      package_id: packageId,
+      package_name: packageName,
+      package_days: packageDays,
+      pay_amount: total / 100,
+      pay_type: 2,
+      subsite_name: config.subsiteName,
+      qrcode_img_url: '',
+      code_url: '',
+    }),
+    alipay_app_url: appOrderInfo,
+    payment_app_url: appOrderInfo,
+    payment_provider: 'alipay_app',
+  };
+  await pool.execute(
+    `
+      INSERT INTO kq_member_orders (
+        user_id, order_no, package_id, package_name, package_days,
+        pay_amount, pay_type, raw_order_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      ctx.user.id,
+      order.order_no,
+      Number(order.package_id || 0),
+      String(order.package_name || ''),
+      Number(order.package_days || 0),
+      Number(order.pay_amount || 0),
+      Number(order.pay_type || 0),
+      JSON.stringify(order),
+    ],
+  );
+  return order;
+}
+
+async function queryAlipayAppOrderStatus(orderNo, cfg) {
+  return queryAlipayTradeByOutTradeNo({
+    appId: cfg.appId,
+    privateKey: cfg.privateKey,
+    publicKey: cfg.publicKey,
+    gatewayUrl: cfg.gatewayUrl,
+    outTradeNo: orderNo,
+  });
+}
+
+async function handleAlipayPayNotification(body) {
+  const cfg = getAlipayPayConfig();
+  if (!cfg) return false;
+  if (!verifyAlipaySignature(body, cfg.publicKey, { includeSignType: false })) {
+    throw Object.assign(new Error('Alipay notification signature verification failed'), {
+      statusCode: 400,
+    });
+  }
+  if (String(body?.app_id || '') !== cfg.appId) {
+    throw Object.assign(new Error('Alipay notification app_id does not match this application'), {
+      statusCode: 400,
+    });
+  }
+  const orderNo = String(body?.out_trade_no || '').trim();
+  if (!orderNo) return true;
+  const [rows] = await pool.execute(
+    'SELECT * FROM kq_member_orders WHERE order_no = ? LIMIT 1',
+    [orderNo],
+  );
+  const localOrder = rows[0];
+  if (!localOrder || !isProjectAlipayAppOrder(localOrder)) return true;
+  assertAlipayOrderMatches(localOrder, body, cfg);
+  if (isAlipayTradePaid(body)) {
+    await markProjectMemberOrderPaid(orderNo, body);
+  }
+  return true;
+}
+
+function decryptWechatPayResource(resource, apiV3Key) {
+  if (!apiV3Key || !resource || resource.algorithm !== 'AEAD_AES_256_GCM') {
+    return null;
+  }
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    Buffer.from(apiV3Key, 'utf8'),
+    Buffer.from(String(resource.nonce || ''), 'utf8'),
+  );
+  const associatedData = String(resource.associated_data || '');
+  if (associatedData) {
+    decipher.setAAD(Buffer.from(associatedData, 'utf8'));
+  }
+  const ciphertext = Buffer.from(String(resource.ciphertext || ''), 'base64');
+  const authTag = ciphertext.subarray(ciphertext.length - 16);
+  const data = ciphertext.subarray(0, ciphertext.length - 16);
+  decipher.setAuthTag(authTag);
+  const plaintext = Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  return JSON.parse(plaintext);
+}
+
+async function handleWechatPayNotification(body) {
+  const cfg = getWechatPayConfig();
+  if (!cfg?.apiV3Key) return false;
+  if (body?.event_type !== 'TRANSACTION.SUCCESS') return true;
+  const transaction = decryptWechatPayResource(body.resource, cfg.apiV3Key);
+  const orderNo = String(transaction?.out_trade_no || '').trim();
+  if (!orderNo || transaction?.trade_state !== 'SUCCESS') return true;
+  await markProjectMemberOrderPaid(orderNo, transaction);
+  return true;
 }
 
 function textError(res, status, message) {
@@ -266,16 +945,33 @@ async function loadUserContext(req) {
     subsite_name: config.subsiteName,
   });
   const user = normalizeUserPayload(identity.userInfo, token);
-  const dbUser = await upsertUser({
+  let dbUser = await upsertUser({
     ...user,
     tokenHash,
     memberActive: toBool(memberInfo.web_member_active),
     memberExpireAt: memberInfo.web_member_expire_at || null,
   });
+  const paidOrder = await latestPaidProjectMemberOrder(dbUser.id);
+  const mergedMemberInfo = overlayProjectMemberInfo(memberInfo, paidOrder);
+  if (paidOrder) {
+    await pool.execute(
+      `
+        UPDATE kq_users
+        SET member_active = 1, member_expire_at = ?, last_seen_at = NOW()
+        WHERE id = ?
+      `,
+      [paidOrder.expire_at, dbUser.id],
+    );
+    dbUser = {
+      ...dbUser,
+      member_active: 1,
+      member_expire_at: paidOrder.expire_at,
+    };
+  }
   await mergeLegacyAccountRowsForUser(dbUser, user);
-  await saveMemberSnapshot(dbUser, memberInfo);
+  await saveMemberSnapshot(dbUser, mergedMemberInfo);
   cacheIdentityContext(tokenHash, { token, user: dbUser, userInfo: identity.userInfo });
-  return { token, user: dbUser, userInfo: identity.userInfo, memberInfo };
+  return { token, user: dbUser, userInfo: identity.userInfo, memberInfo: mergedMemberInfo };
 }
 
 async function loadUserIdentityContext(req) {
@@ -1762,14 +2458,37 @@ app.post('/api/member/orders', async (req, res, next) => {
     const ctx = await loadUserContext(req);
     const packageId = String(req.body?.package_id ?? '').trim();
     const payType = String(req.body?.pay_type ?? '').trim();
+    const clientPlatform = String(req.body?.client_platform ?? '').trim().toLowerCase();
     if (!packageId || !payType) {
       return jsonError(res, 400, 'package_id and pay_type are required');
     }
-    const order = await postApiWeb('create_web_member_order', ctx.token, {
+    if (payType === '1' && clientPlatform === 'android') {
+      const appOrder = await createWechatAppMemberOrder({
+        ctx,
+        packageId: Number(packageId),
+        req,
+      });
+      if (appOrder) {
+        res.json({ ok: true, order: appOrder });
+        return;
+      }
+    }
+    if (payType === '2' && clientPlatform === 'android') {
+      const appOrder = await createAlipayAppMemberOrder({
+        ctx,
+        packageId: Number(packageId),
+      });
+      if (!appOrder) {
+        throw Object.assign(new Error('Alipay APP Pay is not configured'), { statusCode: 500 });
+      }
+      res.json({ ok: true, order: appOrder });
+      return;
+    }
+    const order = normalizeMemberOrderPaymentLinks(await postApiWeb('create_web_member_order', ctx.token, {
       package_id: packageId,
       pay_type: payType,
       subsite_name: config.subsiteName,
-    });
+    }));
     await pool.execute(
       `
         INSERT INTO kq_member_orders (
@@ -1801,6 +2520,57 @@ app.post('/api/member/orders', async (req, res, next) => {
 app.get('/api/member/orders/:orderNo', async (req, res, next) => {
   try {
     const ctx = await loadUserContext(req);
+    const [localOrders] = await pool.execute(
+      'SELECT * FROM kq_member_orders WHERE user_id = ? AND order_no = ? LIMIT 1',
+      [ctx.user.id, req.params.orderNo],
+    );
+    const localOrder = localOrders[0];
+    const wechatCfg = getWechatPayConfig();
+    if (localOrder && Number(localOrder.pay_type || 0) === 1 && wechatCfg) {
+      let status = {
+        order_no: req.params.orderNo,
+        pay_status: Number(localOrder.pay_status || 0),
+        expire_at: localOrder.expire_at,
+      };
+      if (status.pay_status !== 1) {
+        const wechatOrder = await queryWechatAppOrderStatus(req.params.orderNo, wechatCfg);
+        if (wechatOrder?.trade_state === 'SUCCESS') {
+          const paidOrder = await markProjectMemberOrderPaid(req.params.orderNo, wechatOrder);
+          status = {
+            order_no: req.params.orderNo,
+            pay_status: 1,
+            expire_at: paidOrder?.expire_at || localOrder.expire_at,
+          };
+        }
+      }
+      res.json({ ok: true, status });
+      return;
+    }
+    const alipayCfg = getAlipayPayConfig();
+    if (localOrder && isProjectAlipayAppOrder(localOrder)) {
+      let status = {
+        order_no: req.params.orderNo,
+        pay_status: Number(localOrder.pay_status || 0),
+        expire_at: localOrder.expire_at,
+      };
+      if (status.pay_status !== 1) {
+        if (!alipayCfg) {
+          throw Object.assign(new Error('Alipay APP Pay is not configured'), { statusCode: 500 });
+        }
+        const alipayOrder = await queryAlipayAppOrderStatus(req.params.orderNo, alipayCfg);
+        if (isAlipayTradePaid(alipayOrder)) {
+          assertAlipayOrderMatches(localOrder, alipayOrder, alipayCfg);
+          const paidOrder = await markProjectMemberOrderPaid(req.params.orderNo, alipayOrder);
+          status = {
+            order_no: req.params.orderNo,
+            pay_status: 1,
+            expire_at: paidOrder?.expire_at || localOrder.expire_at,
+          };
+        }
+      }
+      res.json({ ok: true, status });
+      return;
+    }
     const status = await postApiWeb('check_web_member_order_paystatus', ctx.token, {
       order_no: req.params.orderNo,
     });
@@ -1818,6 +2588,25 @@ app.get('/api/member/orders/:orderNo', async (req, res, next) => {
       ],
     );
     res.json({ ok: true, status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(['/api/alipay/notify', '/alipay/notify'], async (req, res) => {
+  try {
+    await handleAlipayPayNotification(req.body);
+    res.type('text').send('success');
+  } catch (error) {
+    console.error(error);
+    res.status(error.statusCode || 400).type('text').send('fail');
+  }
+});
+
+app.post(['/api/wechat-pay/notify', '/wechat-pay/notify'], async (req, res, next) => {
+  try {
+    await handleWechatPayNotification(req.body);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }

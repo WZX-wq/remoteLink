@@ -26,9 +26,27 @@ class KqFirewallRepairResult {
   final String message;
 }
 
+class KqBrowserProtocolRegistrationResult {
+  const KqBrowserProtocolRegistrationResult({
+    required this.success,
+    required this.message,
+  });
+
+  final bool success;
+  final String message;
+}
+
 Future<KqFirewallRepairResult> repairKqFirewallRules() async {
   return const KqFirewallRepairResult(
     success: false,
     message: '当前系统不支持自动修复防火墙。',
+  );
+}
+
+Future<KqBrowserProtocolRegistrationResult>
+    registerKqBrowserRemoteProtocols() async {
+  return const KqBrowserProtocolRegistrationResult(
+    success: false,
+    message: '当前系统不支持注册浏览器远控入口。',
   );
 }

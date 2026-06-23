@@ -272,6 +272,40 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                OPEN_PAYMENT_URI -> {
+                    if (call.arguments is String) {
+                        result.success(openPaymentUri(context, call.arguments as String))
+                    } else {
+                        result.success(false)
+                    }
+                }
+                OPEN_WECHAT_PAY -> {
+                    if (call.arguments is Map<*, *>) {
+                        result.success(openWechatPay(this, call.arguments as Map<*, *>))
+                    } else {
+                        result.success(mapOf("opened" to false, "error" to "Invalid WeChat Pay request"))
+                    }
+                }
+                OPEN_ALIPAY_ORDER -> {
+                    if (call.arguments is String) {
+                        val orderInfo = call.arguments as String
+                        Thread {
+                            val payResult = openAlipayOrder(this, orderInfo)
+                            runOnUiThread {
+                                result.success(payResult)
+                            }
+                        }.start()
+                    } else {
+                        result.success(mapOf("resultStatus" to "", "memo" to "Invalid order info", "result" to ""))
+                    }
+                }
+                OPEN_ALIPAY_HTML -> {
+                    if (call.arguments is String) {
+                        result.success(openAlipayHtmlCheckout(context, call.arguments as String))
+                    } else {
+                        result.success(false)
+                    }
+                }
                 "on_voice_call_started" -> {
                     onVoiceCallStarted()
                 }

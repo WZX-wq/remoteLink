@@ -646,16 +646,25 @@ void showOptions(
                 : null)),
       const Divider(color: MyTheme.border),
       for (var e in imageQualityRadios)
-        Obx(() => getRadio<String>(
-            e.child,
-            e.value,
-            imageQuality.value,
-            e.onChanged != null
-                ? (v) {
-                    e.onChanged?.call(v);
-                    if (v != null) imageQuality.value = v;
-                  }
-                : null)),
+        Obx(() {
+          final selectedCustom = e.value == kRemoteImageQualityCustom &&
+              imageQuality.value == kRemoteImageQualityCustom;
+          return getRadio<String>(
+              e.child,
+              e.value,
+              imageQuality.value,
+              e.onChanged != null
+                  ? (v) {
+                      if (v == null && selectedCustom) {
+                        e.onChanged?.call(e.value);
+                        return;
+                      }
+                      e.onChanged?.call(v);
+                      if (v != null) imageQuality.value = v;
+                    }
+                  : null,
+              toggleable: selectedCustom);
+        }),
       const Divider(color: MyTheme.border),
       for (var e in codecRadios)
         Obx(() => getRadio<String>(

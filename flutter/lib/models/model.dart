@@ -3921,11 +3921,22 @@ class RecordingModel with ChangeNotifier {
     if (sessionId == null) return;
     final pi = parent.target?.ffiModel.pi;
     if (pi == null) return;
+    final wasRecording = _start;
     bool value = !_start;
     if (value) {
       await sessionRefreshVideo(sessionId, pi);
     }
     await bind.sessionRecordScreen(sessionId: sessionId, start: value);
+    if (wasRecording && !value) {
+      final recordingSaveDirectory = bind.mainVideoSaveDirectory(root: false);
+      final message = kqUiPrefersSimplifiedChinese()
+          ? '录屏已结束，文件保存位置：'
+          : (kqUiPrefersChinese()
+              ? '錄屏已結束，檔案儲存位置：'
+              : 'Recording ended. Saved location:');
+      showToast('$message\n$recordingSaveDirectory',
+          timeout: const Duration(seconds: 6));
+    }
   }
 
   updateStatus(bool status) {

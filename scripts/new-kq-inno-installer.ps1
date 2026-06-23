@@ -1,11 +1,15 @@
-param(
+﻿param(
     [string]$ReleaseDir,
     [string]$OutputRoot = "C:\kq-remote-link-tools",
     [string]$InstallerName,
     [string]$Version = (Get-Date -Format "yyyy.MM.dd.HHmm"),
     [string]$CargoFeatures = "flutter,hwcodec,vram",
     [switch]$SkipFlutterBuild,
-    [switch]$SkipCargoBuild
+    [switch]$SkipCargoBuild,
+    [switch]$LowFalsePositiveInstaller,
+    [switch]$AllowUnsignedLowFalsePositiveInstaller,
+    [string]$InnoSignToolName = $env:KQ_INNO_SIGN_TOOL_NAME,
+    [string]$InnoSignToolCommand = $env:KQ_INNO_SIGN_TOOL_COMMAND
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +23,22 @@ if (-not $InstallerName) {
     $InstallerName = "Kunqiong-Remote-Desktop-Setup-$(Get-Date -Format 'yyyyMMdd-HHmm')"
 }
 $InstallerName = [System.IO.Path]::GetFileNameWithoutExtension($InstallerName)
+
+if (-not [string]::IsNullOrWhiteSpace($InnoSignToolCommand) -and [string]::IsNullOrWhiteSpace($InnoSignToolName)) {
+    $InnoSignToolName = "kqcodesign"
+}
+if (-not [string]::IsNullOrWhiteSpace($InnoSignToolName)) {
+    $InnoSignToolName = $InnoSignToolName.Trim()
+    if ($InnoSignToolName -notmatch '^[A-Za-z0-9_.-]+$') {
+        throw "InnoSignToolName must contain only letters, numbers, dot, underscore, or hyphen. Got: $InnoSignToolName"
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($InnoSignToolCommand)) {
+    $InnoSignToolCommand = $InnoSignToolCommand.Trim()
+    if ($InnoSignToolCommand -notmatch '\$f') {
+        throw 'InnoSignToolCommand must include Inno Setup file placeholder $f.'
+    }
+}
 
 if (-not $PSBoundParameters.ContainsKey("Version") -and $InstallerName -match "(?:^|-)v(?<build>\d+)(?:-|$)") {
     $Version = "$(Get-Date -Format 'yyyy.MM.dd').$($Matches["build"])0"
@@ -244,14 +264,49 @@ Ensure-RemotePrinterArtifacts `
     -ReleasePath $release.Path `
     -CacheRoot (Join-Path $OutputRoot "printer-driver-cache")
 
-$shortcutIconFileName = "kq-icon-$($Version -replace '[^A-Za-z0-9._-]', '_').ico"
-$shortcutIconRelativePath = "data\flutter_assets\assets\$shortcutIconFileName"
-$shortcutIconSourcePath = Join-Path $release.Path "data\flutter_assets\assets\icon.ico"
-$shortcutIconTargetPath = Join-Path $release.Path $shortcutIconRelativePath
-if (-not (Test-Path $shortcutIconSourcePath)) {
-    throw "Shortcut icon source not found: $shortcutIconSourcePath"
+function Remove-KqPackagedAssetIcons([string]$ReleasePath) {
+    $assetsPath = Join-Path $ReleasePath "data\flutter_assets\assets"
+    if (-not (Test-Path $assetsPath)) {
+        return
+    }
+
+    foreach ($pattern in @("icon.ico", "kq-icon-*.ico")) {
+        Get-ChildItem -LiteralPath $assetsPath -Filter $pattern -File -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                if (-not (Test-PathUnderRoot -Path $_.FullName -Root $ReleasePath)) {
+                    throw "Refusing to remove packaged asset icon outside release root: $($_.FullName)"
+                }
+                Remove-Item -LiteralPath $_.FullName -Force
+            }
+    }
 }
-Copy-Item -LiteralPath $shortcutIconSourcePath -Destination $shortcutIconTargetPath -Force
+
+function New-KqInstallerPayload([string]$ReleasePath, [string]$PayloadPath, [string]$MyAppExeName) {
+    if ([System.IO.Path]::GetFileName($MyAppExeName) -ne $MyAppExeName) {
+        throw "MyAppExeName must be a file name, got: $MyAppExeName"
+    }
+
+    Remove-ItemUnderRoot -Path $PayloadPath -Root $buildRoot
+    New-Item -ItemType Directory -Force -Path $PayloadPath | Out-Null
+
+    Get-ChildItem -LiteralPath $ReleasePath -Force |
+        Copy-Item -Destination $PayloadPath -Recurse -Force
+
+    if ($MyAppExeName -ne "rustdesk.exe") {
+        $sourceExe = Join-Path $PayloadPath "rustdesk.exe"
+        if (-not (Test-Path $sourceExe)) {
+            throw "Cannot prepare installer payload because rustdesk.exe is missing: $sourceExe"
+        }
+        Rename-Item -LiteralPath $sourceExe -NewName $MyAppExeName
+        if (Test-Path $sourceExe) {
+            throw "Installer payload still contains the legacy rustdesk.exe entry: $sourceExe"
+        }
+    }
+
+    return (Resolve-Path $PayloadPath).Path
+}
+
+Remove-KqPackagedAssetIcons -ReleasePath $release.Path
 
 $required = @(
     "rustdesk.exe",
@@ -259,8 +314,6 @@ $required = @(
     "flutter_windows.dll",
     "data\flutter_assets\AssetManifest.bin",
     "data\flutter_assets\assets\icon.png",
-    "data\flutter_assets\assets\icon.ico",
-    $shortcutIconRelativePath,
     "data\flutter_assets\assets\kq_toolbox_icon.svg",
     "drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf",
     "printer_driver_adapter.dll"
@@ -271,6 +324,32 @@ foreach ($item in $required) {
         throw "Missing release artifact: $path"
     }
 }
+
+function Assert-KqLowFalsePositiveReleaseSigned([string]$ReleasePath) {
+    if (-not $LowFalsePositiveInstaller -or $AllowUnsignedLowFalsePositiveInstaller) {
+        return
+    }
+
+    $signableFiles = @(
+        Get-ChildItem -LiteralPath $ReleasePath -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in @(".exe", ".dll") }
+    )
+    if ($signableFiles.Count -eq 0) {
+        throw "Low-false-positive installer requires signed inner binaries, but no .exe/.dll files were found under: $ReleasePath"
+    }
+
+    $unsigned = @(
+        $signableFiles | Where-Object {
+            (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne "Valid"
+        } | Select-Object -ExpandProperty FullName
+    )
+    if ($unsigned.Count -gt 0) {
+        $sample = ($unsigned | Select-Object -First 12) -join "`n  "
+        throw "Low-false-positive installer requires all inner .exe/.dll files to have a valid Authenticode signature before packaging. Sign the Release directory first, then rerun this script. Unsigned/not-valid files:`n  $sample"
+    }
+}
+
+Assert-KqLowFalsePositiveReleaseSigned -ReleasePath $release.Path
 
 if (Test-Path $buildRoot) {
     $resolvedBuildRoot = (Resolve-Path $buildRoot).Path
@@ -283,6 +362,9 @@ New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 
 $appName = [string]::Concat([char[]]@(0x9CB2, 0x7A79, 0x8FDC, 0x7A0B, 0x684C, 0x9762))
 $legacyAppName = [string]::Concat([char[]]@(0x9CB2, 0x7A79, 0x5DE5, 0x5177, 0x7BB1))
+$myAppExeName = if ($LowFalsePositiveInstaller) { "KQRemoteLink.exe" } else { "rustdesk.exe" }
+$legacyExeName = "rustdesk.exe"
+$payloadPath = New-KqInstallerPayload -ReleasePath $release.Path -PayloadPath (Join-Path $buildRoot "payload") -MyAppExeName $myAppExeName
 $cnUpgradeCaption = [string]::Concat([char[]]@(0x5347, 0x7EA7, 0x0020, 0x002D, 0x0020, 0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x004E, 0x0061, 0x006D, 0x0065, 0x007D))
 $cnWelcomeTitle = [string]::Concat([char[]]@(0x6B22, 0x8FCE, 0x4F7F, 0x7528, 0x0020, 0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x004E, 0x0061, 0x006D, 0x0065, 0x007D, 0x0020, 0x5347, 0x7EA7, 0x5411, 0x5BFC))
 $cnWelcomeLine1 = [string]::Concat([char[]]@(0x5C06, 0x628A, 0x60A8, 0x7535, 0x8111, 0x4E0A, 0x7684, 0x0020, 0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x004E, 0x0061, 0x006D, 0x0065, 0x007D, 0x0020, 0x5347, 0x7EA7, 0x5230, 0x7248, 0x672C, 0x0020, 0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x0056, 0x0065, 0x0072, 0x0073, 0x0069, 0x006F, 0x006E, 0x007D, 0x3002))
@@ -300,21 +382,144 @@ $cnInstallingStatus = [string]::Concat([char[]]@(0x6B63, 0x5728, 0x5347, 0x7EA7,
 $cnFinishedTitle = [string]::Concat([char[]]@(0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x004E, 0x0061, 0x006D, 0x0065, 0x007D, 0x0020, 0x5347, 0x7EA7, 0x5B8C, 0x6210))
 $cnFinishedBody1 = [string]::Concat([char[]]@(0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x004E, 0x0061, 0x006D, 0x0065, 0x007D, 0x0020, 0x5DF2, 0x6210, 0x529F, 0x5347, 0x7EA7, 0x5230, 0x7248, 0x672C, 0x0020, 0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x0056, 0x0065, 0x0072, 0x0073, 0x0069, 0x006F, 0x006E, 0x007D, 0x3002))
 $cnFinishedBody2 = [string]::Concat([char[]]@(0x539F, 0x5B89, 0x88C5, 0x76EE, 0x5F55, 0x548C, 0x73B0, 0x6709, 0x8BBE, 0x7F6E, 0x5DF2, 0x4FDD, 0x7559, 0x3002))
+$cnAutoCloseFailed = [string]::Concat([char[]]@(0x5B89, 0x88C5, 0x7A0B, 0x5E8F, 0x672A, 0x80FD, 0x81EA, 0x52A8, 0x7ED3, 0x675F, 0x65E7, 0x7248, 0x672C, 0x8FDB, 0x7A0B, 0x3002, 0x8BF7, 0x91CD, 0x542F, 0x7535, 0x8111, 0x540E, 0x518D, 0x6B21, 0x5B89, 0x88C5, 0x3002))
 $escapedRelease = $release.Path.Replace('\', '\\')
 $escapedOutput = $output.FullName.Replace('\', '\\')
+$escapedPayload = $payloadPath.Replace('\', '\\')
 $escapedIcon = $iconPath.Replace('\', '\\')
 $escapedWizardSmallImage = $wizardSmallImagePath.Replace('\', '\\')
 $escapedWizardImage = $wizardImagePath.Replace('\', '\\')
 $chineseMessagesPath = Join-Path $buildRoot "ChineseSimplified.isl"
 $escapedChineseMessages = $chineseMessagesPath.Replace('\', '\\')
+$lowFalsePositiveDefine = if ($LowFalsePositiveInstaller) { "1" } else { "0" }
+$innoUsePreviousAppDir = if ($LowFalsePositiveInstaller) { "no" } else { "yes" }
+$innoPrivilegesRequired = "admin"
+$innoCloseApplications = "no"
+$innoCloseApplicationsFilter = if ($LowFalsePositiveInstaller) { "KQRemoteLink.exe,rustdesk.exe" } else { "rustdesk.exe" }
+$innoDisableDirPage = if ($LowFalsePositiveInstaller) { "yes" } else { "no" }
+$innoDesktopIconRoot = if ($LowFalsePositiveInstaller) { "{userdesktop}" } else { "{commondesktop}" }
+$innoSignedUninstaller = if ([string]::IsNullOrWhiteSpace($InnoSignToolName)) { "no" } else { "yes" }
+$innoSignToolLine = if ([string]::IsNullOrWhiteSpace($InnoSignToolName)) { "" } else { "SignTool=$InnoSignToolName" }
+$innoTasksLines = New-Object System.Collections.Generic.List[string]
+$innoTasksLines.Add('Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce') | Out-Null
+$innoTasksLines.Add('Name: "launch"; Description: "{cm:LaunchProgram,{#MyAppName}}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce') | Out-Null
+$innoTasksSection = "[Tasks]`r`n" + ($innoTasksLines -join "`r`n")
+
+$innoRunLines = New-Object System.Collections.Generic.List[string]
+$innoUninstallRunLines = New-Object System.Collections.Generic.List[string]
+
+function Add-KqInnoRunLine([string]$Line) {
+    $script:innoRunLines.Add($Line) | Out-Null
+}
+
+function Add-KqInnoStandardRunLine([string]$Line) {
+    if (-not $LowFalsePositiveInstaller) {
+        Add-KqInnoRunLine $Line
+    }
+}
+
+function Add-KqInnoUninstallRunLine([string]$Line) {
+    $script:innoUninstallRunLines.Add($Line) | Out-Null
+}
+
+function Add-KqInnoStandardUninstallRunLine([string]$Line) {
+    if (-not $LowFalsePositiveInstaller) {
+        Add-KqInnoUninstallRunLine $Line
+    }
+}
+
+Add-KqInnoRunLine 'Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated skipifdoesntexist'
+Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option lang {code:SelectedAppLanguage}"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'
+Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option enable-udp-punch Y"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'
+Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option kq-force-always-relay N"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall'
+Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--option enable-perm-change-in-accept-window Y"; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--option allow-remote-config-modification N"; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP In"""; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP Out"""; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP In"""; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP Out"""; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink TCP In"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=TCP"; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink TCP Out"" dir=out action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=TCP"; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP In"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP Out"" dir=out action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated'
+Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-service --no-launch"; Flags: runhidden waituntilterminated'
+Add-KqInnoRunLine 'Filename: "{cmd}"; Parameters: "/c exit"; Flags: runhidden waituntilterminated; AfterInstall: KqRepairExistingShortcuts'
+Add-KqInnoRunLine 'Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Tasks: launch; Check: KqIsFreshInstall'
+
+Add-KqInnoStandardUninstallRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP In"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallTcpIn"'
+Add-KqInnoStandardUninstallRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP Out"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallTcpOut"'
+Add-KqInnoStandardUninstallRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP In"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallUdpIn"'
+Add-KqInnoStandardUninstallRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP Out"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallUdpOut"'
+Add-KqInnoStandardUninstallRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated; RunOnceId: "KQUninstallService"'
+
+$innoRunSection = $innoRunLines -join "`r`n"
+$innoUninstallRunSection = if ($innoUninstallRunLines.Count -gt 0) {
+    "[UninstallRun]`r`n" + ($innoUninstallRunLines -join "`r`n")
+} else {
+    ""
+}
+$innoRegistrySection = if ($LowFalsePositiveInstaller) {
+    ""
+} else {
+@"
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\kqremote"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\kqremote\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\rustdesk"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\rustdesk\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
+"@
+}
+$innoStopRuntimeCode = if ($LowFalsePositiveInstaller) {
+@"
+procedure StopExistingKqRuntimeForInstall();
+begin
+  KqCloseRuntimeWindowBeforeInstall();
+end;
+
+procedure StopExistingKqRuntimeForUninstall();
+begin
+  KqCloseRuntimeWindowBeforeInstall();
+end;
+"@
+} else {
+@"
+procedure StopExistingKqRuntimeForInstall();
+begin
+  KqCloseRuntimeWindowBeforeInstall();
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'stop "{#MyAppName}"');
+  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+  Sleep(1200);
+  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+end;
+
+procedure StopExistingKqRuntimeForUninstall();
+var
+  AppExe: String;
+begin
+  KqCloseRuntimeWindowBeforeInstall();
+  AppExe := ExpandConstant('{app}\{#MyAppExeName}');
+  if FileExists(AppExe) then begin
+    ExecQuiet(AppExe, '--uninstall-service');
+  end;
+
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'stop "{#MyAppName}"');
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
+  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+  Sleep(1200);
+  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
+end;
+"@
+}
 
 $iss = @"
 #define MyAppName "$appName"
 #define LegacyAppName "$legacyAppName"
-#define MyAppExeName "rustdesk.exe"
+#define MyAppExeName "$myAppExeName"
+#define LegacyExeName "$legacyExeName"
 #define MyAppPublisher "Kunqiong"
 #define MyAppVersion "$Version"
-#define ShortcutIconRelative "$shortcutIconRelativePath"
+#define LowFalsePositiveInstaller $lowFalsePositiveDefine
 
 [Setup]
 AppId={{D0B24C8B-7E7E-4B2C-9A38-0B2026052701}
@@ -329,22 +534,25 @@ OutputBaseFilename=$InstallerName
 SetupIconFile=$escapedIcon
 WizardSmallImageFile=$escapedWizardSmallImage
 WizardImageFile=$escapedWizardImage
-UninstallDisplayIcon={app}\{#ShortcutIconRelative}
+UninstallDisplayIcon={app}\{#MyAppExeName}
+SignedUninstaller=$innoSignedUninstaller
+$innoSignToolLine
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
+PrivilegesRequired=$innoPrivilegesRequired
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-CloseApplications=yes
-CloseApplicationsFilter=rustdesk.exe
+CloseApplications=$innoCloseApplications
+CloseApplicationsFilter=$innoCloseApplicationsFilter
 ShowLanguageDialog=no
 LanguageDetectionMethod=uilanguage
-UsePreviousAppDir=yes
+UsePreviousAppDir=$innoUsePreviousAppDir
 UsePreviousGroup=yes
 UsePreviousLanguage=yes
 UsePreviousTasks=yes
 DisableWelcomePage=no
+DisableDirPage=$innoDisableDirPage
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "$escapedChineseMessages"
@@ -354,50 +562,21 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
-Name: "startup"; Description: "{cm:AutoStartProgram,{#MyAppName}}"; GroupDescription: "{cm:AutoStartProgramGroupDescription}"; Flags: unchecked
-Name: "launch"; Description: "{cm:LaunchProgram,{#MyAppName}}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
+$innoTasksSection
 
 [Files]
-Source: "$escapedRelease\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "$escapedPayload\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#ShortcutIconRelative}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#ShortcutIconRelative}"; Tasks: desktopicon
-Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#ShortcutIconRelative}"; Tasks: startup
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "$innoDesktopIconRoot\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+$innoRegistrySection
 
 [Run]
-Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated skipifdoesntexist
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option lang {code:SelectedAppLanguage}"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option enable-udp-punch Y"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--local-option kq-force-always-relay N"; Flags: runhidden waituntilterminated; Check: KqIsFreshInstall
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--option enable-perm-change-in-accept-window Y"; Flags: runhidden waituntilterminated
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--option allow-remote-config-modification N"; Flags: runhidden waituntilterminated
-Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\kqremote /f /v ""URL Protocol"" /t REG_SZ /d """""; Flags: runhidden waituntilterminated
-Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\kqremote\shell\open\command /f /ve /t REG_SZ /d ""\""{app}\{#MyAppExeName}\"" \""%1\"""""; Flags: runhidden waituntilterminated
-Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\rustdesk /f /v ""URL Protocol"" /t REG_SZ /d """""; Flags: runhidden waituntilterminated
-Filename: "{sys}\reg.exe"; Parameters: "add HKEY_CLASSES_ROOT\rustdesk\shell\open\command /f /ve /t REG_SZ /d ""\""{app}\{#MyAppExeName}\"" \""%1\"""""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP In"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP Out"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP In"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP Out"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink TCP In"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=TCP"; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink TCP Out"" dir=out action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=TCP"; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP In"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP Out"" dir=out action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-service --no-launch"; Flags: runhidden waituntilterminated
-Filename: "{cmd}"; Parameters: "/c exit"; Flags: runhidden waituntilterminated; AfterInstall: KqRepairExistingShortcuts
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent; Tasks: launch; Check: KqIsFreshInstall
+$innoRunSection
 
-[UninstallRun]
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP In"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallTcpIn"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP Out"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallTcpOut"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP In"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallUdpIn"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink UDP Out"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallUdpOut"
-Filename: "{sys}\reg.exe"; Parameters: "delete HKEY_CLASSES_ROOT\kqremote /f"; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteKqRemoteProtocol"
-Filename: "{sys}\reg.exe"; Parameters: "delete HKEY_CLASSES_ROOT\rustdesk /f"; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteRustDeskProtocol"
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated; RunOnceId: "KQUninstallService"
+$innoUninstallRunSection
 
 [Code]
 function SetTimer(hWnd, nIDEvent, uElapse, lpTimerFunc: Longword): Longword;
@@ -405,6 +584,14 @@ external 'SetTimer@user32.dll stdcall';
 
 function KillTimer(hWnd, nIDEvent: Longword): Boolean;
 external 'KillTimer@user32.dll stdcall';
+
+function KqPostMessage(hWnd, Msg, wParam, lParam: Longword): Boolean;
+external 'PostMessageW@user32.dll stdcall';
+
+function LowFalsePositiveInstaller(): Boolean;
+begin
+  Result := {#LowFalsePositiveInstaller} = 1;
+end;
 
 var
   KqUpgradeInstall: Boolean;
@@ -540,7 +727,7 @@ begin
     Shortcut.TargetPath := ExpandConstant('{app}\{#MyAppExeName}');
     Shortcut.Arguments := '';
     Shortcut.WorkingDirectory := ExpandConstant('{app}');
-    Shortcut.IconLocation := ExpandConstant('{app}\{#ShortcutIconRelative}');
+    Shortcut.IconLocation := ExpandConstant('{app}\{#MyAppExeName}') + ',0';
     Shortcut.Save;
   except
   end;
@@ -552,7 +739,6 @@ var
 begin
   KqRepairShortcut(ExpandConstant('{commondesktop}\{#MyAppName}.lnk'));
   KqRepairShortcut(ExpandConstant('{commonprograms}\{#MyAppName}\{#MyAppName}.lnk'));
-  KqRepairShortcut(ExpandConstant('{commonstartup}\{#MyAppName}.lnk'));
   KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppName}.lnk'));
   KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppExeName}.lnk'));
   KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#LegacyAppName}.lnk'));
@@ -567,8 +753,18 @@ begin
     Result := '{#MyAppVersion}';
 end;
 
+function KqLowFalsePositiveInstallDir(): String;
+begin
+  Result := ExpandConstant('{autopf}\KQRemoteLink\{#MyAppVersion}');
+end;
+
 function GetDefaultInstallDir(Param: String): String;
 begin
+  if LowFalsePositiveInstaller then begin
+    Result := KqLowFalsePositiveInstallDir();
+    Exit;
+  end;
+
   if KqExistingInstallDir <> '' then
     Result := KqExistingInstallDir
   else if KqLegacyInstallDir <> '' then
@@ -584,30 +780,129 @@ begin
   Exec(FileName, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-procedure StopExistingKqRuntimeForInstall();
+function KqFindRuntimeWindow(): Longword;
 begin
-  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'stop "{#MyAppName}"');
-  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
-  Sleep(1200);
-  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
+  Result := FindWindowByWindowName('{#MyAppName}');
+  if Result = 0 then
+    Result := FindWindowByWindowName('{#LegacyAppName}');
 end;
 
-procedure StopExistingKqRuntimeForUninstall();
-var
-  AppExe: String;
+procedure KqPostCloseMessage(WindowHandle: Longword);
 begin
-  AppExe := ExpandConstant('{app}\{#MyAppExeName}');
-  if FileExists(AppExe) then begin
-    ExecQuiet(AppExe, '--uninstall-service');
+  if WindowHandle <> 0 then
+    KqPostMessage(WindowHandle, 16, 0, 0);
+end;
+
+function KqIsRuntimeProcessNameStillRunning(ExeName: String): Boolean;
+var
+  Locator: Variant;
+  Service: Variant;
+  Processes: Variant;
+begin
+  Result := False;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Processes := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE Name = ''' + ExeName + '''');
+    Result := Processes.Count > 0;
+  except
+    Result := KqFindRuntimeWindow() <> 0;
+  end;
+end;
+
+function KqIsRuntimeProcessStillRunning(): Boolean;
+begin
+  Result := KqIsRuntimeProcessNameStillRunning('{#MyAppExeName}') or KqIsRuntimeProcessNameStillRunning('{#LegacyExeName}');
+end;
+
+function KqTerminateRuntimeProcessesByName(ExeName: String): Boolean;
+var
+  Locator: Variant;
+  Service: Variant;
+  Processes: Variant;
+  Process: Variant;
+  I: Integer;
+begin
+  Result := False;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Processes := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE Name = ''' + ExeName + '''');
+    if Processes.Count <= 0 then begin
+      Result := True;
+      Exit;
+    end;
+
+    for I := 0 to Processes.Count - 1 do begin
+      Process := Processes.ItemIndex(I);
+      try
+        Process.Terminate();
+        Result := True;
+      except
+      end;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+function KqTerminateRuntimeProcesses(): Boolean;
+begin
+  Result := KqTerminateRuntimeProcessesByName('{#MyAppExeName}');
+  Result := KqTerminateRuntimeProcessesByName('{#LegacyExeName}') or Result;
+end;
+
+function KqCloseRuntimeWindowBeforeInstall(): Boolean;
+var
+  Attempt: Integer;
+  WindowHandle: Longword;
+begin
+  Result := True;
+  for Attempt := 1 to 6 do begin
+    WindowHandle := KqFindRuntimeWindow();
+    KqPostCloseMessage(WindowHandle);
+    if not KqIsRuntimeProcessStillRunning() then begin
+      Result := True;
+      Exit;
+    end;
+    Result := False;
+    Sleep(500);
   end;
 
-  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'stop "{#MyAppName}"');
-  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
-  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
-  Sleep(1200);
-  ExecQuiet(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName} /T');
-  ExecQuiet(ExpandConstant('{sys}\sc.exe'), 'delete "{#MyAppName}"');
+  if KqIsRuntimeProcessStillRunning() then begin
+    KqTerminateRuntimeProcesses();
+    for Attempt := 1 to 10 do begin
+      if not KqIsRuntimeProcessStillRunning() then begin
+        Result := True;
+        Exit;
+      end;
+      Result := False;
+      Sleep(500);
+    end;
+  end;
+
+  Result := not KqIsRuntimeProcessStillRunning();
 end;
+
+function KqAutoCloseRuntimeFailedMessage(): String;
+begin
+  if KqIsChineseInstaller() then begin
+    Result := '$cnAutoCloseFailed';
+  end else begin
+    Result := 'Setup could not automatically stop the old version process. Restart Windows and run Setup again.';
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  NeedsRestart := False;
+  Result := '';
+  if not KqCloseRuntimeWindowBeforeInstall() then begin
+    Result := KqAutoCloseRuntimeFailedMessage();
+  end;
+end;
+
+$innoStopRuntimeCode
 
 procedure KqLaunchUpgradeAfterFinish();
 var
@@ -620,7 +915,7 @@ begin
   if WizardSilent then
     Exit;
 
-  Exec(ExpandConstant('{app}\{#MyAppExeName}'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
+  ExecAsOriginalUser(ExpandConstant('{app}\{#MyAppExeName}'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
 procedure CleanupLegacyInstallRegistration();
@@ -896,7 +1191,13 @@ $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 Copy-Item -LiteralPath $chineseMessagesSourcePath -Destination $chineseMessagesPath -Force
 [System.IO.File]::WriteAllText($issPath, $iss, $utf8Bom)
 
-& $iscc $issPath
+$isccArgs = New-Object System.Collections.Generic.List[string]
+if (-not [string]::IsNullOrWhiteSpace($InnoSignToolCommand)) {
+    $isccArgs.Add("/S$InnoSignToolName=$InnoSignToolCommand") | Out-Null
+}
+$isccArgs.Add($issPath) | Out-Null
+
+& $iscc @isccArgs
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }
@@ -911,5 +1212,7 @@ $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash
     FullName = $installerPath
     Length = (Get-Item $installerPath).Length
     Sha256 = $hash
-    InstallDir = "%ProgramFiles%\KQRemoteLink, or the existing install directory during upgrade"
+    InstallDir = if ($LowFalsePositiveInstaller) { "%ProgramFiles%\KQRemoteLink\$Version" } else { "%ProgramFiles%\KQRemoteLink, or the existing install directory during upgrade" }
+    InnoSignToolName = $InnoSignToolName
+    SignedUninstaller = $innoSignedUninstaller
 }

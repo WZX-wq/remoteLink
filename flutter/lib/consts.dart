@@ -129,6 +129,7 @@ const String kOptionKqDailyPassword = "kq-daily-password";
 const String kOptionKqDailyPasswordDate = "kq-daily-password-date";
 const String kOptionKqPermanentPasswordPreview =
     "kq-permanent-password-preview";
+const String kOptionKqSelectedPasswordKind = "kq-selected-password-kind";
 const String kOptionApproveMode = "approve-mode";
 const String kOptionAllowNumericOneTimePassword =
     "allow-numeric-one-time-password";
@@ -270,7 +271,7 @@ const double kDefaultFps = 30;
 const double kMaxFps = 120;
 
 const double kMinQuality = 10;
-const double kDefaultQuality = 50;
+const double kDefaultQuality = 80;
 const double kMaxQuality = 100;
 const double kMaxMoreQuality = 2000;
 
@@ -453,6 +454,10 @@ class AndroidChannel {
   static final kGetStartOnBootOpt = "get_start_on_boot_opt";
   static final kSetStartOnBootOpt = "set_start_on_boot_opt";
   static final kSyncAppDirConfigPath = "sync_app_dir";
+  static final kOpenPaymentUri = "open_payment_uri";
+  static final kOpenWechatPay = "open_wechat_pay";
+  static final kOpenAlipayOrder = "open_alipay_order";
+  static final kOpenAlipayHtml = "open_alipay_html";
 }
 
 /// flutter/packages/flutter/lib/src/services/keyboard_key.dart -> _keyLabels

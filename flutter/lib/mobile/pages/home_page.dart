@@ -3,6 +3,7 @@ import 'package:flutter_hbb/mobile/pages/account_page.dart';
 import 'package:flutter_hbb/mobile/pages/recent_connections_page.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
+import 'package:get/get.dart';
 import '../../common.dart';
 import '../../consts.dart';
 import '../../common/kq_theme.dart';
@@ -38,6 +39,13 @@ class HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     initPages();
+    kqRegisterMobileLanguageListener(refreshPages);
+  }
+
+  @override
+  void dispose() {
+    kqUnregisterMobileLanguageListener(refreshPages);
+    super.dispose();
   }
 
   void initPages() {
@@ -57,77 +65,141 @@ class HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
-    return WillPopScope(
-        onWillPop: () async {
-          if (_selectedIndex != 0) {
-            setState(() {
-              _selectedIndex = 0;
-            });
-          } else {
-            return true;
-          }
-          return false;
-        },
-        child: Scaffold(
-          extendBody: true,
-          backgroundColor: q.surface,
-          bottomNavigationBar: Container(
-            margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            decoration: BoxDecoration(
-              color: q.panelStrong.withOpacity(q.isDark ? 0.92 : 0.96),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: q.line),
-              boxShadow: [
-                BoxShadow(
-                  color: q.shadow,
-                  blurRadius: 22,
-                  offset: const Offset(0, 10),
+    return Obx(() {
+      kqMobileLanguageEpoch.value;
+      return WillPopScope(
+          onWillPop: () async {
+            if (_selectedIndex != 0) {
+              setState(() {
+                _selectedIndex = 0;
+              });
+            } else {
+              return true;
+            }
+            return false;
+          },
+          child: Scaffold(
+            extendBody: false,
+            backgroundColor: q.surface,
+            bottomNavigationBar: Container(
+              margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              decoration: BoxDecoration(
+                color: q.panelStrong.withOpacity(q.isDark ? 0.92 : 0.96),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: q.line),
+                boxShadow: [
+                  BoxShadow(
+                    color: q.shadow,
+                    blurRadius: 22,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: NavigationBarTheme(
+                data: NavigationBarThemeData(
+                  iconTheme: WidgetStateProperty.resolveWith((states) {
+                    final selected = states.contains(WidgetState.selected);
+                    return IconThemeData(
+                      color: selected ? q.primary : q.muted,
+                      size: 26,
+                    );
+                  }),
+                  labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                    final selected = states.contains(WidgetState.selected);
+                    return TextStyle(
+                      color: selected ? q.ink : q.muted,
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                    );
+                  }),
                 ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: NavigationBar(
-                key: navigationBarKey,
-                height: 68,
-                elevation: 0,
-                backgroundColor: Colors.transparent,
-                indicatorColor: q.primary.withOpacity(0.16),
-                selectedIndex: _selectedIndex,
-                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-                destinations: _pages
-                    .map((page) => NavigationDestination(
-                          icon: page.icon,
-                          selectedIcon: IconTheme(
-                            data: IconThemeData(color: q.primary),
-                            child: page.icon,
-                          ),
-                          label: page.title,
-                        ))
-                    .toList(),
-                onDestinationSelected: (index) => setState(() {
-                  if (_selectedIndex != index) {
-                    _selectedIndex = index;
-                  }
-                }),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: NavigationBar(
+                    key: navigationBarKey,
+                    height: 68,
+                    elevation: 0,
+                    backgroundColor: Colors.transparent,
+                    indicatorColor: q.primary.withOpacity(0.16),
+                    selectedIndex: _selectedIndex,
+                    labelBehavior:
+                        NavigationDestinationLabelBehavior.alwaysShow,
+                    destinations: _pages
+                        .map((page) => NavigationDestination(
+                              icon: page.icon,
+                              selectedIcon: page.icon,
+                              label: _mobileNavigationLabel(page.title),
+                            ))
+                        .toList(),
+                    onDestinationSelected: (index) => setState(() {
+                      if (_selectedIndex != index) {
+                        _selectedIndex = index;
+                      }
+                    }),
+                  ),
+                ),
               ),
             ),
-          ),
-          body: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: q.pageGradient,
+            body: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: q.pageGradient,
+                ),
+              ),
+              child: SafeArea(
+                top: true,
+                bottom: false,
+                child: _pages.elementAt(_selectedIndex),
               ),
             ),
-            child: SafeArea(
-              top: true,
-              bottom: false,
-              child: _pages.elementAt(_selectedIndex),
-            ),
-          ),
-        ));
+          ));
+    });
+  }
+}
+
+String _mobileNavigationLabel(String title) {
+  final knownTitles = {
+    'Connection',
+    'Remote connection',
+    'Recent devices',
+    'Share screen',
+    'Me',
+    '我的',
+    '连接',
+    '最近连接',
+    '共享屏幕',
+    '远程连接',
+  };
+  if (!knownTitles.contains(title)) return title;
+  if (!kqUiPrefersChinese()) {
+    switch (title) {
+      case '我的':
+        return translate('Me');
+      case '连接':
+      case '远程连接':
+        return translate('Connection');
+      case '最近连接':
+        return translate('Recent devices');
+      case '共享屏幕':
+        return translate('Share screen');
+      default:
+        return translate(title);
+    }
+  }
+  switch (title) {
+    case 'Connection':
+    case 'Remote connection':
+      return '连接';
+    case 'Recent devices':
+      return '最近连接';
+    case 'Share screen':
+      return '共享屏幕';
+    case 'Me':
+      return '我的';
+    default:
+      return title;
   }
 }
 

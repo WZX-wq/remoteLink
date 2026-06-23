@@ -34,7 +34,10 @@ class KqOauth {
     throw KqOauthException('Company account login is only available in app.');
   }
 
-  static Future<void> sendSmsCode({required String phone}) async {
+  static Future<void> sendSmsCode({
+    required String phone,
+    String purpose = 'login',
+  }) async {
     throw KqOauthException('Company SMS login is only available in app.');
   }
 
@@ -43,5 +46,23 @@ class KqOauth {
     required String code,
   }) async {
     throw KqOauthException('Company SMS login is only available in app.');
+  }
+
+  static Future<LoginResponse> registerWithPhone({
+    required String username,
+    required String phone,
+    required String code,
+    required String password,
+  }) async {
+    throw KqOauthException(
+        'Company account registration is only available in app.');
+  }
+
+  static Future<LoginResponse> resetPasswordWithPhone({
+    required String phone,
+    required String code,
+    required String password,
+  }) async {
+    throw KqOauthException('Company password reset is only available in app.');
   }
 }

@@ -2674,10 +2674,14 @@ fn apply_kq_remote_link_defaults() {
         .unwrap()
         .insert(keys::OPTION_VIEW_STYLE.to_owned(), "adaptive".to_owned());
 
-    config::BUILTIN_SETTINGS
-        .write()
-        .unwrap()
-        .insert(keys::OPTION_REGISTER_DEVICE.to_owned(), "N".to_owned());
+    #[cfg(target_os = "android")]
+    let register_device = "Y";
+    #[cfg(not(target_os = "android"))]
+    let register_device = "N";
+    config::BUILTIN_SETTINGS.write().unwrap().insert(
+        keys::OPTION_REGISTER_DEVICE.to_owned(),
+        register_device.to_owned(),
+    );
     let mut builtin_settings = config::BUILTIN_SETTINGS.write().unwrap();
     builtin_settings.insert(
         keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW.to_owned(),

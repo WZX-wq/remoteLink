@@ -15,8 +15,10 @@ const _apiBaseUrl = 'https://api-web.kunqiongai.com';
 const _loginBaseUrl = 'https://login.kunqiongai.com';
 const _secretKey = '7530bfb1ad6c41627b0f0620078fa5ed';
 const _passwordLoginPath = '/api/auth/login';
+const _registerPath = '/api/auth/register';
 const _smsSendPath = '/api/sms/send';
 const _smsLoginPath = '/api/auth/login/phone';
+const _passwordResetPath = '/api/auth/password/reset';
 const _webLoginUrlPath = '/soft_desktop/get_web_login_url';
 const _desktopTokenPath = '/user/desktop_get_token';
 const _checkLoginPath = '/user/check_login';
@@ -69,10 +71,13 @@ class KqOauth {
     return response;
   }
 
-  static Future<void> sendSmsCode({required String phone}) async {
+  static Future<void> sendSmsCode({
+    required String phone,
+    String purpose = 'login',
+  }) async {
     await _postLoginJson(_smsSendPath, {
       'phone': phone.trim(),
-      'purpose': 'login',
+      'purpose': purpose,
     });
   }
 
@@ -87,6 +92,42 @@ class KqOauth {
     final response = _toNativeLoginResponse(body);
     await _storeLogin(response, body);
     return response;
+  }
+
+  static Future<LoginResponse> registerWithPhone({
+    required String username,
+    required String phone,
+    required String code,
+    required String password,
+  }) async {
+    final body = await _postLoginJson(_registerPath, {
+      'username': username.trim(),
+      'phone': phone.trim(),
+      'code': code.trim(),
+      'password': password,
+      'password_confirmation': password,
+    });
+    try {
+      final response = _toNativeLoginResponse(body);
+      await _storeLogin(response, body);
+      return response;
+    } on KqOauthException {
+      return loginWithPassword(username: phone, password: password);
+    }
+  }
+
+  static Future<LoginResponse> resetPasswordWithPhone({
+    required String phone,
+    required String code,
+    required String password,
+  }) async {
+    await _postLoginJson(_passwordResetPath, {
+      'phone': phone.trim(),
+      'code': code.trim(),
+      'password': password,
+      'password_confirmation': password,
+    });
+    return loginWithPassword(username: phone, password: password);
   }
 
   static Future<LoginResponse> _loginOnce() async {
@@ -275,12 +316,33 @@ class KqOauth {
     if (resp.statusCode < 200 ||
         resp.statusCode >= 300 ||
         (code != null && code != 200)) {
-      final message = (decoded['message'] ?? decoded['msg'])?.toString();
-      throw KqOauthException(message == null || message.isEmpty
-          ? 'Kunqiong login request failed.'
-          : message);
+      throw KqOauthException(_extractLoginErrorMessage(decoded));
     }
     return decoded;
+  }
+
+  static String _extractLoginErrorMessage(Map<String, dynamic> decoded) {
+    final errors = decoded['errors'];
+    if (errors is Map) {
+      final parts = <String>[];
+      for (final value in errors.values) {
+        if (value is Iterable) {
+          parts.addAll(value
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty));
+        } else if (value != null) {
+          final text = value.toString().trim();
+          if (text.isNotEmpty) parts.add(text);
+        }
+      }
+      if (parts.isNotEmpty) {
+        return parts.toSet().join('\n');
+      }
+    }
+    final message = (decoded['message'] ?? decoded['msg'])?.toString().trim();
+    return message == null || message.isEmpty
+        ? 'Kunqiong login request failed.'
+        : message;
   }
 
   static Future<_AuthView?> _openAuthorization(Uri authUri) async {

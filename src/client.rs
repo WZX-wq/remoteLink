@@ -110,8 +110,8 @@ const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
 const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
-const KQ_FREE_IMAGE_QUALITY: i32 = 50;
-const KQ_MEMBER_IMAGE_QUALITY: i32 = 50;
+const KQ_FREE_IMAGE_QUALITY: i32 = 80;
+const KQ_MEMBER_IMAGE_QUALITY: i32 = 80;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
     match value {
@@ -2047,14 +2047,17 @@ impl AudioHandler {
             device.name().unwrap_or("".to_owned())
         );
         let config = device.default_output_config().map_err(|e| anyhow!(e))?;
+        #[cfg(target_os = "android")]
+        let sample_format = cpal::SampleFormat::I16;
+        #[cfg(not(target_os = "android"))]
         let sample_format = config.sample_format();
         log::info!("Default output format: {:?}", config);
         log::info!("Remote input format: {:?}", format0);
         #[allow(unused_mut)]
         let mut config: StreamConfig = config.into();
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
-            // this makes ios audio output not work
+            // Fixed 64-frame buffers are rejected by iOS and some Android/Oboe backends.
             config.buffer_size = cpal::BufferSize::Fixed(64);
         }
 
@@ -2088,7 +2091,17 @@ impl AudioHandler {
     }
 
     /// Handle audio format and create an audio decoder.
+    #[cfg_attr(target_os = "android", allow(unused_variables))]
     pub fn handle_format(&mut self, f: AudioFormat) {
+        #[cfg(target_os = "android")]
+        {
+            log::warn!(
+                "KQ Android skips remote audio playback because MuMu/Houdini can crash inside Oboe open_stream"
+            );
+            return;
+        }
+
+        #[cfg_attr(target_os = "android", allow(unreachable_code))]
         match AudioDecoder::new(f.sample_rate, if f.channels > 1 { Stereo } else { Mono }) {
             Ok(d) => {
                 let buffer = vec![0.; f.sample_rate as usize * f.channels as usize];
@@ -3062,6 +3075,15 @@ impl LoginConfigHandler {
         decoding
     }
 
+    fn kq_force_h264_recording_supported_decoding(&self) -> SupportedDecoding {
+        let mut decoding = self.get_supported_decoding();
+        if crate::get_app_name() == crate::common::KQ_APP_NAME && decoding.ability_h264 > 0 {
+            decoding.prefer = supported_decoding::PreferCodec::H264.into();
+            log::info!("KQ recording requests H264 so saved MP4 files play without HEVC extension");
+        }
+        decoding
+    }
+
     /// Parse the image quality option.
     /// Return [`ImageQuality`] if the option is valid, otherwise return `None`.
     ///
@@ -3535,7 +3557,11 @@ impl LoginConfigHandler {
     }
 
     pub fn update_supported_decodings(&self) -> Message {
-        let decoding = self.get_supported_decoding();
+        let decoding = if self.record_state {
+            self.kq_force_h264_recording_supported_decoding()
+        } else {
+            self.get_supported_decoding()
+        };
         let mut misc = Misc::new();
         misc.set_option(OptionMessage {
             supported_decoding: hbb_common::protobuf::MessageField::some(decoding),
@@ -4854,8 +4880,7 @@ pub mod peer_online {
         let mut socket = match create_online_stream().await {
             Ok(s) => s,
             Err(e) => {
-                log::debug!("Failed to create peers online stream, {e}");
-                return Ok((vec![], ids.clone()));
+                bail!("Failed to create peers online stream: {e}");
             }
         };
         // TODO: Use long connections to avoid socket creation
@@ -4863,8 +4888,7 @@ pub mod peer_online {
         // we may face the following error:
         // An established connection was aborted by the software in your host machine. (os error 10053)
         if let Err(e) = socket.send(&msg_out).await {
-            log::debug!("Failed to send peers online states query, {e}");
-            return Ok((vec![], ids.clone()));
+            bail!("Failed to send peers online states query: {e}");
         }
         // Retry for 2 times to get the online response
         for _ in 0..2 {

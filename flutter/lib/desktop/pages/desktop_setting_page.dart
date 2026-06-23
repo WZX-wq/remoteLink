@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -823,6 +824,8 @@ class _GeneralState extends State<_General> {
   Widget record(BuildContext context) {
     final showRootDir = isWindows && bind.mainIsInstalled();
     return futureBuilder(future: () async {
+      String custom_dir =
+          bind.mainGetLocalOption(key: kOptionVideoSaveDirectory).trim();
       String user_dir = bind.mainVideoSaveDirectory(root: false);
       String root_dir =
           showRootDir ? bind.mainVideoSaveDirectory(root: true) : '';
@@ -830,6 +833,7 @@ class _GeneralState extends State<_General> {
       bool root_dir_exists =
           showRootDir ? await Directory(root_dir).exists() : false;
       return {
+        'custom_dir': custom_dir,
         'user_dir': user_dir,
         'root_dir': root_dir,
         'user_dir_exists': user_dir_exists,
@@ -837,10 +841,16 @@ class _GeneralState extends State<_General> {
       };
     }(), hasData: (data) {
       Map<String, dynamic> map = data as Map<String, dynamic>;
+      String custom_dir = map['custom_dir']!;
       String user_dir = map['user_dir']!;
       String root_dir = map['root_dir']!;
       bool root_dir_exists = map['root_dir_exists']!;
       bool user_dir_exists = map['user_dir_exists']!;
+      final editable_dir =
+          showRootDir && bind.isIncomingOnly() ? root_dir : user_dir;
+      final editable_dir_exists = showRootDir && bind.isIncomingOnly()
+          ? root_dir_exists
+          : user_dir_exists;
       return _Card(title: 'Recording', children: [
         if (!bind.isOutgoingOnly())
           _OptionCheckBox(context, 'Automatically record incoming sessions',
@@ -849,7 +859,7 @@ class _GeneralState extends State<_General> {
           _OptionCheckBox(context, 'Automatically record outgoing sessions',
               kOptionAllowAutoRecordOutgoing,
               isServer: false),
-        if (showRootDir && !bind.isOutgoingOnly())
+        if (showRootDir && !bind.isOutgoingOnly() && !bind.isIncomingOnly())
           Row(
             children: [
               Text(
@@ -870,49 +880,57 @@ class _GeneralState extends State<_General> {
               ),
             ],
           ).marginOnly(left: _kContentHMargin),
-        if (!(showRootDir && bind.isIncomingOnly()))
-          Row(
-            children: [
-              Text(
-                  '${translate((showRootDir && !bind.isOutgoingOnly()) ? "Outgoing" : "Directory")}:'),
-              Expanded(
-                child: GestureDetector(
-                    onTap: user_dir_exists
-                        ? () => launchUrl(Uri.file(user_dir))
+        Row(
+          children: [
+            Text(
+                '${translate((showRootDir && !bind.isOutgoingOnly()) ? (bind.isIncomingOnly() ? "Directory" : "Outgoing") : "Directory")}:'),
+            Expanded(
+              child: GestureDetector(
+                  onTap: editable_dir_exists
+                      ? () => launchUrl(Uri.file(editable_dir))
+                      : null,
+                  child: Text(
+                    editable_dir,
+                    softWrap: true,
+                    style: editable_dir_exists
+                        ? const TextStyle(decoration: TextDecoration.underline)
                         : null,
-                    child: Text(
-                      user_dir,
-                      softWrap: true,
-                      style: user_dir_exists
-                          ? const TextStyle(
-                              decoration: TextDecoration.underline)
-                          : null,
-                    )).marginOnly(left: 10),
-              ),
-              ElevatedButton(
-                      onPressed: isOptionFixed(kOptionVideoSaveDirectory)
-                          ? null
-                          : () async {
-                              String? initialDirectory;
-                              if (await Directory.fromUri(
-                                      Uri.directory(user_dir))
-                                  .exists()) {
-                                initialDirectory = user_dir;
-                              }
-                              String? selectedDirectory =
-                                  await FilePicker.platform.getDirectoryPath(
-                                      initialDirectory: initialDirectory);
-                              if (selectedDirectory != null) {
-                                await bind.mainSetLocalOption(
-                                    key: kOptionVideoSaveDirectory,
-                                    value: selectedDirectory);
-                                setState(() {});
-                              }
-                            },
-                      child: Text(translate('Change')))
-                  .marginOnly(left: 5),
-            ],
-          ).marginOnly(left: _kContentHMargin),
+                  )).marginOnly(left: 10),
+            ),
+            ElevatedButton(
+                    onPressed: isOptionFixed(kOptionVideoSaveDirectory)
+                        ? null
+                        : () async {
+                            String? initialDirectory;
+                            final picker_dir = custom_dir.isNotEmpty
+                                ? custom_dir
+                                : editable_dir;
+                            if (await Directory.fromUri(
+                                    Uri.directory(picker_dir))
+                                .exists()) {
+                              initialDirectory = picker_dir;
+                            } else if (await Directory.fromUri(
+                                    Uri.directory(user_dir))
+                                .exists()) {
+                              initialDirectory = user_dir;
+                            }
+                            String? selectedDirectory =
+                                await FilePicker.platform.getDirectoryPath(
+                                    initialDirectory: initialDirectory);
+                            if (selectedDirectory != null) {
+                              await bind.mainSetLocalOption(
+                                  key: kOptionVideoSaveDirectory,
+                                  value: selectedDirectory);
+                              await bind.mainSetOption(
+                                  key: kOptionVideoSaveDirectory,
+                                  value: selectedDirectory);
+                              setState(() {});
+                            }
+                          },
+                    child: Text(translate('Change')))
+                .marginOnly(left: 5),
+          ],
+        ).marginOnly(left: _kContentHMargin),
       ]);
     });
   }
@@ -1228,15 +1246,16 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
   Widget more(BuildContext context) {
     bool enabled = !locked;
     return _FoldoutCard(title: 'Security', children: [
-      _SettingSectionTitle(context, '2FA'),
-      tfa(),
       if (!isChangeIdDisabled()) ...[
-        _SettingSectionDivider(context),
         _SettingSectionTitle(context, 'ID'),
         changeId(),
       ],
       _SettingSectionDivider(context),
       shareRdp(context, enabled),
+      if (isWindows) ...[
+        _SettingSectionDivider(context),
+        _PostInstallPermissionActions(enabled: enabled),
+      ],
       _SettingSectionDivider(context),
       _SettingSectionTitle(context, 'Network'),
       _OptionCheckBox(context, 'Deny LAN discovery', 'enable-lan-discovery',
@@ -3930,6 +3949,175 @@ Widget _SettingSectionDivider(BuildContext context) {
     color: palette.cardBorder.withOpacity(0.72),
     indent: _kContentHMargin,
   );
+}
+
+class _PostInstallPermissionActions extends StatefulWidget {
+  final bool enabled;
+
+  const _PostInstallPermissionActions({required this.enabled});
+
+  @override
+  State<_PostInstallPermissionActions> createState() =>
+      _PostInstallPermissionActionsState();
+}
+
+class _PostInstallPermissionActionsState
+    extends State<_PostInstallPermissionActions> {
+  bool _startingService = false;
+  bool _repairingFirewall = false;
+  bool _registeringBrowserProtocol = false;
+  bool _applyingRecommended = false;
+
+  Future<void> _runAction(
+      Future<void> Function() action, void Function(bool) setBusy) async {
+    if (!widget.enabled) return;
+    setState(() => setBusy(true));
+    try {
+      await action();
+    } finally {
+      if (mounted) {
+        setState(() => setBusy(false));
+      }
+    }
+  }
+
+  Future<void> _startBackgroundService() async {
+    await _runAction(() async {
+      await bind.mainStartService();
+      await mainSetBoolOption(kOptionStopService, false);
+      showToast('已发起后台服务安装，请在系统授权弹窗中确认。');
+    }, (value) => _startingService = value);
+  }
+
+  Future<void> _repairFirewall() async {
+    await _runAction(() async {
+      final result = await repairKqFirewallRules();
+      showToast(result.message);
+    }, (value) => _repairingFirewall = value);
+  }
+
+  Future<void> _registerBrowserRemoteProtocol() async {
+    await _runAction(() async {
+      final result = await registerKqBrowserRemoteProtocols();
+      showToast(result.message);
+    }, (value) => _registeringBrowserProtocol = value);
+  }
+
+  Future<void> _applyRecommendedPermissions() async {
+    await _runAction(() async {
+      await bind.mainSetOption(
+          key: kOptionEnablePermChangeInAcceptWindow, value: 'Y');
+      await bind.mainSetOption(
+          key: kOptionAllowRemoteConfigModification, value: 'N');
+      showToast('已应用推荐远控权限。');
+    }, (value) => _applyingRecommended = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _settingPalette(context);
+    final bodyColor =
+        widget.enabled ? palette.primaryText : palette.disabledText;
+    return Container(
+      // kq-post-install-permission-actions
+      margin: const EdgeInsets.only(left: _kContentHMargin, top: 2),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: palette.fieldFill,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: palette.fieldBorder.withOpacity(0.9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '安装后授权 / 连接增强',
+            style: TextStyle(
+              color: bodyColor,
+              fontSize: _kContentFontSize,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '用户主动点击后才会触发系统授权或修复；低误报安装包不会静默安装服务或改防火墙。',
+            style: TextStyle(
+              color: widget.enabled ? palette.mutedText : palette.disabledText,
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _PostInstallActionButton(
+            label: '启用后台服务',
+            icon: Icons.admin_panel_settings_outlined,
+            busy: _startingService,
+            enabled: widget.enabled,
+            onPressed: _startBackgroundService,
+          ),
+          const SizedBox(height: 8),
+          _PostInstallActionButton(
+            label: '修复防火墙规则',
+            icon: Icons.security_update_good_outlined,
+            busy: _repairingFirewall,
+            enabled: widget.enabled,
+            onPressed: _repairFirewall,
+          ),
+          const SizedBox(height: 8),
+          _PostInstallActionButton(
+            label: '浏览器远控入口',
+            icon: Icons.link_rounded,
+            busy: _registeringBrowserProtocol,
+            enabled: widget.enabled,
+            onPressed: _registerBrowserRemoteProtocol,
+          ),
+          const SizedBox(height: 8),
+          _PostInstallActionButton(
+            label: '应用推荐被控权限',
+            icon: Icons.verified_user_outlined,
+            busy: _applyingRecommended,
+            enabled: widget.enabled,
+            onPressed: _applyRecommendedPermissions,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PostInstallActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool busy;
+  final bool enabled;
+  final Future<void> Function() onPressed;
+
+  const _PostInstallActionButton({
+    required this.label,
+    required this.icon,
+    required this.busy,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canTap = enabled && !busy;
+    return OutlinedButton.icon(
+      onPressed: canTap ? onPressed : null,
+      icon: busy
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon, size: 18),
+      label: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(label),
+      ),
+    );
+  }
 }
 
 // ignore: non_constant_identifier_names

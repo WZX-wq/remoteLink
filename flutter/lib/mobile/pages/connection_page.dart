@@ -16,7 +16,6 @@ import '../../common/widgets/autocomplete.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'page_shape.dart';
-import 'scan_page.dart';
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget implements PageShape {
@@ -229,29 +228,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         height: 1.1,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Container(
-                          width: 34,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: q.online,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Container(
-                          width: 18,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: q.primary.withOpacity(0.35),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Text(
                       translate(
                           'Enter device ID to connect or transfer files.'),
@@ -265,18 +242,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              _HeaderIconButton(
-                icon: Icons.qr_code_scanner_rounded,
-                tooltip: translate('Scan'),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (BuildContext context) => ScanPage()),
-                  );
-                },
               ),
             ],
           ),
@@ -358,7 +323,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           child: FilledButton(
             onPressed: onConnect,
             style: FilledButton.styleFrom(
-              backgroundColor: q.online,
+              backgroundColor: q.primary,
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
@@ -396,8 +361,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
             icon: const Icon(Icons.folder_copy_outlined),
             label: Text(translate('Transfer file')),
             style: OutlinedButton.styleFrom(
-              foregroundColor: q.online,
-              side: BorderSide(color: q.online.withOpacity(0.42)),
+              foregroundColor: q.primary,
+              backgroundColor: q.primary.withOpacity(q.isDark ? 0.1 : 0.06),
+              side: BorderSide(color: q.primary.withOpacity(0.36)),
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -689,7 +655,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
 }
 
 String _kqMobileText(String key) {
-  if (!localeName.toString().toLowerCase().startsWith('zh')) {
+  if (!kqUiPrefersChinese()) {
     return translate(key);
   }
   switch (key) {
@@ -703,47 +669,5 @@ String _kqMobileText(String key) {
       return '未允许远程访问';
     default:
       return translate(key);
-  }
-}
-
-class _HeaderIconButton extends StatelessWidget {
-  const _HeaderIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Tooltip(
-        message: tooltip,
-        child: Container(
-          width: 48,
-          height: 48,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: q.panelStrong.withOpacity(q.isDark ? 0.66 : 0.92),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: q.line),
-            boxShadow: [
-              BoxShadow(
-                color: q.shadow.withOpacity(q.isDark ? 0.3 : 0.65),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Icon(icon, color: q.primary, size: 24),
-        ),
-      ),
-    );
   }
 }

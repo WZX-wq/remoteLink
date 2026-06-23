@@ -16,6 +16,28 @@ KQ_API_PUBLIC_PATH="${KQ_API_PUBLIC_PATH%/}"
 KQ_PUBLIC_API_URL="${KQ_PUBLIC_API_URL:-http://${PUBLIC_HOST}${KQ_API_PUBLIC_PATH}/api}"
 COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
 KQ_ENABLE_LOCAL_DB="${KQ_ENABLE_LOCAL_DB:-N}"
+KQ_WECHAT_PAY_ENV_NAMES=(
+  KQ_WECHAT_PAY_APPID
+  KQ_WECHAT_PAY_MCHID
+  KQ_WECHAT_PAY_MERCHANT_SERIAL_NO
+  KQ_WECHAT_PAY_PRIVATE_KEY
+  KQ_WECHAT_PAY_PRIVATE_KEY_PATH
+  KQ_WECHAT_PAY_API_V3_KEY
+  KQ_WECHAT_PAY_NOTIFY_URL
+  KQ_WECHAT_PAY_API_BASE_URL
+)
+KQ_WECHAT_PAY_ENV_PATTERN='^(KQ_WECHAT_PAY_APPID|KQ_WECHAT_PAY_MCHID|KQ_WECHAT_PAY_MERCHANT_SERIAL_NO|KQ_WECHAT_PAY_PRIVATE_KEY|KQ_WECHAT_PAY_PRIVATE_KEY_PATH|KQ_WECHAT_PAY_API_V3_KEY|KQ_WECHAT_PAY_NOTIFY_URL|KQ_WECHAT_PAY_API_BASE_URL)='
+KQ_ALIPAY_ENV_NAMES=(
+  KQ_ALIPAY_APP_ID
+  KQ_ALIPAY_APPID
+  KQ_ALIPAY_PRIVATE_KEY
+  KQ_ALIPAY_PRIVATE_KEY_PATH
+  KQ_ALIPAY_PUBLIC_KEY
+  KQ_ALIPAY_PUBLIC_KEY_PATH
+  KQ_ALIPAY_NOTIFY_URL
+  KQ_ALIPAY_GATEWAY_URL
+)
+KQ_ALIPAY_ENV_PATTERN='^(KQ_ALIPAY_APP_ID|KQ_ALIPAY_APPID|KQ_ALIPAY_PRIVATE_KEY|KQ_ALIPAY_PRIVATE_KEY_PATH|KQ_ALIPAY_PUBLIC_KEY|KQ_ALIPAY_PUBLIC_KEY_PATH|KQ_ALIPAY_NOTIFY_URL|KQ_ALIPAY_GATEWAY_URL)='
 
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
@@ -54,7 +76,12 @@ compose() {
     KQ_ANDROID_DOWNLOAD_FILE_NAME KQ_ANDROID_DOWNLOAD_VERSION KQ_ANDROID_DOWNLOAD_SHA256 \
     KQ_DOWNLOAD_MAX_REQUESTS_PER_WINDOW KQ_DOWNLOAD_RATE_WINDOW_MS \
     KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT KQ_APP_SCHEME \
-    KQ_DB_HOST KQ_DB_PORT KQ_DB_USER KQ_DB_PASSWORD KQ_DB_ROOT_PASSWORD KQ_DB_NAME KQ_DB_CREATE_DATABASE; do
+    KQ_DB_HOST KQ_DB_PORT KQ_DB_USER KQ_DB_PASSWORD KQ_DB_ROOT_PASSWORD KQ_DB_NAME KQ_DB_CREATE_DATABASE \
+    KQ_WECHAT_PAY_APPID KQ_WECHAT_PAY_MCHID KQ_WECHAT_PAY_MERCHANT_SERIAL_NO \
+    KQ_WECHAT_PAY_PRIVATE_KEY KQ_WECHAT_PAY_PRIVATE_KEY_PATH KQ_WECHAT_PAY_API_V3_KEY \
+    KQ_WECHAT_PAY_NOTIFY_URL KQ_WECHAT_PAY_API_BASE_URL \
+    KQ_ALIPAY_APP_ID KQ_ALIPAY_APPID KQ_ALIPAY_PRIVATE_KEY KQ_ALIPAY_PRIVATE_KEY_PATH \
+    KQ_ALIPAY_PUBLIC_KEY KQ_ALIPAY_PUBLIC_KEY_PATH KQ_ALIPAY_NOTIFY_URL KQ_ALIPAY_GATEWAY_URL; do
     if [[ -n "${!name:-}" ]]; then
       env_args+=("${name}=${!name}")
     fi
@@ -160,6 +187,80 @@ env_file_has_required_db_config() {
   done
 }
 
+print_optional_wechat_pay_env() {
+  local name value
+  for name in "${KQ_WECHAT_PAY_ENV_NAMES[@]}"; do
+    if [[ -n "${!name:-}" ]]; then
+      value="${!name}"
+      if [[ "${name}" == "KQ_WECHAT_PAY_PRIVATE_KEY" ]]; then
+        value="${value//$'\r'/}"
+        value="${value//$'\n'/\\n}"
+      fi
+      printf '%s=%s\n' "${name}" "${value}"
+    fi
+  done
+}
+
+merge_optional_wechat_pay_env() {
+  local env_file="$1"
+  local has_wechat_env="N"
+  local name
+  for name in "${KQ_WECHAT_PAY_ENV_NAMES[@]}"; do
+    if [[ -n "${!name:-}" ]]; then
+      has_wechat_env="Y"
+      break
+    fi
+  done
+  [[ "${has_wechat_env}" == "Y" ]] || return 0
+
+  local tmp_env
+  tmp_env="$(mktemp)"
+  if [[ -s "${env_file}" ]]; then
+    "${SUDO[@]}" awk -v pat="${KQ_WECHAT_PAY_ENV_PATTERN}" '$0 !~ pat' "${env_file}" > "${tmp_env}" || true
+  fi
+  print_optional_wechat_pay_env >> "${tmp_env}"
+  "${SUDO[@]}" cp "${tmp_env}" "${env_file}"
+  "${SUDO[@]}" chmod 600 "${env_file}"
+  rm -f "${tmp_env}"
+}
+
+print_optional_alipay_env() {
+  local name value
+  for name in "${KQ_ALIPAY_ENV_NAMES[@]}"; do
+    if [[ -n "${!name:-}" ]]; then
+      value="${!name}"
+      if [[ "${name}" == "KQ_ALIPAY_PRIVATE_KEY" || "${name}" == "KQ_ALIPAY_PUBLIC_KEY" ]]; then
+        value="${value//$'\r'/}"
+        value="${value//$'\n'/\\n}"
+      fi
+      printf '%s=%s\n' "${name}" "${value}"
+    fi
+  done
+}
+
+merge_optional_alipay_env() {
+  local env_file="$1"
+  local has_alipay_env="N"
+  local name
+  for name in "${KQ_ALIPAY_ENV_NAMES[@]}"; do
+    if [[ -n "${!name:-}" ]]; then
+      has_alipay_env="Y"
+      break
+    fi
+  done
+  [[ "${has_alipay_env}" == "Y" ]] || return 0
+
+  local tmp_env
+  tmp_env="$(mktemp)"
+  if [[ -s "${env_file}" ]]; then
+    "${SUDO[@]}" awk -v pat="${KQ_ALIPAY_ENV_PATTERN}" '$0 !~ pat' "${env_file}" > "${tmp_env}" || true
+  fi
+  print_optional_alipay_env >> "${tmp_env}"
+  "${SUDO[@]}" cp "${tmp_env}" "${env_file}"
+  "${SUDO[@]}" chmod 600 "${env_file}"
+  rm -f "${tmp_env}"
+}
+
 ensure_api_env_key_pair() {
   local should_print="${1:-Y}"
   if [[ -s "${KQ_API_ENV_PRIVATE_KEY}" && -s "${KQ_API_ENV_PUBLIC_KEY}" ]]; then
@@ -248,6 +349,9 @@ write_compose_env() {
   done
   if [[ "${#missing[@]}" -gt 0 ]]; then
     if env_file_has_required_db_config "${env_file}"; then
+      load_compose_env_file
+      merge_optional_wechat_pay_env "${env_file}"
+      merge_optional_alipay_env "${env_file}"
       echo "Using existing server-side KQ API .env with required database keys."
       return 0
     fi
@@ -289,6 +393,8 @@ write_compose_env() {
       fi
       printf 'KQ_SUBSITE_NAME=%s\n' "${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}"
       printf 'KQ_API_WEB_BASE_URL=%s\n' "${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}"
+      print_optional_wechat_pay_env
+      print_optional_alipay_env
     } | "${SUDO[@]}" tee "${env_file}" >/dev/null
     "${SUDO[@]}" chmod 600 "${env_file}"
   fi

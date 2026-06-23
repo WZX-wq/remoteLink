@@ -36,6 +36,16 @@ class KqFirewallRepairResult {
   final String message;
 }
 
+class KqBrowserProtocolRegistrationResult {
+  const KqBrowserProtocolRegistrationResult({
+    required this.success,
+    required this.message,
+  });
+
+  final bool success;
+  final String message;
+}
+
 Future<KqFirewallRepairResult> repairKqFirewallRules() async {
   if (!Platform.isWindows) {
     return const KqFirewallRepairResult(
@@ -63,6 +73,72 @@ Future<KqFirewallRepairResult> repairKqFirewallRules() async {
     return KqFirewallRepairResult(
       success: false,
       message: '修复命令启动失败：$e',
+    );
+  }
+}
+
+Future<KqBrowserProtocolRegistrationResult>
+    registerKqBrowserRemoteProtocols() async {
+  if (!Platform.isWindows) {
+    return const KqBrowserProtocolRegistrationResult(
+      success: false,
+      message: '当前系统不支持注册浏览器远控入口。',
+    );
+  }
+  final exe = Platform.resolvedExecutable;
+  const protocols = {
+    'kqremote': 'HKCU\\Software\\Classes\\kqremote',
+    'rustdesk': 'HKCU\\Software\\Classes\\rustdesk',
+  };
+  try {
+    for (final entry in protocols.entries) {
+      final protocol = entry.key;
+      final root = entry.value;
+      final command = '$root\\shell\\open\\command';
+      final setProtocol = await Process.run('reg', [
+        'add',
+        root,
+        '/f',
+        '/v',
+        'URL Protocol',
+        '/t',
+        'REG_SZ',
+        '/d',
+        '',
+      ]).timeout(const Duration(seconds: 10));
+      if (setProtocol.exitCode != 0) {
+        final output = '${setProtocol.stdout}\n${setProtocol.stderr}'.trim();
+        return KqBrowserProtocolRegistrationResult(
+          success: false,
+          message: output.isEmpty ? '注册 $protocol:// 失败。' : output,
+        );
+      }
+      final setCommand = await Process.run('reg', [
+        'add',
+        command,
+        '/f',
+        '/ve',
+        '/t',
+        'REG_SZ',
+        '/d',
+        '"$exe" "%1"',
+      ]).timeout(const Duration(seconds: 10));
+      if (setCommand.exitCode != 0) {
+        final output = '${setCommand.stdout}\n${setCommand.stderr}'.trim();
+        return KqBrowserProtocolRegistrationResult(
+          success: false,
+          message: output.isEmpty ? '写入 $protocol:// 启动命令失败。' : output,
+        );
+      }
+    }
+    return const KqBrowserProtocolRegistrationResult(
+      success: true,
+      message: '浏览器远控入口已启用。',
+    );
+  } catch (e) {
+    return KqBrowserProtocolRegistrationResult(
+      success: false,
+      message: '注册浏览器远控入口失败：$e',
     );
   }
 }

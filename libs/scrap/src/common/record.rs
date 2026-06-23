@@ -20,6 +20,13 @@ use webm::mux::{self, Segment, Track, VideoTrack, Writer};
 
 const MIN_SECS: u64 = 1;
 
+fn kq_recordable_format(format: CodecFormat) -> Option<CodecFormat> {
+    match format {
+        CodecFormat::H265 => None,
+        _ => Some(format),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RecorderContext {
     pub server: bool,
@@ -191,6 +198,13 @@ impl Recorder {
         if format == CodecFormat::Unknown {
             bail!("unsupported frame type");
         }
+        let Some(format) = kq_recordable_format(format) else {
+            log::info!(
+                "KQ skips recording non-playback-friendly codec {}; waiting for H264/VPx stream",
+                format.to_string()
+            );
+            return Ok(());
+        };
         let res = self.check(w, h, format);
         if res.is_err() {
             self.check_failed = true;

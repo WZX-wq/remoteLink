@@ -1548,7 +1548,7 @@ class AndroidPermissionManager {
 
 RadioListTile<T> getRadio<T>(
     Widget title, T toValue, T curValue, ValueChanged<T?>? onChange,
-    {bool? dense}) {
+    {bool? dense, bool toggleable = false}) {
   return RadioListTile<T>(
     visualDensity: VisualDensity.compact,
     controlAffinity: ListTileControlAffinity.trailing,
@@ -1557,6 +1557,7 @@ RadioListTile<T> getRadio<T>(
     groupValue: curValue,
     onChanged: onChange,
     dense: dense,
+    toggleable: toggleable,
   );
 }
 
@@ -1583,7 +1584,65 @@ String translate(String name) {
   if (name.startsWith('Failed to') && name.contains(': ')) {
     return name.split(': ').map((x) => translate(x)).join(': ');
   }
-  return platformFFI.translate(name, localeName);
+  return platformFFI.translate(name, kqTranslateLocale());
+}
+
+final kqMobileLanguageEpoch = 0.obs;
+final _kqMobileLanguageListeners = <VoidCallback>{};
+
+void kqRegisterMobileLanguageListener(VoidCallback listener) {
+  _kqMobileLanguageListeners.add(listener);
+}
+
+void kqUnregisterMobileLanguageListener(VoidCallback listener) {
+  _kqMobileLanguageListeners.remove(listener);
+}
+
+void kqNotifyMobileLanguageChanged() {
+  if (isMobile) {
+    kqMobileLanguageEpoch.value++;
+    for (final listener in _kqMobileLanguageListeners.toList()) {
+      listener();
+    }
+  }
+}
+
+String kqTranslateLocale() {
+  final selectedLang =
+      bind.mainGetLocalOption(key: kCommConfKeyLang).trim().toLowerCase();
+  if (selectedLang.isNotEmpty && selectedLang != defaultOptionLang) {
+    return selectedLang;
+  }
+  return localeName.toString();
+}
+
+bool kqUiPrefersSimplifiedChinese() {
+  final selectedLang =
+      bind.mainGetLocalOption(key: kCommConfKeyLang).trim().toLowerCase();
+  if (selectedLang == 'zh-cn') {
+    return true;
+  }
+  if (selectedLang.isNotEmpty && selectedLang != defaultOptionLang) {
+    return false;
+  }
+  final locale = localeName.toString().toLowerCase();
+  return locale.startsWith('zh') &&
+      !locale.contains('tw') &&
+      !locale.contains('hk') &&
+      !locale.contains('mo') &&
+      !locale.contains('hant');
+}
+
+bool kqUiPrefersChinese() {
+  final selectedLang =
+      bind.mainGetLocalOption(key: kCommConfKeyLang).trim().toLowerCase();
+  if (selectedLang == 'zh-cn' || selectedLang == 'zh-tw') {
+    return true;
+  }
+  if (selectedLang.isNotEmpty && selectedLang != defaultOptionLang) {
+    return false;
+  }
+  return localeName.toString().toLowerCase().startsWith('zh');
 }
 
 // This function must be kept the same as the one in rust and sciter code.
@@ -3288,6 +3347,11 @@ Future<bool> callMainCheckSuperUserPermission() async {
 }
 
 Future<void> start_service(bool is_start) async {
+  if (isWindows && is_start) {
+    await bind.mainStartService();
+    await mainSetBoolOption(kOptionStopService, false);
+    return;
+  }
   bool checked = !bind.mainIsInstalled() ||
       !isMacOS ||
       await callMainCheckSuperUserPermission();

@@ -2119,6 +2119,15 @@ pub fn main_start_service() {
         config::Config::set_option("stop-service".into(), "".into());
         crate::rendezvous_mediator::RendezvousMediator::restart();
     }
+    #[cfg(target_os = "windows")]
+    {
+        config::Config::set_option("stop-service".into(), "".into());
+        match crate::platform::elevate("--install-service --no-launch") {
+            Ok(true) => log::info!("Windows service install request was sent"),
+            Ok(false) => log::warn!("Windows service install request was not accepted"),
+            Err(err) => log::error!("Failed to request Windows service install: {err}"),
+        }
+    }
 }
 
 pub fn main_update_temporary_password() {
@@ -2238,7 +2247,7 @@ pub fn main_get_build_date() -> String {
 }
 
 pub fn translate(name: String, locale: String) -> SyncReturn<String> {
-    SyncReturn(crate::client::translate_locale(name, &locale))
+    SyncReturn(crate::client::translate_explicit_locale(name, &locale))
 }
 
 pub fn session_get_rgba_size(session_id: SessionID, display: usize) -> SyncReturn<usize> {
@@ -3117,7 +3126,7 @@ pub mod server_side {
         {
             let input: String = input.into();
             let locale: String = locale.into();
-            crate::client::translate_locale(input, &locale)
+            crate::client::translate_explicit_locale(input, &locale)
         } else {
             "".into()
         };

@@ -7,7 +7,6 @@
 
 #include <cstdlib> // for getenv and _putenv
 #include <cstring> // for strcmp
-#include <string> // for std::wstring
 
 namespace {
 
@@ -16,83 +15,7 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
 
-// Static variables to hold custom icons loaded from Flutter assets.
-// They must stay alive for the registered window class and HWND icon messages.
-static HICON g_custom_icon_large_ = nullptr;
-static HICON g_custom_icon_small_ = nullptr;
-
-bool IsRegularIconFile(const std::wstring& icon_path) {
-  DWORD file_attr = GetFileAttributesW(icon_path.c_str());
-  return file_attr != INVALID_FILE_ATTRIBUTES &&
-         (file_attr & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
-         (file_attr & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
-}
-
-std::wstring FindVersionedIconPath(const std::wstring& assets_dir) {
-  WIN32_FIND_DATAW find_data{};
-  std::wstring search_pattern = assets_dir + L"kq-icon-*.ico";
-  HANDLE find_handle = FindFirstFileW(search_pattern.c_str(), &find_data);
-  if (find_handle == INVALID_HANDLE_VALUE) {
-    return L"";
-  }
-
-  std::wstring best_name;
-  do {
-    if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
-        (find_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
-      continue;
-    }
-    std::wstring name = find_data.cFileName;
-    if (best_name.empty() || name > best_name) {
-      best_name = name;
-    }
-  } while (FindNextFileW(find_handle, &find_data));
-
-  FindClose(find_handle);
-  return best_name.empty() ? L"" : assets_dir + best_name;
-}
-
-// Try to load versioned icon from Flutter assets before the stable fallback.
-// Returns nullptr if the file doesn't exist or can't be loaded.
-HICON LoadCustomIcon(int width, int height, HICON* cache) {
-  if (*cache != nullptr) {
-    return *cache;
-  }
-  wchar_t exe_path[MAX_PATH];
-  if (!GetModuleFileNameW(nullptr, exe_path, MAX_PATH)) {
-    return nullptr;
-  }
-
-  std::wstring icon_path = exe_path;
-  size_t last_slash = icon_path.find_last_of(L"\\/");
-  if (last_slash == std::wstring::npos) {
-    return nullptr;
-  }
-
-  std::wstring assets_dir = icon_path.substr(0, last_slash + 1);
-  assets_dir += L"data\\flutter_assets\\assets\\";
-
-  icon_path = FindVersionedIconPath(assets_dir);
-  if (icon_path.empty()) {
-    icon_path = assets_dir + L"icon.ico";
-  }
-
-  if (!IsRegularIconFile(icon_path)) {
-    return nullptr;
-  }
-
-  *cache = (HICON)LoadImageW(
-      nullptr, icon_path.c_str(), IMAGE_ICON, width, height,
-      LR_LOADFROMFILE);
-  return *cache;
-}
-
-HICON LoadAppIcon(int width, int height, HICON* custom_cache) {
-  HICON custom_icon = LoadCustomIcon(width, height, custom_cache);
-  if (custom_icon != nullptr) {
-    return custom_icon;
-  }
-
+HICON LoadAppIcon(int width, int height) {
   return (HICON)LoadImageW(
       GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
       width, height, LR_SHARED);
@@ -166,12 +89,10 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     window_class.cbWndExtra = 0;
     window_class.hInstance = GetModuleHandle(nullptr);
     
-    window_class.hIcon = LoadAppIcon(
-        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
-        &g_custom_icon_large_);
+    window_class.hIcon =
+        LoadAppIcon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
     window_class.hIconSm = LoadAppIcon(
-        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
-        &g_custom_icon_small_);
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
     
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = nullptr;
@@ -185,16 +106,6 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
 void WindowClassRegistrar::UnregisterWindowClass() {
   UnregisterClass(kWindowClassName, nullptr);
   class_registered_ = false;
-  
-  // Clean up custom icons if they were loaded from file.
-  if (g_custom_icon_large_ != nullptr) {
-    DestroyIcon(g_custom_icon_large_);
-    g_custom_icon_large_ = nullptr;
-  }
-  if (g_custom_icon_small_ != nullptr) {
-    DestroyIcon(g_custom_icon_small_);
-    g_custom_icon_small_ = nullptr;
-  }
 }
 
 Win32Window::Win32Window() {
@@ -232,16 +143,15 @@ bool Win32Window::CreateAndShow(const std::wstring& title,
 
   SendMessage(window, WM_SETICON, ICON_BIG,
               reinterpret_cast<LPARAM>(LoadAppIcon(
-                  GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
-                  &g_custom_icon_large_)));
+                  GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON))));
   SendMessage(window, WM_SETICON, ICON_SMALL,
               reinterpret_cast<LPARAM>(LoadAppIcon(
-                  GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
-                  &g_custom_icon_small_)));
+                  GetSystemMetrics(SM_CXSMICON),
+                  GetSystemMetrics(SM_CYSMICON))));
   SendMessage(window, WM_SETICON, ICON_SMALL2,
               reinterpret_cast<LPARAM>(LoadAppIcon(
-                  GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
-                  &g_custom_icon_small_)));
+                  GetSystemMetrics(SM_CXSMICON),
+                  GetSystemMetrics(SM_CYSMICON))));
 
   if (!showOnTaskBar) {
     // hide from taskbar

@@ -30,6 +30,16 @@ enum KqPasswordKind {
   permanent,
 }
 
+KqPasswordKind? _parseSelectedPasswordKind(String value) {
+  final normalized = value.trim();
+  for (final kind in KqPasswordKind.values) {
+    if (kind.name == normalized) {
+      return kind;
+    }
+  }
+  return null;
+}
+
 const kKqTemporaryPasswordControlKey = "temporary-password";
 
 class ServerModel with ChangeNotifier {
@@ -180,6 +190,8 @@ class ServerModel with ChangeNotifier {
       return;
     }
     _selectedPasswordKind = kind;
+    unawaited(bind.mainSetLocalOption(
+        key: kOptionKqSelectedPasswordKind, value: kind.name));
     notifyListeners();
   }
 
@@ -347,6 +359,10 @@ class ServerModel with ChangeNotifier {
   ServerModel(this.parent) {
     _emptyIdShow = translate("Generating ...");
     _serverId = IDTextEditingController(text: _emptyIdShow);
+    _selectedPasswordKind = _parseSelectedPasswordKind(
+          bind.mainGetLocalOption(key: kOptionKqSelectedPasswordKind),
+        ) ??
+        KqPasswordKind.oneTime;
 
     /*
     // initital _hideCm at startup
@@ -1196,8 +1212,13 @@ String getLoginDialogTag(int id) {
 
 showInputWarnAlert(FFI ffi) {
   ffi.dialogManager.show((setState, close, context) {
-    submit() {
+    openAccessibilitySettings() {
       AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+      close();
+    }
+
+    openAppSettings() {
+      AndroidPermissionManager.startAction(kActionApplicationDetailsSettings);
       close();
     }
 
@@ -1208,14 +1229,18 @@ showInputWarnAlert(FFI ffi) {
         children: [
           Text(translate("android_input_permission_tip1")),
           const SizedBox(height: 10),
+          Text(translate("android_input_restricted_settings_tip")),
+          const SizedBox(height: 10),
           Text(translate("android_input_permission_tip2")),
         ],
       ),
       actions: [
         dialogButton("Cancel", onPressed: close, isOutline: true),
-        dialogButton("Open System Setting", onPressed: submit),
+        dialogButton("App settings", onPressed: openAppSettings),
+        dialogButton("Open System Setting",
+            onPressed: openAccessibilitySettings),
       ],
-      onSubmit: submit,
+      onSubmit: openAccessibilitySettings,
       onCancel: close,
     );
   });

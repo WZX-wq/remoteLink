@@ -207,7 +207,7 @@ class _ServerPageState extends State<ServerPage> {
                   controller: gFFI.serverModel.controller,
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 104),
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
                   children: [
                     buildPresetPasswordWarningMobile(),
                     gFFI.serverModel.isStart
@@ -550,8 +550,6 @@ class ServerInfo extends StatelessWidget {
       );
     }
 
-    final showOneTime = serverModel.approveMode != 'click' &&
-        serverModel.verificationMethod != kUsePermanentPassword;
     return PaddingCard(
         child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -607,25 +605,353 @@ class ServerInfo extends StatelessWidget {
           onCopy: () => copyToClipboard(model.serverId.value.text.trim()),
         ),
         const SizedBox(height: 10),
-        _DeviceSecretTile(
-          label: translate('One-time Password'),
-          value: !showOneTime ? '-' : model.serverPasswd.value.text,
-          icon: Icons.lock_outline_rounded,
-          onCopy: !showOneTime
+        _DevicePasswordTile(
+          serverModel: serverModel,
+          onCopy: serverModel.selectedPasswordCanCopy
+              ? () => copyToClipboard(serverModel.selectedPasswordText.trim())
+              : null,
+          onRefresh: serverModel.selectedPasswordCanRefresh
+              ? () => serverModel.refreshSelectedPassword()
+              : null,
+          onEdit: bind.isDisableSettings()
               ? null
-              : () => copyToClipboard(model.serverPasswd.value.text.trim()),
-          trailing: !showOneTime
-              ? null
-              : IconButton(
-                  tooltip: translate('Refresh Password'),
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.refresh_rounded, color: q.primary),
-                  onPressed: () => bind.mainUpdateTemporaryPassword(),
-                ),
+              : () => _showMobileKqPasswordDialog(serverModel),
         ),
       ],
     ));
   }
+}
+
+class _DevicePasswordTile extends StatelessWidget {
+  const _DevicePasswordTile({
+    required this.serverModel,
+    required this.onCopy,
+    required this.onRefresh,
+    required this.onEdit,
+  });
+
+  final ServerModel serverModel;
+  final VoidCallback? onCopy;
+  final VoidCallback? onRefresh;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+
+    Widget actionButton({
+      required IconData icon,
+      required String tooltip,
+      required VoidCallback? onPressed,
+    }) {
+      return IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, color: onPressed == null ? q.muted : q.primary),
+        onPressed: onPressed,
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 11, 8, 11),
+      decoration: BoxDecoration(
+        color: q.surfaceSoft.withOpacity(q.isDark ? 0.62 : 0.86),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: q.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Icon(Icons.lock_outline_rounded, color: q.primary, size: 20),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: PopupMenuButton<KqPasswordKind>(
+                  tooltip: '选择验证码类型',
+                  initialValue: serverModel.selectedPasswordKind,
+                  onSelected: serverModel.setSelectedPasswordKind,
+                  color: q.panelStrong,
+                  elevation: 8,
+                  shadowColor: q.primary.withOpacity(0.16),
+                  offset: const Offset(0, 4),
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(color: q.line),
+                  ),
+                  itemBuilder: (context) => KqPasswordKind.values
+                      .map(
+                        (kind) => PopupMenuItem<KqPasswordKind>(
+                          value: kind,
+                          height: 42,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _mobileKqPasswordKindLabel(kind),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: q.ink,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (kind == serverModel.selectedPasswordKind)
+                                Icon(Icons.check_rounded,
+                                    color: q.primary, size: 18),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          serverModel.selectedPasswordLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: q.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 17, color: q.muted),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              AnimatedBuilder(
+                animation: serverModel.selectedPasswordController,
+                builder: (context, _) => Text(
+                  serverModel.selectedPasswordText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    height: 1.05,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actionButton(
+          tooltip: translate('Refresh Password'),
+          icon: Icons.refresh_rounded,
+          onPressed: onRefresh,
+        ),
+        if (onEdit != null)
+          actionButton(
+            tooltip: translate('Change Password'),
+            icon: Icons.edit_rounded,
+            onPressed: onEdit,
+          ),
+        actionButton(
+          tooltip: translate('Copy'),
+          icon: Icons.copy_outlined,
+          onPressed: onCopy,
+        ),
+      ]),
+    );
+  }
+}
+
+String _mobileKqPasswordKindLabel(KqPasswordKind kind) {
+  switch (kind) {
+    case KqPasswordKind.oneTime:
+      return '一次性验证码';
+    case KqPasswordKind.daily:
+      return '今日验证码';
+    case KqPasswordKind.permanent:
+      return '长期验证码';
+  }
+}
+
+void _showMobileKqPasswordDialog(ServerModel model) {
+  final editingKind = model.selectedPasswordKind;
+  final title = _mobileKqPasswordKindLabel(editingKind);
+  final controller = TextEditingController(
+    text: model.selectedPasswordCanCopy ? model.selectedPasswordText : '',
+  );
+  final confirmController = TextEditingController(text: '');
+  final maxLength = bind.mainMaxEncryptLen();
+  var errMsg = '';
+  var confirmErrMsg = '';
+  var submitting = false;
+
+  gFFI.dialogManager.show((setState, close, context) {
+    final q = KqTheme.of(context);
+    final isPermanent = editingKind == KqPasswordKind.permanent;
+    final canRemovePermanent =
+        isPermanent && model.localPermanentPasswordSet && !submitting;
+
+    submit() async {
+      if (submitting) {
+        return;
+      }
+      setState(() {
+        errMsg = '';
+        confirmErrMsg = '';
+        submitting = true;
+      });
+      final value = controller.text.trim();
+      if (value.isEmpty) {
+        setState(() {
+          errMsg = '验证码不能为空';
+          submitting = false;
+        });
+        return;
+      }
+      if (isPermanent && confirmController.text.trim() != value) {
+        setState(() {
+          confirmErrMsg = translate("The confirmation is not identical.");
+          submitting = false;
+        });
+        return;
+      }
+      var ok = true;
+      if (editingKind == KqPasswordKind.oneTime) {
+        await model.setOneTimePassword(value);
+      } else if (editingKind == KqPasswordKind.daily) {
+        await model.setDailyPassword(value);
+      } else {
+        ok = await model.setPermanentPasswordPreview(value);
+      }
+      if (!ok) {
+        setState(() {
+          errMsg = translate("Failed");
+          submitting = false;
+        });
+        return;
+      }
+      showToast('已更新$title');
+      close();
+    }
+
+    removePermanent() async {
+      if (submitting) {
+        return;
+      }
+      setState(() {
+        errMsg = '';
+        confirmErrMsg = '';
+        submitting = true;
+      });
+      final ok = await model.removePermanentPassword();
+      if (!ok) {
+        setState(() {
+          errMsg = translate("Failed");
+          submitting = false;
+        });
+        return;
+      }
+      showToast('已移除$title');
+      close();
+    }
+
+    return CustomAlertDialog(
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.key_rounded, color: q.primary),
+          Text('修改$title').paddingOnly(left: 10),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: false,
+              decoration: InputDecoration(
+                labelText: title,
+                errorText: errMsg.isEmpty ? null : errMsg,
+              ),
+              enabled: !submitting,
+              maxLength: maxLength,
+              onChanged: (_) {
+                if (errMsg.isNotEmpty) {
+                  setState(() => errMsg = '');
+                }
+              },
+            ).workaroundFreezeLinuxMint(),
+            if (isPermanent) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: confirmController,
+                obscureText: false,
+                decoration: InputDecoration(
+                  labelText: translate('Confirmation'),
+                  errorText: confirmErrMsg.isEmpty ? null : confirmErrMsg,
+                ),
+                enabled: !submitting,
+                maxLength: maxLength,
+                onChanged: (_) {
+                  if (confirmErrMsg.isNotEmpty) {
+                    setState(() => confirmErrMsg = '');
+                  }
+                },
+              ).workaroundFreezeLinuxMint(),
+              const SizedBox(height: 4),
+              Text(
+                '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                style: TextStyle(
+                  color: q.muted,
+                  fontSize: 12,
+                  height: 1.25,
+                ),
+              ),
+            ],
+            if (submitting) const LinearProgressIndicator().marginOnly(top: 12),
+          ],
+        ),
+      ),
+      actions: [
+        dialogButton("Cancel", onPressed: close, isOutline: true),
+        if (canRemovePermanent)
+          dialogButton(
+            "Remove",
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: removePermanent,
+            isOutline: true,
+          ),
+        dialogButton(
+          "OK",
+          icon: const Icon(Icons.done_rounded),
+          onPressed: submitting ? null : submit,
+        ),
+      ],
+      onSubmit: submitting ? null : submit,
+      onCancel: close,
+    );
+  });
 }
 
 class _DeviceSecretTile extends StatelessWidget {
@@ -634,14 +960,12 @@ class _DeviceSecretTile extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.onCopy,
-    this.trailing,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final VoidCallback? onCopy;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -692,7 +1016,6 @@ class _DeviceSecretTile extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing != null) trailing!,
         IconButton(
           tooltip: translate('Copy'),
           visualDensity: VisualDensity.compact,

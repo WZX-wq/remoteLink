@@ -93,7 +93,8 @@ handleOsPasswordAction(
   }
 }
 
-List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
+List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
+    {bool includeFingerprint = true}) {
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
   final perms = ffiModel.permissions;
@@ -347,7 +348,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     }
   }
   // fingerprint
-  if (!(isDesktop || isWebDesktop)) {
+  if (includeFingerprint && !(isDesktop || isWebDesktop)) {
     v.add(TTextMenu(
       child: Text(translate('Copy Fingerprint')),
       onPressed: () => onCopyFingerprint(FingerprintState.find(id).value),

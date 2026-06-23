@@ -29,6 +29,64 @@ const kOpSvgList = [
 bool _isKqOauthCancellation(Object err) =>
     err is KqOauthException && err.message == 'Authorization canceled.';
 
+String _kqLoginText(String key) {
+  if (kqUiPrefersChinese()) return _kqLoginZh[key] ?? translate(key);
+  return translate(key);
+}
+
+const _kqLoginZh = {
+  'Back': '返回',
+  'Login': '登录',
+  'Show': '显示',
+  'Hide': '隐藏',
+  'Company website': '公司官网',
+  'Log in to Kunqiong Remote Desktop': '登录鲲穹远程桌面',
+  'Use your Kunqiong account to sync devices, favorites, and membership benefits.':
+      '使用鲲穹账号同步设备、收藏和会员权益。',
+  'Password login': '密码登录',
+  'SMS login': '验证码登录',
+  'Account': '账号',
+  'Username / phone / email': '请输入账号 / 手机号 / 邮箱',
+  'Password': '密码',
+  'Enter your password': '请输入密码',
+  'Phone number': '手机号',
+  'Enter phone number': '请输入手机号',
+  'SMS code': '验证码',
+  'Enter SMS code': '请输入验证码',
+  'Get code': '获取验证码',
+  'Login is completed securely inside the app.': '登录过程在应用内安全完成。',
+  'Please enter a valid phone number': '请输入正确的手机号',
+  'Please enter the SMS code': '请输入验证码',
+  'SMS code sent': '验证码已发送',
+  'Username missed': '请输入账号',
+  'Password missed': '请输入密码',
+  'Kunqiong login failed': '登录失败，请稍后重试',
+  'Register account': '注册账号',
+  'Forgot password': '忘记密码',
+  'No account yet?': '还没有账号？',
+  'Create account': '创建账号',
+  'Reset password': '重置密码',
+  'Create a Kunqiong account': '注册鲲穹账号',
+  'Use your phone number to create an account in the app.': '使用手机号在应用内完成注册。',
+  'Reset your password': '找回密码',
+  'Verify your phone number and set a new password.': '验证手机号后设置新密码。',
+  'Username': '用户名',
+  'Enter username': '请输入用户名',
+  'Confirm password': '确认密码',
+  'Enter password again': '请再次输入密码',
+  'Please enter a username': '请输入用户名',
+  'Username must be at least 4 characters': '用户名至少 4 个字符',
+  'Password must be at least 6 characters': '密码至少 6 位',
+  'Passwords do not match': '两次输入的密码不一致',
+  'Registration completed': '注册成功',
+  'Password reset completed': '密码重置成功',
+};
+
+enum _KqAccountFlow {
+  register,
+  resetPassword,
+}
+
 Future<void> _launchLoginUrl(Uri url) async {
   await launchUrl(
     url,
@@ -574,21 +632,21 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
 
     if (_useSms) {
       if (!_isValidPhone(phone)) {
-        setState(
-            () => _errorText = translate('Please enter a valid phone number'));
+        setState(() =>
+            _errorText = _kqLoginText('Please enter a valid phone number'));
         return;
       }
       if (code.isEmpty) {
-        setState(() => _errorText = translate('Please enter the SMS code'));
+        setState(() => _errorText = _kqLoginText('Please enter the SMS code'));
         return;
       }
     } else {
       if (account.isEmpty) {
-        setState(() => _errorText = translate('Username missed'));
+        setState(() => _errorText = _kqLoginText('Username missed'));
         return;
       }
       if (password.isEmpty) {
-        setState(() => _errorText = translate('Password missed'));
+        setState(() => _errorText = _kqLoginText('Password missed'));
         return;
       }
     }
@@ -620,7 +678,7 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
     final phone = _phoneController.text.trim();
     if (!_isValidPhone(phone)) {
       setState(
-          () => _errorText = translate('Please enter a valid phone number'));
+          () => _errorText = _kqLoginText('Please enter a valid phone number'));
       return;
     }
 
@@ -632,7 +690,7 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
     try {
       await KqOauth.sendSmsCode(phone: phone);
       if (!mounted) return;
-      showToast(translate('SMS code sent'));
+      showToast(_kqLoginText('SMS code sent'));
       _startSmsCountdown();
     } catch (err) {
       if (!mounted) return;
@@ -678,7 +736,9 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
       text = err.message;
     }
     text = text.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
-    return text.isEmpty ? translate('Kunqiong login failed') : translate(text);
+    return text.isEmpty
+        ? _kqLoginText('Kunqiong login failed')
+        : _kqLoginText(text);
   }
 
   void _switchMode(bool sms) {
@@ -691,6 +751,16 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
       if (!mounted) return;
       (_useSms ? _phoneFocusNode : _accountFocusNode).requestFocus();
     });
+  }
+
+  Future<void> _openAccountFlow(_KqAccountFlow flow) async {
+    if (_isSubmitting || _isSendingSms) return;
+    FocusScope.of(context).unfocus();
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => _KqAccountFlowPage(flow: flow)),
+    );
+    if (!mounted || ok != true) return;
+    Navigator.of(context).pop(true);
   }
 
   @override
@@ -740,6 +810,9 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
                   onSendSms: _sendSmsCode,
                   onTogglePassword: () =>
                       setState(() => _passwordVisible = !_passwordVisible),
+                  onRegister: () => _openAccountFlow(_KqAccountFlow.register),
+                  onForgotPassword: () =>
+                      _openAccountFlow(_KqAccountFlow.resetPassword),
                 ),
               ],
             ),
@@ -760,7 +833,7 @@ class _KqNativeLoginTopBar extends StatelessWidget {
     return Row(
       children: [
         IconButton(
-          tooltip: translate('Back'),
+          tooltip: _kqLoginText('Back'),
           onPressed: () => Navigator.of(context).pop(false),
           icon: const Icon(Icons.arrow_back_rounded),
           color: q.ink,
@@ -776,7 +849,7 @@ class _KqNativeLoginTopBar extends StatelessWidget {
         TextButton(
           onPressed: () => launchUrl(Uri.parse('https://kunqiongai.com/')),
           style: TextButton.styleFrom(foregroundColor: q.primary),
-          child: Text(translate('Company website')),
+          child: Text(_kqLoginText('Company website')),
         ),
       ],
     );
@@ -813,7 +886,7 @@ class _KqNativeLoginHero extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         Text(
-          translate('Log in to Kunqiong Remote Desktop'),
+          _kqLoginText('Log in to Kunqiong Remote Desktop'),
           style: TextStyle(
             color: q.ink,
             fontSize: 28,
@@ -823,7 +896,7 @@ class _KqNativeLoginHero extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          translate(
+          _kqLoginText(
               'Use your Kunqiong account to sync devices, favorites, and membership benefits.'),
           style: TextStyle(
             color: q.muted,
@@ -856,6 +929,8 @@ class _KqNativeLoginPanel extends StatelessWidget {
   final Future<void> Function() onSubmit;
   final Future<void> Function() onSendSms;
   final VoidCallback onTogglePassword;
+  final VoidCallback onRegister;
+  final VoidCallback onForgotPassword;
 
   const _KqNativeLoginPanel({
     required this.q,
@@ -877,6 +952,8 @@ class _KqNativeLoginPanel extends StatelessWidget {
     required this.onSubmit,
     required this.onSendSms,
     required this.onTogglePassword,
+    required this.onRegister,
+    required this.onForgotPassword,
   });
 
   @override
@@ -917,8 +994,8 @@ class _KqNativeLoginPanel extends StatelessWidget {
                         q: q,
                         controller: phoneController,
                         focusNode: phoneFocusNode,
-                        label: translate('Phone number'),
-                        hint: translate('Enter phone number'),
+                        label: _kqLoginText('Phone number'),
+                        hint: _kqLoginText('Enter phone number'),
                         icon: Icons.phone_android_rounded,
                         keyboardType: TextInputType.phone,
                         textInputAction: TextInputAction.next,
@@ -929,8 +1006,8 @@ class _KqNativeLoginPanel extends StatelessWidget {
                         q: q,
                         controller: smsCodeController,
                         focusNode: smsCodeFocusNode,
-                        label: translate('SMS code'),
-                        hint: translate('Enter SMS code'),
+                        label: _kqLoginText('SMS code'),
+                        hint: _kqLoginText('Enter SMS code'),
                         icon: Icons.sms_outlined,
                         keyboardType: TextInputType.number,
                         textInputAction: TextInputAction.done,
@@ -950,7 +1027,7 @@ class _KqNativeLoginPanel extends StatelessWidget {
                               : Text(
                                   smsCountdown > 0
                                       ? '${smsCountdown}s'
-                                      : translate('Get code'),
+                                      : _kqLoginText('Get code'),
                                 ),
                         ),
                       ),
@@ -963,8 +1040,8 @@ class _KqNativeLoginPanel extends StatelessWidget {
                         q: q,
                         controller: accountController,
                         focusNode: accountFocusNode,
-                        label: translate('Account'),
-                        hint: translate('Username / phone / email'),
+                        label: _kqLoginText('Account'),
+                        hint: _kqLoginText('Username / phone / email'),
                         icon: Icons.person_outline_rounded,
                         keyboardType: TextInputType.emailAddress,
                         textInputAction: TextInputAction.next,
@@ -975,14 +1052,15 @@ class _KqNativeLoginPanel extends StatelessWidget {
                         q: q,
                         controller: passwordController,
                         focusNode: passwordFocusNode,
-                        label: translate('Password'),
-                        hint: translate('Enter your password'),
+                        label: _kqLoginText('Password'),
+                        hint: _kqLoginText('Enter your password'),
                         icon: Icons.lock_outline_rounded,
                         obscureText: !passwordVisible,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => onSubmit(),
                         suffix: IconButton(
-                          tooltip: translate(passwordVisible ? 'Hide' : 'Show'),
+                          tooltip:
+                              _kqLoginText(passwordVisible ? 'Hide' : 'Show'),
                           onPressed: onTogglePassword,
                           icon: Icon(
                             passwordVisible
@@ -1051,7 +1129,7 @@ class _KqNativeLoginPanel extends StatelessWidget {
                     ),
                   )
                 : Text(
-                    translate('Login'),
+                    _kqLoginText('Login'),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -1060,9 +1138,29 @@ class _KqNativeLoginPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            translate('Login is completed securely inside the app.'),
+            _kqLoginText('Login is completed securely inside the app.'),
             textAlign: TextAlign.center,
             style: TextStyle(color: q.muted, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: isBusy ? null : onRegister,
+                  style: TextButton.styleFrom(foregroundColor: q.primary),
+                  child: Text(_kqLoginText('Register account')),
+                ),
+              ),
+              Container(width: 1, height: 18, color: q.line),
+              Expanded(
+                child: TextButton(
+                  onPressed: isBusy ? null : onForgotPassword,
+                  style: TextButton.styleFrom(foregroundColor: q.muted),
+                  child: Text(_kqLoginText('Forgot password')),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1096,13 +1194,13 @@ class _KqLoginModeSwitch extends StatelessWidget {
           _KqLoginModeButton(
             q: q,
             selected: !useSms,
-            label: translate('Password login'),
+            label: _kqLoginText('Password login'),
             onTap: () => onSwitchMode(false),
           ),
           _KqLoginModeButton(
             q: q,
             selected: useSms,
-            label: translate('SMS login'),
+            label: _kqLoginText('SMS login'),
             onTap: () => onSwitchMode(true),
           ),
         ],
@@ -1154,6 +1252,473 @@ class _KqLoginModeButton extends StatelessWidget {
               color: selected ? q.primary : q.muted,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
               fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KqAccountFlowPage extends StatefulWidget {
+  final _KqAccountFlow flow;
+
+  const _KqAccountFlowPage({required this.flow});
+
+  @override
+  State<_KqAccountFlowPage> createState() => _KqAccountFlowPageState();
+}
+
+class _KqAccountFlowPageState extends State<_KqAccountFlowPage> {
+  final _usernameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _smsCodeController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  final _usernameFocusNode = FocusNode();
+  final _phoneFocusNode = FocusNode();
+  final _smsCodeFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
+  final _confirmPasswordFocusNode = FocusNode();
+
+  bool _passwordVisible = false;
+  bool _confirmPasswordVisible = false;
+  bool _isSubmitting = false;
+  bool _isSendingSms = false;
+  int _smsCountdown = 0;
+  String? _errorText;
+  Timer? _smsTimer;
+
+  bool get _isRegister => widget.flow == _KqAccountFlow.register;
+
+  String get _title => _isRegister
+      ? _kqLoginText('Create a Kunqiong account')
+      : _kqLoginText('Reset your password');
+
+  String get _subtitle => _isRegister
+      ? _kqLoginText('Use your phone number to create an account in the app.')
+      : _kqLoginText('Verify your phone number and set a new password.');
+
+  String get _submitLabel => _isRegister
+      ? _kqLoginText('Create account')
+      : _kqLoginText('Reset password');
+
+  String get _smsPurpose => _isRegister ? 'register' : 'reset_password';
+
+  @override
+  void initState() {
+    super.initState();
+    Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      (_isRegister ? _usernameFocusNode : _phoneFocusNode).requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _smsTimer?.cancel();
+    _usernameController.dispose();
+    _phoneController.dispose();
+    _smsCodeController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _usernameFocusNode.dispose();
+    _phoneFocusNode.dispose();
+    _smsCodeFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _confirmPasswordFocusNode.dispose();
+    super.dispose();
+  }
+
+  bool _isValidPhone(String value) => RegExp(r'^1[3-9]\d{9}$').hasMatch(value);
+
+  String _formatKqLoginError(Object err) {
+    var text = err.toString();
+    if (err is KqOauthException) {
+      text = err.message;
+    }
+    text = text.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+    return text.isEmpty
+        ? _kqLoginText('Kunqiong login failed')
+        : _kqLoginText(text);
+  }
+
+  bool _validate({required bool forSms}) {
+    final username = _usernameController.text.trim();
+    final phone = _phoneController.text.trim();
+    final code = _smsCodeController.text.trim();
+    final password = _passwordController.text;
+    final confirmPassword = _confirmPasswordController.text;
+
+    if (_isRegister && !forSms) {
+      if (username.isEmpty) {
+        setState(() => _errorText = _kqLoginText('Please enter a username'));
+        return false;
+      }
+      if (username.length < 4) {
+        setState(() => _errorText =
+            _kqLoginText('Username must be at least 4 characters'));
+        return false;
+      }
+    }
+    if (!_isValidPhone(phone)) {
+      setState(
+          () => _errorText = _kqLoginText('Please enter a valid phone number'));
+      return false;
+    }
+    if (forSms) return true;
+    if (code.isEmpty) {
+      setState(() => _errorText = _kqLoginText('Please enter the SMS code'));
+      return false;
+    }
+    if (password.length < 6) {
+      setState(() =>
+          _errorText = _kqLoginText('Password must be at least 6 characters'));
+      return false;
+    }
+    if (password != confirmPassword) {
+      setState(() => _errorText = _kqLoginText('Passwords do not match'));
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _sendSmsCode() async {
+    if (_isSendingSms || _smsCountdown > 0 || !_validate(forSms: true)) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _errorText = null;
+      _isSendingSms = true;
+    });
+    try {
+      await KqOauth.sendSmsCode(
+        phone: _phoneController.text.trim(),
+        purpose: _smsPurpose,
+      );
+      if (!mounted) return;
+      showToast(_kqLoginText('SMS code sent'));
+      _startSmsCountdown();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _errorText = _formatKqLoginError(err));
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingSms = false);
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_isSubmitting || !_validate(forSms: false)) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _errorText = null;
+      _isSubmitting = true;
+    });
+    try {
+      final resp = _isRegister
+          ? await KqOauth.registerWithPhone(
+              username: _usernameController.text.trim(),
+              phone: _phoneController.text.trim(),
+              code: _smsCodeController.text.trim(),
+              password: _passwordController.text,
+            )
+          : await KqOauth.resetPasswordWithPhone(
+              phone: _phoneController.text.trim(),
+              code: _smsCodeController.text.trim(),
+              password: _passwordController.text,
+            );
+      await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
+      await UserModel.updateOtherModels();
+      if (!mounted) return;
+      showToast(_isRegister
+          ? _kqLoginText('Registration completed')
+          : _kqLoginText('Password reset completed'));
+      Navigator.of(context).pop(true);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _errorText = _formatKqLoginError(err));
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  void _startSmsCountdown() {
+    _smsTimer?.cancel();
+    setState(() => _smsCountdown = 60);
+    _smsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_smsCountdown <= 1) {
+        timer.cancel();
+        setState(() => _smsCountdown = 0);
+      } else {
+        setState(() => _smsCountdown--);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final isBusy = _isSubmitting || _isSendingSms;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: q.pageGradient,
+          ),
+        ),
+        child: SafeArea(
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(bottom: bottomInset > 0 ? 8 : 0),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    tooltip: _kqLoginText('Back'),
+                    onPressed: () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    color: q.ink,
+                    style: IconButton.styleFrom(
+                      backgroundColor: q.panel,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: BorderSide(color: q.line),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  width: 72,
+                  height: 72,
+                  padding: const EdgeInsets.all(11),
+                  decoration: BoxDecoration(
+                    color: q.panelStrong,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: q.line),
+                    boxShadow: [
+                      BoxShadow(
+                        color: q.shadow,
+                        blurRadius: 24,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  child: loadIcon(50),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  _title,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    height: 1.12,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _subtitle,
+                  style: TextStyle(color: q.muted, fontSize: 14, height: 1.55),
+                ),
+                const SizedBox(height: 22),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+                  decoration: BoxDecoration(
+                    color: q.panel,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: q.line),
+                    boxShadow: [
+                      BoxShadow(
+                        color: q.shadow,
+                        blurRadius: 28,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_isRegister) ...[
+                        _KqNativeTextField(
+                          q: q,
+                          controller: _usernameController,
+                          focusNode: _usernameFocusNode,
+                          label: _kqLoginText('Username'),
+                          hint: _kqLoginText('Enter username'),
+                          icon: Icons.badge_outlined,
+                          textInputAction: TextInputAction.next,
+                          onSubmitted: (_) => _phoneFocusNode.requestFocus(),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      _KqNativeTextField(
+                        q: q,
+                        controller: _phoneController,
+                        focusNode: _phoneFocusNode,
+                        label: _kqLoginText('Phone number'),
+                        hint: _kqLoginText('Enter phone number'),
+                        icon: Icons.phone_android_rounded,
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => _smsCodeFocusNode.requestFocus(),
+                      ),
+                      const SizedBox(height: 12),
+                      _KqNativeTextField(
+                        q: q,
+                        controller: _smsCodeController,
+                        focusNode: _smsCodeFocusNode,
+                        label: _kqLoginText('SMS code'),
+                        hint: _kqLoginText('Enter SMS code'),
+                        icon: Icons.sms_outlined,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                        suffix: TextButton(
+                          onPressed:
+                              isBusy || _smsCountdown > 0 ? null : _sendSmsCode,
+                          child: _isSendingSms
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: q.primary,
+                                  ),
+                                )
+                              : Text(_smsCountdown > 0
+                                  ? '${_smsCountdown}s'
+                                  : _kqLoginText('Get code')),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _KqNativeTextField(
+                        q: q,
+                        controller: _passwordController,
+                        focusNode: _passwordFocusNode,
+                        label: _kqLoginText('Password'),
+                        hint: _kqLoginText('Enter your password'),
+                        icon: Icons.lock_outline_rounded,
+                        obscureText: !_passwordVisible,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) =>
+                            _confirmPasswordFocusNode.requestFocus(),
+                        suffix: IconButton(
+                          tooltip:
+                              _kqLoginText(_passwordVisible ? 'Hide' : 'Show'),
+                          onPressed: () => setState(
+                              () => _passwordVisible = !_passwordVisible),
+                          icon: Icon(_passwordVisible
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined),
+                          color: q.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _KqNativeTextField(
+                        q: q,
+                        controller: _confirmPasswordController,
+                        focusNode: _confirmPasswordFocusNode,
+                        label: _kqLoginText('Confirm password'),
+                        hint: _kqLoginText('Enter password again'),
+                        icon: Icons.verified_user_outlined,
+                        obscureText: !_confirmPasswordVisible,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _submit(),
+                        suffix: IconButton(
+                          tooltip: _kqLoginText(
+                              _confirmPasswordVisible ? 'Hide' : 'Show'),
+                          onPressed: () => setState(() =>
+                              _confirmPasswordVisible =
+                                  !_confirmPasswordVisible),
+                          icon: Icon(_confirmPasswordVisible
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined),
+                          color: q.muted,
+                        ),
+                      ),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 160),
+                        child: _errorText == null || _errorText!.isEmpty
+                            ? const SizedBox(height: 14)
+                            : Container(
+                                key: ValueKey(_errorText),
+                                margin: const EdgeInsets.only(top: 14),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: q.offline.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                      color: q.offline.withOpacity(0.24)),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.info_outline_rounded,
+                                        color: q.offline, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _errorText!,
+                                        style: TextStyle(
+                                          color: q.offline,
+                                          fontSize: 13,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: _isSubmitting ? null : _submit,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: q.primary,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: q.primary.withOpacity(0.42),
+                          minimumSize: const Size.fromHeight(52),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                _submitLabel,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),

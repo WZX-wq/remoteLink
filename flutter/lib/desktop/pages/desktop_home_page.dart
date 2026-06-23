@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
+import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
@@ -55,6 +56,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
+  final RxBool _postInstallActionBusy = false.obs;
 
   final GlobalKey _childKey = GlobalKey();
 
@@ -189,6 +191,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       buildKqHero(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
+      if (!isOutgoingOnly) buildPostInstallPermissionReminder(context),
       FutureBuilder<Widget>(
         future: Future.value(
             Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
@@ -314,6 +317,135 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
       ),
     );
+  }
+
+  Widget buildPostInstallPermissionReminder(BuildContext context) {
+    if (!isWindows ||
+        bind.isDisableInstallation() ||
+        !bind.mainIsInstalled() ||
+        bind.mainIsInstalledDaemon(prompt: false)) {
+      return const SizedBox();
+    }
+    final q = KqTheme.of(context);
+    return Obx(() {
+      final busy = _postInstallActionBusy.value;
+      return Container(
+        // kq-home-post-install-permission-reminder
+        margin: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: q.primary.withOpacity(q.isDark ? 0.16 : 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: q.primary.withOpacity(0.28)),
+          boxShadow: [
+            BoxShadow(
+              color: q.primary.withOpacity(q.isDark ? 0.16 : 0.1),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _KqSmallIcon(icon: Icons.admin_panel_settings_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '用户主动授权',
+                    style: TextStyle(
+                      color: q.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '启用后台服务后，被控端离线重启后仍可接入；低误报安装包不会静默申请权限。',
+              style: TextStyle(
+                color: q.muted,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            _KqPermissionReminderButton(
+              label: '启用后台服务',
+              icon: Icons.verified_user_outlined,
+              primary: true,
+              busy: busy,
+              onPressed: () => _runPostInstallAction(() async {
+                await bind.mainStartService();
+                await mainSetBoolOption(kOptionStopService, false);
+                showToast('已发起后台服务安装，请在系统授权弹窗中确认。');
+              }),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _KqPermissionReminderButton(
+                    label: '修复防火墙',
+                    icon: Icons.security_update_good_outlined,
+                    busy: busy,
+                    onPressed: () => _runPostInstallAction(() async {
+                      final result = await repairKqFirewallRules();
+                      showToast(result.message);
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _KqPermissionReminderButton(
+                    label: '推荐权限',
+                    icon: Icons.tune_rounded,
+                    busy: busy,
+                    onPressed: () => _runPostInstallAction(() async {
+                      await bind.mainSetOption(
+                          key: kOptionEnablePermChangeInAcceptWindow,
+                          value: 'Y');
+                      await bind.mainSetOption(
+                          key: kOptionAllowRemoteConfigModification,
+                          value: 'N');
+                      showToast('已应用推荐远控权限。');
+                    }),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _KqPermissionReminderButton(
+              label: '浏览器远控入口',
+              icon: Icons.link_rounded,
+              busy: busy,
+              onPressed: () => _runPostInstallAction(() async {
+                final result = await registerKqBrowserRemoteProtocols();
+                showToast(result.message);
+              }),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Future<void> _runPostInstallAction(Future<void> Function() action) async {
+    if (_postInstallActionBusy.value) return;
+    _postInstallActionBusy.value = true;
+    try {
+      await action();
+    } finally {
+      _postInstallActionBusy.value = false;
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   buildRightPane(BuildContext context) {
@@ -1463,6 +1595,90 @@ class _KqSmallIcon extends StatelessWidget {
         border: Border.all(color: q.primary.withOpacity(0.2)),
       ),
       child: Icon(icon, size: 16, color: q.primary),
+    );
+  }
+}
+
+class _KqPermissionReminderButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool primary;
+  final bool busy;
+  final Future<void> Function() onPressed;
+
+  const _KqPermissionReminderButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.primary = false,
+    this.busy = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final child = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (busy)
+          SizedBox(
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: primary ? Colors.white : q.primary,
+            ),
+          )
+        else
+          Icon(icon, size: 16),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+    final shape =
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
+    if (primary) {
+      return SizedBox(
+        width: double.infinity,
+        height: 34,
+        child: ElevatedButton(
+          onPressed: busy ? null : onPressed,
+          style: ElevatedButton.styleFrom(
+            elevation: 0,
+            backgroundColor: q.primary,
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: q.primary.withOpacity(0.45),
+            disabledForegroundColor: Colors.white.withOpacity(0.86),
+            shape: shape,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            textStyle:
+                const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+          child: child,
+        ),
+      );
+    }
+    return SizedBox(
+      height: 32,
+      child: OutlinedButton(
+        onPressed: busy ? null : onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: q.primary,
+          disabledForegroundColor: q.primary.withOpacity(0.42),
+          side: BorderSide(color: q.primary.withOpacity(0.28)),
+          shape: shape,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+        child: child,
+      ),
     );
   }
 }
