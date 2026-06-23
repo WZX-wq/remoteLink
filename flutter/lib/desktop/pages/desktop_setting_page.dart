@@ -2691,7 +2691,7 @@ class _AccountState extends State<_Account> {
 
   Future<void> _showMemberRechargeDialog() async {
     final user = gFFI.userModel;
-    if (!user.isLogin) {
+    if (!user.isLogin || !user.hasMemberApiCredential) {
       showToast(translate('Please log in to your Kunqiong account first'));
       return;
     }

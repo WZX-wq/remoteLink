@@ -399,27 +399,20 @@ class KqOauth {
     if (data is! Map) {
       throw KqOauthException('Kunqiong login response data is empty.');
     }
-    final accessToken = extractKqOauthLoginToken(data);
-    final jwtToken = (data['access_token'] ??
-            data['accessToken'] ??
-            data['token'] ??
-            data['user_token'] ??
-            data['userToken'] ??
-            '')
-        .toString()
-        .trim();
+    final apiWebToken = extractKqOauthApiWebToken(data);
+    final jwtToken = extractKqOauthSessionToken(data);
     final user = normalizeKqOauthUser(data['user']) ??
         normalizeKqOauthUser(data['user_info']);
-    if (accessToken.isEmpty || user == null) {
+    if (apiWebToken.isEmpty || user == null) {
       throw KqOauthException(
-          'Kunqiong login response is missing token or user.');
+          'Kunqiong login response is missing API web token or user.');
     }
     return LoginResponse.fromJson({
       'type': HttpType.kAuthResTypeToken,
-      'access_token': accessToken,
+      'access_token': apiWebToken,
       'user': {
         ...user,
-        'api_web_token': accessToken,
+        'api_web_token': apiWebToken,
         'kq_token': jwtToken,
         'token': jwtToken,
       },
@@ -446,15 +439,19 @@ class KqOauth {
     String apiWebToken = '';
     String jwtToken = '';
     if (rawData is Map) {
-      apiWebToken = extractKqOauthLoginToken(rawData);
-      jwtToken = (rawData['access_token'] ??
-              rawData['accessToken'] ??
-              rawData['token'] ??
-              rawData['user_token'] ??
-              rawData['userToken'] ??
-              '')
-          .toString()
-          .trim();
+      apiWebToken = extractKqOauthApiWebToken(rawData);
+      jwtToken = extractKqOauthSessionToken(rawData);
+    }
+    final responseToken = (response.access_token ?? '').trim();
+    if (apiWebToken.isEmpty &&
+        responseToken.isNotEmpty &&
+        !kqLooksLikeJwtToken(responseToken)) {
+      apiWebToken = responseToken;
+    }
+    if (jwtToken.isEmpty &&
+        responseToken.isNotEmpty &&
+        kqLooksLikeJwtToken(responseToken)) {
+      jwtToken = responseToken;
     }
     if (apiWebToken.isNotEmpty) {
       await bind.mainSetLocalOption(

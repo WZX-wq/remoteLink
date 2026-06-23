@@ -102,31 +102,58 @@ String? extractKqDesktopTokenIfReady(Map<String, dynamic> body) {
   return token == null || token.isEmpty ? null : token;
 }
 
-String extractKqOauthLoginToken(Map<dynamic, dynamic> data) {
+List<Map<dynamic, dynamic>> _kqOauthTokenSources(Map<dynamic, dynamic> data) {
   final sources = <Map<dynamic, dynamic>>[
     data,
-    if (data['user'] is Map) data['user'] as Map<dynamic, dynamic>,
-    if (data['user_info'] is Map) data['user_info'] as Map<dynamic, dynamic>,
   ];
-
-  String firstTokenFor(List<String> keys) {
-    for (final source in sources) {
-      for (final key in keys) {
-        final token = (source[key] ?? '').toString().trim();
-        if (token.isNotEmpty) {
-          return token;
-        }
-      }
-    }
-    return '';
+  void addSource(dynamic value) {
+    if (value is! Map) return;
+    final source = value;
+    sources.add(source);
+    final user = source['user'];
+    if (user is Map) sources.add(user);
+    final userInfo = source['user_info'];
+    if (userInfo is Map) sources.add(userInfo);
+    final nestedData = source['data'];
+    if (nestedData is Map) addSource(nestedData);
   }
 
-  final apiWebToken = firstTokenFor(['api_web_token', 'apiWebToken']);
+  addSource(data['user']);
+  addSource(data['user_info']);
+  addSource(data['data']);
+  return sources;
+}
+
+String _firstKqOauthTokenFor(Map<dynamic, dynamic> data, List<String> keys) {
+  for (final source in _kqOauthTokenSources(data)) {
+    for (final key in keys) {
+      final token = (source[key] ?? '').toString().trim();
+      if (token.isNotEmpty) {
+        return token;
+      }
+    }
+  }
+  return '';
+}
+
+String extractKqOauthApiWebToken(Map<dynamic, dynamic> data) =>
+    _firstKqOauthTokenFor(data, ['api_web_token', 'apiWebToken']);
+
+String extractKqOauthSessionToken(Map<dynamic, dynamic> data) =>
+    _firstKqOauthTokenFor(data,
+        ['access_token', 'accessToken', 'token', 'user_token', 'userToken']);
+
+String extractKqOauthLoginToken(Map<dynamic, dynamic> data) {
+  final apiWebToken = extractKqOauthApiWebToken(data);
   if (apiWebToken.isNotEmpty) {
     return apiWebToken;
   }
-  return firstTokenFor(
-      ['access_token', 'accessToken', 'token', 'user_token', 'userToken']);
+  return extractKqOauthSessionToken(data);
+}
+
+bool kqLooksLikeJwtToken(String token) {
+  final parts = token.trim().split('.');
+  return parts.length >= 3 && parts.take(3).every((part) => part.isNotEmpty);
 }
 
 bool parseKqCheckLoginResult(Map<String, dynamic> body) =>

@@ -139,6 +139,32 @@ void main() {
         'nested-api-web-token',
       );
     });
+
+    test('extracts API web token without falling back to JWT fields', () {
+      expect(
+        extractKqOauthApiWebToken({
+          'access_token': 'jwt-session-token',
+          'token': 'jwt-token',
+          'user_token': 'jwt-user-token',
+        }),
+        '',
+      );
+      expect(
+        extractKqOauthApiWebToken({
+          'data': {
+            'access_token': 'jwt-session-token',
+            'api_web_token': 'api-web-token',
+          },
+        }),
+        'api-web-token',
+      );
+      expect(
+        extractKqOauthApiWebToken({
+          'user': {'apiWebToken': 'nested-api-web-token'},
+        }),
+        'nested-api-web-token',
+      );
+    });
   });
 
   group('parseKqOauthLoginPayload', () {

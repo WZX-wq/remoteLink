@@ -343,10 +343,12 @@ class _AccountPageState extends State<AccountPage> {
             }
 
             Future<bool> ensurePaymentLogin() async {
-              if (user.isLogin) return true;
+              if (user.isLogin && user.hasMemberApiCredential) return true;
               final loggedIn = await loginDialog();
               if (!alive) return false;
-              if (loggedIn == true && user.isLogin) {
+              if (loggedIn == true &&
+                  user.isLogin &&
+                  user.hasMemberApiCredential) {
                 await user.refreshMembership(showError: true);
                 return true;
               }

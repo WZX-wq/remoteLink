@@ -368,8 +368,10 @@ function Test-KqAndroidMobilePaymentMethod {
         Add-Check "android:mobile-payment-launch-loading" "FAIL" "mobile membership payment lacks a visible launch loading animation"
     }
     if ($content -match 'Future<bool> ensurePaymentLogin\(\) async' -and
-        $content -match '(?s)if \(!user\.isLogin\)\s*\{\s*final loggedIn = await loginDialog\(\);' -and
-        $content -match "loggedIn == true && user\.isLogin" -and
+        $content -match 'user\.isLogin && user\.hasMemberApiCredential' -and
+        $content -match 'final loggedIn = await loginDialog\(\);' -and
+        $content -match "loggedIn == true &&" -and
+        $content -match "user\.hasMemberApiCredential" -and
         $content -match 'if \(!await ensurePaymentLogin\(\)\) return;' -and
         $content -match "statusText = translate\('Please log in first'\)") {
         Add-Check "android:mobile-payment-login-preflight" "PASS" "mobile payment logs in before creating a membership order"
@@ -2436,9 +2438,13 @@ Test-KqAndroidMobileSettingsNo2FA
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "/logout" "login:logout-api"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "parseKqOauthLoginPayload(" "login:user-info-token-adapter"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_payload.dart" "String extractKqOauthLoginToken(Map<dynamic, dynamic> data)" "login:native-token-compatible-helper"
-    Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "final accessToken = extractKqOauthLoginToken(data);" "login:native-token-compatible-parser"
+    Test-SourceContains ".\flutter\lib\common\kq_oauth_payload.dart" "String extractKqOauthApiWebToken(Map<dynamic, dynamic> data)" "login:api-web-token-helper"
+    Test-SourceContains ".\flutter\lib\common\kq_oauth_payload.dart" "bool kqLooksLikeJwtToken(String token)" "login:jwt-token-detector"
+    Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "final apiWebToken = extractKqOauthApiWebToken(data);" "login:native-api-web-token-parser"
     Test-SourceContains ".\flutter\lib\models\user_model.dart" "await bind.mainSetLocalOption(key: 'kq_api_web_token', value: '');" "login:reset-clears-api-web-token"
-    Test-SourceContains ".\flutter\lib\models\user_model.dart" "bool get hasLoginCredential => _memberTokenCandidates().isNotEmpty;" "login:token-backed-login-state"
+    Test-SourceContains ".\flutter\lib\models\user_model.dart" "bool get hasMemberApiCredential => _memberTokenCandidates().isNotEmpty;" "login:member-api-token-backed-state"
+    Test-SourceContains ".\flutter\lib\models\user_model.dart" "kqLooksLikeJwtToken(normalized)" "login:member-api-skips-jwt"
+    Test-SourceContains ".\flutter\lib\common\kq_project_api.dart" "kqLooksLikeJwtToken(token)" "login:project-api-skips-jwt"
     Test-SourceContains ".\flutter\lib\models\user_model.dart" "bool get isLogin => userName.isNotEmpty || hasLoginCredential;" "login:is-login-uses-token"
     Test-SourceContains ".\flutter\lib\common.dart" "Widget _kqFallbackAppIcon(double size)" "login:icon-visible-fallback"
     Test-SourceNotContains ".\flutter\lib\common.dart" "errorBuilder: (ctx, error, stackTrace) => SizedBox(" "login:icon-no-blank-fallback"

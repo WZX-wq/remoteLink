@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:flutter_hbb/common/kq_oauth.dart';
+import 'package:flutter_hbb/common/kq_oauth_payload.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:get/get.dart';
@@ -55,7 +56,8 @@ class UserModel {
   final RxString memberLastError = ''.obs;
   final RxList<KqMemberPackage> memberPackages = <KqMemberPackage>[].obs;
   int _membershipRefreshSerial = 0;
-  bool get hasLoginCredential => _memberTokenCandidates().isNotEmpty;
+  bool get hasMemberApiCredential => _memberTokenCandidates().isNotEmpty;
+  bool get hasLoginCredential => hasMemberApiCredential;
   bool get isLogin => userName.isNotEmpty || hasLoginCredential;
   bool get canUseMemberRemoteQuality => isMember.value;
   String get remoteResolutionSelection {
@@ -128,7 +130,9 @@ class UserModel {
     if (bind.isDisableAccount()) return;
     networkError.value = '';
     final token = bind.mainGetLocalOption(key: 'access_token');
-    if (token == '') {
+    final kqApiTokens =
+        KqOauth.isActive ? _memberTokenCandidates().toList() : [];
+    if (token == '' && kqApiTokens.isEmpty) {
       await _setMemberStatus(false, expireAt: '', error: '');
       await updateOtherModels();
       return;
@@ -411,36 +415,22 @@ class UserModel {
       values.add((value ?? '').toString());
     }
 
-    add(bind.mainGetLocalOption(key: 'access_token'));
     add(bind.mainGetLocalOption(key: 'kq_api_web_token'));
     add(bind.mainGetLocalOption(key: 'api_web_token'));
-    add(bind.mainGetLocalOption(key: 'kq_token'));
-    add(bind.mainGetLocalOption(key: 'user_token'));
     final userInfo = getLocalUserInfo();
     if (userInfo != null) {
       for (final key in [
         'api_web_token',
         'apiWebToken',
-        'kq_token',
-        'token',
-        'user_token'
       ]) {
         add(userInfo[key]);
       }
       final raw = userInfo['external_auth_raw'];
       if (raw is Map) {
-        for (final key in [
-          'api_web_token',
-          'apiWebToken',
-          'kq_token',
-          'token',
-          'user_token',
-          'access_token'
-        ]) {
-          add(raw[key]);
-        }
+        add(extractKqOauthApiWebToken(raw));
       }
     }
+    add(bind.mainGetLocalOption(key: 'access_token'));
     final orderedTokens = <String>[];
     final seen = <String>{};
     for (final value in values) {
@@ -448,6 +438,9 @@ class UserModel {
           .replaceFirst(RegExp(r'^Bearer\s+', caseSensitive: false), '')
           .trim();
       if (normalized.isEmpty) {
+        continue;
+      }
+      if (kqLooksLikeJwtToken(normalized)) {
         continue;
       }
       if (seen.add(normalized)) {
@@ -736,12 +729,13 @@ class UserModel {
     required int packageId,
     required int payType,
   }) async {
-    if (!isLogin) {
+    final tokens = _memberTokenCandidates().toList();
+    if (!isLogin || tokens.isEmpty) {
       throw translate('Please log in first');
     }
     Object? lastError;
     final requiresProjectAppPay = isAndroid && payType == 2;
-    for (final token in _memberTokenCandidates()) {
+    for (final token in tokens) {
       try {
         final projectOrder = await _createProjectMemberOrder(
           token: token,

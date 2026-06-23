@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/common/kq_oauth_payload.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/user_model.dart';
@@ -411,37 +412,23 @@ class KqProjectApi {
 
   static String _apiWebToken() {
     final values = <String>[
-      bind.mainGetLocalOption(key: 'access_token'),
       bind.mainGetLocalOption(key: 'kq_api_web_token'),
       bind.mainGetLocalOption(key: 'api_web_token'),
-      bind.mainGetLocalOption(key: 'kq_token'),
-      bind.mainGetLocalOption(key: 'user_token'),
     ];
     final userInfo = UserModel.getLocalUserInfo();
     if (userInfo != null) {
       for (final key in [
         'api_web_token',
         'apiWebToken',
-        'kq_token',
-        'token',
-        'user_token'
       ]) {
         values.add((userInfo[key] ?? '').toString());
       }
       final raw = userInfo['external_auth_raw'];
       if (raw is Map) {
-        for (final key in [
-          'api_web_token',
-          'apiWebToken',
-          'kq_token',
-          'token',
-          'user_token',
-          'access_token'
-        ]) {
-          values.add((raw[key] ?? '').toString());
-        }
+        values.add(extractKqOauthApiWebToken(raw));
       }
     }
+    values.add(bind.mainGetLocalOption(key: 'access_token'));
     final seen = <String>{};
     final orderedTokens = <String>[];
     for (final value in values) {
@@ -449,6 +436,9 @@ class KqProjectApi {
           .replaceFirst(RegExp(r'^Bearer\s+', caseSensitive: false), '')
           .trim();
       if (token.isEmpty || !seen.add(token)) {
+        continue;
+      }
+      if (kqLooksLikeJwtToken(token)) {
         continue;
       }
       orderedTokens.add(token);
