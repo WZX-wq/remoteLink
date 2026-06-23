@@ -102,6 +102,33 @@ String? extractKqDesktopTokenIfReady(Map<String, dynamic> body) {
   return token == null || token.isEmpty ? null : token;
 }
 
+String extractKqOauthLoginToken(Map<dynamic, dynamic> data) {
+  final sources = <Map<dynamic, dynamic>>[
+    data,
+    if (data['user'] is Map) data['user'] as Map<dynamic, dynamic>,
+    if (data['user_info'] is Map) data['user_info'] as Map<dynamic, dynamic>,
+  ];
+
+  String firstTokenFor(List<String> keys) {
+    for (final source in sources) {
+      for (final key in keys) {
+        final token = (source[key] ?? '').toString().trim();
+        if (token.isNotEmpty) {
+          return token;
+        }
+      }
+    }
+    return '';
+  }
+
+  final apiWebToken = firstTokenFor(['api_web_token', 'apiWebToken']);
+  if (apiWebToken.isNotEmpty) {
+    return apiWebToken;
+  }
+  return firstTokenFor(
+      ['access_token', 'accessToken', 'token', 'user_token', 'userToken']);
+}
+
 bool parseKqCheckLoginResult(Map<String, dynamic> body) =>
     _isSuccessCode(body['code']);
 

@@ -399,10 +399,17 @@ class KqOauth {
     if (data is! Map) {
       throw KqOauthException('Kunqiong login response data is empty.');
     }
-    final accessToken =
-        (data['api_web_token'] ?? data['access_token'] ?? '').toString().trim();
-    final jwtToken = (data['access_token'] ?? '').toString().trim();
-    final user = normalizeKqOauthUser(data['user']);
+    final accessToken = extractKqOauthLoginToken(data);
+    final jwtToken = (data['access_token'] ??
+            data['accessToken'] ??
+            data['token'] ??
+            data['user_token'] ??
+            data['userToken'] ??
+            '')
+        .toString()
+        .trim();
+    final user = normalizeKqOauthUser(data['user']) ??
+        normalizeKqOauthUser(data['user_info']);
     if (accessToken.isEmpty || user == null) {
       throw KqOauthException(
           'Kunqiong login response is missing token or user.');
@@ -439,8 +446,15 @@ class KqOauth {
     String apiWebToken = '';
     String jwtToken = '';
     if (rawData is Map) {
-      apiWebToken = (rawData['api_web_token'] ?? '').toString().trim();
-      jwtToken = (rawData['access_token'] ?? '').toString().trim();
+      apiWebToken = extractKqOauthLoginToken(rawData);
+      jwtToken = (rawData['access_token'] ??
+              rawData['accessToken'] ??
+              rawData['token'] ??
+              rawData['user_token'] ??
+              rawData['userToken'] ??
+              '')
+          .toString()
+          .trim();
     }
     if (apiWebToken.isNotEmpty) {
       await bind.mainSetLocalOption(
@@ -473,6 +487,10 @@ class KqOauth {
 
   static Future<void> _clearStoredLogin() async {
     await bind.mainSetLocalOption(key: 'access_token', value: '');
+    await bind.mainSetLocalOption(key: 'kq_api_web_token', value: '');
+    await bind.mainSetLocalOption(key: 'api_web_token', value: '');
+    await bind.mainSetLocalOption(key: 'kq_token', value: '');
+    await bind.mainSetLocalOption(key: 'user_token', value: '');
     await bind.mainSetLocalOption(key: 'user_info', value: '');
     await bind.mainSetLocalOption(key: kKqOauthProviderKey, value: '');
   }

@@ -243,6 +243,10 @@ class UserModel {
     _membershipRefreshSerial++;
     isRefreshingMembership.value = false;
     await bind.mainSetLocalOption(key: 'access_token', value: '');
+    await bind.mainSetLocalOption(key: 'kq_api_web_token', value: '');
+    await bind.mainSetLocalOption(key: 'api_web_token', value: '');
+    await bind.mainSetLocalOption(key: 'kq_token', value: '');
+    await bind.mainSetLocalOption(key: 'user_token', value: '');
     await bind.mainSetLocalOption(key: 'user_info', value: '');
     await bind.mainSetLocalOption(key: kKqOauthProviderKey, value: '');
     await _setMemberStatus(false, expireAt: '', error: '');

@@ -113,6 +113,32 @@ void main() {
             .having((e) => e.message, 'message', 'login expired')),
       );
     });
+
+    test('extracts native login token from compatible token fields', () {
+      expect(
+        extractKqOauthLoginToken({
+          'token': 'fallback-token',
+          'user': {'nickname': 'lisi'},
+        }),
+        'fallback-token',
+      );
+      expect(
+        extractKqOauthLoginToken({
+          'apiWebToken': 'api-web-token',
+          'token': 'fallback-token',
+        }),
+        'api-web-token',
+      );
+      expect(
+        extractKqOauthLoginToken({
+          'user_info': {
+            'api_web_token': 'nested-api-web-token',
+            'nickname': 'lisi',
+          },
+        }),
+        'nested-api-web-token',
+      );
+    });
   });
 
   group('parseKqOauthLoginPayload', () {
