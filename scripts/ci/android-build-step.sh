@@ -11,10 +11,18 @@ shift || true
 REPO_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
 cd "${REPO_ROOT}"
 
-CI_ARTIFACT_DIR="${CI_ARTIFACT_DIR:-artifacts/ci}"
+make_absolute_path() {
+  local path="$1"
+  case "${path}" in
+    /*) printf '%s\n' "${path}" ;;
+    *) printf '%s\n' "${REPO_ROOT}/${path}" ;;
+  esac
+}
+
+CI_ARTIFACT_DIR="$(make_absolute_path "${CI_ARTIFACT_DIR:-artifacts/ci}")"
 PUBLIC_CI_DIR="${PUBLIC_CI_DIR:-/www/wwwroot/KQromoteLink/android/ci}"
-CI_ENV_FILE="${CI_ENV_FILE:-${CI_ARTIFACT_DIR}/android-build.env}"
-TIMINGS_FILE="${TIMINGS_FILE:-${CI_ARTIFACT_DIR}/CI_TIMINGS.tsv}"
+CI_ENV_FILE="$(make_absolute_path "${CI_ENV_FILE:-${CI_ARTIFACT_DIR}/android-build.env}")"
+TIMINGS_FILE="$(make_absolute_path "${TIMINGS_FILE:-${CI_ARTIFACT_DIR}/CI_TIMINGS.tsv}")"
 STEP_STARTED_AT="${SECONDS}"
 mkdir -p "${CI_ARTIFACT_DIR}"
 
@@ -60,6 +68,7 @@ selected_env() {
     KQ_ANDROID_KEY_ALIAS \
     KQ_ANDROID_KEY_PASSWORD \
     KQ_ANDROID_EXPECTED_CERT_MD5 \
+    PUB_CACHE \
     VCPKG_ROOT \
     CMAKE_VERSION \
     CMAKE_ROOT \
@@ -215,6 +224,7 @@ setup_common_env() {
   export FLUTTER_ROOT="${FLUTTER_ROOT:-/opt/artifacts/flutter/${FLUTTER_VERSION}}"
   export FLUTTER_STORAGE_BASE_URL="${FLUTTER_STORAGE_BASE_URL:-https://storage.flutter-io.cn}"
   export PUB_HOSTED_URL="${PUB_HOSTED_URL:-https://pub.flutter-io.cn}"
+  export PUB_CACHE="${PUB_CACHE:-${CI_ARTIFACT_DIR}/pub-cache}"
   export ANDROID_JNI_LIB_DIR="${ANDROID_JNI_LIB_DIR:-flutter/android/app/src/main/jniLibs}"
 
   local java_home
@@ -766,8 +776,23 @@ flutter_pub_get() {
   setup_common_env
   require_command flutter
   pushd flutter
-  flutter pub get
+  run_flutter_pub_get
   popd
+}
+
+clean_pub_advisory_cache() {
+  if [[ "${KQ_ANDROID_CLEAN_PUB_ADVISORY_CACHE:-Y}" != "Y" ]]; then
+    return 0
+  fi
+  if [[ -d "${PUB_CACHE}/hosted" ]]; then
+    find "${PUB_CACHE}/hosted" -path '*/.cache/advisories' -type d -prune -print -exec rm -rf {} + 2>/dev/null || true
+  fi
+}
+
+run_flutter_pub_get() {
+  mkdir -p "${PUB_CACHE}"
+  clean_pub_advisory_cache
+  flutter pub get
 }
 
 analyze_mobile() {
@@ -778,7 +803,7 @@ analyze_mobile() {
   fi
   require_command flutter
   pushd flutter
-  flutter pub get
+  run_flutter_pub_get
   flutter analyze --no-fatal-infos \
     lib/common/widgets/login.dart \
     lib/mobile/pages/home_page.dart \
@@ -801,7 +826,7 @@ build_flutter_artifacts() {
     echo "Cleaning Flutter build outputs to avoid stale Android/Kotlin transforms."
     rm -rf build
   fi
-  flutter pub get
+  run_flutter_pub_get
 
   local extra_args=()
   if [[ "${BUILD_MODE}" == "release" ]]; then
