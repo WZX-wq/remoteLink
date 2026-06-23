@@ -58,6 +58,7 @@ jobs:
           git checkout --force FETCH_HEAD
           git submodule sync --recursive
           git submodule update --init --recursive
+          bash scripts/ci/apply-hbb-common-patch.sh
 
       - name: Prepare build tools
         shell: bash

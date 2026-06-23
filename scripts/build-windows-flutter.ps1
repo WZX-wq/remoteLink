@@ -13,6 +13,24 @@ if ($LASTEXITCODE -ne 0) {
     throw "git submodule update failed with exit code $LASTEXITCODE"
 }
 
+$hbbPatch = Join-Path $repo "patches\hbb_common\kq-local-changes.patch"
+if (Test-Path $hbbPatch) {
+    git -C libs\hbb_common apply --reverse --check $hbbPatch *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "hbb_common KQ patch already applied"
+    } else {
+        git -C libs\hbb_common apply --check $hbbPatch
+        if ($LASTEXITCODE -ne 0) {
+            throw "hbb_common KQ patch check failed with exit code $LASTEXITCODE"
+        }
+        git -C libs\hbb_common apply $hbbPatch
+        if ($LASTEXITCODE -ne 0) {
+            throw "hbb_common KQ patch apply failed with exit code $LASTEXITCODE"
+        }
+        Write-Host "hbb_common KQ patch applied"
+    }
+}
+
 Push-Location flutter
 flutter pub get
 if ($LASTEXITCODE -ne 0) {

@@ -1,0 +1,481 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 6ad3012..1041644 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -57,9 +57,8 @@ tokio-rustls = { version = "0.26", features = [
+     "tls12",
+     "ring",
+ ], default-features = false }
+-tokio-native-tls = "0.3"
+-tokio-tungstenite = { version = "0.26", features = ["native-tls", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+-tungstenite = { version = "0.26", features = ["native-tls", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
++tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
++tungstenite = { version = "0.26", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+ rustls-platform-verifier = "0.6"
+ rustls-pki-types = "1.11"
+ rustls-native-certs = "0.8"
+@@ -69,6 +68,9 @@ webrtc = { version = "0.14.0", optional = true }
+ libloading = "0.8"
+ 
+ [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
++tokio-native-tls = "0.3"
++tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
++tungstenite = { version = "0.26", features = ["native-tls"] }
+ mac_address = "1.1"
+ default_net = { git = "https://github.com/rustdesk-org/default_net" }
+ machine-uid = { git = "https://github.com/rustdesk-org/machine-uid" }
+diff --git a/examples/webrtc.rs b/examples/webrtc.rs
+index 2c993ca..b0aac96 100644
+--- a/examples/webrtc.rs
++++ b/examples/webrtc.rs
+@@ -3,10 +3,10 @@ extern crate hbb_common;
+ #[cfg(feature = "webrtc")]
+ use hbb_common::webrtc::WebRTCStream;
+ 
+-use std::io::Write;
+ use anyhow::Result;
+ use bytes::Bytes;
+ use clap::{Arg, Command};
++use std::io::Write;
+ use tokio::time::Duration;
+ 
+ #[cfg(not(feature = "webrtc"))]
+diff --git a/src/config.rs b/src/config.rs
+index 4be1cb4..c721a5d 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -543,6 +543,16 @@ impl Config2 {
+             decrypt_str_or_original(&config.unlock_pin, PASSWORD_ENC_VERSION);
+         config.unlock_pin = unlock_pin;
+         store |= store2;
++        for opt in [
++            keys::OPTION_KQ_DAILY_PASSWORD,
++            keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
++        ] {
++            if let Some(v) = config.options.get_mut(opt) {
++                let (decrypted, _, store2) = decrypt_str_or_original(v, PASSWORD_ENC_VERSION);
++                *v = decrypted;
++                store |= store2;
++            }
++        }
+         if store {
+             config.store();
+         }
+@@ -562,6 +572,14 @@ impl Config2 {
+         }
+         config.unlock_pin =
+             encrypt_str_or_original(&config.unlock_pin, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
++        for opt in [
++            keys::OPTION_KQ_DAILY_PASSWORD,
++            keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
++        ] {
++            if let Some(v) = config.options.get_mut(opt) {
++                *v = encrypt_str_or_original(v, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
++            }
++        }
+         Config::store_(&config, "2");
+     }
+ 
+@@ -1909,7 +1927,7 @@ impl PeerConfig {
+     fn default_custom_image_quality() -> Vec<i32> {
+         let f: f64 = UserDefaultConfig::read(keys::OPTION_CUSTOM_IMAGE_QUALITY)
+             .parse()
+-            .unwrap_or(50.0);
++            .unwrap_or(80.0);
+         vec![f as _]
+     }
+ 
+@@ -2319,7 +2337,7 @@ impl UserDefaultConfig {
+             keys::OPTION_CODEC_PREFERENCE => {
+                 self.get_string(key, "auto", vec!["vp8", "vp9", "av1", "h264", "h265"])
+             }
+-            keys::OPTION_CUSTOM_IMAGE_QUALITY => self.get_num_string(key, 50.0, 10.0, 0xFFF as f64),
++            keys::OPTION_CUSTOM_IMAGE_QUALITY => self.get_num_string(key, 80.0, 10.0, 0xFFF as f64),
+             keys::OPTION_CUSTOM_FPS => self.get_num_string(key, 30.0, 5.0, 120.0),
+             keys::OPTION_ENABLE_FILE_COPY_PASTE => self.get_string(key, "Y", vec!["", "N"]),
+             keys::OPTION_EDGE_SCROLL_EDGE_THICKNESS => self.get_num_string(key, 100, 20, 150),
+@@ -2852,7 +2870,8 @@ pub mod keys {
+     pub const OPTION_ENABLE_RECORD_SESSION: &str = "enable-record-session";
+     pub const OPTION_ENABLE_BLOCK_INPUT: &str = "enable-block-input";
+     pub const OPTION_ENABLE_PRIVACY_MODE: &str = "enable-privacy-mode";
+-    pub const OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW: &str = "enable-perm-change-in-accept-window";
++    pub const OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW: &str =
++        "enable-perm-change-in-accept-window";
+     pub const OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION: &str = "allow-remote-config-modification";
+     pub const OPTION_ALLOW_NUMERNIC_ONE_TIME_PASSWORD: &str = "allow-numeric-one-time-password";
+     pub const OPTION_ENABLE_LAN_DISCOVERY: &str = "enable-lan-discovery";
+@@ -2873,6 +2892,9 @@ pub mod keys {
+     pub const OPTION_APPROVE_MODE: &str = "approve-mode";
+     pub const OPTION_VERIFICATION_METHOD: &str = "verification-method";
+     pub const OPTION_TEMPORARY_PASSWORD_LENGTH: &str = "temporary-password-length";
++    pub const OPTION_KQ_DAILY_PASSWORD: &str = "kq-daily-password";
++    pub const OPTION_KQ_DAILY_PASSWORD_DATE: &str = "kq-daily-password-date";
++    pub const OPTION_KQ_PERMANENT_PASSWORD_PREVIEW: &str = "kq-permanent-password-preview";
+     pub const OPTION_CUSTOM_RENDEZVOUS_SERVER: &str = "custom-rendezvous-server";
+     pub const OPTION_API_SERVER: &str = "api-server";
+     pub const OPTION_KEY: &str = "key";
+@@ -3092,6 +3114,7 @@ pub mod keys {
+         OPTION_AUTO_DISCONNECT_TIMEOUT,
+         OPTION_ALLOW_ONLY_CONN_WINDOW_OPEN,
+         OPTION_ALLOW_AUTO_RECORD_INCOMING,
++        OPTION_VIDEO_SAVE_DIRECTORY,
+         OPTION_ENABLE_ABR,
+         OPTION_ALLOW_REMOVE_WALLPAPER,
+         OPTION_ALLOW_ALWAYS_SOFTWARE_RENDER,
+@@ -3100,6 +3123,9 @@ pub mod keys {
+         OPTION_APPROVE_MODE,
+         OPTION_VERIFICATION_METHOD,
+         OPTION_TEMPORARY_PASSWORD_LENGTH,
++        OPTION_KQ_DAILY_PASSWORD,
++        OPTION_KQ_DAILY_PASSWORD_DATE,
++        OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
+         OPTION_PROXY_URL,
+         OPTION_PROXY_USERNAME,
+         OPTION_PROXY_PASSWORD,
+diff --git a/src/lib.rs b/src/lib.rs
+index 2b35642..e6d427b 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -58,9 +58,9 @@ pub use uuid;
+ pub mod fingerprint;
+ pub use flexi_logger;
+ pub mod stream;
+-pub mod websocket;
+ #[cfg(feature = "webrtc")]
+ pub mod webrtc;
++pub mod websocket;
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ pub use rustls_platform_verifier;
+ pub use stream::Stream;
+@@ -68,9 +68,9 @@ pub use whoami;
+ pub mod tls;
+ pub mod verifier;
+ pub use async_recursion;
++pub use libloading;
+ #[cfg(target_os = "linux")]
+ pub use users;
+-pub use libloading;
+ #[cfg(target_os = "linux")]
+ pub use x11;
+ 
+@@ -432,7 +432,10 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+         #[cfg(debug_assertions)]
+         {
+             use env_logger::*;
+-            init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn"));
++            init_from_env(Env::default().filter_or(
++                DEFAULT_FILTER_ENV,
++                "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
++            ));
+         }
+         #[cfg(not(debug_assertions))]
+         {
+@@ -447,7 +450,9 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+                 path.push(_name);
+             }
+             use flexi_logger::*;
+-            if let Ok(x) = Logger::try_with_env_or_str("debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn") {
++            if let Ok(x) = Logger::try_with_env_or_str(
++                "debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
++            ) {
+                 logger_holder = x
+                     .log_to_file(FileSpec::default().directory(path))
+                     .write_mode(if _is_async {
+diff --git a/src/password_security.rs b/src/password_security.rs
+index 6471d71..87f9fe9 100644
+--- a/src/password_security.rs
++++ b/src/password_security.rs
+@@ -1,4 +1,4 @@
+-use crate::config::Config;
++use crate::config::{keys, Config};
+ use sodiumoxide::base64;
+ use std::sync::{Arc, RwLock};
+ 
+@@ -34,11 +34,31 @@ pub fn update_temporary_password() {
+     *TEMPORARY_PASSWORD.write().unwrap() = get_auto_password();
+ }
+ 
++// Should only be called in server
++pub fn set_temporary_password(password: &str) {
++    if password.is_empty() {
++        update_temporary_password();
++    } else {
++        *TEMPORARY_PASSWORD.write().unwrap() = password.to_owned();
++    }
++}
++
+ // Should only be called in server
+ pub fn temporary_password() -> String {
+     TEMPORARY_PASSWORD.read().unwrap().clone()
+ }
+ 
++pub fn kq_today_password_date() -> String {
++    crate::chrono::Local::now().format("%Y-%m-%d").to_string()
++}
++
++pub fn kq_daily_password() -> String {
++    if Config::get_option(keys::OPTION_KQ_DAILY_PASSWORD_DATE) != kq_today_password_date() {
++        return String::new();
++    }
++    Config::get_option(keys::OPTION_KQ_DAILY_PASSWORD)
++}
++
+ fn verification_method() -> VerificationMethod {
+     let method = Config::get_option("verification-method");
+     if method == "use-temporary-password" {
+@@ -71,6 +91,7 @@ pub fn permanent_enabled() -> bool {
+ 
+ pub fn has_valid_password() -> bool {
+     temporary_enabled() && !temporary_password().is_empty()
++        || !kq_daily_password().is_empty()
+         || permanent_enabled() && Config::has_permanent_password()
+ }
+ 
+diff --git a/src/proxy.rs b/src/proxy.rs
+index d3b8a76..fe618cd 100644
+--- a/src/proxy.rs
++++ b/src/proxy.rs
+@@ -9,6 +9,7 @@ use base64::{engine::general_purpose, Engine};
+ use httparse::{Error as HttpParseError, Response, EMPTY_HEADER};
+ use thiserror::Error as ThisError;
+ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufStream};
++#[cfg(not(any(target_os = "android", target_os = "ios")))]
+ use tokio_native_tls::{native_tls, TlsConnector, TlsStream};
+ use tokio_rustls::{client::TlsStream as RustlsTlsStream, TlsConnector as RustlsTlsConnector};
+ use tokio_socks::{tcp::Socks5Stream, IntoTargetAddr, TargetAddr};
+@@ -45,6 +46,7 @@ pub enum ProxyError {
+     HttpCode200(u16),
+     #[error("The proxy address resolution failed: {0}")]
+     AddressResolutionFailed(String),
++    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+     #[error("The native tls error: {0}")]
+     NativeTlsError(#[from] tokio_native_tls::native_tls::Error),
+ }
+@@ -426,14 +428,31 @@ impl Proxy {
+                         .await?
+                     }
+                     TlsType::NativeTls => {
+-                        self.https_connect_nativetls_wrap_danger(
+-                            &url,
+-                            local,
+-                            proxy,
+-                            &target_addr,
+-                            danger_accept_invalid_cert,
+-                        )
+-                        .await?
++                        #[cfg(not(any(target_os = "android", target_os = "ios")))]
++                        {
++                            self.https_connect_nativetls_wrap_danger(
++                                &url,
++                                local,
++                                proxy,
++                                &target_addr,
++                                danger_accept_invalid_cert,
++                            )
++                            .await?
++                        }
++                        #[cfg(any(target_os = "android", target_os = "ios"))]
++                        {
++                            self.https_connect_rustls_wrap_danger(
++                                &url,
++                                local,
++                                proxy,
++                                Some(stream),
++                                &target_addr,
++                                tls_type.is_some(),
++                                danger_accept_invalid_cert,
++                                danger_accept_invalid_cert,
++                            )
++                            .await?
++                        }
+                     }
+                     _ => {
+                         // Unreachable
+@@ -477,6 +496,7 @@ impl Proxy {
+         };
+     }
+ 
++    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+     async fn https_connect_nativetls_wrap_danger<'a>(
+         &self,
+         url: &str,
+@@ -503,6 +523,7 @@ impl Proxy {
+         Ok(DynTcpStream(Box::new(s)))
+     }
+ 
++    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+     pub async fn https_connect_nativetls<'a, Input>(
+         &self,
+         io: Input,
+@@ -584,15 +605,26 @@ impl Proxy {
+                     )
+                     .await?
+                 } else if !is_tls_type_cached {
+-                    log::warn!("Falling back to native-tls for HTTPS proxy server.");
+-                    self.https_connect_nativetls_wrap_danger(
+-                        &url,
+-                        local,
+-                        proxy,
+-                        &target_addr,
+-                        origin_danger_accept_invalid_cert,
+-                    )
+-                    .await?
++                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
++                    {
++                        log::warn!("Falling back to native-tls for HTTPS proxy server.");
++                        self.https_connect_nativetls_wrap_danger(
++                            &url,
++                            local,
++                            proxy,
++                            &target_addr,
++                            origin_danger_accept_invalid_cert,
++                        )
++                        .await?
++                    }
++                    #[cfg(any(target_os = "android", target_os = "ios"))]
++                    {
++                        log::error!(
++                            "Failed to connect to HTTPS proxy server with rustls: {:?}.",
++                            e
++                        );
++                        bail!(e)
++                    }
+                 } else {
+                     log::error!(
+                         "Failed to connect to HTTPS proxy server with native-tls: {:?}.",
+diff --git a/src/tcp.rs b/src/tcp.rs
+index 2296edb..ad5867f 100644
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -1,4 +1,4 @@
+-use crate::{bail, bytes_codec::BytesCodec, ResultType, config::Socks5Server, proxy::Proxy};
++use crate::{bail, bytes_codec::BytesCodec, config::Socks5Server, proxy::Proxy, ResultType};
+ use anyhow::Context as AnyhowCtx;
+ use bytes::{BufMut, Bytes, BytesMut};
+ use futures::{SinkExt, StreamExt};
+@@ -62,7 +62,10 @@ impl DerefMut for DynTcpStream {
+     }
+ }
+ 
+-pub(crate) fn new_socket(addr: std::net::SocketAddr, reuse: bool) -> Result<TcpSocket, std::io::Error> {
++pub(crate) fn new_socket(
++    addr: std::net::SocketAddr,
++    reuse: bool,
++) -> Result<TcpSocket, std::io::Error> {
+     let socket = match addr {
+         std::net::SocketAddr::V4(..) => TcpSocket::new_v4()?,
+         std::net::SocketAddr::V6(..) => TcpSocket::new_v6()?,
+diff --git a/src/webrtc.rs b/src/webrtc.rs
+index 8f3c410..5a52c44 100644
+--- a/src/webrtc.rs
++++ b/src/webrtc.rs
+@@ -586,10 +586,7 @@ mod tests {
+             "turn:example.com:3478"
+         );
+         assert_eq!(WebRTCStream::get_ice_servers().len(), 2);
+-        config::Config::set_option(
+-            "ice-servers".to_string(),
+-            "".to_string(),
+-        );
++        config::Config::set_option("ice-servers".to_string(), "".to_string());
+     }
+ 
+     #[test]
+diff --git a/src/websocket.rs b/src/websocket.rs
+index 9be3e89..914768b 100644
+--- a/src/websocket.rs
++++ b/src/websocket.rs
+@@ -20,6 +20,7 @@ use std::{
+     time::Duration,
+ };
+ use tokio::{net::TcpStream, time::timeout};
++#[cfg(not(any(target_os = "android", target_os = "ios")))]
+ use tokio_native_tls::native_tls::TlsConnector;
+ use tokio_tungstenite::{
+     connect_async_tls_with_config, tungstenite::protocol::Message as WsMessage, Connector,
+@@ -44,10 +45,26 @@ impl WsFramedStream {
+         match tls_type {
+             TlsType::Plain => Ok(Some(Connector::Plain)),
+             TlsType::NativeTls => {
+-                let connector = TlsConnector::builder()
+-                    .danger_accept_invalid_certs(danger_accept_invalid_certs)
+-                    .build()?;
+-                Ok(Some(Connector::NativeTls(connector)))
++                #[cfg(not(any(target_os = "android", target_os = "ios")))]
++                {
++                    let connector = TlsConnector::builder()
++                        .danger_accept_invalid_certs(danger_accept_invalid_certs)
++                        .build()?;
++                    Ok(Some(Connector::NativeTls(connector)))
++                }
++                #[cfg(any(target_os = "android", target_os = "ios"))]
++                {
++                    match crate::verifier::client_config(danger_accept_invalid_certs) {
++                        Ok(client_config) => Ok(Some(Connector::Rustls(Arc::new(client_config)))),
++                        Err(e) => {
++                            log::warn!(
++                                "Failed to get client config: {:?}, fallback to default connector",
++                                e
++                            );
++                            Ok(None)
++                        }
++                    }
++                }
+             }
+             TlsType::Rustls => {
+                 let connector = match crate::verifier::client_config(danger_accept_invalid_certs) {
+@@ -130,20 +147,32 @@ impl WsFramedStream {
+                     .await
+                 }
+                 (TlsType::Rustls, false, Some(_)) => {
+-                    log::warn!(
+-                        "WebSocket connection with rustls-tls failed, try native-tls: {}, {:?}",
+-                        url,
+-                        e
+-                    );
+-                    Self::try_connect(
+-                        url,
+-                        ms_timeout,
+-                        TlsType::NativeTls,
+-                        is_tls_type_cached,
+-                        original_danger_accept_invalid_certs,
+-                        original_danger_accept_invalid_certs,
+-                    )
+-                    .await
++                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
++                    {
++                        log::warn!(
++                            "WebSocket connection with rustls-tls failed, try native-tls: {}, {:?}",
++                            url,
++                            e
++                        );
++                        Self::try_connect(
++                            url,
++                            ms_timeout,
++                            TlsType::NativeTls,
++                            is_tls_type_cached,
++                            original_danger_accept_invalid_certs,
++                            original_danger_accept_invalid_certs,
++                        )
++                        .await
++                    }
++                    #[cfg(any(target_os = "android", target_os = "ios"))]
++                    {
++                        log::error!(
++                            "WebSocket connection failed with rustls-tls on mobile: {}, {:?}",
++                            url,
++                            e
++                        );
++                        bail!(e)
++                    }
+                 }
+                 (TlsType::NativeTls, _, None) => {
+                     log::warn!(
+@@ -183,6 +212,7 @@ impl WsFramedStream {
+         let stream = Self::connect(url.as_ref(), ms_timeout).await?;
+         let addr = match stream.get_ref() {
+             MaybeTlsStream::Plain(tcp) => tcp.peer_addr()?,
++            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+             MaybeTlsStream::NativeTls(tls) => tls.get_ref().get_ref().get_ref().peer_addr()?,
+             MaybeTlsStream::Rustls(tls) => tls.get_ref().0.peer_addr()?,
+             _ => return Err(Error::new(ErrorKind::Other, "Unsupported stream type").into()),
