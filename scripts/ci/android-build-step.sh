@@ -527,6 +527,39 @@ install_flutter() {
   publish_ci_file "${CI_ARTIFACT_DIR}/FLUTTER_VERSION.txt"
 }
 
+ensure_android_cmdline_tools() {
+  mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
+
+  local sdkmanager_bin="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+  local sdkmanager_probe=("${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --version)
+  local probe_log="${CI_ARTIFACT_DIR}/SDKMANAGER_PROBE.txt"
+
+  if [[ -x "${sdkmanager_bin}" ]]; then
+    if "${sdkmanager_probe[@]}" > "${probe_log}" 2>&1; then
+      echo "Reusing Android SDK cmdline-tools at ${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+      publish_ci_file "${probe_log}"
+      return 0
+    fi
+    echo "Cached Android SDK cmdline-tools failed sdkmanager --version:" >&2
+    cat "${probe_log}" >&2 || true
+  fi
+
+  echo "Android SDK cmdline-tools cache is missing or broken; reinstalling."
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  download_with_fallback "${tmp_dir}/cmdline-tools.zip" \
+    https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+  unzip -q "${tmp_dir}/cmdline-tools.zip" -d "${tmp_dir}"
+  rm -rf "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+  mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+  mv "${tmp_dir}/cmdline-tools/"* "${ANDROID_SDK_ROOT}/cmdline-tools/latest/"
+  rm -rf "${tmp_dir}"
+
+  test -x "${sdkmanager_bin}"
+  "${sdkmanager_probe[@]}" > "${probe_log}" 2>&1
+  publish_ci_file "${probe_log}"
+}
+
 install_android_sdk() {
   setup_common_env
   require_command curl
@@ -536,22 +569,11 @@ install_android_sdk() {
     return 1
   fi
 
-  mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
-  if [[ ! -x "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" ]]; then
-    local tmp_dir
-    tmp_dir="$(mktemp -d)"
-    curl -L --retry 5 --retry-delay 5 \
-      -o "${tmp_dir}/cmdline-tools.zip" \
-      https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-    unzip -q "${tmp_dir}/cmdline-tools.zip" -d "${tmp_dir}"
-    rm -rf "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
-    mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
-    mv "${tmp_dir}/cmdline-tools/"* "${ANDROID_SDK_ROOT}/cmdline-tools/latest/"
-    rm -rf "${tmp_dir}"
-  fi
+  ensure_android_cmdline_tools
 
-  yes | sdkmanager --licenses >/dev/null || true
-  sdkmanager \
+  local sdkmanager_bin="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+  yes | "${sdkmanager_bin}" --licenses >/dev/null || true
+  "${sdkmanager_bin}" \
     "platform-tools" \
     "platforms;android-34" \
     "build-tools;34.0.0" \
