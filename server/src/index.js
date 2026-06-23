@@ -1753,8 +1753,10 @@ function invitePage(payload, req) {
 
 function downloadPage(req) {
   const safeWindowsDownloadUrl = htmlEscape(config.downloadUrl);
+  const safeAndroidDownloadUrl = htmlEscape(config.androidDownloadUrl);
   const safeOfficialUrl = htmlEscape('https://kunqiongai.com/');
   const safeWindowsVersion = htmlEscape(config.download.version);
+  const safeAndroidVersion = htmlEscape(config.androidDownload.version);
   const safeIconUrl = htmlEscape(kqIconAssetPath);
   const safeIconAbsoluteUrl = htmlEscape(publicAssetUrl(req, kqIconAssetPath));
   return `<!doctype html>
@@ -1973,13 +1975,14 @@ function downloadPage(req) {
         <p class="desc">选择当前设备对应的版本。安装完成后，回到邀请页面点击“开始远控”，即可自动打开客户端并继续连接。</p>
         <div class="downloads">
           <a class="download" href="${safeWindowsDownloadUrl}" rel="noopener">下载 Windows 安装包</a>
+          <a class="download android" href="${safeAndroidDownloadUrl}" rel="noopener">下载 Android 安装包</a>
         </div>
         <ol class="steps">
           <li><span class="step-no">1</span><div><strong>下载安装</strong><span>运行安装包并按照向导完成安装。</span></div></li>
           <li><span class="step-no">2</span><div><strong>打开邀请链接</strong><span>回到协助邀请页面，点击“开始远控”。</span></div></li>
           <li><span class="step-no">3</span><div><strong>开始协助</strong><span>确认连接信息后即可进入远程桌面。</span></div></li>
         </ol>
-        <p class="version">Windows ${safeWindowsVersion}</p>
+        <p class="version">Windows ${safeWindowsVersion} · Android ${safeAndroidVersion}</p>
       </section>
     </main>
   </div>

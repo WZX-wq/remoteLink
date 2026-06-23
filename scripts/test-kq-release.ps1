@@ -2380,7 +2380,7 @@ Test-KqAndroidMobileSettingsNo2FA
     Test-SourceContains ".\server\src\index.js" "KQ_ANDROID_DOWNLOAD_URL" "server:download-android-config"
     Test-SourceContains ".\server\src\index.js" "application/vnd.android.package-archive" "server:download-android-content-type"
     Test-SourceContains ".\server\src\index.js" "app.get(['/download/android', '/api/download/android']" "server:download-android-route"
-    Test-SourceNotContains ".\server\src\index.js" $kqDownloadAndroidButton "server:download-android-button-hidden"
+    Test-SourceContains ".\server\src\index.js" $kqDownloadAndroidButton "server:download-android-button-visible"
     Test-SourceContains ".\server\src\index.js" "accept-ranges" "server:download-range-support"
     Test-SourceContains ".\server\src\index.js" "maxGlobalConcurrent" "server:download-global-limit"
     Test-SourceContains ".\server\src\index.js" "maxPerIpConcurrent" "server:download-ip-limit"
