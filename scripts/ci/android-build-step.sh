@@ -55,6 +55,11 @@ selected_env() {
     KQ_ANDROID_BUILD_KIND \
     KQ_ANDROID_BUILD_AAB \
     KQ_ANDROID_RUN_ANALYZE \
+    KQ_ANDROID_KEYSTORE_BASE64 \
+    KQ_ANDROID_KEYSTORE_PASSWORD \
+    KQ_ANDROID_KEY_ALIAS \
+    KQ_ANDROID_KEY_PASSWORD \
+    KQ_ANDROID_EXPECTED_CERT_MD5 \
     VCPKG_ROOT \
     CMAKE_VERSION \
     CMAKE_ROOT \
@@ -67,6 +72,45 @@ selected_env() {
     fi
     printf '%s=%s\n' "${key}" "${value}"
   done
+}
+
+prepare_android_signing() {
+  setup_common_env
+  if [[ "${BUILD_MODE}" != "release" ]]; then
+    return 0
+  fi
+
+  local keystore_b64="${KQ_ANDROID_KEYSTORE_BASE64:-}"
+  if [[ -z "${keystore_b64}" ]]; then
+    echo "KQ_ANDROID_KEYSTORE_BASE64 is required for release signing." >&2
+    return 1
+  fi
+
+  local keystore_password="${KQ_ANDROID_KEYSTORE_PASSWORD:-android}"
+  local key_alias="${KQ_ANDROID_KEY_ALIAS:-androiddebugkey}"
+  local key_password="${KQ_ANDROID_KEY_PASSWORD:-${keystore_password}}"
+  local keystore_path="flutter/android/kq-release.keystore"
+  local key_properties_path="flutter/android/key.properties"
+
+  mkdir -p "$(dirname "${keystore_path}")"
+  printf '%s' "${keystore_b64}" | base64 --decode > "${keystore_path}"
+  cat > "${key_properties_path}" <<EOF
+storeFile=kq-release.keystore
+storePassword=${keystore_password}
+keyAlias=${key_alias}
+keyPassword=${key_password}
+EOF
+  echo "Prepared Android release signing from KQ_ANDROID_KEYSTORE_BASE64."
+}
+
+find_apksigner() {
+  local apksigner_path
+  apksigner_path="$(find "${ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort | tail -n 1)"
+  if [[ -z "${apksigner_path}" ]]; then
+    echo "Unable to locate apksigner under ${ANDROID_SDK_ROOT}/build-tools" >&2
+    return 1
+  fi
+  echo "${apksigner_path}"
 }
 
 tool_versions() {
@@ -751,6 +795,7 @@ build_flutter_artifacts() {
   setup_common_env
   source_build_env
   require_command flutter
+  prepare_android_signing
   pushd flutter
   if [[ "${KQ_ANDROID_CLEAN_FLUTTER_BUILD:-Y}" == "Y" ]]; then
     echo "Cleaning Flutter build outputs to avoid stale Android/Kotlin transforms."
@@ -783,6 +828,20 @@ verify_artifacts() {
   local apk_path="artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.apk"
   local aab_path="artifacts/Kunqiong-Remote-Desktop-Android-arm64-v8a-${BUILD_MODE}.aab"
   test -s "${apk_path}"
+  if [[ "${BUILD_MODE}" == "release" ]]; then
+    require_command find
+    local apksigner
+    apksigner="$(find_apksigner)"
+    "${apksigner}" verify --print-certs "${apk_path}" | tee "${CI_ARTIFACT_DIR}/APK_CERTS.txt"
+    local expected_md5="${KQ_ANDROID_EXPECTED_CERT_MD5:-}"
+    if [[ -z "${expected_md5}" ]]; then
+      echo "KQ_ANDROID_EXPECTED_CERT_MD5 is required for release artifact verification." >&2
+      return 1
+    fi
+    grep -qi "Signer #1 certificate MD5 digest: ${expected_md5}" "${CI_ARTIFACT_DIR}/APK_CERTS.txt"
+    publish_ci_file "${CI_ARTIFACT_DIR}/APK_CERTS.txt"
+    echo "KQ Android release signing cert MD5 verified: ${expected_md5}"
+  fi
 
   jar tf "${apk_path}" > "${CI_ARTIFACT_DIR}/APK_FILES.txt"
 

@@ -42,6 +42,11 @@ jobs:
       FLUTTER_ROOT: /opt/artifacts/flutter/3.24.5
       CI_ARTIFACT_DIR: artifacts/ci
       PUBLIC_CI_DIR: /www/wwwroot/KQromoteLink/android/ci
+      KQ_ANDROID_KEYSTORE_BASE64: ${{ secrets.KQ_ANDROID_KEYSTORE_BASE64 }}
+      KQ_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KQ_ANDROID_KEYSTORE_PASSWORD }}
+      KQ_ANDROID_KEY_ALIAS: ${{ secrets.KQ_ANDROID_KEY_ALIAS }}
+      KQ_ANDROID_KEY_PASSWORD: ${{ secrets.KQ_ANDROID_KEY_PASSWORD }}
+      KQ_ANDROID_EXPECTED_CERT_MD5: "037ec2069ddb32f065626cbb2b17dba9"
 
     steps:
       - name: Checkout

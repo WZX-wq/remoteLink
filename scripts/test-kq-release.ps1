@@ -367,6 +367,15 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-launch-loading" "FAIL" "mobile membership payment lacks a visible launch loading animation"
     }
+    if ($content -match 'Future<bool> ensurePaymentLogin\(\) async' -and
+        $content -match '(?s)if \(!user\.isLogin\)\s*\{\s*final loggedIn = await loginDialog\(\);' -and
+        $content -match "loggedIn == true && user\.isLogin" -and
+        $content -match 'if \(!await ensurePaymentLogin\(\)\) return;' -and
+        $content -match "statusText = translate\('Please log in first'\)") {
+        Add-Check "android:mobile-payment-login-preflight" "PASS" "mobile payment logs in before creating a membership order"
+    } else {
+        Add-Check "android:mobile-payment-login-preflight" "FAIL" "mobile payment can still create an order with stale or missing login state"
+    }
     if ($server -match 'function normalizeMemberOrderPaymentLinks\(order\)' -and
         $server -match 'wechat_app_url' -and
         $server -match 'alipay_app_url' -and
@@ -2401,6 +2410,11 @@ Test-KqAndroidMobileSettingsNo2FA
     Test-SourceContains ".\scripts\ci\android-build-step.sh" "ensure_android_cmdline_tools()" "android:sdkmanager-cache-validation-helper"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" 'sdkmanager_probe=("${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --version)' "android:sdkmanager-cache-probe"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" "Android SDK cmdline-tools cache is missing or broken; reinstalling." "android:sdkmanager-cache-reinstall-log"
+    Test-SourceContains ".\.gitea\workflows\android-build.yml" 'KQ_ANDROID_KEYSTORE_BASE64: ${{ secrets.KQ_ANDROID_KEYSTORE_BASE64 }}' "android:release-signing-keystore-secret"
+    Test-SourceContains ".\.gitea\workflows\android-build.yml" 'KQ_ANDROID_EXPECTED_CERT_MD5: "037ec2069ddb32f065626cbb2b17dba9"' "android:release-signing-expected-md5"
+    Test-SourceContains ".\scripts\ci\android-build-step.sh" "prepare_android_signing()" "android:release-signing-setup-helper"
+    Test-SourceContains ".\scripts\ci\android-build-step.sh" "KQ_ANDROID_KEYSTORE_BASE64" "android:release-signing-secret-env"
+    Test-SourceContains ".\scripts\ci\android-build-step.sh" "KQ Android release signing cert MD5" "android:release-signing-md5-verify"
     Test-SourceContains ".\patches\hbb_common\kq-local-changes.patch" "pub fn kq_daily_password() -> String" "android:hbb-common-patch-password"
     Test-SourceContains ".\scripts\build-windows-flutter.ps1" "kq-local-changes.patch" "windows:hbb-common-patch-build"
     Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT" "deploy:download-limit-env"

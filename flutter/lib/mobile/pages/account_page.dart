@@ -342,8 +342,25 @@ class _AccountPageState extends State<AccountPage> {
               });
             }
 
+            Future<bool> ensurePaymentLogin() async {
+              if (user.isLogin) return true;
+              final loggedIn = await loginDialog();
+              if (!alive) return false;
+              if (loggedIn == true && user.isLogin) {
+                await user.refreshMembership(showError: true);
+                return true;
+              }
+              if (!alive) return false;
+              setSheetState(() {
+                statusText = translate('Please log in first');
+                statusIsError = true;
+              });
+              return false;
+            }
+
             Future<void> createOrder() async {
               if (creatingOrder) return;
+              if (!await ensurePaymentLogin()) return;
               setSheetState(() {
                 creatingOrder = true;
                 order = null;
