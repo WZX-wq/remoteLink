@@ -261,6 +261,44 @@ merge_optional_alipay_env() {
   rm -f "${tmp_env}"
 }
 
+source_file_has_env_pattern() {
+  local source_file="$1"
+  local pattern="$2"
+  [[ -s "${source_file}" ]] && grep -Eq "${pattern}" "${source_file}"
+}
+
+merge_env_file_entries_by_pattern() {
+  local env_file="$1"
+  local source_file="$2"
+  local pattern="$3"
+  local tmp_env
+  tmp_env="$(mktemp)"
+  if [[ -s "${env_file}" ]]; then
+    "${SUDO[@]}" awk -v pat="${pattern}" '$0 !~ pat' "${env_file}" > "${tmp_env}" || true
+  fi
+  awk -v pat="${pattern}" '$0 ~ pat' "${source_file}" >> "${tmp_env}" || true
+  "${SUDO[@]}" cp "${tmp_env}" "${env_file}"
+  "${SUDO[@]}" chmod 600 "${env_file}"
+  rm -f "${tmp_env}"
+}
+
+merge_decrypted_optional_payment_env() {
+  local env_file="$1"
+  local source_file="$2"
+  local merged="N"
+  if source_file_has_env_pattern "${source_file}" "${KQ_WECHAT_PAY_ENV_PATTERN}"; then
+    merge_env_file_entries_by_pattern "${env_file}" "${source_file}" "${KQ_WECHAT_PAY_ENV_PATTERN}"
+    merged="Y"
+  fi
+  if source_file_has_env_pattern "${source_file}" "${KQ_ALIPAY_ENV_PATTERN}"; then
+    merge_env_file_entries_by_pattern "${env_file}" "${source_file}" "${KQ_ALIPAY_ENV_PATTERN}"
+    merged="Y"
+  fi
+  if [[ "${merged}" == "Y" ]]; then
+    echo "Merged decrypted optional KQ API env into ${env_file}."
+  fi
+}
+
 ensure_api_env_key_pair() {
   local should_print="${1:-Y}"
   if [[ -s "${KQ_API_ENV_PRIVATE_KEY}" && -s "${KQ_API_ENV_PUBLIC_KEY}" ]]; then
@@ -284,17 +322,66 @@ ensure_api_env_key_pair() {
   fi
 }
 
+decrypt_api_env_cipher_file() {
+  local cipher_file="$1"
+  local plain_file="$2"
+  if "${SUDO[@]}" openssl pkeyutl -decrypt -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
+      -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+      -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if "${SUDO[@]}" openssl pkeyutl -decrypt -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
+      -pkeyopt rsa_padding_mode:oaep \
+      -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if "${SUDO[@]}" openssl rsautl -decrypt -oaep -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
+      -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+decrypt_chunked_api_env_file() {
+  local enc_file="$1"
+  local plain_file="$2"
+  local line cipher_file chunk_file
+  : > "${plain_file}"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "${line}" || "${line}" == "KQ_API_ENV_ENC_CHUNKED_V1" ]] && continue
+    cipher_file="$(mktemp)"
+    chunk_file="$(mktemp)"
+    if ! printf '%s' "${line}" | base64 -d > "${cipher_file}" 2>/dev/null; then
+      echo "Could not base64-decode encrypted KQ API env chunk." >&2
+      rm -f "${cipher_file}" "${chunk_file}"
+      return 1
+    fi
+    if ! decrypt_api_env_cipher_file "${cipher_file}" "${chunk_file}"; then
+      echo "Could not decrypt encrypted KQ API env chunk with the server-local private key." >&2
+      rm -f "${cipher_file}" "${chunk_file}"
+      return 1
+    fi
+    cat "${chunk_file}" >> "${plain_file}"
+    rm -f "${cipher_file}" "${chunk_file}"
+  done < "${enc_file}"
+}
+
 decrypt_api_env_file() {
   local env_file="${INSTALL_DIR}/.env"
+  local runtime_db_env="N"
+  ensure_api_env_key_pair Y || true
   if [[ -n "${KQ_DB_HOST:-}" && -n "${KQ_DB_USER:-}" && -n "${KQ_DB_PASSWORD:-}" ]]; then
-    return 0
+    runtime_db_env="Y"
   fi
 
   if [[ ! -s "${KQ_API_ENV_ENC_FILE}" ]]; then
+    if [[ "${runtime_db_env}" == "Y" ]]; then
+      return 0
+    fi
     if env_file_has_required_db_config "${env_file}"; then
       return 0
     fi
-    ensure_api_env_key_pair Y || true
     echo "No encrypted KQ API env file found at ${KQ_API_ENV_ENC_FILE}; database-backed API will be skipped until it is added."
     return 0
   fi
@@ -304,39 +391,50 @@ decrypt_api_env_file() {
   cipher_file="$(mktemp)"
   plain_file="$(mktemp)"
 
-  if ! base64 -d "${KQ_API_ENV_ENC_FILE}" > "${cipher_file}" 2>/dev/null; then
-    echo "Could not base64-decode encrypted KQ API env file: ${KQ_API_ENV_ENC_FILE}" >&2
-    rm -f "${cipher_file}" "${plain_file}"
-    return 1
-  fi
-
-  if ! "${SUDO[@]}" openssl pkeyutl -decrypt -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
-      -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
-      -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
-    if ! "${SUDO[@]}" openssl pkeyutl -decrypt -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
-        -pkeyopt rsa_padding_mode:oaep \
-        -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
-      if ! "${SUDO[@]}" openssl rsautl -decrypt -oaep -inkey "${KQ_API_ENV_PRIVATE_KEY}" \
-          -in "${cipher_file}" -out "${plain_file}" >/dev/null 2>&1; then
-        echo "Could not decrypt ${KQ_API_ENV_ENC_FILE} with the server-local private key." >&2
-        rm -f "${cipher_file}" "${plain_file}"
-        return 1
-      fi
-    fi
-  fi
-
-  for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
-    if ! grep -Eq "^${name}=.+" "${plain_file}"; then
-      echo "Decrypted KQ API env is missing ${name}." >&2
+  if head -n 1 "${KQ_API_ENV_ENC_FILE}" | sed 's/\r$//' | grep -qx 'KQ_API_ENV_ENC_CHUNKED_V1'; then
+    if ! decrypt_chunked_api_env_file "${KQ_API_ENV_ENC_FILE}" "${plain_file}"; then
       rm -f "${cipher_file}" "${plain_file}"
       return 1
     fi
-  done
+  else
+    if ! base64 -d "${KQ_API_ENV_ENC_FILE}" > "${cipher_file}" 2>/dev/null; then
+      echo "Could not base64-decode encrypted KQ API env file: ${KQ_API_ENV_ENC_FILE}" >&2
+      rm -f "${cipher_file}" "${plain_file}"
+      return 1
+    fi
+    if ! decrypt_api_env_cipher_file "${cipher_file}" "${plain_file}"; then
+      echo "Could not decrypt ${KQ_API_ENV_ENC_FILE} with the server-local private key." >&2
+      rm -f "${cipher_file}" "${plain_file}"
+      return 1
+    fi
+  fi
 
-  "${SUDO[@]}" cp "${plain_file}" "${env_file}"
-  "${SUDO[@]}" chmod 600 "${env_file}"
+  local plain_file_has_required_db_config="N"
+  if env_file_has_required_db_config "${plain_file}"; then
+    plain_file_has_required_db_config="Y"
+  fi
+
+  if [[ "${plain_file_has_required_db_config}" == "Y" ]]; then
+    "${SUDO[@]}" cp "${plain_file}" "${env_file}"
+    "${SUDO[@]}" chmod 600 "${env_file}"
+    echo "Installed decrypted KQ API env to ${env_file}."
+  elif env_file_has_required_db_config "${env_file}" && (
+      source_file_has_env_pattern "${plain_file}" "${KQ_WECHAT_PAY_ENV_PATTERN}" ||
+      source_file_has_env_pattern "${plain_file}" "${KQ_ALIPAY_ENV_PATTERN}"
+    ); then
+    merge_decrypted_optional_payment_env "${env_file}" "${plain_file}"
+  elif [[ "${runtime_db_env}" == "Y" ]]; then
+    merge_decrypted_optional_payment_env "${env_file}" "${plain_file}"
+  else
+    for name in KQ_DB_HOST KQ_DB_USER KQ_DB_PASSWORD; do
+      if ! grep -Eq "^${name}=.+" "${plain_file}"; then
+        echo "Decrypted KQ API env is missing ${name}." >&2
+      fi
+    done
+    rm -f "${cipher_file}" "${plain_file}"
+    return 1
+  fi
   rm -f "${cipher_file}" "${plain_file}"
-  echo "Installed decrypted KQ API env to ${env_file}."
 }
 
 write_compose_env() {

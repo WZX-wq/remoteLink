@@ -570,6 +570,12 @@ function Test-KqAndroidMobilePaymentMethod {
     if ($deployScript -match 'KQ_ALIPAY_ENV_NAMES' -and
         $deployScript -match 'print_optional_alipay_env' -and
         $deployScript -match 'merge_optional_alipay_env' -and
+        $deployScript -match 'merge_decrypted_optional_payment_env' -and
+        $deployScript -match 'Merged decrypted optional KQ API env' -and
+        $deployScript -match 'KQ_API_ENV_ENC_CHUNKED_V1' -and
+        $deployScript -match 'decrypt_chunked_api_env_file' -and
+        $deployScript -match 'ensure_api_env_key_pair Y' -and
+        $deployScript -match 'plain_file_has_required_db_config' -and
         $deployScript -match 'KQ_ALIPAY_PRIVATE_KEY_PATH' -and
         $deployScript -match 'KQ_ALIPAY_NOTIFY_URL' -and
         $compose -match 'KQ_ALIPAY_APP_ID' -and
