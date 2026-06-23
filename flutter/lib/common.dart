@@ -4010,10 +4010,27 @@ Widget loadIcon(double size) {
       width: size,
       height: size,
       fit: BoxFit.contain,
-      errorBuilder: (ctx, error, stackTrace) => SizedBox(
-            width: size,
-            height: size,
-          ));
+      errorBuilder: (ctx, error, stackTrace) => _kqFallbackAppIcon(size));
+}
+
+Widget _kqFallbackAppIcon(double size) {
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(size * 0.24),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF1E88FF), Color(0xFF0F66C2)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+    ),
+    child: Icon(
+      Icons.desktop_windows_rounded,
+      size: size * 0.58,
+      color: Colors.white,
+    ),
+  );
 }
 
 var imcomingOnlyHomeSize = Size(280, 300);

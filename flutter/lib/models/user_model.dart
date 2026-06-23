@@ -55,7 +55,8 @@ class UserModel {
   final RxString memberLastError = ''.obs;
   final RxList<KqMemberPackage> memberPackages = <KqMemberPackage>[].obs;
   int _membershipRefreshSerial = 0;
-  bool get isLogin => userName.isNotEmpty;
+  bool get hasLoginCredential => _memberTokenCandidates().isNotEmpty;
+  bool get isLogin => userName.isNotEmpty || hasLoginCredential;
   bool get canUseMemberRemoteQuality => isMember.value;
   String get remoteResolutionSelection {
     final saved = bind.mainGetLocalOption(key: remoteResolutionTierKey).trim();

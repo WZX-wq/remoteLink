@@ -84,7 +84,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     Provider.of<FfiModel>(context);
     return Obx(() {
       final user = gFFI.userModel;
-      final isLogin = user.userName.value.isNotEmpty;
+      final isLogin = user.isLogin;
       return CustomScrollView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [

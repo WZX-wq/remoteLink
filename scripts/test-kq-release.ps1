@@ -2416,6 +2416,10 @@ Test-KqAndroidMobileSettingsNo2FA
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "/soft_desktop/get_user_info" "login:user-info-api"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "/logout" "login:logout-api"
     Test-SourceContains ".\flutter\lib\common\kq_oauth_io.dart" "parseKqOauthLoginPayload(" "login:user-info-token-adapter"
+    Test-SourceContains ".\flutter\lib\models\user_model.dart" "bool get hasLoginCredential => _memberTokenCandidates().isNotEmpty;" "login:token-backed-login-state"
+    Test-SourceContains ".\flutter\lib\models\user_model.dart" "bool get isLogin => userName.isNotEmpty || hasLoginCredential;" "login:is-login-uses-token"
+    Test-SourceContains ".\flutter\lib\common.dart" "Widget _kqFallbackAppIcon(double size)" "login:icon-visible-fallback"
+    Test-SourceNotContains ".\flutter\lib\common.dart" "errorBuilder: (ctx, error, stackTrace) => SizedBox(" "login:icon-no-blank-fallback"
     Test-BuiltInPrivateServerDefaults
 }
 

@@ -616,7 +616,7 @@ class _AccountPageState extends State<AccountPage> {
     Provider.of<FfiModel>(context);
     return Obx(() {
       final user = gFFI.userModel;
-      final isLogin = user.userName.value.isNotEmpty;
+      final isLogin = user.isLogin;
       final avatar = bind.mainResolveAvatarUrl(avatar: user.avatar.value);
       return ListView(
         padding: const EdgeInsets.fromLTRB(22, 10, 22, 24),
