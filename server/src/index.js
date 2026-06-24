@@ -2475,17 +2475,6 @@ app.post('/api/member/orders', async (req, res, next) => {
         return;
       }
     }
-    if (payType === '2' && clientPlatform === 'android') {
-      const appOrder = await createAlipayAppMemberOrder({
-        ctx,
-        packageId: Number(packageId),
-      });
-      if (!appOrder) {
-        throw Object.assign(new Error('Alipay APP Pay is not configured'), { statusCode: 500 });
-      }
-      res.json({ ok: true, order: appOrder });
-      return;
-    }
     const order = normalizeMemberOrderPaymentLinks(await postApiWeb('create_web_member_order', ctx.token, {
       package_id: packageId,
       pay_type: payType,

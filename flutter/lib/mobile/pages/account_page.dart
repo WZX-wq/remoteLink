@@ -9,7 +9,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../common.dart';
-import '../../common/kq_payment_result.dart';
 import '../../common/kq_theme.dart';
 import '../../common/widgets/login.dart';
 import '../../consts.dart';
@@ -26,14 +25,11 @@ enum _KqPaymentLaunchState { opened, cancelled, failed, unavailable }
 
 class _KqPaymentLaunchResult {
   final _KqPaymentLaunchState state;
-  final String memo;
 
-  const _KqPaymentLaunchResult(this.state, {this.memo = ''});
+  const _KqPaymentLaunchResult(this.state);
 
   String failureMessage(String Function(String) text) {
-    final detail = memo.trim();
-    if (detail.isEmpty) return text('Payment was not completed');
-    return '${text('Payment was not completed')}: $detail';
+    return text('Payment was not completed');
   }
 }
 
@@ -166,16 +162,6 @@ class _AccountPageState extends State<AccountPage> {
       return kqWechatPaymentLaunchUrlFromText(payload);
     }
 
-    String? alipayAppOrderInfoFromText(String value) {
-      final text = value.trim();
-      if (text.isEmpty || text.toLowerCase().contains('<html')) return null;
-      if (text.contains('method=alipay.trade.app.pay') ||
-          text.contains('product_code=QUICK_MSECURITY_PAY')) {
-        return text;
-      }
-      return null;
-    }
-
     Future<bool> openAlipayHtmlCheckout(KqMemberOrder order) async {
       final html = order.alipaySubmitHtml.trim();
       if (html.isEmpty) return false;
@@ -226,39 +212,8 @@ class _AccountPageState extends State<AccountPage> {
 
     Future<_KqPaymentLaunchResult> openAlipayPaymentApp(
         KqMemberOrder order) async {
-      final alipayAppOrderInfos = order
-          .appLaunchUrlsForPayType(2)
-          .map(alipayAppOrderInfoFromText)
-          .whereType<String>()
-          .toList();
-      for (final orderInfo in alipayAppOrderInfos) {
-        try {
-          if (isAndroid) {
-            final result = await _kqAndroidPaymentChannel.invokeMethod(
-              AndroidChannel.kOpenAlipayOrder,
-              orderInfo,
-            );
-            debugPrint('KQ Alipay SDK result: $result');
-            if (result is Map) {
-              final status = (result['resultStatus'] ?? '').toString();
-              final memo = kqAlipayPaymentFailureDetail(result);
-              if (status == '9000' || status == '8000' || status == '6004') {
-                return const _KqPaymentLaunchResult(
-                    _KqPaymentLaunchState.opened);
-              }
-              if (status == '6001') {
-                return _KqPaymentLaunchResult(_KqPaymentLaunchState.cancelled,
-                    memo: memo);
-              }
-              if (status.isNotEmpty) {
-                return _KqPaymentLaunchResult(_KqPaymentLaunchState.failed,
-                    memo: memo);
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('KQ Alipay SDK launch failed: $e');
-        }
+      if (await openAlipayHtmlCheckout(order)) {
+        return const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened);
       }
       for (final url in order.appLaunchUrlsForPayType(2)) {
         final lower = url.trim().toLowerCase();
@@ -272,9 +227,7 @@ class _AccountPageState extends State<AccountPage> {
           return const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened);
         }
       }
-      return await openAlipayHtmlCheckout(order)
-          ? const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened)
-          : const _KqPaymentLaunchResult(_KqPaymentLaunchState.unavailable);
+      return const _KqPaymentLaunchResult(_KqPaymentLaunchState.unavailable);
     }
 
     Future<bool> openWechatPaymentApp(KqMemberOrder order) async {

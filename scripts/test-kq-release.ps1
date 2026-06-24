@@ -386,23 +386,22 @@ function Test-KqAndroidMobilePaymentMethod {
     }
     if ($content -match 'class _KqPaymentLaunchResult' -and
         $content -match 'String failureMessage\(' -and
-        $content -match 'kqAlipayPaymentFailureDetail\(result\)' -and
-        $content -match 'memo:\s*memo' -and
+        $content -notmatch 'kqAlipayPaymentFailureDetail\(result\)' -and
+        $content -notmatch 'AndroidChannel\.kOpenAlipayOrder' -and
         $content -match 'launchResult\.failureMessage\(_mineText\)') {
-        Add-Check "android:mobile-payment-alipay-failure-memo" "PASS" "Alipay SDK failure memo is preserved for diagnosis"
+        Add-Check "android:mobile-payment-alipay-no-sdk-failure-memo" "PASS" "Alipay web-form flow no longer depends on SDK failure memo parsing"
     } else {
-        Add-Check "android:mobile-payment-alipay-failure-memo" "FAIL" "Alipay SDK failure memo can be lost behind a generic failure message"
+        Add-Check "android:mobile-payment-alipay-no-sdk-failure-memo" "FAIL" "Alipay web-form flow still depends on SDK failure memo parsing"
     }
-    if ($content -match "import '../../common/kq_payment_result\.dart';" -and
-        $content -match 'kqAlipayPaymentFailureDetail\(result\)' -and
+    if ($content -match 'Future<bool> openAlipayHtmlCheckout\(KqMemberOrder order\)' -and
+        $content -match 'AndroidChannel\.kOpenAlipayHtml' -and
         $server -notmatch 'body:\s*`package_id=') {
-        Add-Check "android:mobile-payment-alipay-actionable-error" "PASS" "Alipay SDK API error details are surfaced and App Pay biz_content avoids optional body fields"
+        Add-Check "android:mobile-payment-alipay-web-form-submit" "PASS" "Alipay uses submitted checkout HTML instead of URL-only handoff"
     } else {
-        Add-Check "android:mobile-payment-alipay-actionable-error" "FAIL" "Alipay SDK API errors can be hidden or App Pay biz_content still includes optional body fields"
+        Add-Check "android:mobile-payment-alipay-web-form-submit" "FAIL" "Alipay checkout HTML can be bypassed or degraded to URL-only handoff"
     }
     if ($content -match 'enum\s+_KqPaymentLaunchState' -and
         $content -match '_KqPaymentLaunchState\.cancelled' -and
-        $content -match "status == '6001'" -and
         $content -match "_mineText\('Payment cancelled'\)" -and
         $content -match "showToast\(_mineText\('Payment cancelled'\)\)" -and
         $content -match '(?s)if \(launchState == _KqPaymentLaunchState\.opened\)\s*\{\s*startPolling\(nextOrder\);\s*\}') {
@@ -564,57 +563,36 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-launches-native-app" "FAIL" "mobile payment does not first launch native payment apps"
     }
-    if ($gradle -match 'com\.alipay\.sdk:alipaysdk-android:15\.8\.42' -and
-        $commonKt -match 'import com\.alipay\.sdk\.app\.PayTask' -and
-        $commonKt -match 'PayTask\(activity\)\.payV2\(orderInfo,\s*true\)' -and
-        $activity -match 'OPEN_ALIPAY_ORDER' -and
-        $activity -match 'Thread\s*\{' -and
-        $activity -match 'runOnUiThread\s*\{' -and
-        $consts -match 'kOpenAlipayOrder\s*=\s*"open_alipay_order"') {
-        Add-Check "android:mobile-payment-alipay-sdk-payv2" "PASS" "Android uses the official Alipay SDK payV2 path for App order strings"
+    if ($content -notmatch 'AndroidChannel\.kOpenAlipayOrder' -and
+        $content -notmatch 'kqAlipayPaymentFailureDetail' -and
+        $content -notmatch 'alipayAppOrderInfos') {
+        Add-Check "android:mobile-payment-alipay-no-app-pay-sdk" "PASS" "Android Alipay no longer calls the App Pay SDK path"
     } else {
-        Add-Check "android:mobile-payment-alipay-sdk-payv2" "FAIL" "Android does not use the official Alipay SDK payV2 path"
+        Add-Check "android:mobile-payment-alipay-no-app-pay-sdk" "FAIL" "Android Alipay can still call the App Pay SDK path"
     }
     if ($content -match '(?s)Future<_KqPaymentLaunchResult>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
-        $content -match 'AndroidChannel\.kOpenAlipayOrder' -and
-        $content -match 'alipayAppOrderInfos' -and
-        $content -match 'openAlipayHtmlCheckout\(order\)' -and
+        $content -match '(?s)if \(await openAlipayHtmlCheckout\(order\)\)\s*\{\s*return const _KqPaymentLaunchResult\(_KqPaymentLaunchState\.opened\);\s*\}' -and
         $content -match 'AndroidChannel\.kOpenAlipayHtml' -and
         $content -notmatch 'appId=20000125&orderSuffix=' -and
         $content -notmatch 'appId=20000067&url=') {
-        Add-Check "android:mobile-payment-alipay-real-app-or-html" "PASS" "Alipay launches real App order strings or submits the checkout HTML fallback"
+        Add-Check "android:mobile-payment-alipay-html-first" "PASS" "Alipay submits the checkout HTML before considering app-link fallbacks"
     } else {
-        Add-Check "android:mobile-payment-alipay-real-app-or-html" "FAIL" "Alipay still relies on synthetic scheme URLs or lacks HTML checkout fallback"
+        Add-Check "android:mobile-payment-alipay-html-first" "FAIL" "Alipay does not prioritize submitted checkout HTML"
     }
-    if ($server -match 'function getAlipayPayConfig\(\)' -and
-        $server -match 'function createAlipayAppMemberOrder' -and
-        $server -match 'function queryAlipayAppOrderStatus' -and
-        $server -match 'function handleAlipayPayNotification' -and
-        $server -match "payType === '2' && clientPlatform === 'android'" -and
-        $server -match "payment_provider:\s*'alipay_app'" -and
-        $server -match 'KQ_ALIPAY_APP_ID' -and
-        $server -match 'KQ_ALIPAY_PRIVATE_KEY' -and
-        $server -match 'KQ_ALIPAY_PUBLIC_KEY' -and
-        $alipay -match 'buildAlipayAppPayOrderInfo' -and
-        $alipay -match 'alipay\.trade\.app\.pay' -and
-        $alipay -match 'alipay\.trade\.query' -and
-        $alipay -match 'verifyAlipaySignature' -and
-        $alipay -match 'verifyAlipayApiResponseSignature' -and
-        $alipay -match 'includeSignType = options\.includeSignType !== false' -and
-        $alipay -match 'extractRawJsonObjectValue' -and
-        $server -match 'verifyAlipaySignature\(body, cfg\.publicKey, \{ includeSignType: false \}\)') {
-        Add-Check "android:mobile-payment-alipay-server-app-pay" "PASS" "project API creates and confirms Android Alipay App Pay orders when merchant credentials are configured"
+    if ($server -notmatch "payType === '2' && clientPlatform === 'android'" -and
+        $server -notmatch 'await createAlipayAppMemberOrder\(\{' -and
+        $server -match "postApiWeb\('create_web_member_order'") {
+        Add-Check "android:mobile-payment-alipay-server-web-order" "PASS" "Android Alipay orders use the upstream web member order instead of App Pay"
     } else {
-        Add-Check "android:mobile-payment-alipay-server-app-pay" "FAIL" "project API still depends on web/QR payloads instead of creating Alipay App Pay orders"
+        Add-Check "android:mobile-payment-alipay-server-web-order" "FAIL" "Android Alipay can still be forced onto server App Pay orders"
     }
-    if ($server -match "(?s)if \(payType === '2' && clientPlatform === 'android'\).*?if \(!appOrder\)\s*\{.*?Alipay APP Pay is not configured.*?throw" -and
-        $model -match 'final requiresProjectAppPay = isAndroid && payType == 2;' -and
-        $model -match 'forceProjectOrder: requiresProjectAppPay' -and
-        $model -match '(?s)if \(forceProjectOrder\)\s*\{\s*rethrow;\s*\}' -and
-        $model -match "(?s)if \(forceProjectOrder\)\s*\{\s*throw translate\('Failed to create membership order'\);") {
-        Add-Check "android:mobile-payment-alipay-no-qr-fallback" "PASS" "Android Alipay App Pay fails visibly instead of falling back to web/QR orders"
+    if ($model -notmatch 'requiresProjectAppPay' -and
+        $model -notmatch 'forceProjectOrder:\s*requiresProjectAppPay' -and
+        $model -match "create_web_member_order" -and
+        $model -match "client_platform': isAndroid \? 'android' : 'desktop'") {
+        Add-Check "android:mobile-payment-alipay-web-order-fallback" "PASS" "Android Alipay may fall back to the normal web member order flow"
     } else {
-        Add-Check "android:mobile-payment-alipay-no-qr-fallback" "FAIL" "Android Alipay can still silently fall back to web/QR orders"
+        Add-Check "android:mobile-payment-alipay-web-order-fallback" "FAIL" "Android Alipay still forces App Pay order creation"
     }
     if ($deployScript -match 'KQ_ALIPAY_ENV_NAMES' -and
         $deployScript -match 'print_optional_alipay_env' -and

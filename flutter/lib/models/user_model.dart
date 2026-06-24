@@ -734,20 +734,15 @@ class UserModel {
       throw translate('Please log in first');
     }
     Object? lastError;
-    final requiresProjectAppPay = isAndroid && payType == 2;
     for (final token in tokens) {
       try {
         final projectOrder = await _createProjectMemberOrder(
           token: token,
           packageId: packageId,
           payType: payType,
-          forceProjectOrder: requiresProjectAppPay,
         );
         if (projectOrder != null) {
           return projectOrder;
-        }
-        if (requiresProjectAppPay) {
-          throw translate('Failed to create membership order');
         }
 
         final response = await _postMemberApi(
