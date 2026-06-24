@@ -77,6 +77,30 @@ test('builds a signed Alipay App Pay order string for the Android SDK', () => {
   );
 });
 
+test('keeps Alipay App Pay biz_content to required cashier fields', () => {
+  const keys = createTestKeys();
+  const orderInfo = buildAlipayAppPayOrderInfo({
+    appId: '2021006163671041',
+    privateKey: keys.privateKey,
+    notifyUrl: 'https://api.example.test/alipay/notify',
+    outTradeNo: 'KQORDER123',
+    totalAmount: 9.9,
+    subject: 'Kunqiong Remote Desktop VIP',
+    body: 'package_id=1;user_id=2',
+    timestamp: '2026-06-23 10:11:12',
+  });
+
+  const params = Object.fromEntries(new URLSearchParams(orderInfo));
+  const bizContent = JSON.parse(params.biz_content);
+
+  assert.deepEqual(Object.keys(bizContent).sort(), [
+    'out_trade_no',
+    'product_code',
+    'subject',
+    'total_amount',
+  ]);
+});
+
 test('signs and verifies flat Alipay notify payloads', () => {
   const keys = createTestKeys();
   const payload = {

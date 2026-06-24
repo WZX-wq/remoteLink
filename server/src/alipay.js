@@ -176,7 +176,6 @@ export function buildAlipayAppPayOrderInfo({
   outTradeNo,
   totalAmount,
   subject,
-  body = '',
   timestamp = new Date(),
 }) {
   const bizContent = {
@@ -187,9 +186,6 @@ export function buildAlipayAppPayOrderInfo({
   };
   if (!bizContent.out_trade_no) {
     throw new Error('Alipay out_trade_no is required');
-  }
-  if (String(body || '').trim()) {
-    bizContent.body = String(body).trim().slice(0, 128);
   }
   return serializeAlipayParams(buildSignedAlipayParams({
     appId,

@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../common.dart';
+import '../../common/kq_payment_result.dart';
 import '../../common/kq_theme.dart';
 import '../../common/widgets/login.dart';
 import '../../consts.dart';
@@ -240,7 +241,7 @@ class _AccountPageState extends State<AccountPage> {
             debugPrint('KQ Alipay SDK result: $result');
             if (result is Map) {
               final status = (result['resultStatus'] ?? '').toString();
-              final memo = (result['memo'] ?? '').toString();
+              final memo = kqAlipayPaymentFailureDetail(result);
               if (status == '9000' || status == '8000' || status == '6004') {
                 return const _KqPaymentLaunchResult(
                     _KqPaymentLaunchState.opened);

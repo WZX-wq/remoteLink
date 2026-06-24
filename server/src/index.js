@@ -697,7 +697,6 @@ async function createAlipayAppMemberOrder({ ctx, packageId }) {
     outTradeNo: orderNo,
     totalAmount: total / 100,
     subject: packageName || 'Kunqiong membership',
-    body: `package_id=${packageId};user_id=${ctx.user.id}`,
   });
   const order = {
     ...normalizeMemberOrderPaymentLinks({

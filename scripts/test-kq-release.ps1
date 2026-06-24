@@ -386,12 +386,19 @@ function Test-KqAndroidMobilePaymentMethod {
     }
     if ($content -match 'class _KqPaymentLaunchResult' -and
         $content -match 'String failureMessage\(' -and
-        $content -match "result\['memo'\]" -and
+        $content -match 'kqAlipayPaymentFailureDetail\(result\)' -and
         $content -match 'memo:\s*memo' -and
         $content -match 'launchResult\.failureMessage\(_mineText\)') {
         Add-Check "android:mobile-payment-alipay-failure-memo" "PASS" "Alipay SDK failure memo is preserved for diagnosis"
     } else {
         Add-Check "android:mobile-payment-alipay-failure-memo" "FAIL" "Alipay SDK failure memo can be lost behind a generic failure message"
+    }
+    if ($content -match "import '../../common/kq_payment_result\.dart';" -and
+        $content -match 'kqAlipayPaymentFailureDetail\(result\)' -and
+        $server -notmatch 'body:\s*`package_id=') {
+        Add-Check "android:mobile-payment-alipay-actionable-error" "PASS" "Alipay SDK API error details are surfaced and App Pay biz_content avoids optional body fields"
+    } else {
+        Add-Check "android:mobile-payment-alipay-actionable-error" "FAIL" "Alipay SDK API errors can be hidden or App Pay biz_content still includes optional body fields"
     }
     if ($content -match 'enum\s+_KqPaymentLaunchState' -and
         $content -match '_KqPaymentLaunchState\.cancelled' -and
