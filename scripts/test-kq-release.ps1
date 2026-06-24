@@ -892,13 +892,14 @@ function Test-KqAndroidRecentDeviceGroups {
     $serverContent = if (Test-Path $serverPath) { Get-Content $serverPath -Raw -Encoding UTF8 } else { "" }
 
     if ($content -match 'enum _KqRecentDeviceSection' -and
-        $content -match '_KqRecentDeviceSection\.favorite' -and
+        $content -notmatch '_KqRecentDeviceSection\.favorite' -and
+        $content -notmatch "'Common devices'" -and
         $content -match '_KqRecentDeviceSection\.recent' -and
         $content -match '_KqRecentDeviceSection\.desktop' -and
         $content -match '_KqRecentDeviceSection\.mobile') {
-        Add-Check "android:recent-device-groups-four-sections" "PASS" "recent page has common, recent, mobile, and desktop sections"
+        Add-Check "android:recent-device-groups-three-sections" "PASS" "recent page has recent, mobile, and desktop sections without common devices"
     } else {
-        Add-Check "android:recent-device-groups-four-sections" "FAIL" "recent page is not split into common, recent, mobile, and desktop sections"
+        Add-Check "android:recent-device-groups-three-sections" "FAIL" "recent page still shows common devices or is missing recent/mobile/desktop sections"
     }
     if ($content -match 'bool get _shouldGroupRecentPeersByDeviceType' -and
         $content -match 'widget\.peers\.loadEvent == LoadEvent\.recent' -and
@@ -907,12 +908,12 @@ function Test-KqAndroidRecentDeviceGroups {
     } else {
         Add-Check "android:recent-device-groups-mobile-recent-only" "FAIL" "grouping is not scoped to the mobile portrait recent list"
     }
-    if ($content -match 'Set<String> _recentFavoriteIds' -and
-        $content -match '_recentFavoriteIds = favIds' -and
-        $content -match '_KqRecentDeviceSection\.favorite:\s*peers\s*\.where\(\(peer\)\s*=>\s*_recentFavoriteIds\.contains\(peer\.id\)\)') {
-        Add-Check "android:recent-device-groups-favorites-source" "PASS" "common devices are local recent peers that are starred"
+    if ($content -notmatch 'Set<String> _recentFavoriteIds' -and
+        $content -notmatch '_recentFavoriteIds = favIds' -and
+        $content -notmatch '_KqRecentDeviceSection\.favorite') {
+        Add-Check "android:recent-device-groups-no-common-section" "PASS" "mobile recent page does not render a common devices section"
     } else {
-        Add-Check "android:recent-device-groups-favorites-source" "FAIL" "common devices are not sourced only from starred local recent peers"
+        Add-Check "android:recent-device-groups-no-common-section" "FAIL" "mobile recent page still contains common devices section wiring"
     }
     if ($content -match '_KqRecentDeviceSection\.recent:\s*peers' -and
         $content -match "'Recent connections':") {
@@ -1157,7 +1158,7 @@ function Test-KqAndroidRecentDeviceGroups {
     }
     if ($content -match '_buildRecentGroupedPortraitList\(peers, buildOnePeer\)' -and
         $content -match '_buildRecentGroupHeader' -and
-        $content -match '_KqRecentDeviceSection\.favorite,\s*_KqRecentDeviceSection\.recent,\s*_KqRecentDeviceSection\.mobile,\s*_KqRecentDeviceSection\.desktop') {
+        $content -match '_KqRecentDeviceSection\.recent,\s*_KqRecentDeviceSection\.mobile,\s*_KqRecentDeviceSection\.desktop') {
         Add-Check "android:recent-device-groups-rendered-order" "PASS" "mobile recent list renders grouped headers in the expected order"
     } else {
         Add-Check "android:recent-device-groups-rendered-order" "FAIL" "mobile recent list does not render grouped headers in the expected order"
@@ -1176,8 +1177,7 @@ function Test-KqAndroidRecentDeviceGroups {
     } else {
         Add-Check "android:recent-device-groups-expand-collapse" "FAIL" "recent sections do not have expand/collapse controls"
     }
-    if ($content -match '_KqRecentDeviceSection\.favorite:\s*false' -and
-        $content -match '_KqRecentDeviceSection\.recent:\s*false' -and
+    if ($content -match '_KqRecentDeviceSection\.recent:\s*false' -and
         $content -match '_KqRecentDeviceSection\.mobile:\s*false' -and
         $content -match '_KqRecentDeviceSection\.desktop:\s*false') {
         Add-Check "android:recent-device-groups-default-collapsed" "PASS" "recent device groups are collapsed by default"

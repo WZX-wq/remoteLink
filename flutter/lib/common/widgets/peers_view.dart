@@ -23,7 +23,7 @@ import 'peer_card.dart';
 typedef PeerFilter = bool Function(Peer peer);
 typedef PeerCardBuilder = Widget Function(Peer peer);
 
-enum _KqRecentDeviceSection { favorite, recent, desktop, mobile }
+enum _KqRecentDeviceSection { recent, desktop, mobile }
 
 class PeerSortType {
   static const String remoteId = 'Remote ID';
@@ -110,7 +110,6 @@ class _PeersViewState extends State<_PeersView>
   var _queryCount = 0;
   var _exit = false;
   bool _isActive = true;
-  Set<String> _recentFavoriteIds = {};
   List<Peer> _accountDevicePeers = [];
   bool _accountDevicesLoading = false;
   DateTime? _accountDevicesLoadedAt;
@@ -120,7 +119,6 @@ class _PeersViewState extends State<_PeersView>
   int _lastAccountDeviceLoadGeneration = -1;
   bool _lastAccountDeviceLoadWasManualRefresh = false;
   final Map<_KqRecentDeviceSection, bool> _recentExpandedSections = {
-    _KqRecentDeviceSection.favorite: false,
     _KqRecentDeviceSection.recent: false,
     _KqRecentDeviceSection.mobile: false,
     _KqRecentDeviceSection.desktop: false,
@@ -408,7 +406,6 @@ class _PeersViewState extends State<_PeersView>
     _ensureAccountDevicesLoaded(force: forceAccountDeviceReload);
     final groupedPeers = _groupRecentPeersByDeviceType(peers);
     final sections = [
-      _KqRecentDeviceSection.favorite,
       _KqRecentDeviceSection.recent,
       _KqRecentDeviceSection.mobile,
       _KqRecentDeviceSection.desktop,
@@ -659,8 +656,6 @@ class _PeersViewState extends State<_PeersView>
     List<Peer> peers,
   ) {
     final groupedPeers = {
-      _KqRecentDeviceSection.favorite:
-          peers.where((peer) => _recentFavoriteIds.contains(peer.id)).toList(),
       _KqRecentDeviceSection.recent: peers,
       _KqRecentDeviceSection.mobile:
           _accountDevicePeers.where(_isKqMobilePeer).toList(),
@@ -873,7 +868,6 @@ class _PeersViewState extends State<_PeersView>
       order[orderedPeers[i].id] = i;
     }
     final favIds = (await bind.mainGetFav()).map((id) => id.toString()).toSet();
-    _recentFavoriteIds = favIds;
     orderedPeers.sort((a, b) {
       final aFav = favIds.contains(a.id);
       final bFav = favIds.contains(b.id);
@@ -888,8 +882,6 @@ class _PeersViewState extends State<_PeersView>
 
 String _kqRecentDeviceSectionTitle(_KqRecentDeviceSection section) {
   switch (section) {
-    case _KqRecentDeviceSection.favorite:
-      return 'Common devices';
     case _KqRecentDeviceSection.recent:
       return 'Recent connections';
     case _KqRecentDeviceSection.desktop:
@@ -901,8 +893,6 @@ String _kqRecentDeviceSectionTitle(_KqRecentDeviceSection section) {
 
 IconData _kqRecentDeviceSectionIcon(_KqRecentDeviceSection section) {
   switch (section) {
-    case _KqRecentDeviceSection.favorite:
-      return Icons.star_rounded;
     case _KqRecentDeviceSection.recent:
       return Icons.history_rounded;
     case _KqRecentDeviceSection.desktop:
@@ -918,7 +908,6 @@ String _kqPeersText(String key) {
 }
 
 const _kqPeersZh = {
-  'Common devices': '常用设备',
   'Recent connections': '最近连接',
   'Desktop devices': '桌面设备',
   'Mobile devices': '移动设备',
