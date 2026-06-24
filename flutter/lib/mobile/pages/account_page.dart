@@ -50,11 +50,44 @@ class AccountPage extends StatefulWidget implements PageShape {
 }
 
 class _AccountPageState extends State<AccountPage> {
+  bool _syncingMemberEntitlement = false;
+  DateTime? _lastMemberEntitlementSyncAt;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_syncMemberEntitlementFromDisk(force: true));
+  }
+
+  Future<void> _syncMemberEntitlementFromDisk({bool force = false}) async {
+    if (_syncingMemberEntitlement) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastMemberEntitlementSyncAt != null &&
+        now.difference(_lastMemberEntitlementSyncAt!) <
+            const Duration(seconds: 2)) {
+      return;
+    }
+    _lastMemberEntitlementSyncAt = now;
+    _syncingMemberEntitlement = true;
+    try {
+      final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } finally {
+      _syncingMemberEntitlement = false;
+    }
+  }
+
   Future<void> _saveRemotePerformance({
     String? resolutionTier,
     int? fps,
   }) async {
     final user = gFFI.userModel;
+    await _syncMemberEntitlementFromDisk(force: true);
     await user.setRemotePerformanceProfile(
       resolutionTier: resolutionTier ?? user.remoteResolutionSelection,
       fps: fps ?? user.remoteFpsSelection,
@@ -605,14 +638,18 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   void _openRemoteExperiencePage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _RemoteExperiencePage(
-          onSave: _saveRemotePerformance,
+    unawaited(() async {
+      await _syncMemberEntitlementFromDisk(force: true);
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _RemoteExperiencePage(
+            onSave: _saveRemotePerformance,
+          ),
         ),
-      ),
-    );
+      );
+    }());
   }
 
   void _openSettingsDetail({
@@ -1484,6 +1521,19 @@ class _RemoteExperiencePage extends StatefulWidget {
 
 class _RemoteExperiencePageState extends State<_RemoteExperiencePage> {
   var _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_syncMemberEntitlementFromDisk());
+  }
+
+  Future<void> _syncMemberEntitlementFromDisk() async {
+    final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
+    if (changed && mounted) {
+      setState(() {});
+    }
+  }
 
   Future<void> _apply({String? resolutionTier, int? fps}) async {
     if (_saving) return;

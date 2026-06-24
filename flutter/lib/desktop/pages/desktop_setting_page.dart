@@ -272,6 +272,8 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   final RxBool _block = false.obs;
   final RxBool _canBeBlocked = false.obs;
   Timer? _videoConnTimer;
+  bool _syncingMemberEntitlement = false;
+  DateTime? _lastMemberEntitlementSyncAt;
 
   _DesktopSettingPageState(SettingsTabKey initialTabkey) {
     var initialIndex = DesktopSettingPage.tabKeys.indexOf(initialTabkey);
@@ -297,6 +299,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       shouldBeBlocked(_block, canBeBlocked);
+      unawaited(_syncMemberEntitlementFromDisk(force: true));
     }
   }
 
@@ -304,6 +307,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_syncMemberEntitlementFromDisk(force: true));
     _videoConnTimer =
         periodic_immediate(Duration(milliseconds: 1000), () async {
       if (!mounted) {
@@ -320,6 +324,29 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     Get.delete<RxInt>(tag: _kSettingPageTabKeyTag);
     WidgetsBinding.instance.removeObserver(this);
     _videoConnTimer?.cancel();
+  }
+
+  Future<void> _syncMemberEntitlementFromDisk({bool force = false}) async {
+    if (_syncingMemberEntitlement) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastMemberEntitlementSyncAt != null &&
+        now.difference(_lastMemberEntitlementSyncAt!) <
+            const Duration(seconds: 2)) {
+      return;
+    }
+    _lastMemberEntitlementSyncAt = now;
+    _syncingMemberEntitlement = true;
+    try {
+      final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } finally {
+      _syncingMemberEntitlement = false;
+    }
   }
 
   List<_TabInfo> _settingTabs() {
@@ -2061,6 +2088,32 @@ class _Account extends StatefulWidget {
 }
 
 class _AccountState extends State<_Account> {
+  bool _syncingMemberEntitlement = false;
+  DateTime? _lastMemberEntitlementSyncAt;
+
+  Future<void> _syncMemberEntitlementFromDisk({bool force = false}) async {
+    if (_syncingMemberEntitlement) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastMemberEntitlementSyncAt != null &&
+        now.difference(_lastMemberEntitlementSyncAt!) <
+            const Duration(seconds: 2)) {
+      return;
+    }
+    _lastMemberEntitlementSyncAt = now;
+    _syncingMemberEntitlement = true;
+    try {
+      final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } finally {
+      _syncingMemberEntitlement = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final scrollController = ScrollController();
@@ -2387,6 +2440,7 @@ class _AccountState extends State<_Account> {
     int? fps,
   }) async {
     final user = gFFI.userModel;
+    await _syncMemberEntitlementFromDisk(force: true);
     await user.setRemotePerformanceProfile(
       resolutionTier: resolutionTier ?? user.remoteResolutionSelection,
       fps: fps ?? user.remoteFpsSelection,
@@ -2397,6 +2451,7 @@ class _AccountState extends State<_Account> {
   }
 
   Widget _remotePerformancePanel(BuildContext context) {
+    unawaited(_syncMemberEntitlementFromDisk());
     final colors = Theme.of(context).colorScheme;
     final user = gFFI.userModel;
     final isMember = user.isMember.value;

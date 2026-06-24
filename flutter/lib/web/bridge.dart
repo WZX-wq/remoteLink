@@ -908,6 +908,10 @@ class RustdeskImpl {
     return js.context.callMethod('getByName', ['option:local', key]);
   }
 
+  String mainGetLocalOptionFromFile({required String key, dynamic hint}) {
+    return mainGetLocalOption(key: key, hint: hint);
+  }
+
   // Do not return the real environment variables.
   // Use the global variable as the environment variable in web.
   String mainGetEnv({required String key, dynamic hint}) {
@@ -2034,7 +2038,9 @@ class RustdeskImpl {
   }
 
   String mainResolveAvatarUrl({required String avatar, dynamic hint}) {
-    return js.context.callMethod('getByName', ['resolve_avatar_url', avatar])?.toString() ?? avatar;
+    return js.context.callMethod(
+            'getByName', ['resolve_avatar_url', avatar])?.toString() ??
+        avatar;
   }
 
   void dispose() {}

@@ -2421,6 +2421,21 @@ fn wire_main_get_local_option_impl(
         },
     )
 }
+fn wire_main_get_local_option_from_file_impl(
+    key: impl Wire2Api<String> + UnwindSafe,
+) -> support::WireSyncReturn {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync(
+        WrapInfo {
+            debug_name: "main_get_local_option_from_file",
+            port: None,
+            mode: FfiCallMode::Sync,
+        },
+        move || {
+            let api_key = key.wire2api();
+            Ok(main_get_local_option_from_file(api_key))
+        },
+    )
+}
 fn wire_main_get_use_texture_render_impl() -> support::WireSyncReturn {
     FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync(
         WrapInfo {

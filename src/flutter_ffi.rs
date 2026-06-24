@@ -1166,6 +1166,10 @@ pub fn main_get_local_option(key: String) -> SyncReturn<String> {
     SyncReturn(get_local_option(key))
 }
 
+pub fn main_get_local_option_from_file(key: String) -> SyncReturn<String> {
+    SyncReturn(LocalConfig::get_option_from_file(&key))
+}
+
 pub fn main_get_use_texture_render() -> SyncReturn<bool> {
     SyncReturn(use_texture_render())
 }

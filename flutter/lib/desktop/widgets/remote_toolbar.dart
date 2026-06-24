@@ -934,13 +934,44 @@ class _PerformanceMenu extends StatefulWidget {
 
 class _PerformanceMenuState extends State<_PerformanceMenu> {
   bool _saving = false;
+  bool _syncingEntitlement = false;
+  DateTime? _lastEntitlementSyncAt;
 
   UserModel get user => gFFI.userModel;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_syncEntitlementFromDisk(force: true));
+  }
+
+  Future<void> _syncEntitlementFromDisk({bool force = false}) async {
+    if (_syncingEntitlement) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastEntitlementSyncAt != null &&
+        now.difference(_lastEntitlementSyncAt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastEntitlementSyncAt = now;
+    _syncingEntitlement = true;
+    try {
+      final changed = await user.syncMemberEntitlementFromDisk();
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } finally {
+      _syncingEntitlement = false;
+    }
+  }
 
   Future<void> _applyProfile({String? resolutionTier, int? fps}) async {
     if (_saving) {
       return;
     }
+    await _syncEntitlementFromDisk(force: true);
     final targetResolution = resolutionTier ?? user.remoteResolutionSelection;
     final targetFps = fps ?? user.remoteFpsSelection;
     final memberOnly = (targetResolution == UserModel.remoteResolution1080p ||
@@ -991,6 +1022,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
   }
 
   Widget _toolbarChip(BuildContext context) {
+    unawaited(_syncEntitlementFromDisk());
     final label =
         '${user.remoteResolutionSelection} · ${user.remoteFpsSelection}';
     return SizedBox.expand(
@@ -1175,6 +1207,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
   }
 
   List<Widget> _menuChildren(BuildContext context) {
+    unawaited(_syncEntitlementFromDisk(force: true));
     final isMember = user.canUseMemberRemoteQuality;
     final resolution = user.remoteResolutionSelection;
     final fps = user.remoteFpsSelection;
@@ -1830,6 +1863,8 @@ const _kCustomResolutionValue = 'custom';
 class _ResolutionsMenuState extends State<_ResolutionsMenu> {
   String _groupValue = '';
   Resolution? _localResolution;
+  bool _syncingEntitlement = false;
+  DateTime? _lastEntitlementSyncAt;
 
   late final TextEditingController _customWidth =
       TextEditingController(text: rect?.width.toInt().toString() ?? '');
@@ -1848,7 +1883,32 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _getLocalResolutionWayland();
+      unawaited(_syncEntitlementBeforeBuildingResolutions(force: true));
     });
+  }
+
+  Future<void> _syncEntitlementBeforeBuildingResolutions({
+    bool force = false,
+  }) async {
+    if (_syncingEntitlement) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastEntitlementSyncAt != null &&
+        now.difference(_lastEntitlementSyncAt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastEntitlementSyncAt = now;
+    _syncingEntitlement = true;
+    try {
+      final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } finally {
+      _syncingEntitlement = false;
+    }
   }
 
   Rect? scaledRect() {
@@ -1867,6 +1927,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
 
   @override
   Widget build(BuildContext context) {
+    unawaited(_syncEntitlementBeforeBuildingResolutions());
     final isVirtualDisplay = ffiModel.isVirtualDisplayResolution;
     final visible = ffiModel.keyboard &&
         (isVirtualDisplay || resolutions.length > 1) &&
@@ -1981,6 +2042,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     if (pi.currentDisplay == kAllDisplayValue) {
       return;
     }
+    await _syncEntitlementBeforeBuildingResolutions(force: true);
     final requested = gFFI.userModel.clampRemoteResolution(w, h);
     final targetW = requested.width;
     final targetH = requested.height;

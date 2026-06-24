@@ -763,6 +763,10 @@ abstract class Rustdesk {
 
   FlutterRustBridgeTaskConstMeta get kMainGetLocalOptionConstMeta;
 
+  String mainGetLocalOptionFromFile({required String key, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kMainGetLocalOptionFromFileConstMeta;
+
   bool mainGetUseTextureRender({dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kMainGetUseTextureRenderConstMeta;
@@ -4460,6 +4464,23 @@ class RustdeskImpl implements Rustdesk {
   FlutterRustBridgeTaskConstMeta get kMainGetLocalOptionConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
         debugName: "main_get_local_option",
+        argNames: ["key"],
+      );
+
+  String mainGetLocalOptionFromFile({required String key, dynamic hint}) {
+    var arg0 = _platform.api2wire_String(key);
+    return _platform.executeSync(FlutterRustBridgeSyncTask(
+      callFfi: () => _platform.inner.wire_main_get_local_option_from_file(arg0),
+      parseSuccessData: _wire2api_String,
+      constMeta: kMainGetLocalOptionFromFileConstMeta,
+      argValues: [key],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kMainGetLocalOptionFromFileConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "main_get_local_option_from_file",
         argNames: ["key"],
       );
 
@@ -10877,6 +10898,22 @@ class RustdeskWire implements FlutterRustBridgeWireBase {
               ffi.Pointer<wire_uint_8_list>)>>('wire_main_get_local_option');
   late final _wire_main_get_local_option = _wire_main_get_local_optionPtr
       .asFunction<WireSyncReturn Function(ffi.Pointer<wire_uint_8_list>)>();
+
+  WireSyncReturn wire_main_get_local_option_from_file(
+    ffi.Pointer<wire_uint_8_list> key,
+  ) {
+    return _wire_main_get_local_option_from_file(
+      key,
+    );
+  }
+
+  late final _wire_main_get_local_option_from_filePtr = _lookup<
+          ffi.NativeFunction<
+              WireSyncReturn Function(ffi.Pointer<wire_uint_8_list>)>>(
+      'wire_main_get_local_option_from_file');
+  late final _wire_main_get_local_option_from_file =
+      _wire_main_get_local_option_from_filePtr
+          .asFunction<WireSyncReturn Function(ffi.Pointer<wire_uint_8_list>)>();
 
   WireSyncReturn wire_main_get_use_texture_render() {
     return _wire_main_get_use_texture_render();

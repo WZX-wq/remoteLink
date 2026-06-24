@@ -201,6 +201,10 @@ class UserModel {
 
   static String _localUserPrimaryId() {
     final userInfo = getLocalUserInfo();
+    return _localUserPrimaryIdFromMap(userInfo);
+  }
+
+  static String _localUserPrimaryIdFromMap(Map<String, dynamic>? userInfo) {
     if (userInfo == null) {
       return '';
     }
@@ -284,6 +288,77 @@ class UserModel {
     memberSubsite.value = subsite.isEmpty ? memberSubsiteName : subsite;
     memberLastError.value = bind.mainGetLocalOption(key: memberLastErrorKey);
     unawaited(_syncRemoteQualityDefaults(isMember.value));
+  }
+
+  Future<void> _syncCachedLocalOptionFromDisk(String key) async {
+    final diskValue = bind.mainGetLocalOptionFromFile(key: key);
+    if (bind.mainGetLocalOption(key: key) == diskValue) {
+      return;
+    }
+    await bind.mainSetLocalOption(key: key, value: diskValue);
+  }
+
+  Future<bool> syncMemberEntitlementFromDisk() async {
+    final wasMember = isMember.value;
+    final previousQuality = remoteQualityLabel;
+    final userInfoOnDiskRaw = bind.mainGetLocalOptionFromFile(key: 'user_info');
+    Map<String, dynamic>? userInfoOnDisk;
+    if (userInfoOnDiskRaw.trim().isNotEmpty) {
+      try {
+        final decoded = json.decode(userInfoOnDiskRaw);
+        if (decoded is Map) {
+          userInfoOnDisk = decoded.cast<String, dynamic>();
+        }
+      } catch (e) {
+        debugPrint('Failed to decode local user info from disk: $e');
+      }
+    }
+    final userIdOnDisk = _localUserPrimaryIdFromMap(userInfoOnDisk);
+    final memberActiveOnDisk =
+        bind.mainGetLocalOptionFromFile(key: memberActiveKey).trim();
+    final memberUserIdOnDisk =
+        bind.mainGetLocalOptionFromFile(key: memberUserIdKey).trim();
+    final memberExpireAtOnDisk =
+        bind.mainGetLocalOptionFromFile(key: memberExpireAtKey);
+    final memberSubsiteOnDisk =
+        bind.mainGetLocalOptionFromFile(key: memberSubsiteKey);
+    final memberLastErrorOnDisk =
+        bind.mainGetLocalOptionFromFile(key: memberLastErrorKey);
+    final remoteResolutionOnDisk =
+        bind.mainGetLocalOptionFromFile(key: remoteResolutionTierKey).trim();
+    final remoteFpsOnDisk =
+        bind.mainGetLocalOptionFromFile(key: remoteFpsTierKey).trim();
+
+    if (userInfoOnDisk != null) {
+      userName.value = (userInfoOnDisk['name'] ?? '').toString();
+      displayName.value = (userInfoOnDisk['display_name'] ?? '').toString();
+      avatar.value = (userInfoOnDisk['avatar'] ?? '').toString();
+    }
+
+    isMember.value = userIdOnDisk.isNotEmpty &&
+        (userIdOnDisk == kqTestUnlimitedMemberUserId ||
+            (memberActiveOnDisk == 'Y' && memberUserIdOnDisk == userIdOnDisk));
+    memberExpireAt.value = memberExpireAtOnDisk;
+    memberSubsite.value =
+        memberSubsiteOnDisk.isEmpty ? memberSubsiteName : memberSubsiteOnDisk;
+    memberLastError.value = memberLastErrorOnDisk;
+
+    await _syncCachedLocalOptionFromDisk('user_info');
+    await _syncCachedLocalOptionFromDisk(memberActiveKey);
+    await _syncCachedLocalOptionFromDisk(memberUserIdKey);
+    await _syncCachedLocalOptionFromDisk(memberExpireAtKey);
+    await _syncCachedLocalOptionFromDisk(memberSubsiteKey);
+    await _syncCachedLocalOptionFromDisk(memberLastErrorKey);
+    await _syncCachedLocalOptionFromDisk(remoteResolutionTierKey);
+    await _syncCachedLocalOptionFromDisk(remoteFpsTierKey);
+
+    if (wasMember != isMember.value ||
+        remoteResolutionOnDisk.isNotEmpty ||
+        remoteFpsOnDisk.isNotEmpty) {
+      await _syncRemoteQualityDefaults(isMember.value);
+    }
+
+    return wasMember != isMember.value || previousQuality != remoteQualityLabel;
   }
 
   Future<void> _syncRemoteQualityDefaults(

@@ -1082,6 +1082,13 @@ pub extern "C" fn wire_main_get_local_option(
 }
 
 #[no_mangle]
+pub extern "C" fn wire_main_get_local_option_from_file(
+    key: *mut wire_uint_8_list,
+) -> support::WireSyncReturn {
+    wire_main_get_local_option_from_file_impl(key)
+}
+
+#[no_mangle]
 pub extern "C" fn wire_main_get_use_texture_render() -> support::WireSyncReturn {
     wire_main_get_use_texture_render_impl()
 }
