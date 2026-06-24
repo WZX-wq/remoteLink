@@ -66,6 +66,67 @@ function Test-KqWebIconAsset {
     }
 }
 
+function Test-KqWindowsDownloadInstaller {
+    $expectedVersion = "2026.06.24.2020"
+    $expectedSha256 = "9719E18CEC4A13FF1AE7D894477DD1F9AA53C8833B77139FE2937AEA8B97C2FC"
+    $downloadInstaller = ".\server\public\downloads\Kunqiong-Remote-Desktop-Setup.exe"
+
+    if (-not (Test-Path $downloadInstaller)) {
+        Add-Check "server:download-windows-installer-file" "FAIL" "Missing Windows download installer: $downloadInstaller"
+    } else {
+        $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $downloadInstaller).Hash
+        if ($actualSha256 -eq $expectedSha256) {
+            Add-Check "server:download-windows-installer-sha256" "PASS" $actualSha256
+        } else {
+            Add-Check "server:download-windows-installer-sha256" "FAIL" "Expected $expectedSha256, got $actualSha256"
+        }
+
+        $signature = Get-AuthenticodeSignature -LiteralPath $downloadInstaller
+        if ($signature.Status -eq "Valid") {
+            Add-Check "server:download-windows-installer-signature" "PASS" "Authenticode Valid"
+        } else {
+            Add-Check "server:download-windows-installer-signature" "FAIL" "Authenticode status: $($signature.Status)"
+        }
+    }
+
+    Test-SourceContains ".\server\src\index.js" $expectedVersion "server:download-windows-default-version-v202"
+    Test-SourceContains ".\server\src\index.js" $expectedSha256 "server:download-windows-default-sha-v202"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_DOWNLOAD_VERSION: $expectedVersion" "deploy:download-windows-version-v202"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_DOWNLOAD_SHA256: $expectedSha256" "deploy:download-windows-sha-v202"
+    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_VERSION:-$expectedVersion" "deploy:compose-windows-version-v202"
+    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_SHA256:-$expectedSha256" "deploy:compose-windows-sha-v202"
+    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_DOWNLOAD_VERSION:-$expectedVersion" "deploy:script-windows-version-v202"
+    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_DOWNLOAD_SHA256:-$expectedSha256" "deploy:script-windows-sha-v202"
+}
+
+function Test-KqAndroidDownloadPackage {
+    $expectedVersion = "1.4.6+2067"
+    $expectedSha256 = "62EC74E9ABE318120BED540DC0C8B67FD5BA90D2F742265D6847ED315FE03EED"
+    $downloadApk = ".\server\public\downloads\Kunqiong-Remote-Desktop.apk"
+
+    if (-not (Test-Path $downloadApk)) {
+        Add-Check "server:download-android-apk-file" "FAIL" "Missing Android download APK: $downloadApk"
+    } else {
+        $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $downloadApk).Hash
+        if ($actualSha256 -eq $expectedSha256) {
+            Add-Check "server:download-android-apk-sha256-v2067" "PASS" $actualSha256
+        } else {
+            Add-Check "server:download-android-apk-sha256-v2067" "FAIL" "Expected $expectedSha256, got $actualSha256"
+        }
+    }
+
+    Test-SourceContains ".\flutter\pubspec.yaml" "version: $expectedVersion" "android:pubspec-version-v2067"
+    Test-SourceContains ".\server\src\index.js" $expectedVersion "server:download-android-default-version-v2067"
+    Test-SourceContains ".\server\src\index.js" $expectedSha256 "server:download-android-default-sha-v2067"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_ANDROID_DOWNLOAD_VERSION: $expectedVersion" "deploy:download-android-version-v2067"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_ANDROID_DOWNLOAD_SHA256: $expectedSha256" "deploy:download-android-sha-v2067"
+    Test-SourceContains ".\.gitea\workflows\android-build.yml" "KQ_ANDROID_DOWNLOAD_VERSION: $expectedVersion" "android:workflow-download-version-v2067"
+    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_ANDROID_DOWNLOAD_VERSION:-$expectedVersion" "deploy:compose-android-version-v2067"
+    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_ANDROID_DOWNLOAD_SHA256:-$expectedSha256" "deploy:compose-android-sha-v2067"
+    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_ANDROID_DOWNLOAD_VERSION:-$expectedVersion" "deploy:script-android-version-v2067"
+    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_ANDROID_DOWNLOAD_SHA256:-$expectedSha256" "deploy:script-android-sha-v2067"
+}
+
 function Test-SourceContains($Path, $Pattern, $Name) {
     if (-not (Test-Path $Path)) {
         Add-Check $Name "SKIP" "Source file not available: $Path"
@@ -1775,6 +1836,8 @@ Test-LowFalsePositiveInstallerMode
 Test-PostInstallPermissionActions
 Test-InstallerWizardImagesUseCurrentIcon
 Test-KqWebIconAsset
+Test-KqWindowsDownloadInstaller
+Test-KqAndroidDownloadPackage
 Test-VoiceCallAudioRouting
 Test-MobileLanguageFallback
 
