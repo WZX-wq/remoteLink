@@ -35,7 +35,7 @@ fi
 )
 install -m 0644 "${OUTPUT_DIR}/SHA256SUMS.txt" "${API_DOWNLOAD_DIR}/SHA256SUMS-android.txt"
 android_sha256="$(awk '/Kunqiong-Remote-Desktop\.apk$/ { print $1; exit }' "${OUTPUT_DIR}/SHA256SUMS.txt")"
-android_version="${KQ_ANDROID_DOWNLOAD_VERSION:-${BUILD_NAME:-2026.06.08}+${BUILD_NUMBER:-93}}"
+android_version="${KQ_ANDROID_DOWNLOAD_VERSION:-${BUILD_NAME:-1.4.6}+${BUILD_NUMBER:-2067}}"
 
 ENV_FILE="${KQ_API_ENV_FILE:-/www/wwwroot/KQromoteLink/.env}"
 if [[ -f "${ENV_FILE}" ]]; then

@@ -22,6 +22,8 @@ const defaultAndroidApkPath = path.resolve(
   __dirname,
   '../public/downloads/Kunqiong-Remote-Desktop.apk',
 );
+const defaultAndroidApkSha256 =
+  '62EC74E9ABE318120BED540DC0C8B67FD5BA90D2F742265D6847ED315FE03EED';
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
@@ -66,8 +68,8 @@ const config = {
     version:
       process.env.KQ_ANDROID_DOWNLOAD_VERSION ||
       process.env.KQ_DOWNLOAD_VERSION ||
-      '2026.06.08.93',
-    sha256: process.env.KQ_ANDROID_DOWNLOAD_SHA256 || '',
+      '1.4.6+2067',
+    sha256: process.env.KQ_ANDROID_DOWNLOAD_SHA256 || defaultAndroidApkSha256,
   },
   wechatPay: {
     appId: process.env.KQ_WECHAT_PAY_APPID || '',
