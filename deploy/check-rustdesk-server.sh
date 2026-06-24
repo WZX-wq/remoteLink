@@ -164,10 +164,9 @@ wait_for_api_health() {
   response_file="$(mktemp)"
   while (( SECONDS < deadline )); do
     if [[ "$("${SUDO[@]}" docker inspect -f '{{.State.Running}}' kq-remote-link-api 2>/dev/null || true)" != "true" ]]; then
-      echo "KQ API container stopped before becoming healthy." >&2
-      api_logs
-      rm -f "${response_file}"
-      exit 1
+      echo "KQ API container is not running yet; waiting for health deadline."
+      sleep 2
+      continue
     fi
 
     if curl -fsS "${local_url}" -o "${response_file}" 2>/dev/null; then

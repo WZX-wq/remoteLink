@@ -100,8 +100,9 @@ function Test-KqWindowsDownloadInstaller {
 }
 
 function Test-KqAndroidDownloadPackage {
-    $expectedVersion = "1.4.6+2067"
-    $expectedSha256 = "62EC74E9ABE318120BED540DC0C8B67FD5BA90D2F742265D6847ED315FE03EED"
+    $expectedBuildInputVersion = "1.4.6+2067"
+    $expectedVersion = "1.4.6+4067"
+    $expectedSha256 = "BE052580AC46D27BF3A0856D586D5E793F62A8C64607B5B9DE9B2AE4E6E9582E"
     $downloadApk = ".\server\public\downloads\Kunqiong-Remote-Desktop.apk"
 
     if (-not (Test-Path $downloadApk)) {
@@ -115,16 +116,19 @@ function Test-KqAndroidDownloadPackage {
         }
     }
 
-    Test-SourceContains ".\flutter\pubspec.yaml" "version: $expectedVersion" "android:pubspec-version-v2067"
+    Test-SourceContains ".\flutter\pubspec.yaml" "version: $expectedBuildInputVersion" "android:pubspec-version-v2067"
     Test-SourceContains ".\server\src\index.js" $expectedVersion "server:download-android-default-version-v2067"
     Test-SourceContains ".\server\src\index.js" $expectedSha256 "server:download-android-default-sha-v2067"
     Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_ANDROID_DOWNLOAD_VERSION: $expectedVersion" "deploy:download-android-version-v2067"
     Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_ANDROID_DOWNLOAD_SHA256: $expectedSha256" "deploy:download-android-sha-v2067"
-    Test-SourceContains ".\.gitea\workflows\android-build.yml" "KQ_ANDROID_DOWNLOAD_VERSION: $expectedVersion" "android:workflow-download-version-v2067"
+    Test-SourceNotContains ".\.gitea\workflows\android-build.yml" "KQ_ANDROID_DOWNLOAD_VERSION:" "android:workflow-detects-apk-version"
+    Test-SourceContains ".\scripts\deploy\deploy-android.sh" "dump badging" "android:deploy-detects-apk-badging"
+    Test-SourceContains ".\scripts\deploy\deploy-android.sh" "versionCode='" "android:deploy-detects-apk-version-code"
     Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_ANDROID_DOWNLOAD_VERSION:-$expectedVersion" "deploy:compose-android-version-v2067"
     Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_ANDROID_DOWNLOAD_SHA256:-$expectedSha256" "deploy:compose-android-sha-v2067"
     Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_ANDROID_DOWNLOAD_VERSION:-$expectedVersion" "deploy:script-android-version-v2067"
     Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_ANDROID_DOWNLOAD_SHA256:-$expectedSha256" "deploy:script-android-sha-v2067"
+    Test-SourceContains ".\deploy\check-rustdesk-server.sh" "KQ API container is not running yet; waiting for health deadline." "deploy:api-health-waits-through-restart"
 }
 
 function Test-SourceContains($Path, $Pattern, $Name) {

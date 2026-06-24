@@ -14,6 +14,41 @@ if [[ -z "${apk_path}" ]]; then
   exit 1
 fi
 
+find_aapt() {
+  if command -v aapt >/dev/null 2>&1; then
+    command -v aapt
+    return 0
+  fi
+
+  local sdk_root
+  for sdk_root in "${ANDROID_SDK_ROOT:-}" "${ANDROID_HOME:-}"; do
+    if [[ -n "${sdk_root}" && -d "${sdk_root}/build-tools" ]]; then
+      find "${sdk_root}/build-tools" -type f -name aapt 2>/dev/null | sort -V | tail -n 1
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+detect_apk_version() {
+  local apk="$1"
+  local aapt badging version_name version_code
+  aapt="$(find_aapt || true)"
+  if [[ -z "${aapt}" ]]; then
+    return 1
+  fi
+
+  badging="$("${aapt}" dump badging "${apk}" 2>/dev/null || true)"
+  version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"${badging}" | head -n 1)"
+  version_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<<"${badging}" | head -n 1)"
+  if [[ -z "${version_name}" || -z "${version_code}" ]]; then
+    return 1
+  fi
+
+  printf '%s+%s\n' "${version_name}" "${version_code}"
+}
+
 install -m 0644 "${apk_path}" "${OUTPUT_DIR}/Kunqiong-Remote-Desktop.apk"
 install -m 0644 "${apk_path}" "${API_DOWNLOAD_DIR}/Kunqiong-Remote-Desktop.apk"
 echo "Android APK published to ${OUTPUT_DIR}/Kunqiong-Remote-Desktop.apk"
@@ -35,7 +70,8 @@ fi
 )
 install -m 0644 "${OUTPUT_DIR}/SHA256SUMS.txt" "${API_DOWNLOAD_DIR}/SHA256SUMS-android.txt"
 android_sha256="$(awk '/Kunqiong-Remote-Desktop\.apk$/ { print $1; exit }' "${OUTPUT_DIR}/SHA256SUMS.txt")"
-android_version="${KQ_ANDROID_DOWNLOAD_VERSION:-${BUILD_NAME:-1.4.6}+${BUILD_NUMBER:-2067}}"
+detected_android_version="$(detect_apk_version "${apk_path}" || true)"
+android_version="${KQ_ANDROID_DOWNLOAD_VERSION:-${detected_android_version:-${BUILD_NAME:-1.4.6}+${BUILD_NUMBER:-2067}}}"
 
 ENV_FILE="${KQ_API_ENV_FILE:-/www/wwwroot/KQromoteLink/.env}"
 if [[ -f "${ENV_FILE}" ]]; then

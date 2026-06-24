@@ -122,7 +122,6 @@ jobs:
         env:
           ARTIFACT_DIR: artifacts
           OUTPUT_DIR: /www/wwwroot/KQromoteLink/android
-          KQ_ANDROID_DOWNLOAD_VERSION: 1.4.6+2067
         run: |
           set -euo pipefail
           chmod +x scripts/deploy/deploy-android.sh
