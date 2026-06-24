@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-const ALIPAY_CHARSET = 'UTF-8';
+const ALIPAY_CHARSET = 'utf-8';
 const ALIPAY_SIGN_TYPE = 'RSA2';
 const ALIPAY_VERSION = '1.0';
 const ALIPAY_APP_PAY_METHOD = 'alipay.trade.app.pay';
@@ -140,6 +140,7 @@ function buildSignedAlipayParams({
   bizContent,
   notifyUrl = '',
   timestamp = new Date(),
+  includeFormat = true,
 }) {
   if (!String(appId || '').trim()) {
     throw new Error('Alipay appId is required');
@@ -151,12 +152,14 @@ function buildSignedAlipayParams({
     app_id: String(appId).trim(),
     biz_content: JSON.stringify(bizContent || {}),
     charset: ALIPAY_CHARSET,
-    format: 'json',
     method,
     sign_type: ALIPAY_SIGN_TYPE,
     timestamp: formatAlipayTimestamp(timestamp),
     version: ALIPAY_VERSION,
   };
+  if (includeFormat) {
+    params.format = 'json';
+  }
   if (String(notifyUrl || '').trim()) {
     params.notify_url = String(notifyUrl).trim();
   }
@@ -195,6 +198,7 @@ export function buildAlipayAppPayOrderInfo({
     bizContent,
     notifyUrl,
     timestamp,
+    includeFormat: false,
   }));
 }
 

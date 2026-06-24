@@ -42,11 +42,12 @@ test('builds a signed Alipay App Pay order string for the Android SDK', () => {
   const params = Object.fromEntries(new URLSearchParams(orderInfo));
   assert.equal(params.app_id, '2021006163671041');
   assert.equal(params.method, 'alipay.trade.app.pay');
-  assert.equal(params.charset, 'UTF-8');
+  assert.equal(params.charset, 'utf-8');
   assert.equal(params.sign_type, 'RSA2');
   assert.equal(params.timestamp, '2026-06-23 10:11:12');
   assert.equal(params.version, '1.0');
   assert.equal(params.notify_url, 'https://api.example.test/alipay/notify');
+  assert.equal(params.format, undefined);
   assert.ok(params.sign);
 
   const bizContent = JSON.parse(params.biz_content);
@@ -59,7 +60,6 @@ test('builds a signed Alipay App Pay order string for the Android SDK', () => {
     `app_id=${params.app_id}`,
     `biz_content=${params.biz_content}`,
     `charset=${params.charset}`,
-    `format=${params.format}`,
     `method=${params.method}`,
     `notify_url=${params.notify_url}`,
     `sign_type=${params.sign_type}`,

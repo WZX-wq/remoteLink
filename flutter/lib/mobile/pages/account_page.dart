@@ -21,6 +21,8 @@ import 'settings_page.dart';
 
 const _kqAndroidPaymentChannel = MethodChannel('mChannel');
 
+enum _KqPaymentLaunchState { opened, cancelled, failed, unavailable }
+
 class AccountPage extends StatefulWidget implements PageShape {
   AccountPage({super.key});
 
@@ -90,7 +92,7 @@ class _AccountPageState extends State<AccountPage> {
   void _showMemberRechargeSheet(List<KqMemberPackage> packages) {
     final user = gFFI.userModel;
     var selectedPackage = packages.first;
-    var payType = 1;
+    var payType = 2;
     KqMemberOrder? order;
     var creatingOrder = false;
     var statusText = '';
@@ -98,10 +100,16 @@ class _AccountPageState extends State<AccountPage> {
     var showQrFallback = false;
     var alive = true;
     Timer? pollTimer;
+    Timer? launchWatchdog;
 
     void stopPolling() {
       pollTimer?.cancel();
       pollTimer = null;
+    }
+
+    void clearPaymentLaunchWatchdog() {
+      launchWatchdog?.cancel();
+      launchWatchdog = null;
     }
 
     Uri? paymentUriFromText(String value) {
@@ -202,7 +210,8 @@ class _AccountPageState extends State<AccountPage> {
       }
     }
 
-    Future<bool> openAlipayPaymentApp(KqMemberOrder order) async {
+    Future<_KqPaymentLaunchState> openAlipayPaymentApp(
+        KqMemberOrder order) async {
       final alipayAppOrderInfos = order
           .appLaunchUrlsForPayType(2)
           .map(alipayAppOrderInfoFromText)
@@ -219,7 +228,13 @@ class _AccountPageState extends State<AccountPage> {
             if (result is Map) {
               final status = (result['resultStatus'] ?? '').toString();
               if (status == '9000' || status == '8000' || status == '6004') {
-                return true;
+                return _KqPaymentLaunchState.opened;
+              }
+              if (status == '6001') {
+                return _KqPaymentLaunchState.cancelled;
+              }
+              if (status.isNotEmpty) {
+                return _KqPaymentLaunchState.failed;
               }
             }
           }
@@ -235,9 +250,11 @@ class _AccountPageState extends State<AccountPage> {
         }
         final uri = Uri.tryParse(url.trim());
         if (uri == null) continue;
-        if (await openPaymentUri(uri)) return true;
+        if (await openPaymentUri(uri)) return _KqPaymentLaunchState.opened;
       }
-      return openAlipayHtmlCheckout(order);
+      return await openAlipayHtmlCheckout(order)
+          ? _KqPaymentLaunchState.opened
+          : _KqPaymentLaunchState.unavailable;
     }
 
     Future<bool> openWechatPaymentApp(KqMemberOrder order) async {
@@ -269,14 +286,16 @@ class _AccountPageState extends State<AccountPage> {
       return false;
     }
 
-    Future<bool> openPaymentApp(KqMemberOrder order) async {
+    Future<_KqPaymentLaunchState> openPaymentApp(KqMemberOrder order) async {
       if (payType == 2) {
         return openAlipayPaymentApp(order);
       }
       if (payType == 1) {
-        return openWechatPaymentApp(order);
+        return await openWechatPaymentApp(order)
+            ? _KqPaymentLaunchState.opened
+            : _KqPaymentLaunchState.unavailable;
       }
-      return false;
+      return _KqPaymentLaunchState.unavailable;
     }
 
     showModalBottomSheet<void>(
@@ -323,12 +342,6 @@ class _AccountPageState extends State<AccountPage> {
                       });
                       Navigator.of(sheetContext).pop();
                       showToast(translate('Membership benefits active'));
-                    } else {
-                      setSheetState(() {
-                        statusText =
-                            translate('Waiting for payment confirmation...');
-                        statusIsError = false;
-                      });
                     }
                   } catch (e) {
                     if (alive) {
@@ -339,6 +352,20 @@ class _AccountPageState extends State<AccountPage> {
                     }
                   }
                 }();
+              });
+            }
+
+            void startPaymentLaunchWatchdog(KqMemberOrder nextOrder) {
+              clearPaymentLaunchWatchdog();
+              launchWatchdog = Timer(const Duration(seconds: 8), () {
+                if (!alive || !creatingOrder) return;
+                setSheetState(() {
+                  order = nextOrder;
+                  creatingOrder = false;
+                  statusText = _mineText('Payment was not completed');
+                  statusIsError = true;
+                  showQrFallback = false;
+                });
               });
             }
 
@@ -376,20 +403,29 @@ class _AccountPageState extends State<AccountPage> {
                   payType: payType,
                 );
                 if (!alive) return;
-                final opened = await openPaymentApp(nextOrder);
+                startPaymentLaunchWatchdog(nextOrder);
+                final launchState = await openPaymentApp(nextOrder);
+                clearPaymentLaunchWatchdog();
                 if (!alive) return;
                 setSheetState(() {
                   order = nextOrder;
-                  showQrFallback = !opened;
-                  statusText = opened
-                      ? (payType == 1
-                          ? _mineText('WeChat payment opened')
-                          : _mineText('Alipay cashier opened'))
-                      : _mineText(
-                          'Payment app unavailable. Scan the QR code to pay');
-                  statusIsError = false;
+                  showQrFallback =
+                      launchState == _KqPaymentLaunchState.unavailable;
+                  statusText = launchState == _KqPaymentLaunchState.opened
+                      ? _mineText('Alipay cashier opened')
+                      : launchState == _KqPaymentLaunchState.cancelled
+                          ? _mineText('Payment cancelled')
+                          : launchState == _KqPaymentLaunchState.failed
+                              ? _mineText('Payment was not completed')
+                              : _mineText(
+                                  'Payment app unavailable. Scan the QR code to pay');
+                  statusIsError = launchState == _KqPaymentLaunchState.failed;
                 });
-                startPolling(nextOrder);
+                if (launchState == _KqPaymentLaunchState.opened) {
+                  startPolling(nextOrder);
+                } else if (launchState == _KqPaymentLaunchState.cancelled) {
+                  showToast(_mineText('Payment cancelled'));
+                }
               } catch (e) {
                 if (!alive) return;
                 setSheetState(() {
@@ -398,6 +434,7 @@ class _AccountPageState extends State<AccountPage> {
                 });
                 showToast(e.toString());
               } finally {
+                clearPaymentLaunchWatchdog();
                 if (alive) {
                   setSheetState(() => creatingOrder = false);
                 }
@@ -471,6 +508,7 @@ class _AccountPageState extends State<AccountPage> {
                                     statusText = '';
                                     statusIsError = false;
                                     showQrFallback = false;
+                                    clearPaymentLaunchWatchdog();
                                     stopPolling();
                                   });
                                 },
@@ -493,20 +531,6 @@ class _AccountPageState extends State<AccountPage> {
                         runSpacing: 8,
                         children: [
                           ChoiceChip(
-                            selected: payType == 1,
-                            label: Text(translate('WeChat Pay')),
-                            avatar:
-                                const Icon(Icons.qr_code_2_rounded, size: 17),
-                            onSelected: (_) => setSheetState(() {
-                              payType = 1;
-                              order = null;
-                              statusText = '';
-                              statusIsError = false;
-                              showQrFallback = false;
-                              stopPolling();
-                            }),
-                          ),
-                          ChoiceChip(
                             selected: payType == 2,
                             label: Text(translate('Alipay')),
                             avatar: const Icon(Icons.open_in_browser_rounded,
@@ -517,6 +541,7 @@ class _AccountPageState extends State<AccountPage> {
                               statusText = '';
                               statusIsError = false;
                               showQrFallback = false;
+                              clearPaymentLaunchWatchdog();
                               stopPolling();
                             }),
                           ),
@@ -600,6 +625,7 @@ class _AccountPageState extends State<AccountPage> {
       },
     ).whenComplete(() {
       alive = false;
+      clearPaymentLaunchWatchdog();
       stopPolling();
     });
   }
@@ -2215,6 +2241,8 @@ const _mineZh = {
   'WeChat payment opened': '已打开微信支付',
   'Payment app unavailable. Scan the QR code to pay': '未能唤起支付应用，请扫码支付',
   'Alipay cashier opened': '已打开支付宝收银台',
+  'Payment cancelled': '\u652f\u4ed8\u5df2\u53d6\u6d88',
+  'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
   'Membership quality unlocked': '会员画质已解锁，可使用 1080p 和 60 FPS。',
   'Upgrade to unlock 1080p and 60 FPS':
       '当前账号最多可用 720p / 30 FPS，开通会员后可使用 1080p / 60 FPS。',
@@ -2231,4 +2259,6 @@ const _mineTw = {
   'WeChat payment opened': '已開啟微信支付',
   'Payment app unavailable. Scan the QR code to pay': '未能喚起支付應用，請掃碼支付',
   'Alipay cashier opened': '已開啟支付寶收銀台',
+  'Payment cancelled': '\u652f\u4ed8\u5df2\u53d6\u6d88',
+  'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
 };

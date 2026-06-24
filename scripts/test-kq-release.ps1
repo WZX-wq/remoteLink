@@ -336,14 +336,14 @@ function Test-KqAndroidMobilePaymentMethod {
     $deployRustdeskWorkflow = if (Test-Path $deployRustdeskWorkflowPath) { Get-Content $deployRustdeskWorkflowPath -Raw -Encoding UTF8 } else { "" }
     $alipay = if (Test-Path $alipayPath) { Get-Content $alipayPath -Raw -Encoding UTF8 } else { "" }
 
-    if ($content -match 'var payType = 1;' -and
+    if ($content -match 'var payType = 2;' -and
         $content -match "translate\('Payment method'\)" -and
-        $content -match "translate\('WeChat Pay'\)" -and
+        $content -notmatch "translate\('WeChat Pay'\)" -and
         $content -match "translate\('Alipay'\)" -and
         $content -match 'ChoiceChip') {
-        Add-Check "android:mobile-payment-method-selector" "PASS" "mobile membership sheet lets users choose WeChat or Alipay"
+        Add-Check "android:mobile-payment-method-selector" "PASS" "mobile membership sheet currently exposes Alipay only"
     } else {
-        Add-Check "android:mobile-payment-method-selector" "FAIL" "mobile membership sheet does not expose payment method choices"
+        Add-Check "android:mobile-payment-method-selector" "FAIL" "mobile membership sheet still exposes WeChat or does not default to Alipay"
     }
     if ($content -match 'payType:\s*payType' -and
         $content -notmatch 'payType:\s*1,') {
@@ -366,6 +366,32 @@ function Test-KqAndroidMobilePaymentMethod {
         Add-Check "android:mobile-payment-launch-loading" "PASS" "mobile membership payment shows a loading animation while launching the payment app"
     } else {
         Add-Check "android:mobile-payment-launch-loading" "FAIL" "mobile membership payment lacks a visible launch loading animation"
+    }
+    if ($content -match 'Timer\?\s+launchWatchdog' -and
+        $content -match 'void\s+clearPaymentLaunchWatchdog\(\)' -and
+        $content -match 'startPaymentLaunchWatchdog\(' -and
+        $content -match 'const Duration\(seconds:\s*8\)' -and
+        $content -match "statusText = _mineText\('Payment was not completed'\)" -and
+        $content -match 'creatingOrder = false' -and
+        $content -match 'launchWatchdog\?\.cancel\(\)') {
+        Add-Check "android:mobile-payment-launch-watchdog" "PASS" "Alipay SDK launch errors cannot keep the payment button locked forever"
+    } else {
+        Add-Check "android:mobile-payment-launch-watchdog" "FAIL" "Alipay SDK launch errors can still leave the sheet stuck in launch loading state"
+    }
+    if ($content -match 'enum\s+_KqPaymentLaunchState' -and
+        $content -match '_KqPaymentLaunchState\.cancelled' -and
+        $content -match "status == '6001'" -and
+        $content -match "_mineText\('Payment cancelled'\)" -and
+        $content -match "showToast\(_mineText\('Payment cancelled'\)\)" -and
+        $content -match '(?s)if \(launchState == _KqPaymentLaunchState\.opened\)\s*\{\s*startPolling\(nextOrder\);\s*\}') {
+        Add-Check "android:mobile-payment-alipay-cancel-terminal" "PASS" "Alipay cancellation stops fallback and shows a cancellation state"
+    } else {
+        Add-Check "android:mobile-payment-alipay-cancel-terminal" "FAIL" "Alipay cancellation can still fall through to another launch path or polling"
+    }
+    if ($content -notmatch "Waiting for payment confirmation\.\.\.") {
+        Add-Check "android:mobile-payment-no-waiting-confirmation-copy" "PASS" "mobile membership sheet no longer shows the waiting confirmation copy"
+    } else {
+        Add-Check "android:mobile-payment-no-waiting-confirmation-copy" "FAIL" "mobile membership sheet still shows waiting confirmation copy"
     }
     if ($content -match 'Future<bool> ensurePaymentLogin\(\) async' -and
         $content -match 'user\.isLogin && user\.hasMemberApiCredential' -and
@@ -504,9 +530,9 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-wechat-callback-activity" "FAIL" "Android WeChat Pay callback activity is missing or misconfigured"
     }
-    if ($content -match 'Future<bool> openPaymentApp\(KqMemberOrder order\)' -and
+    if ($content -match 'Future<_KqPaymentLaunchState> openPaymentApp\(KqMemberOrder order\)' -and
         $content -match 'Future<bool> openWechatPaymentApp\(KqMemberOrder order\)' -and
-        $content -match 'Future<bool> openAlipayPaymentApp\(KqMemberOrder order\)' -and
+        $content -match '(?s)Future<_KqPaymentLaunchState>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
         $content -match 'AndroidChannel\.kOpenWechatPay' -and
         $content -match 'openPaymentUri\(uri\)' -and
         $content -match 'showQrFallback' -and
@@ -526,7 +552,7 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-alipay-sdk-payv2" "FAIL" "Android does not use the official Alipay SDK payV2 path"
     }
-    if ($content -match 'Future<bool> openAlipayPaymentApp\(KqMemberOrder order\)' -and
+    if ($content -match '(?s)Future<_KqPaymentLaunchState>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
         $content -match 'AndroidChannel\.kOpenAlipayOrder' -and
         $content -match 'alipayAppOrderInfos' -and
         $content -match 'openAlipayHtmlCheckout\(order\)' -and
@@ -628,12 +654,12 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-alipay-no-web-url-app-link" "FAIL" "Alipay web checkout URLs can still be exposed as native app links"
     }
-    if ($content -match 'statusText = opened' -and
-        $content -match "_mineText\('WeChat payment opened'\)" -and
+    if ($content -match 'statusText = launchState == _KqPaymentLaunchState\.opened' -and
+        $content -notmatch "_mineText\('WeChat payment opened'\)" -and
         $content -match "_mineText\('Alipay cashier opened'\)" -and
         $content -match "(?s)_mineText\(\s*'Payment app unavailable\. Scan the QR code to pay'\s*\)" -and
         $content -match "'Payment app unavailable\. Scan the QR code to pay':" -and
-        $content -match "'WeChat payment opened':" -and
+        $content -match "'Payment cancelled':" -and
         $content -match "'Alipay cashier opened':") {
         Add-Check "android:mobile-payment-method-status-copy" "PASS" "mobile payment status reflects the selected method"
     } else {
