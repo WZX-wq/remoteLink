@@ -378,6 +378,21 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-launch-watchdog" "FAIL" "Alipay SDK launch errors can still leave the sheet stuck in launch loading state"
     }
+    if ($content -match 'if \(!creatingOrder && statusText\.isNotEmpty\)' -and
+        $content -notmatch "statusText = _mineText\('Opening payment app\.\.\.'\)") {
+        Add-Check "android:mobile-payment-no-duplicate-launch-copy" "PASS" "launch loading copy only appears inside the payment button"
+    } else {
+        Add-Check "android:mobile-payment-no-duplicate-launch-copy" "FAIL" "launch loading copy can still appear both above the button and inside it"
+    }
+    if ($content -match 'class _KqPaymentLaunchResult' -and
+        $content -match 'String failureMessage\(' -and
+        $content -match "result\['memo'\]" -and
+        $content -match 'memo:\s*memo' -and
+        $content -match 'launchResult\.failureMessage\(_mineText\)') {
+        Add-Check "android:mobile-payment-alipay-failure-memo" "PASS" "Alipay SDK failure memo is preserved for diagnosis"
+    } else {
+        Add-Check "android:mobile-payment-alipay-failure-memo" "FAIL" "Alipay SDK failure memo can be lost behind a generic failure message"
+    }
     if ($content -match 'enum\s+_KqPaymentLaunchState' -and
         $content -match '_KqPaymentLaunchState\.cancelled' -and
         $content -match "status == '6001'" -and
@@ -530,13 +545,14 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-wechat-callback-activity" "FAIL" "Android WeChat Pay callback activity is missing or misconfigured"
     }
-    if ($content -match 'Future<_KqPaymentLaunchState> openPaymentApp\(KqMemberOrder order\)' -and
+    if ($content -match 'Future<_KqPaymentLaunchResult> openPaymentApp\(KqMemberOrder order\)' -and
         $content -match 'Future<bool> openWechatPaymentApp\(KqMemberOrder order\)' -and
-        $content -match '(?s)Future<_KqPaymentLaunchState>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
+        $content -match '(?s)Future<_KqPaymentLaunchResult>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
         $content -match 'AndroidChannel\.kOpenWechatPay' -and
         $content -match 'openPaymentUri\(uri\)' -and
         $content -match 'showQrFallback' -and
-        $content -match 'await openPaymentApp\(nextOrder\)') {
+        $content -match 'final launchResult = await openPaymentApp\(nextOrder\)' -and
+        $content -match 'final launchState = launchResult\.state') {
         Add-Check "android:mobile-payment-launches-native-app" "PASS" "mobile payment first launches WeChat/Alipay apps with QR fallback"
     } else {
         Add-Check "android:mobile-payment-launches-native-app" "FAIL" "mobile payment does not first launch native payment apps"
@@ -552,7 +568,7 @@ function Test-KqAndroidMobilePaymentMethod {
     } else {
         Add-Check "android:mobile-payment-alipay-sdk-payv2" "FAIL" "Android does not use the official Alipay SDK payV2 path"
     }
-    if ($content -match '(?s)Future<_KqPaymentLaunchState>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
+    if ($content -match '(?s)Future<_KqPaymentLaunchResult>\s+openAlipayPaymentApp\(\s*KqMemberOrder order\s*\)' -and
         $content -match 'AndroidChannel\.kOpenAlipayOrder' -and
         $content -match 'alipayAppOrderInfos' -and
         $content -match 'openAlipayHtmlCheckout\(order\)' -and

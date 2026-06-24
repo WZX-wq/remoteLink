@@ -23,6 +23,19 @@ const _kqAndroidPaymentChannel = MethodChannel('mChannel');
 
 enum _KqPaymentLaunchState { opened, cancelled, failed, unavailable }
 
+class _KqPaymentLaunchResult {
+  final _KqPaymentLaunchState state;
+  final String memo;
+
+  const _KqPaymentLaunchResult(this.state, {this.memo = ''});
+
+  String failureMessage(String Function(String) text) {
+    final detail = memo.trim();
+    if (detail.isEmpty) return text('Payment was not completed');
+    return '${text('Payment was not completed')}: $detail';
+  }
+}
+
 class AccountPage extends StatefulWidget implements PageShape {
   AccountPage({super.key});
 
@@ -210,7 +223,7 @@ class _AccountPageState extends State<AccountPage> {
       }
     }
 
-    Future<_KqPaymentLaunchState> openAlipayPaymentApp(
+    Future<_KqPaymentLaunchResult> openAlipayPaymentApp(
         KqMemberOrder order) async {
       final alipayAppOrderInfos = order
           .appLaunchUrlsForPayType(2)
@@ -227,14 +240,18 @@ class _AccountPageState extends State<AccountPage> {
             debugPrint('KQ Alipay SDK result: $result');
             if (result is Map) {
               final status = (result['resultStatus'] ?? '').toString();
+              final memo = (result['memo'] ?? '').toString();
               if (status == '9000' || status == '8000' || status == '6004') {
-                return _KqPaymentLaunchState.opened;
+                return const _KqPaymentLaunchResult(
+                    _KqPaymentLaunchState.opened);
               }
               if (status == '6001') {
-                return _KqPaymentLaunchState.cancelled;
+                return _KqPaymentLaunchResult(_KqPaymentLaunchState.cancelled,
+                    memo: memo);
               }
               if (status.isNotEmpty) {
-                return _KqPaymentLaunchState.failed;
+                return _KqPaymentLaunchResult(_KqPaymentLaunchState.failed,
+                    memo: memo);
               }
             }
           }
@@ -250,11 +267,13 @@ class _AccountPageState extends State<AccountPage> {
         }
         final uri = Uri.tryParse(url.trim());
         if (uri == null) continue;
-        if (await openPaymentUri(uri)) return _KqPaymentLaunchState.opened;
+        if (await openPaymentUri(uri)) {
+          return const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened);
+        }
       }
       return await openAlipayHtmlCheckout(order)
-          ? _KqPaymentLaunchState.opened
-          : _KqPaymentLaunchState.unavailable;
+          ? const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened)
+          : const _KqPaymentLaunchResult(_KqPaymentLaunchState.unavailable);
     }
 
     Future<bool> openWechatPaymentApp(KqMemberOrder order) async {
@@ -286,16 +305,16 @@ class _AccountPageState extends State<AccountPage> {
       return false;
     }
 
-    Future<_KqPaymentLaunchState> openPaymentApp(KqMemberOrder order) async {
+    Future<_KqPaymentLaunchResult> openPaymentApp(KqMemberOrder order) async {
       if (payType == 2) {
         return openAlipayPaymentApp(order);
       }
       if (payType == 1) {
         return await openWechatPaymentApp(order)
-            ? _KqPaymentLaunchState.opened
-            : _KqPaymentLaunchState.unavailable;
+            ? const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened)
+            : const _KqPaymentLaunchResult(_KqPaymentLaunchState.unavailable);
       }
-      return _KqPaymentLaunchState.unavailable;
+      return const _KqPaymentLaunchResult(_KqPaymentLaunchState.unavailable);
     }
 
     showModalBottomSheet<void>(
@@ -393,7 +412,7 @@ class _AccountPageState extends State<AccountPage> {
               setSheetState(() {
                 creatingOrder = true;
                 order = null;
-                statusText = _mineText('Opening payment app...');
+                statusText = '';
                 statusIsError = false;
                 showQrFallback = false;
               });
@@ -404,9 +423,10 @@ class _AccountPageState extends State<AccountPage> {
                 );
                 if (!alive) return;
                 startPaymentLaunchWatchdog(nextOrder);
-                final launchState = await openPaymentApp(nextOrder);
+                final launchResult = await openPaymentApp(nextOrder);
                 clearPaymentLaunchWatchdog();
                 if (!alive) return;
+                final launchState = launchResult.state;
                 setSheetState(() {
                   order = nextOrder;
                   showQrFallback =
@@ -416,7 +436,7 @@ class _AccountPageState extends State<AccountPage> {
                       : launchState == _KqPaymentLaunchState.cancelled
                           ? _mineText('Payment cancelled')
                           : launchState == _KqPaymentLaunchState.failed
-                              ? _mineText('Payment was not completed')
+                              ? launchResult.failureMessage(_mineText)
                               : _mineText(
                                   'Payment app unavailable. Scan the QR code to pay');
                   statusIsError = launchState == _KqPaymentLaunchState.failed;
@@ -551,7 +571,7 @@ class _AccountPageState extends State<AccountPage> {
                         const SizedBox(height: 16),
                         _MemberOrderPanel(order: order!),
                       ],
-                      if (statusText.isNotEmpty) ...[
+                      if (!creatingOrder && statusText.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 180),
