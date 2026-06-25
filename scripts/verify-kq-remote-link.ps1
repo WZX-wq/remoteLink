@@ -37,7 +37,7 @@ Invoke-Step "Whitespace check" {
 Invoke-Step "Custom client JSON check" {
     python -m json.tool .\deploy\custom-client.example.json | Out-Null
     $customClientExample = Get-Content .\deploy\custom-client.example.json -Raw -Encoding UTF8
-    foreach ($needle in @("43.154.197.96:21116", "43.154.197.96:21117", "PASTE_HBBS_PUBLIC_KEY_HERE")) {
+    foreach ($needle in @("remotelink.kunqiongai.com:21116", "remotelink.kunqiongai.com:21117", "https://remotelink.kunqiongai.com/kq-api/api", "PASTE_HBBS_PUBLIC_KEY_HERE")) {
         if ($customClientExample -notmatch [regex]::Escape($needle)) {
             throw "custom-client.example.json is missing $needle"
         }
@@ -60,14 +60,14 @@ Invoke-Step "Server deployment template check" {
     }
 
     $directDeployScript = Get-Content .\scripts\deploy\deploy.sh -Raw -Encoding UTF8
-    foreach ($needle in @("/www/wwwroot", "KQromoteLink", "deploy-rustdesk-server.sh", "check-rustdesk-server.sh", "43.154.197.96", "21116", "21117")) {
+    foreach ($needle in @("/www/wwwroot", "KQromoteLink", "deploy-rustdesk-server.sh", "check-rustdesk-server.sh", "remotelink.kunqiongai.com", "21116", "21117")) {
         if ($directDeployScript -notmatch [regex]::Escape($needle)) {
             throw "scripts/deploy/deploy.sh is missing $needle"
         }
     }
 
     $directWorkflow = Get-Content .\.gitea\workflows\deploy.yml -Raw -Encoding UTF8
-    foreach ($needle in @("runs-on: linux", "scripts/deploy/deploy.sh", "/www/wwwroot/KQromoteLink", "43.154.197.96", "bash -n", "secrets.KQ_HBBS_PUBLIC_KEY", "secrets.KQ_HBBS_SECRET_KEY")) {
+    foreach ($needle in @("runs-on: linux", "scripts/deploy/deploy.sh", "/www/wwwroot/KQromoteLink", "remotelink.kunqiongai.com", "bash -n", "secrets.KQ_HBBS_PUBLIC_KEY", "secrets.KQ_HBBS_SECRET_KEY")) {
         if ($directWorkflow -notmatch [regex]::Escape($needle)) {
             throw "Gitea direct deploy workflow is missing $needle"
         }

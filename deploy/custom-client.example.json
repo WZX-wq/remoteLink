@@ -1,22 +1,22 @@
 {
   "app-name": "鲲穹远程桌面",
   "default-settings": {
-    "custom-rendezvous-server": "43.154.197.96:21116",
-    "relay-server": "43.154.197.96:21117",
+    "custom-rendezvous-server": "remotelink.kunqiongai.com:21116",
+    "relay-server": "remotelink.kunqiongai.com:21117",
     "api-server": "",
     "key": "PASTE_HBBS_PUBLIC_KEY_HERE",
     "force-always-relay": "Y",
     "hide-server-settings": "Y",
-    "kq-project-api-server": "http://43.154.197.96/kq-api/api"
+    "kq-project-api-server": "https://remotelink.kunqiongai.com/kq-api/api"
   },
   "override-settings": {
-    "custom-rendezvous-server": "43.154.197.96:21116",
-    "relay-server": "43.154.197.96:21117",
+    "custom-rendezvous-server": "remotelink.kunqiongai.com:21116",
+    "relay-server": "remotelink.kunqiongai.com:21117",
     "api-server": "",
     "key": "PASTE_HBBS_PUBLIC_KEY_HERE",
     "force-always-relay": "Y",
     "hide-server-settings": "Y",
     "allow-deep-link-server-settings": "N",
-    "kq-project-api-server": "http://43.154.197.96/kq-api/api"
+    "kq-project-api-server": "https://remotelink.kunqiongai.com/kq-api/api"
   }
 }

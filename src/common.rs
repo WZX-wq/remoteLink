@@ -2631,11 +2631,11 @@ fn apply_kq_remote_link_defaults() {
     let mut overwrite_settings = config::OVERWRITE_SETTINGS.write().unwrap();
     overwrite_settings.insert(
         keys::OPTION_CUSTOM_RENDEZVOUS_SERVER.to_owned(),
-        "43.154.197.96:21116".to_owned(),
+        "remotelink.kunqiongai.com:21116".to_owned(),
     );
     overwrite_settings.insert(
         keys::OPTION_RELAY_SERVER.to_owned(),
-        "43.154.197.96:21117".to_owned(),
+        "remotelink.kunqiongai.com:21117".to_owned(),
     );
     overwrite_settings.insert(keys::OPTION_API_SERVER.to_owned(), "".to_owned());
     overwrite_settings.insert(
@@ -2694,7 +2694,7 @@ fn apply_kq_remote_link_defaults() {
     drop(builtin_settings);
     config::BUILTIN_SETTINGS.write().unwrap().insert(
         "kq-project-api-server".to_owned(),
-        "http://43.154.197.96/kq-api/api".to_owned(),
+        "https://remotelink.kunqiongai.com/kq-api/api".to_owned(),
     );
 }
 

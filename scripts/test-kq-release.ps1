@@ -2061,13 +2061,14 @@ function Test-BuiltInPrivateServerDefaults {
     }
     $content = Get-Content $source -Raw -Encoding UTF8
     $required = @(
-        "43.154.197.96:21116",
-        "43.154.197.96:21117",
+        "remotelink.kunqiongai.com:21116",
+        "remotelink.kunqiongai.com:21117",
+        "https://remotelink.kunqiongai.com/kq-api/api",
         "h9goq/v9ic0Uh0NpB/9Uv4v2MNpSEIVCy7UFSETZ5BA="
     )
     $missing = @($required | Where-Object { $content -notmatch [regex]::Escape($_) })
     if ($missing.Count -eq 0) {
-        Add-Check "private-server:built-in-defaults" "PASS" "client defaults point to private hbbs/hbbr"
+        Add-Check "private-server:built-in-defaults" "PASS" "client defaults point to production hbbs/hbbr/API"
     } else {
         Add-Check "private-server:built-in-defaults" "FAIL" "Missing defaults: $($missing -join ', ')"
     }
@@ -2514,8 +2515,8 @@ Test-KqAndroidMobileSettingsNo2FA
     Test-SourceNotContains ".\server\src\index.js" $kqDownloadForbiddenRateLimit "server:download-no-rate-limit-copy"
     Test-SourceNotContains ".\server\src\index.js" "Download rate limit exceeded" "server:download-no-technical-rate-copy"
     Test-SourceContains ".\server\Dockerfile" "COPY public ./public" "server:download-file-packaged"
-    Test-SourceContains ".\.gitea\workflows\deploy.yml" "http://43.154.197.96/kq-api/download/windows" "deploy:self-hosted-download-url"
-    Test-SourceContains ".\.gitea\workflows\deploy.yml" "http://43.154.197.96/kq-api/download/android" "deploy:self-hosted-android-download-url"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "https://remotelink.kunqiongai.com/kq-api/download/windows" "deploy:production-download-url"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "https://remotelink.kunqiongai.com/kq-api/download/android" "deploy:production-android-download-url"
     Test-SourceContains ".\.gitea\workflows\android-build.yml" "API_DOWNLOAD_DIR=/www/wwwroot/KQromoteLink/api/public/downloads" "android:api-download-dir"
     Test-SourceContains ".\.gitea\workflows\android-build.yml" "scripts/ci/apply-hbb-common-patch.sh" "android:hbb-common-patch-ci"
     Test-SourceContains ".\scripts\ci\android-build-step.sh" "ensure_android_cmdline_tools()" "android:sdkmanager-cache-validation-helper"

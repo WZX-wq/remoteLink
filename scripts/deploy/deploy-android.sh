@@ -78,7 +78,7 @@ if [[ -f "${ENV_FILE}" ]]; then
   tmp_env="$(mktemp)"
   grep -Ev '^(KQ_ANDROID_DOWNLOAD_URL|KQ_ANDROID_DOWNLOAD_FILE_PATH|KQ_ANDROID_DOWNLOAD_FILE_NAME|KQ_ANDROID_DOWNLOAD_VERSION|KQ_ANDROID_DOWNLOAD_SHA256)=' "${ENV_FILE}" > "${tmp_env}" || true
   {
-    printf 'KQ_ANDROID_DOWNLOAD_URL=%s\n' "${KQ_ANDROID_DOWNLOAD_URL:-http://43.154.197.96/kq-api/download/android}"
+    printf 'KQ_ANDROID_DOWNLOAD_URL=%s\n' "${KQ_ANDROID_DOWNLOAD_URL:-https://remotelink.kunqiongai.com/kq-api/download/android}"
     printf 'KQ_ANDROID_DOWNLOAD_FILE_PATH=%s\n' "${KQ_ANDROID_DOWNLOAD_FILE_PATH:-/app/public/downloads/Kunqiong-Remote-Desktop.apk}"
     printf 'KQ_ANDROID_DOWNLOAD_FILE_NAME=%s\n' "${KQ_ANDROID_DOWNLOAD_FILE_NAME:-Kunqiong-Remote-Desktop.apk}"
     printf 'KQ_ANDROID_DOWNLOAD_VERSION=%s\n' "${android_version}"

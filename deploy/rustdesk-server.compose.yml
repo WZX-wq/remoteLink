@@ -38,13 +38,13 @@ services:
     environment:
       KQ_API_HOST: 127.0.0.1
       KQ_API_PORT: ${KQ_API_PORT:-21120}
-      KQ_PUBLIC_API_URL: ${KQ_PUBLIC_API_URL:-http://43.154.197.96/kq-api/api}
-      KQ_DOWNLOAD_URL: ${KQ_DOWNLOAD_URL:-http://43.154.197.96/kq-api/download/windows}
+      KQ_PUBLIC_API_URL: ${KQ_PUBLIC_API_URL:-https://remotelink.kunqiongai.com/kq-api/api}
+      KQ_DOWNLOAD_URL: ${KQ_DOWNLOAD_URL:-https://remotelink.kunqiongai.com/kq-api/download/windows}
       KQ_DOWNLOAD_FILE_PATH: ${KQ_DOWNLOAD_FILE_PATH:-/app/public/downloads/Kunqiong-Remote-Desktop-Setup.exe}
       KQ_DOWNLOAD_FILE_NAME: ${KQ_DOWNLOAD_FILE_NAME:-Kunqiong-Remote-Desktop-Setup.exe}
       KQ_DOWNLOAD_VERSION: ${KQ_DOWNLOAD_VERSION:-2026.06.24.2020}
       KQ_DOWNLOAD_SHA256: ${KQ_DOWNLOAD_SHA256:-9719E18CEC4A13FF1AE7D894477DD1F9AA53C8833B77139FE2937AEA8B97C2FC}
-      KQ_ANDROID_DOWNLOAD_URL: ${KQ_ANDROID_DOWNLOAD_URL:-http://43.154.197.96/kq-api/download/android}
+      KQ_ANDROID_DOWNLOAD_URL: ${KQ_ANDROID_DOWNLOAD_URL:-https://remotelink.kunqiongai.com/kq-api/download/android}
       KQ_ANDROID_DOWNLOAD_FILE_PATH: ${KQ_ANDROID_DOWNLOAD_FILE_PATH:-/app/public/downloads/Kunqiong-Remote-Desktop.apk}
       KQ_ANDROID_DOWNLOAD_FILE_NAME: ${KQ_ANDROID_DOWNLOAD_FILE_NAME:-Kunqiong-Remote-Desktop.apk}
       KQ_ANDROID_DOWNLOAD_VERSION: ${KQ_ANDROID_DOWNLOAD_VERSION:-1.4.6+4067}
@@ -83,7 +83,7 @@ services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: kq-remote-link-hbbs
-    command: hbbs -r ${KQ_RELAY_SERVER:-43.154.197.96:21117}
+    command: hbbs -r ${KQ_RELAY_SERVER:-remotelink.kunqiongai.com:21117}
     volumes:
       - ./data:/root
     network_mode: host

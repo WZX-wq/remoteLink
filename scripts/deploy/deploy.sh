@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_NAME="${PROJECT_NAME:-KQromoteLink}"
 INSTALL_DIR="${INSTALL_DIR:-/www/wwwroot/${PROJECT_NAME}}"
-PUBLIC_HOST="${PUBLIC_HOST:-43.154.197.96}"
+PUBLIC_HOST="${PUBLIC_HOST:-remotelink.kunqiongai.com}"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 echo "== Runner diagnostics =="
@@ -52,5 +52,5 @@ echo "Client rendezvous server: ${PUBLIC_HOST}:21116"
 echo "Client relay server: ${PUBLIC_HOST}:21117"
 echo "Server key file: ${INSTALL_DIR}/data/id_ed25519.pub"
 if [[ "${CHECK_COMPOSE_PROFILES}" == "api" ]]; then
-  echo "KQ API: ${KQ_PUBLIC_API_URL:-http://${PUBLIC_HOST}/kq-api/api}"
+  echo "KQ API: ${KQ_PUBLIC_API_URL:-https://${PUBLIC_HOST}/kq-api/api}"
 fi

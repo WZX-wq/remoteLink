@@ -852,7 +852,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     if (apiBase.endsWith('/api')) {
       return '${apiBase.substring(0, apiBase.length - 4)}/invite';
     }
-    return 'http://43.154.197.96/kq-api/invite';
+    return 'https://remotelink.kunqiongai.com/kq-api/invite';
   }
 
   String _kqPasswordKindLabel(KqPasswordKind kind) {
