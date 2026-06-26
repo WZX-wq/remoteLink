@@ -78,8 +78,8 @@ jobs:
           KQ_DOWNLOAD_URL: https://remotelink.kunqiongai.com/kq-api/download/windows
           KQ_DOWNLOAD_FILE_PATH: /app/public/downloads/Kunqiong-Remote-Desktop-Setup.exe
           KQ_DOWNLOAD_FILE_NAME: Kunqiong-Remote-Desktop-Setup.exe
-          KQ_DOWNLOAD_VERSION: 2026.06.25.2030
-          KQ_DOWNLOAD_SHA256: 6C07977FA2FB0D6B79B104655A851EEBD8133093682B5CAD5DAEE6D8639FF616
+          KQ_DOWNLOAD_VERSION: 2026.06.26.2060
+          KQ_DOWNLOAD_SHA256: 4C3E608C6AF09F6BEE70597DA0691253F0771C0E1E6F7CD8200F87A05826341A
           KQ_ANDROID_DOWNLOAD_URL: https://remotelink.kunqiongai.com/kq-api/download/android
           KQ_ANDROID_DOWNLOAD_FILE_PATH: /app/public/downloads/Kunqiong-Remote-Desktop.apk
           KQ_ANDROID_DOWNLOAD_FILE_NAME: Kunqiong-Remote-Desktop.apk
