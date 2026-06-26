@@ -1526,7 +1526,7 @@ function Test-InstallerUpgradePolicy {
         @("installer:remove-versioned-shortcut-icons-filter", '"kq-icon-*.ico"'),
         @("installer:remove-packaged-asset-icons-call", "Remove-KqPackagedAssetIcons -ReleasePath `$release.Path"),
         @("installer:shortcut-icon-uses-exe", 'IconFilename: "{app}\{#MyAppExeName}"'),
-        @("installer:repair-existing-shortcuts-hook", 'AfterInstall: KqRepairExistingShortcuts'),
+        @("installer:repair-existing-shortcuts-hook", 'KqRepairExistingShortcuts();'),
         @("installer:repair-desktop-shortcut-icon", "KqRepairShortcut(ExpandConstant('{commondesktop}\{#MyAppName}.lnk'))"),
         @("installer:repair-taskbar-shortcut-icon", "KqRepairShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppName}.lnk'))"),
         @("installer:repair-shortcut-icon-uses-exe", "Shortcut.IconLocation := ExpandConstant('{app}\{#MyAppExeName}') + ',0'"),
@@ -1660,7 +1660,7 @@ function Test-LowFalsePositiveInstallerMode {
         @("installer:preinstall-waits-for-background-exit", "if not KqIsRuntimeProcessStillRunning() then begin"),
         @("installer:preinstall-auto-close-failure-helper", "function KqAutoCloseRuntimeFailedMessage(): String"),
         @("installer:lowfp-launch-route-finish-page", 'Add-KqInnoRunLine ''Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Tasks: launch; Check: KqIsFreshInstall'''),
-        @("installer:lowfp-repair-existing-shortcuts", 'AfterInstall: KqRepairExistingShortcuts'),
+        @("installer:lowfp-repair-existing-shortcuts", 'KqRepairExistingShortcuts();'),
         @("installer:lowfp-signed-release-guard", "function Assert-KqLowFalsePositiveReleaseSigned([string]`$ReleasePath)"),
         @("installer:lowfp-signed-release-guard-uses-authenticode", 'Get-AuthenticodeSignature -LiteralPath $_.FullName'),
         @("installer:lowfp-versioned-install-dir-helper", "function KqLowFalsePositiveInstallDir(): String"),
@@ -1726,6 +1726,7 @@ function Test-LowFalsePositiveInstallerMode {
     Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" 'Filename: "{app}\{#MyAppExeName}"; Flags: nowait' "installer:lowfp-no-unguarded-app-launch"
     Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" "{localappdata}\Programs\KQRemoteLink" "installer:lowfp-no-appdata-programs-dir"
     Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" '#define MyAppExeName "rustdesk.exe"' "installer:lowfp-no-hardcoded-rustdesk-exe-entry"
+    Test-SourceNotContains ".\scripts\new-kq-inno-installer.ps1" 'Filename: "{cmd}"; Parameters: "/c exit"; Flags: runhidden waituntilterminated; AfterInstall: KqRepairExistingShortcuts' "installer:lowfp-no-hidden-cmd-shortcut-repair"
     if ($content -match [regex]::Escape('DefaultDirName={code:GetDefaultInstallDir}') -and
         $content -match [regex]::Escape('UsePreviousAppDir=$innoUsePreviousAppDir') -and
         $content -match '(?s)function GetDefaultInstallDir\(Param: String\): String;.*if LowFalsePositiveInstaller then begin.*Result := KqLowFalsePositiveInstallDir\(\);.*Exit;.*end;.*if KqExistingInstallDir <> '''' then') {

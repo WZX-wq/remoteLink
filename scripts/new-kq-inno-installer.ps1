@@ -444,7 +444,6 @@ Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall
 Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP In"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated'
 Add-KqInnoStandardRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""KQRemoteLink UDP Out"" dir=out action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any protocol=UDP"; Flags: runhidden waituntilterminated'
 Add-KqInnoStandardRunLine 'Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-service --no-launch"; Flags: runhidden waituntilterminated'
-Add-KqInnoRunLine 'Filename: "{cmd}"; Parameters: "/c exit"; Flags: runhidden waituntilterminated; AfterInstall: KqRepairExistingShortcuts'
 Add-KqInnoRunLine 'Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Tasks: launch; Check: KqIsFreshInstall'
 
 Add-KqInnoStandardUninstallRunLine 'Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""KQRemoteLink TCP In"""; Flags: runhidden waituntilterminated; RunOnceId: "KQDeleteFirewallTcpIn"'
@@ -1151,6 +1150,7 @@ begin
     KqInstallSucceeded := True;
     CleanupLegacyInstallRegistration();
     CleanupLegacyUserShortcuts();
+    KqRepairExistingShortcuts();
   end;
 end;
 
