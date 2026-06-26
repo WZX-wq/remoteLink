@@ -23,7 +23,7 @@ const defaultAndroidApkPath = path.resolve(
   '../public/downloads/Kunqiong-Remote-Desktop.apk',
 );
 const defaultAndroidApkSha256 =
-  'BE052580AC46D27BF3A0856D586D5E793F62A8C64607B5B9DE9B2AE4E6E9582E';
+  '1158207394F9E5A875CDDDBB45A01BE7A3789557157888C6B3A9700095165C8B';
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
