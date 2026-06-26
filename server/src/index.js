@@ -17,7 +17,7 @@ const defaultInstallerPath = path.resolve(
   '../public/downloads/Kunqiong-Remote-Desktop-Setup.exe',
 );
 const defaultInstallerSha256 =
-  '9719E18CEC4A13FF1AE7D894477DD1F9AA53C8833B77139FE2937AEA8B97C2FC';
+  '6C07977FA2FB0D6B79B104655A851EEBD8133093682B5CAD5DAEE6D8639FF616';
 const defaultAndroidApkPath = path.resolve(
   __dirname,
   '../public/downloads/Kunqiong-Remote-Desktop.apk',
@@ -53,7 +53,7 @@ const config = {
     fileName:
       process.env.KQ_DOWNLOAD_FILE_NAME ||
       'Kunqiong-Remote-Desktop-Setup.exe',
-    version: process.env.KQ_DOWNLOAD_VERSION || '2026.06.24.2020',
+    version: process.env.KQ_DOWNLOAD_VERSION || '2026.06.25.2030',
     sha256: process.env.KQ_DOWNLOAD_SHA256 || defaultInstallerSha256,
     maxRequestsPerWindow: envInt('KQ_DOWNLOAD_MAX_REQUESTS_PER_WINDOW', 12, 1, 120),
     windowMs: envInt('KQ_DOWNLOAD_RATE_WINDOW_MS', 60000, 1000, 3600000),

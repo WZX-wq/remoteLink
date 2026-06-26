@@ -67,8 +67,8 @@ function Test-KqWebIconAsset {
 }
 
 function Test-KqWindowsDownloadInstaller {
-    $expectedVersion = "2026.06.24.2020"
-    $expectedSha256 = "9719E18CEC4A13FF1AE7D894477DD1F9AA53C8833B77139FE2937AEA8B97C2FC"
+    $expectedVersion = "2026.06.25.2030"
+    $expectedSha256 = "6C07977FA2FB0D6B79B104655A851EEBD8133093682B5CAD5DAEE6D8639FF616"
     $downloadInstaller = ".\server\public\downloads\Kunqiong-Remote-Desktop-Setup.exe"
 
     if (-not (Test-Path $downloadInstaller)) {
@@ -89,14 +89,14 @@ function Test-KqWindowsDownloadInstaller {
         }
     }
 
-    Test-SourceContains ".\server\src\index.js" $expectedVersion "server:download-windows-default-version-v202"
-    Test-SourceContains ".\server\src\index.js" $expectedSha256 "server:download-windows-default-sha-v202"
-    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_DOWNLOAD_VERSION: $expectedVersion" "deploy:download-windows-version-v202"
-    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_DOWNLOAD_SHA256: $expectedSha256" "deploy:download-windows-sha-v202"
-    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_VERSION:-$expectedVersion" "deploy:compose-windows-version-v202"
-    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_SHA256:-$expectedSha256" "deploy:compose-windows-sha-v202"
-    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_DOWNLOAD_VERSION:-$expectedVersion" "deploy:script-windows-version-v202"
-    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_DOWNLOAD_SHA256:-$expectedSha256" "deploy:script-windows-sha-v202"
+    Test-SourceContains ".\server\src\index.js" $expectedVersion "server:download-windows-default-version-v203"
+    Test-SourceContains ".\server\src\index.js" $expectedSha256 "server:download-windows-default-sha-v203"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_DOWNLOAD_VERSION: $expectedVersion" "deploy:download-windows-version-v203"
+    Test-SourceContains ".\.gitea\workflows\deploy.yml" "KQ_DOWNLOAD_SHA256: $expectedSha256" "deploy:download-windows-sha-v203"
+    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_VERSION:-$expectedVersion" "deploy:compose-windows-version-v203"
+    Test-SourceContains ".\deploy\rustdesk-server.compose.yml" "KQ_DOWNLOAD_SHA256:-$expectedSha256" "deploy:compose-windows-sha-v203"
+    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_DOWNLOAD_VERSION:-$expectedVersion" "deploy:script-windows-version-v203"
+    Test-SourceContains ".\deploy\deploy-rustdesk-server.sh" "KQ_DOWNLOAD_SHA256:-$expectedSha256" "deploy:script-windows-sha-v203"
 }
 
 function Test-KqAndroidDownloadPackage {
