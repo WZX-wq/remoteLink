@@ -363,6 +363,7 @@ New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 $appName = [string]::Concat([char[]]@(0x9CB2, 0x7A79, 0x8FDC, 0x7A0B, 0x684C, 0x9762))
 $legacyAppName = [string]::Concat([char[]]@(0x9CB2, 0x7A79, 0x5DE5, 0x5177, 0x7BB1))
 $myAppExeName = if ($LowFalsePositiveInstaller) { "KQRemoteLink.exe" } else { "rustdesk.exe" }
+$whiteLabelExeName = "KQRemoteLink.exe"
 $legacyExeName = "rustdesk.exe"
 $payloadPath = New-KqInstallerPayload -ReleasePath $release.Path -PayloadPath (Join-Path $buildRoot "payload") -MyAppExeName $myAppExeName
 $cnUpgradeCaption = [string]::Concat([char[]]@(0x5347, 0x7EA7, 0x0020, 0x002D, 0x0020, 0x007B, 0x0023, 0x004D, 0x0079, 0x0041, 0x0070, 0x0070, 0x004E, 0x0061, 0x006D, 0x0065, 0x007D))
@@ -395,7 +396,7 @@ $lowFalsePositiveDefine = if ($LowFalsePositiveInstaller) { "1" } else { "0" }
 $innoUsePreviousAppDir = if ($LowFalsePositiveInstaller) { "no" } else { "yes" }
 $innoPrivilegesRequired = "admin"
 $innoCloseApplications = "no"
-$innoCloseApplicationsFilter = if ($LowFalsePositiveInstaller) { "KQRemoteLink.exe,rustdesk.exe" } else { "rustdesk.exe" }
+$innoCloseApplicationsFilter = "KQRemoteLink.exe,rustdesk.exe"
 $innoDisableDirPage = if ($LowFalsePositiveInstaller) { "yes" } else { "no" }
 $innoDesktopIconRoot = if ($LowFalsePositiveInstaller) { "{userdesktop}" } else { "{commondesktop}" }
 $innoSignedUninstaller = if ([string]::IsNullOrWhiteSpace($InnoSignToolName)) { "no" } else { "yes" }
@@ -516,6 +517,7 @@ $iss = @"
 #define MyAppName "$appName"
 #define LegacyAppName "$legacyAppName"
 #define MyAppExeName "$myAppExeName"
+#define WhiteLabelExeName "$whiteLabelExeName"
 #define LegacyExeName "$legacyExeName"
 #define MyAppPublisher "Kunqiong"
 #define MyAppVersion "$Version"
@@ -812,7 +814,7 @@ end;
 
 function KqIsRuntimeProcessStillRunning(): Boolean;
 begin
-  Result := KqIsRuntimeProcessNameStillRunning('{#MyAppExeName}') or KqIsRuntimeProcessNameStillRunning('{#LegacyExeName}');
+  Result := KqIsRuntimeProcessNameStillRunning('{#MyAppExeName}') or KqIsRuntimeProcessNameStillRunning('{#WhiteLabelExeName}') or KqIsRuntimeProcessNameStillRunning('{#LegacyExeName}');
 end;
 
 function KqTerminateRuntimeProcessesByName(ExeName: String): Boolean;
@@ -849,6 +851,7 @@ end;
 function KqTerminateRuntimeProcesses(): Boolean;
 begin
   Result := KqTerminateRuntimeProcessesByName('{#MyAppExeName}');
+  Result := KqTerminateRuntimeProcessesByName('{#WhiteLabelExeName}') or Result;
   Result := KqTerminateRuntimeProcessesByName('{#LegacyExeName}') or Result;
 end;
 
