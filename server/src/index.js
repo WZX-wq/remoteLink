@@ -10,6 +10,7 @@ import {
   queryAlipayTradeByOutTradeNo,
   verifyAlipaySignature,
 } from './alipay.js';
+import { createRequestGate } from './request-gate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const defaultInstallerPath = path.resolve(
@@ -24,6 +25,11 @@ const defaultAndroidApkPath = path.resolve(
 );
 const defaultAndroidApkSha256 =
   '1158207394F9E5A875CDDDBB45A01BE7A3789557157888C6B3A9700095165C8B';
+const defaultRequestGateStateFile = path.resolve(
+  __dirname,
+  '../data/request-gate.json',
+);
+const defaultAdminGateToken = 'qwertyuiopasdfghjklzxcvbnm';
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
@@ -98,6 +104,11 @@ const config = {
         .replace(/\/+$/, ''),
   },
   appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
+  requestGate: {
+    stateFile:
+      process.env.KQ_REQUEST_GATE_STATE_FILE || defaultRequestGateStateFile,
+    adminToken: process.env.KQ_ADMIN_GATE_TOKEN || defaultAdminGateToken,
+  },
 };
 
 const kqIconAssetPath = 'assets/kq-icon.png';
@@ -2251,6 +2262,7 @@ function mapAccountDeviceRow(row) {
 }
 
 const app = express();
+const requestGate = createRequestGate(config.requestGate);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
@@ -2266,7 +2278,7 @@ app.use((req, res, next) => {
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
   res.setHeader(
     'access-control-allow-headers',
-    'authorization,content-type,token,x-kq-token',
+    'authorization,content-type,token,x-kq-token,x-kq-admin-token,x-admin-token',
   );
   if (req.method === 'OPTIONS') {
     res.status(204).end();
@@ -2274,6 +2286,20 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+app.get(
+  ['/admin/request-gate', '/api/admin/request-gate'],
+  requestGate.requireAdmin,
+  requestGate.handleGet,
+);
+
+app.post(
+  ['/admin/request-gate', '/api/admin/request-gate'],
+  requestGate.requireAdmin,
+  requestGate.handlePost,
+);
+
+app.use(requestGate.middleware);
 
 app.get(['/health', '/api/health'], async (_req, res, next) => {
   try {

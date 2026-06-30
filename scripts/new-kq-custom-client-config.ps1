@@ -16,7 +16,11 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-$signerTargetDir = Join-Path $env:TEMP "kq-custom-client-signer-target"
+$signerTargetDir = if ($env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR) {
+    [System.IO.Path]::GetFullPath($env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR)
+} else {
+    Join-Path $env:TEMP "kq-custom-client-signer-target"
+}
 
 function Resolve-RepoPath($Path) {
     if ([System.IO.Path]::IsPathRooted($Path)) {

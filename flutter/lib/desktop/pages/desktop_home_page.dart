@@ -7,15 +7,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
+import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
+import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
+import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -37,6 +39,21 @@ class DesktopHomePage extends StatefulWidget {
 }
 
 const borderColor = Color(0xFF2F65BA);
+const double _kqDesignerSidebarWidth = 195.0;
+const double _kqDesignerHeaderHeight = 42.0;
+const Color _kqDesignerBrandStart = Color(0xFF2563EB);
+const Color _kqDesignerBrandMid = Color(0xFF4AADF0);
+const Color _kqDesignerBrandEnd = Color(0xFF60A5FA);
+const Color _kqDesignerAppBackground = Color(0xFFF8FAFC);
+const Color _kqDesignerCardBorder = Color(0xFFE4E8EE);
+const Color _kqDesignerTextPrimary = Color(0xFF1A2332);
+const Color _kqDesignerTextSecondary = Color(0xFF6B7A8D);
+
+final ValueNotifier<int> kqOpenDesktopHomeAccountEpoch = ValueNotifier<int>(0);
+
+void openDesktopHomeAccountPage() {
+  kqOpenDesktopHomeAccountEpoch.value++;
+}
 
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
@@ -53,6 +70,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
+  SettingsTabKey? _embeddedSettingsPage;
+  bool _showEmbeddedAccountPage = false;
+  bool _showEmbeddedDevicesPage = false;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -65,42 +85,171 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
     final q = KqTheme.of(context);
+    final embeddedSettingsPage = _embeddedSettingsPage;
+    final showAccountPage = _showEmbeddedAccountPage;
+    final showDevicesPage = _showEmbeddedDevicesPage;
     return _buildBlock(
         child: Container(
+      // kq-designer-desktop-shell
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: q.pageGradient,
-        ),
+        color: q.isDark ? q.pageGradient.first : _kqDesignerAppBackground,
       ),
       child: Stack(
         children: [
           Positioned.fill(child: _KqHomeBackdrop(theme: q)),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              isIncomingOnly ? 12 : 18,
-              16,
-              18,
-              16,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                buildLeftPane(context),
-                if (!isIncomingOnly) const SizedBox(width: 18),
-                if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
-              ],
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!isIncomingOnly) _buildHomeSideRail(context),
+              Expanded(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          isIncomingOnly ? 12 : 26,
+                          isIncomingOnly ? 12 : 20,
+                          isIncomingOnly ? 12 : 38,
+                          isIncomingOnly ? 12 : 22,
+                        ),
+                        child: showAccountPage
+                            ? _buildEmbeddedAccountPane(context)
+                            : showDevicesPage
+                                ? _buildEmbeddedDevicesPane(context)
+                                : embeddedSettingsPage == null
+                                    ? (isIncomingOnly
+                                        ? buildLeftPane(context)
+                                        : _buildRemoteAssistHome(context))
+                                    : _buildEmbeddedSettingsPane(
+                                        context,
+                                        embeddedSettingsPage,
+                                      ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
     ));
   }
 
+  Widget _designerPageCard({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _kqDesignerCardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+  }
+
+  Widget _designerSectionCard({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(14),
+  }) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _kqDesignerCardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
   Widget _buildBlock({required Widget child}) {
     return buildRemoteBlock(
         block: _block, mask: true, use: canBeBlocked, child: child);
+  }
+
+  void _openHomeAssist() {
+    if (_embeddedSettingsPage == null &&
+        !_showEmbeddedAccountPage &&
+        !_showEmbeddedDevicesPage) {
+      return;
+    }
+    setState(() {
+      _embeddedSettingsPage = null;
+      _showEmbeddedAccountPage = false;
+      _showEmbeddedDevicesPage = false;
+    });
+  }
+
+  void _openEmbeddedAccount() {
+    if (bind.isDisableAccount() || _showEmbeddedAccountPage) return;
+    setState(() {
+      _showEmbeddedAccountPage = true;
+      _embeddedSettingsPage = null;
+      _showEmbeddedDevicesPage = false;
+    });
+  }
+
+  void _openEmbeddedDevices() {
+    if (_showEmbeddedDevicesPage) return;
+    setState(() {
+      _showEmbeddedDevicesPage = true;
+      _showEmbeddedAccountPage = false;
+      _embeddedSettingsPage = null;
+    });
+  }
+
+  void _openEmbeddedSetting(SettingsTabKey page) {
+    if (DesktopSettingPage.tabKeys.isEmpty) return;
+    final target = DesktopSettingPage.tabKeys.contains(page)
+        ? page
+        : DesktopSettingPage.tabKeys.first;
+    if (!_showEmbeddedAccountPage && _embeddedSettingsPage == target) return;
+    setState(() {
+      _showEmbeddedAccountPage = false;
+      _showEmbeddedDevicesPage = false;
+      _embeddedSettingsPage = target;
+    });
+  }
+
+  String _homeTopBarTitle() {
+    if (_showEmbeddedDevicesPage) {
+      return '设备';
+    }
+    if (_showEmbeddedAccountPage) {
+      return '我的账户';
+    }
+    if (_embeddedSettingsPage != null) {
+      return translate('Settings');
+    }
+    return '远程协助';
+  }
+
+  IconData _homeTopBarIcon() {
+    if (_showEmbeddedDevicesPage) {
+      return Icons.devices_rounded;
+    }
+    if (_showEmbeddedAccountPage) {
+      return Icons.person_rounded;
+    }
+    if (_embeddedSettingsPage != null) {
+      return Icons.settings_rounded;
+    }
+    return Icons.home_rounded;
   }
 
   Widget buildKqHero(BuildContext context) {
@@ -178,6 +327,885 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  Widget _buildKqAssistHeader(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: q.panelGradient,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: q.panelStrong,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: q.iconBorder),
+              boxShadow: [
+                BoxShadow(
+                  color: q.primary.withOpacity(q.isDark ? 0.22 : 0.14),
+                  blurRadius: 16,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            child: Image.asset('assets/icon.png', fit: BoxFit.contain),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '远程协助本机',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '鲲穹AI旗下产品',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: q.online.withOpacity(q.isDark ? 0.18 : 0.1),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: q.online.withOpacity(0.34)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: q.online,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: q.online.withOpacity(0.36),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  '可被连接',
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeSideRail(BuildContext context) {
+    final useDesignerSidebar = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerSidebar) {
+      return Container(
+        // kq-designer-sidebar
+        width: _kqDesignerSidebarWidth,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              _kqDesignerBrandStart,
+              _kqDesignerBrandMid,
+              _kqDesignerBrandEnd,
+            ],
+          ),
+          border:
+              Border(right: BorderSide(color: Colors.white.withOpacity(0.08))),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Material(
+            color: Colors.transparent,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Image.asset(
+                          'assets/icon.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '鲲穹远程桌面',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                height: 1.2,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              '桌面端',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Color(0x99FFFFFF),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w400,
+                                height: 1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(height: 1, color: Colors.white.withOpacity(0.1)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+                    child: Column(
+                      children: [
+                        _KqSideRailItem(
+                          icon: Icons.desktop_windows_rounded,
+                          label: '远程协助',
+                          active: _embeddedSettingsPage == null &&
+                              !_showEmbeddedAccountPage &&
+                              !_showEmbeddedDevicesPage,
+                          onTap: _openHomeAssist,
+                        ),
+                        const SizedBox(height: 3),
+                        _KqSideRailItem(
+                          icon: Icons.devices_rounded,
+                          label: '设备',
+                          active: _showEmbeddedDevicesPage,
+                          onTap: _openEmbeddedDevices,
+                        ),
+                        if (!bind.isDisableAccount()) ...[
+                          const SizedBox(height: 3),
+                          _KqSideRailItem(
+                            // kq-home-my-account-entry
+                            icon: Icons.person_rounded,
+                            label: '我的账户',
+                            active: _showEmbeddedAccountPage,
+                            onTap: _openEmbeddedAccount,
+                          ),
+                        ],
+                        const SizedBox(height: 3),
+                        _KqSideRailItem(
+                          icon: Icons.settings_rounded,
+                          label: '设置',
+                          active: _embeddedSettingsPage != null &&
+                              !_showEmbeddedAccountPage &&
+                              !_showEmbeddedDevicesPage,
+                          onTap: () =>
+                              _openEmbeddedSetting(SettingsTabKey.general),
+                        ),
+                        const Spacer(),
+                        _KqSideRailItem(
+                          icon: Icons.public_rounded,
+                          label: '官网',
+                          compact: true,
+                          onTap: () => launchUrl(
+                            Uri.parse('https://kunqiongai.com/'),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final q = KqTheme.of(context);
+    return Container(
+      width: 168,
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.92 : 0.86),
+        border: Border(right: BorderSide(color: q.line.withOpacity(0.82))),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: q.surfaceSoft,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: q.iconBorder),
+                    ),
+                    child: Image.asset('assets/icon.png', fit: BoxFit.contain),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '鲲穹远程桌面',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: q.ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            height: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '桌面端',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: q.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            height: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              _KqSideRailItem(
+                icon: Icons.screen_share_rounded,
+                label: '远程协助',
+                active:
+                    _embeddedSettingsPage == null && !_showEmbeddedAccountPage,
+                onTap: _openHomeAssist,
+              ),
+              if (!bind.isDisableAccount()) ...[
+                const SizedBox(height: 8),
+                _KqSideRailItem(
+                  // kq-home-my-account-entry
+                  icon: Icons.person_rounded,
+                  label: '我的账户',
+                  active: _showEmbeddedAccountPage,
+                  onTap: _openEmbeddedAccount,
+                ),
+              ],
+              const SizedBox(height: 8),
+              _KqSideRailItem(
+                icon: Icons.settings_rounded,
+                label: translate('Settings'),
+                active:
+                    _embeddedSettingsPage != null && !_showEmbeddedAccountPage,
+                onTap: () => _openEmbeddedSetting(SettingsTabKey.general),
+              ),
+              const Spacer(),
+              _KqSideRailItem(
+                icon: Icons.public_rounded,
+                label: '官网',
+                compact: true,
+                onTap: () => launchUrl(
+                  Uri.parse('https://kunqiongai.com/'),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeTopBar(BuildContext context) {
+    final useDesignerHeader = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerHeader) {
+      return Container(
+        // kq-designer-header-bar
+        // kq-v213-login-left-titlebar
+        height: _kqDesignerHeaderHeight,
+        padding: const EdgeInsets.only(left: 24, right: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.72),
+          border: const Border(
+            bottom: BorderSide(color: Color(0xFFF0F2F6)),
+          ),
+        ),
+        child: Row(
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: _openEmbeddedAccount,
+              child: Container(
+                height: 30,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [
+                            _kqDesignerBrandMid,
+                            _kqDesignerBrandStart,
+                          ],
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.person_rounded,
+                        color: Colors.white,
+                        size: 15,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Obx(
+                      () => Text(
+                        gFFI.userModel.userName.value.isEmpty
+                            ? '登录 ›'
+                            : '${gFFI.userModel.displayNameOrUserName} ›',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _kqDesignerBrandStart,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Spacer(),
+          ],
+        ),
+      );
+    }
+    final q = KqTheme.of(context);
+    final inSubpage = _embeddedSettingsPage != null || _showEmbeddedAccountPage;
+    return Container(
+      height: 48,
+      padding: EdgeInsets.symmetric(horizontal: inSubpage ? 16 : 96),
+      decoration: BoxDecoration(
+        color: inSubpage
+            ? q.panelStrong.withOpacity(q.isDark ? 0.72 : 0.82)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        border: inSubpage
+            ? Border.all(color: q.line.withOpacity(0.88))
+            : Border.all(color: Colors.transparent),
+      ),
+      child: Row(
+        children: [
+          if (inSubpage) ...[
+            Icon(_homeTopBarIcon(), color: q.primary, size: 20),
+            const SizedBox(width: 9),
+            Text(
+              _homeTopBarTitle(),
+              style: TextStyle(
+                color: q.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Container(
+            height: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: q.primary.withOpacity(q.isDark ? 0.16 : 0.08),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: q.primary.withOpacity(0.2)),
+            ),
+            child: Center(
+              child: Text(
+                '会员畅享专属加速链路',
+                style: TextStyle(
+                  color: q.primaryDeep,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+          const Spacer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRemoteAssistHome(BuildContext context) {
+    final useDesignerHome = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerHome) {
+      return ChangeNotifierProvider.value(
+        value: gFFI.serverModel,
+        child: Consumer<ServerModel>(
+          builder: (context, model, child) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: ConstrainedBox(
+                // kq-home-compact-content-width
+                // kq-v213-reference-home-width-812
+                constraints: const BoxConstraints(maxWidth: 812),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildDesignerMemberBanner(context),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 112,
+                      child: _buildRemoteAssistLocalSummary(context, model),
+                    ),
+                    if (!bind.isOutgoingOnly())
+                      buildPostInstallPermissionReminder(context)
+                          .marginOnly(top: 14),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 162,
+                      child: _designerSectionCard(
+                        // kq-designer-connect-card
+                        // kq-v213-connect-form-only-card
+                        padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                        child: const ConnectionPage(
+                          showOnlineStatusFooter: false,
+                          showRecentPeers: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildDesignerSavedConnectionsHeader(context),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      // kq-v220-saved-connections-fill-empty-space
+                      child: RecentPeersView(),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(
+        builder: (context, model, child) {
+          return Container(
+            // kq-remote-assist-workspace
+            width: double.infinity,
+            color: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(42, 32, 42, 26),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  // kq-home-compact-content-width
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildRemoteAssistLocalSummary(context, model),
+                      if (!bind.isOutgoingOnly())
+                        buildPostInstallPermissionReminder(context)
+                            .marginOnly(top: 18),
+                      const SizedBox(height: 30),
+                      Expanded(
+                        child: ConnectionPage(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDesignerMemberBanner(BuildContext context) {
+    return Obx(() {
+      // kq-v219-home-member-banner-entitlement-aware
+      final isMember = gFFI.userModel.isMember.value;
+      final actionLabel = isMember ? '会员已生效' : '开通会员';
+      final actionIcon =
+          isMember ? Icons.check_circle_rounded : Icons.chevron_right_rounded;
+      return Container(
+        // kq-designer-home-member-banner
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [Color(0xFFEFF6FF), Color(0xFFDBEAFE), Color(0xFFEFF6FF)],
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0x1A2563EB)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.star_rounded, color: _kqDesignerBrandMid, size: 17),
+            const SizedBox(width: 7),
+            const Expanded(
+              child: Text(
+                '会员畅享专属加速链路',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Color(0xFF1D4ED8),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: _openEmbeddedAccount,
+              child: Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_kqDesignerBrandMid, _kqDesignerBrandStart],
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      actionLabel,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Icon(actionIcon, color: Colors.white, size: 15),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildDesignerSavedConnectionsHeader(BuildContext context) {
+    return AnimatedBuilder(
+      // kq-v213-saved-connections-header
+      animation: gFFI.recentPeersModel,
+      builder: (context, _) {
+        final count = gFFI.recentPeersModel.getPeersCount();
+        return Row(
+          children: [
+            const Icon(
+              Icons.bookmark_border_rounded,
+              color: _kqDesignerTextPrimary,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              '已保存的连接',
+              style: TextStyle(
+                color: _kqDesignerTextPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              height: 18,
+              constraints: const BoxConstraints(minWidth: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 5),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [_kqDesignerBrandMid, _kqDesignerBrandStart],
+                ),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                count.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+            ),
+            const Spacer(),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Color(0xFF9AA7B8),
+              size: 20,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildRemoteAssistLocalSummary(
+      BuildContext context, ServerModel model) {
+    final useDesignerLocalPanels = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerLocalPanels) {
+      return _designerSectionCard(
+        // kq-designer-local-credential-panels
+        padding: EdgeInsets.zero,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                child: Center(child: _buildLocalIdInline(context, model)),
+              ),
+            ),
+            Container(width: 1, color: const Color(0xFFF0F2F6)),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                child: Center(child: _buildPasswordInline(context, model)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          // kq-home-local-summary-no-heading
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _buildLocalIdInline(context, model)),
+            const SizedBox(width: 66),
+            Expanded(child: _buildPasswordInline(context, model)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocalIdInline(BuildContext context, ServerModel model) {
+    final q = KqTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '本机识别码',
+          style: TextStyle(
+            color: q.muted,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 9),
+        Row(
+          children: [
+            Expanded(
+              child: AnimatedBuilder(
+                animation: model.serverId,
+                builder: (context, _) => AutoSizeText(
+                  model.serverId.text.isEmpty ? '--' : model.serverId.text,
+                  maxLines: 1,
+                  minFontSize: 20,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0,
+                    height: 1.05,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: translate('Copy'),
+              splashRadius: 17,
+              icon: Icon(Icons.copy_outlined, size: 17, color: q.muted),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: model.serverId.text));
+                showToast(translate("Copied"));
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPasswordInline(BuildContext context, ServerModel model) {
+    final q = KqTheme.of(context);
+    final canChangePassword = !bind.isDisableSettings();
+    final actions = <Widget>[
+      if (model.selectedPasswordCanRefresh)
+        _KqInlineIconButton(
+          tooltip: translate('Refresh Password'),
+          icon: Icons.refresh_rounded,
+          onTap: () => model.refreshSelectedPassword(),
+        ),
+      if (model.selectedPasswordCanShare)
+        _KqInlineIconButton(
+          tooltip: '复制并分享',
+          icon: Icons.ios_share_rounded,
+          onTap: () => _copyRemoteAssistShare(model),
+        ),
+      if (canChangePassword)
+        _KqInlineIconButton(
+          tooltip: translate('Change Password'),
+          icon: Icons.edit_rounded,
+          onTap: () => _showKqPasswordDialog(model),
+        ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PopupMenuButton<KqPasswordKind>(
+          tooltip: '选择验证码类型',
+          initialValue: model.selectedPasswordKind,
+          onSelected: model.setSelectedPasswordKind,
+          color: q.panelStrong,
+          elevation: 8,
+          shadowColor: q.primary.withOpacity(0.16),
+          offset: const Offset(0, 4),
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: q.line),
+          ),
+          itemBuilder: (context) => KqPasswordKind.values
+              .map(
+                (kind) => PopupMenuItem<KqPasswordKind>(
+                  value: kind,
+                  height: 40,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  child: _KqPasswordKindMenuItem(
+                    label: _kqPasswordKindLabel(kind),
+                    selected: kind == model.selectedPasswordKind,
+                  ),
+                ),
+              )
+              .toList(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                model.selectedPasswordLabel,
+                style: TextStyle(
+                  color: q.muted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.keyboard_arrow_down_rounded, size: 17, color: q.muted),
+            ],
+          ),
+        ),
+        const SizedBox(height: 9),
+        Row(
+          children: [
+            Expanded(
+              child: AutoSizeText(
+                model.selectedPasswordText,
+                maxLines: 1,
+                minFontSize: 18,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: q.ink,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0,
+                  height: 1.05,
+                ),
+              ),
+            ),
+            ...actions,
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget buildLeftPane(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
     final isOutgoingOnly = bind.isOutgoingOnly();
@@ -188,7 +1216,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           alignment: Alignment.center,
           child: const _KqProductTagline(),
         ),
-      buildKqHero(context),
+      _buildKqAssistHeader(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
       if (!isOutgoingOnly) buildPostInstallPermissionReminder(context),
@@ -233,14 +1261,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       child: Container(
         width: isIncomingOnly ? 276.0 : 276.0,
         decoration: BoxDecoration(
-          color: q.panel,
-          borderRadius: BorderRadius.circular(18),
+          color: q.panelStrong.withOpacity(q.isDark ? 0.74 : 0.9),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(color: q.line.withOpacity(q.isDark ? 0.9 : 0.8)),
           boxShadow: [
             BoxShadow(
-              color: q.shadow,
-              blurRadius: 30,
-              offset: const Offset(0, 16),
+              color: q.shadow.withOpacity(q.isDark ? 0.8 : 0.72),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
             ),
           ],
         ),
@@ -304,10 +1332,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                     onTap: () => {
                       if (DesktopSettingPage.tabKeys.isNotEmpty)
-                        {
-                          DesktopSettingPage.switch2page(
-                              DesktopSettingPage.tabKeys[0])
-                        }
+                        {_openEmbeddedSetting(DesktopSettingPage.tabKeys[0])}
                     },
                     onHover: (value) => _editHover.value = value,
                   ),
@@ -452,20 +1477,89 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final q = KqTheme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: q.panelStrong.withOpacity(q.isDark ? 0.72 : 0.74),
+        color: q.panelStrong.withOpacity(q.isDark ? 0.64 : 0.7),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: q.line.withOpacity(0.82)),
+        border: Border.all(color: q.line.withOpacity(0.72)),
         boxShadow: [
           BoxShadow(
-            color: q.shadow,
-            blurRadius: 34,
-            offset: const Offset(0, 18),
+            color: q.shadow.withOpacity(q.isDark ? 0.72 : 0.58),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: const ConnectionPage(),
+      child: const ConnectionPage(showOnlineStatusFooter: false),
     );
+  }
+
+  Widget _buildEmbeddedSettingsPane(
+    BuildContext context,
+    SettingsTabKey initialTabkey,
+  ) {
+    final q = KqTheme.of(context);
+    final useDesignerSettingsShell = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerSettingsShell) {
+      return Container(
+        // kq-settings-reference-shell
+        // kq-v218-settings-reference-shell-unframed
+        color: _kqDesignerAppBackground,
+        child: ClipRect(
+          child: DesktopSettingPage(
+            key: ValueKey<SettingsTabKey>(initialTabkey),
+            initialTabkey: initialTabkey,
+            embedded: true,
+          ),
+        ),
+      );
+    }
+    return Container(
+      // kq-settings-reference-shell
+      decoration: BoxDecoration(
+        color: q.isDark ? q.panelStrong.withOpacity(0.7) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: q.line.withOpacity(q.isDark ? 0.72 : 0.55)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: DesktopSettingPage(
+          key: ValueKey<SettingsTabKey>(initialTabkey),
+          initialTabkey: initialTabkey,
+          embedded: true,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmbeddedAccountPane(BuildContext context) {
+    final q = KqTheme.of(context);
+    final useDesignerAccountShell = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerAccountShell) {
+      return Container(
+        // kq-account-reference-shell
+        // kq-v217-account-page-unframed
+        color: q.isDark ? q.pageGradient.first : _kqDesignerAppBackground,
+        child: const DesktopAccountPage(embedded: true),
+      );
+    }
+    return Container(
+      // kq-account-reference-shell
+      decoration: BoxDecoration(
+        color: q.isDark ? q.panelStrong.withOpacity(0.7) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: q.line.withOpacity(q.isDark ? 0.72 : 0.55)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: const ClipRRect(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        child: DesktopAccountPage(embedded: true),
+      ),
+    );
+  }
+
+  Widget _buildEmbeddedDevicesPane(BuildContext context) {
+    return const _KqDesignerDevicesPane();
   }
 
   buildIDBoard(BuildContext context) {
@@ -473,7 +1567,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final q = KqTheme.of(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+      padding: const EdgeInsets.fromLTRB(16, 15, 12, 13),
       decoration: BoxDecoration(
         color: q.panelStrong,
         borderRadius: BorderRadius.circular(16),
@@ -495,11 +1589,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  translate("ID"),
+                  '本机识别码',
                   style: TextStyle(
                     fontSize: 13,
                     color: q.muted,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -523,8 +1617,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: q.ink,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
                         letterSpacing: 0,
                       ),
                     ),
@@ -553,7 +1647,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final q = KqTheme.of(context);
     RxBool hover = false.obs;
     return InkWell(
-      onTap: DesktopTabPage.onAddSetting,
+      onTap: () => _openEmbeddedSetting(SettingsTabKey.general),
       child: Tooltip(
         message: translate('Settings'),
         child: Obx(
@@ -1342,6 +2436,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    kqOpenDesktopHomeAccountEpoch.addListener(_openEmbeddedAccount);
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
@@ -1521,6 +2616,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void dispose() {
+    kqOpenDesktopHomeAccountEpoch.removeListener(_openEmbeddedAccount);
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
@@ -1547,6 +2643,190 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             return entry.value;
           })
         ],
+      ),
+    );
+  }
+}
+
+class _KqSideRailItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+  final bool compact;
+
+  const _KqSideRailItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+    this.compact = false,
+  });
+
+  @override
+  State<_KqSideRailItem> createState() => _KqSideRailItemState();
+}
+
+class _KqSideRailItemState extends State<_KqSideRailItem> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final useDesignerSidebarItem = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerSidebarItem) {
+      final active = widget.active;
+      final bg = active
+          ? Colors.white.withOpacity(0.2)
+          : (_hover ? Colors.white.withOpacity(0.12) : Colors.transparent);
+      final fg = active ? Colors.white : Colors.white.withOpacity(0.74);
+      return Tooltip(
+        message: widget.label,
+        waitDuration: const Duration(milliseconds: 500),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: widget.onTap,
+          onHover: (value) => setState(() => _hover = value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+            height: widget.compact ? 38 : 42,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                if (active)
+                  Container(
+                    width: 3,
+                    height: 16,
+                    margin: const EdgeInsets.only(right: 9),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.horizontal(
+                        right: Radius.circular(2),
+                      ),
+                    ),
+                  )
+                else
+                  const SizedBox(width: 12),
+                Icon(widget.icon, color: fg, size: widget.compact ? 17 : 18),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: fg,
+                      fontSize: widget.compact ? 14 : 14.5,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final q = KqTheme.of(context);
+    final active = widget.active;
+    final bg = active
+        ? q.primary.withOpacity(q.isDark ? 0.2 : 0.1)
+        : (_hover ? q.surfaceSoft.withOpacity(0.86) : Colors.transparent);
+    final fg = active ? q.primaryDeep : q.muted;
+    return Tooltip(
+      message: widget.label,
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: widget.onTap,
+        onHover: (value) => setState(() => _hover = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          height: widget.compact ? 36 : 42,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active ? q.primary.withOpacity(0.28) : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(widget.icon, color: fg, size: widget.compact ? 17 : 19),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active ? q.ink : fg,
+                    fontSize: widget.compact ? 12 : 13,
+                    fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KqInlineIconButton extends StatefulWidget {
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _KqInlineIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  State<_KqInlineIconButton> createState() => _KqInlineIconButtonState();
+}
+
+class _KqInlineIconButtonState extends State<_KqInlineIconButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: widget.onTap,
+        onHover: (value) => setState(() => _hover = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: _hover
+                ? q.primary.withOpacity(q.isDark ? 0.22 : 0.12)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Icon(
+            widget.icon,
+            color: _hover ? q.primaryDeep : q.muted,
+            size: 17,
+          ),
+        ),
       ),
     );
   }
@@ -1597,6 +2877,918 @@ class _KqSmallIcon extends StatelessWidget {
       child: Icon(icon, size: 16, color: q.primary),
     );
   }
+}
+
+const Duration _kqDesignerDevicesOnlineRefresh = Duration(seconds: 5);
+const String _kqDesignerDevicesQueryOnlinesEvent = 'callback_query_onlines';
+
+class _KqDesignerDevicesPane extends StatefulWidget {
+  const _KqDesignerDevicesPane();
+
+  @override
+  State<_KqDesignerDevicesPane> createState() => _KqDesignerDevicesPaneState();
+}
+
+class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
+  Timer? _onlineRefreshTimer;
+  Timer? _accountDeviceRetryTimer;
+  List<Peer> _accountDevicePeers = [];
+  bool _accountDevicesLoading = false;
+  DateTime? _accountDevicesLoadedAt;
+  DateTime? _accountDevicesLastFailedAt;
+  bool _accountDeviceCacheRestored = false;
+  bool _disposed = false;
+  late final String _accountDeviceOnlineHandlerName;
+
+  @override
+  void initState() {
+    super.initState();
+    _accountDeviceOnlineHandlerName =
+        'kq designer account devices ${identityHashCode(this)}';
+    platformFFI.registerEventHandler(
+      _kqDesignerDevicesQueryOnlinesEvent,
+      _accountDeviceOnlineHandlerName,
+      (evt) async {
+        _handleAccountDeviceOnlineState(evt);
+      },
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _restoreCachedAccountDevices();
+      _refreshDevices(forceAccountDevices: true);
+    });
+    _onlineRefreshTimer = Timer.periodic(
+      // kq-v214-devices-online-refresh
+      _kqDesignerDevicesOnlineRefresh,
+      (_) => _queryDeviceOnlineStates(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _onlineRefreshTimer?.cancel();
+    _accountDeviceRetryTimer?.cancel();
+    platformFFI.unregisterEventHandler(
+      _kqDesignerDevicesQueryOnlinesEvent,
+      _accountDeviceOnlineHandlerName,
+    );
+    super.dispose();
+  }
+
+  List<Peer> _recentPeers() {
+    final seen = <String>{};
+    final peers = <Peer>[];
+    for (final peer in gFFI.recentPeersModel.peers) {
+      final id = kqNormalizePeerId(peer.id);
+      if (id.isEmpty || !seen.add(id)) continue;
+      peers.add(peer);
+    }
+    return peers;
+  }
+
+  void _refreshDevices({bool forceAccountDevices = false}) {
+    bind.mainLoadRecentPeers();
+    _ensureAccountDevicesLoaded(force: forceAccountDevices);
+    _queryDeviceOnlineStates();
+  }
+
+  void _queryDeviceOnlineStates() {
+    final ids = <String>{};
+    for (final peer in [..._recentPeers(), ..._accountDevicePeers]) {
+      final id = kqNormalizePeerId(peer.id);
+      if (id.isNotEmpty) {
+        ids.add(id);
+      }
+    }
+    if (ids.isEmpty) return;
+    bind.queryOnlines(ids: ids.toList(growable: false));
+  }
+
+  void _ensureAccountDevicesLoaded({bool force = false}) {
+    if (_accountDevicesLoading) return;
+    final loadedAt = _accountDevicesLoadedAt;
+    if (!force &&
+        loadedAt != null &&
+        DateTime.now().difference(loadedAt) < const Duration(seconds: 30)) {
+      return;
+    }
+    final failedAt = _accountDevicesLastFailedAt;
+    if (!force &&
+        failedAt != null &&
+        DateTime.now().difference(failedAt) < const Duration(seconds: 5)) {
+      return;
+    }
+    _accountDevicesLoading = true;
+    () async {
+      try {
+        await KqProjectApi.syncCurrentAccountDevice(force: force);
+        final currentDeviceKey = await KqProjectApi.currentAccountDeviceKey();
+        final currentDeviceId =
+            kqNormalizePeerId((await bind.mainGetMyId()).trim());
+        final accountDevices = await KqProjectApi.tryFetchAccountDevices();
+        if (accountDevices == null) {
+          _accountDevicesLastFailedAt = DateTime.now();
+          _scheduleAccountDeviceRetry();
+          return;
+        }
+        final accountDeviceOnlineStates = _accountDeviceOnlineStates();
+        final visibleAccountDevices = accountDevices
+            .where((peer) => !_isCurrentAccountDevice(
+                  peer,
+                  currentDeviceKey,
+                  currentDeviceId,
+                ))
+            .toList();
+        final dedupedAccountDevices =
+            _dedupeAccountDevicePeers(visibleAccountDevices);
+        _restoreAccountDeviceOnlineStates(
+          dedupedAccountDevices,
+          accountDeviceOnlineStates,
+        );
+        KqProjectApi.cacheAccountDevices(dedupedAccountDevices);
+        await _applyLocalAliasesToAccountDevices(dedupedAccountDevices);
+        if (_disposed || !mounted) return;
+        setState(() {
+          _accountDevicePeers = dedupedAccountDevices;
+          _accountDevicesLoadedAt = DateTime.now();
+          _accountDevicesLastFailedAt = null;
+        });
+        _queryAccountDeviceOnlines(dedupedAccountDevices);
+      } finally {
+        _accountDevicesLoading = false;
+      }
+    }();
+  }
+
+  void _restoreCachedAccountDevices() {
+    if (_accountDeviceCacheRestored) return;
+    _accountDeviceCacheRestored = true;
+    final cached = KqProjectApi.loadCachedAccountDevices();
+    if (cached.isEmpty) return;
+    () async {
+      await _applyLocalAliasesToAccountDevices(cached);
+      if (_disposed || !mounted) return;
+      setState(() {
+        _accountDevicePeers = cached;
+      });
+      _queryAccountDeviceOnlines(cached);
+    }();
+  }
+
+  Future<void> _applyLocalAliasesToAccountDevices(List<Peer> peers) async {
+    for (final peer in peers) {
+      final alias =
+          (await bind.mainGetPeerOption(id: peer.id, key: 'alias')).trim();
+      if (alias.isNotEmpty) {
+        peer.alias = alias;
+      }
+    }
+  }
+
+  void _scheduleAccountDeviceRetry() {
+    if (_accountDeviceRetryTimer?.isActive ?? false) return;
+    _accountDeviceRetryTimer = Timer(const Duration(seconds: 5), () {
+      if (_disposed || !mounted) return;
+      _ensureAccountDevicesLoaded(force: true);
+    });
+  }
+
+  List<Peer> _dedupeAccountDevicePeers(List<Peer> peers) {
+    final seen = <String>{};
+    final deduped = <Peer>[];
+    for (final peer in peers) {
+      final key = _accountDeviceDisplayKey(peer);
+      if (key.isEmpty || seen.add(key)) {
+        deduped.add(peer);
+      }
+    }
+    return deduped;
+  }
+
+  String _accountDeviceDisplayKey(Peer peer) {
+    final name = (peer.alias.trim().isNotEmpty ? peer.alias : peer.hostname)
+        .trim()
+        .toLowerCase();
+    if (name.isEmpty) {
+      return kqNormalizePeerId(peer.id);
+    }
+    return '${peer.platform.trim().toLowerCase()}|$name';
+  }
+
+  Map<String, bool> _accountDeviceOnlineStates() {
+    final states = <String, bool>{};
+    for (final peer in _accountDevicePeers) {
+      if (!peer.onlineStateKnown) continue;
+      final id = kqNormalizePeerId(peer.id);
+      if (id.isNotEmpty) {
+        states[id] = peer.online;
+      }
+      final displayKey = _accountDeviceDisplayKey(peer);
+      if (displayKey.isNotEmpty) {
+        states[displayKey] = peer.online;
+      }
+    }
+    return states;
+  }
+
+  void _restoreAccountDeviceOnlineStates(
+    List<Peer> peers,
+    Map<String, bool> states,
+  ) {
+    for (final peer in peers) {
+      final state = states[kqNormalizePeerId(peer.id)] ??
+          states[_accountDeviceDisplayKey(peer)];
+      if (state == null) continue;
+      peer.onlineStateKnown = true;
+      peer.online = state;
+    }
+  }
+
+  void _queryAccountDeviceOnlines(List<Peer> peers) {
+    final ids = <String>[];
+    for (final peer in peers) {
+      final id = kqNormalizePeerId(peer.id);
+      if (id.isNotEmpty) {
+        ids.add(id);
+      }
+    }
+    if (ids.isEmpty) return;
+    bind.queryOnlines(ids: ids);
+  }
+
+  void _handleAccountDeviceOnlineState(Map<String, dynamic> evt) {
+    final onlineSet = (evt['onlines'] ?? '')
+        .toString()
+        .split(',')
+        .map(kqNormalizePeerId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final offlineSet = (evt['offlines'] ?? '')
+        .toString()
+        .split(',')
+        .map(kqNormalizePeerId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (_applyOnlineStateToAccountDevicePeers(onlineSet, offlineSet) &&
+        mounted) {
+      setState(() {});
+    }
+  }
+
+  bool _applyOnlineStateToAccountDevicePeers(
+    Set<String> onlineSet,
+    Set<String> offlineSet,
+  ) {
+    var changed = false;
+    for (final peer in _accountDevicePeers) {
+      final id = kqNormalizePeerId(peer.id);
+      if (onlineSet.contains(id)) {
+        if (!peer.onlineStateKnown || !peer.online) {
+          peer.onlineStateKnown = true;
+          peer.online = true;
+          changed = true;
+        }
+      } else if (offlineSet.contains(id)) {
+        if (!peer.onlineStateKnown || peer.online) {
+          peer.onlineStateKnown = true;
+          peer.online = false;
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  bool _isCurrentAccountDevice(
+    Peer peer,
+    String currentDeviceKey,
+    String currentDeviceId,
+  ) {
+    final peerDeviceKey = peer.accountDeviceKey.trim();
+    if (peerDeviceKey.isNotEmpty &&
+        !_isLegacyAccountDeviceKey(peer, peerDeviceKey)) {
+      return currentDeviceKey.isNotEmpty && peerDeviceKey == currentDeviceKey;
+    }
+    return currentDeviceId.isNotEmpty &&
+        kqNormalizePeerId(peer.id) == currentDeviceId;
+  }
+
+  bool _isLegacyAccountDeviceKey(Peer peer, String peerDeviceKey) {
+    return kqNormalizePeerId(peerDeviceKey) == kqNormalizePeerId(peer.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: gFFI.recentPeersModel,
+      builder: (context, _) {
+        final recentPeers = _recentPeers().take(4).toList(growable: false);
+        final accountDevicePeers = _accountDevicePeers.toList(growable: false);
+        return Container(
+          // kq-designer-devices-page
+          // kq-v214-devices-reference-page
+          color: Colors.transparent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _KqDesignerDevicesSectionHeader(
+                icon: Icons.access_time_rounded,
+                title: '最近连接',
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                // kq-v214-devices-recent-strip
+                height: 112,
+                child: recentPeers.isEmpty
+                    ? const _KqDesignerDevicesEmptyState(compact: true)
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: recentPeers.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, index) {
+                          return _KqDesignerDeviceRecentCard(
+                            peer: recentPeers[index],
+                            highlighted: index == 0,
+                            onConnect: () => _connectToPeer(recentPeers[index]),
+                          );
+                        },
+                      ),
+              ),
+              const SizedBox(height: 22),
+              _KqDesignerDevicesSectionHeader(
+                icon: Icons.desktop_windows_outlined,
+                title: '全部设备',
+                count: accountDevicePeers.length,
+                trailing: _KqDesignerDevicesRefreshButton(
+                  onPressed: () => _refreshDevices(forceAccountDevices: true),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                // kq-v214-devices-table
+                // kq-v215-devices-account-source
+                child: _KqDesignerDevicesTable(
+                  peers: accountDevicePeers,
+                  onConnect: _connectToPeer,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _connectToPeer(Peer peer) {
+    final id = kqNormalizePeerId(peer.id);
+    if (id.isEmpty) return;
+    // kq-v214-devices-connect-action
+    connect(context, id);
+  }
+}
+
+class _KqDesignerDevicesSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final int? count;
+  final Widget? trailing;
+
+  const _KqDesignerDevicesSectionHeader({
+    required this.icon,
+    required this.title,
+    this.count,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final count = this.count;
+    return SizedBox(
+      height: 28,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: _kqDesignerBrandMid),
+          const SizedBox(width: 8),
+          Text(
+            count == null ? title : '$title  $count',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _kqDesignerTextPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+          const Spacer(),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
+class _KqDesignerDeviceRecentCard extends StatelessWidget {
+  final Peer peer;
+  final bool highlighted;
+  final VoidCallback onConnect;
+
+  const _KqDesignerDeviceRecentCard({
+    required this.peer,
+    required this.highlighted,
+    required this.onConnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 180,
+      height: 112,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: highlighted ? const Color(0xFFB8D5FF) : _kqDesignerCardBorder,
+        ),
+        boxShadow: [
+          if (highlighted)
+            BoxShadow(
+              color: const Color(0xFF2F7AF6).withOpacity(0.12),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _KqDesignerDevicePlatformIcon(peer: peer, size: 34),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _kqDesignerDeviceName(peer),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _kqDesignerTextPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _kqDesignerPeerId(peer),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF8A9BB0),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              _KqDesignerDeviceStatus(peer: peer),
+              const Spacer(),
+              _KqDesignerDevicesConnectButton(onPressed: onConnect),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesTable extends StatelessWidget {
+  final List<Peer> peers;
+  final ValueChanged<Peer> onConnect;
+
+  const _KqDesignerDevicesTable({
+    required this.peers,
+    required this.onConnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: const Color(0xFFE5EDF7)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          const _KqDesignerDevicesTableHeader(),
+          Expanded(
+            child: peers.isEmpty
+                ? const _KqDesignerDevicesEmptyState()
+                : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: peers.length,
+                    separatorBuilder: (_, __) => const Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: Color(0xFFF0F3F8),
+                    ),
+                    itemBuilder: (context, index) => _KqDesignerDevicesTableRow(
+                      peer: peers[index],
+                      onConnect: () => onConnect(peers[index]),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesTableHeader extends StatelessWidget {
+  const _KqDesignerDevicesTableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      color: const Color(0xFFBFE9FF),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: const Row(
+        children: [
+          Expanded(
+            flex: 34,
+            child: _KqDesignerDevicesHeaderText('设备名称'),
+          ),
+          Expanded(
+            flex: 24,
+            child: _KqDesignerDevicesHeaderText('识别码'),
+          ),
+          Expanded(
+            flex: 18,
+            child: _KqDesignerDevicesHeaderText('系统'),
+          ),
+          Expanded(
+            flex: 16,
+            child: _KqDesignerDevicesHeaderText('状态'),
+          ),
+          SizedBox(width: 74),
+        ],
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesTableRow extends StatelessWidget {
+  final Peer peer;
+  final VoidCallback onConnect;
+
+  const _KqDesignerDevicesTableRow({
+    required this.peer,
+    required this.onConnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 34,
+              child: Row(
+                children: [
+                  _KqDesignerDevicePlatformIcon(peer: peer, size: 25),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      _kqDesignerDeviceName(peer),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _kqDesignerTextPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 24,
+              child: Text(
+                _kqDesignerPeerId(peer),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF667894),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 18,
+              child: Text(
+                _kqDesignerDeviceSystem(peer),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF6E7F98),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 16,
+              child: _KqDesignerDeviceStatus(peer: peer),
+            ),
+            SizedBox(
+              width: 74,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _KqDesignerDevicesConnectButton(onPressed: onConnect),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesHeaderText extends StatelessWidget {
+  final String text;
+
+  const _KqDesignerDevicesHeaderText(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: Color(0xFF0072B8),
+        fontSize: 13,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0,
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicePlatformIcon extends StatelessWidget {
+  final Peer peer;
+  final double size;
+
+  const _KqDesignerDevicePlatformIcon({
+    required this.peer,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = _kqDesignerDeviceIcon(peer);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF3FF),
+        borderRadius: BorderRadius.circular(size >= 30 ? 6 : 4),
+      ),
+      child: Icon(
+        icon,
+        size: size >= 30 ? 21 : 17,
+        color: const Color(0xFF2874F0),
+      ),
+    );
+  }
+}
+
+class _KqDesignerDeviceStatus extends StatelessWidget {
+  final Peer peer;
+
+  const _KqDesignerDeviceStatus({required this.peer});
+
+  @override
+  Widget build(BuildContext context) {
+    final known = peer.onlineStateKnown;
+    final online = peer.online;
+    final color = !known
+        ? const Color(0xFF94A3B8)
+        : online
+            ? const Color(0xFF16C784)
+            : const Color(0xFFA8B2C0);
+    final label = !known ? '检测中' : (online ? '在线' : '离线');
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 4,
+          height: 4,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KqDesignerDevicesConnectButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _KqDesignerDevicesConnectButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 54,
+      height: 30,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          padding: EdgeInsets.zero,
+          foregroundColor: const Color(0xFF1E73F8),
+          backgroundColor: const Color(0xFFF2F7FF),
+          side: const BorderSide(color: Color(0xFFCFE0FF)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+          textStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+        ),
+        child: const Text('连接'),
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesRefreshButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _KqDesignerDevicesRefreshButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '刷新设备状态',
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: OutlinedButton(
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            padding: EdgeInsets.zero,
+            foregroundColor: const Color(0xFF2F7AF6),
+            backgroundColor: Colors.white,
+            side: const BorderSide(color: Color(0xFFCFE0FF)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(7),
+            ),
+          ),
+          child: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+        ),
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesEmptyState extends StatelessWidget {
+  final bool compact;
+
+  const _KqDesignerDevicesEmptyState({this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      decoration: compact
+          ? BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: _kqDesignerCardBorder),
+            )
+          : null,
+      child: Text(
+        '暂无设备记录',
+        style: TextStyle(
+          color: _kqDesignerTextSecondary.withOpacity(0.8),
+          fontSize: compact ? 13 : 14,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+        ),
+      ),
+    );
+  }
+}
+
+String _kqDesignerDeviceName(Peer peer) {
+  final alias = peer.alias.trim();
+  if (alias.isNotEmpty) return alias;
+  final hostname = peer.hostname.trim();
+  if (hostname.isNotEmpty) return hostname;
+  final username = peer.username.trim();
+  if (username.isNotEmpty) return username;
+  final id = kqNormalizePeerId(peer.id);
+  return id.isEmpty ? '未知设备' : id;
+}
+
+String _kqDesignerPeerId(Peer peer) {
+  final id = kqNormalizePeerId(peer.id);
+  if (id.length <= 3) return id.isEmpty ? '--' : id;
+  final chunks = <String>[];
+  for (var i = 0; i < id.length; i += 3) {
+    final end = i + 3 > id.length ? id.length : i + 3;
+    chunks.add(id.substring(i, end));
+  }
+  return chunks.join(' ');
+}
+
+String _kqDesignerDeviceSystem(Peer peer) {
+  final platform = peer.platform.trim().toLowerCase();
+  if (platform == kPeerPlatformWindows.toLowerCase() ||
+      platform.contains('windows')) {
+    return 'Windows';
+  }
+  if (platform == kPeerPlatformMacOS.toLowerCase() ||
+      platform.contains('mac')) {
+    return 'macOS';
+  }
+  if (platform == kPeerPlatformLinux.toLowerCase() ||
+      platform.contains('linux')) {
+    return 'Linux';
+  }
+  if (platform == kPeerPlatformAndroid.toLowerCase() ||
+      platform.contains('android')) {
+    return 'Android';
+  }
+  if (platform.contains('ios') ||
+      platform.contains('iphone') ||
+      platform.contains('ipad')) {
+    return 'iOS';
+  }
+  return platform.isEmpty ? '--' : peer.platform;
+}
+
+IconData _kqDesignerDeviceIcon(Peer peer) {
+  final platform = peer.platform.trim().toLowerCase();
+  if (platform == kPeerPlatformWindows.toLowerCase() ||
+      platform.contains('windows')) {
+    return Icons.window_rounded;
+  }
+  if (platform == kPeerPlatformMacOS.toLowerCase() ||
+      platform.contains('mac')) {
+    return Icons.apple;
+  }
+  if (platform == kPeerPlatformLinux.toLowerCase() ||
+      platform.contains('linux')) {
+    return Icons.rocket_launch_rounded;
+  }
+  if (platform == kPeerPlatformAndroid.toLowerCase() ||
+      platform.contains('android')) {
+    return Icons.android_rounded;
+  }
+  if (platform.contains('ios') ||
+      platform.contains('iphone') ||
+      platform.contains('ipad')) {
+    return Icons.phone_iphone_rounded;
+  }
+  return Icons.devices_rounded;
 }
 
 class _KqPermissionReminderButton extends StatelessWidget {

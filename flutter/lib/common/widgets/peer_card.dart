@@ -331,6 +331,7 @@ class _PeerCardState extends State<_PeerCard>
   Widget _buildLandscape() {
     final peer = super.widget.peer;
     final q = KqTheme.of(context);
+    final isReferenceRecentCard = widget.tab == PeerTabIndex.recent;
     var deco = Rx<BoxDecoration?>(
       BoxDecoration(
         border: Border.all(color: Colors.transparent, width: _borderWidth),
@@ -359,7 +360,9 @@ class _PeerCardState extends State<_PeerCard>
       },
       child: gestureDetector(
           child: Obx(() => peerCardUiType.value == PeerUiType.grid
-              ? _buildPeerCard(context, peer, deco)
+              ? isReferenceRecentCard
+                  ? _buildKqReferenceRecentCard(context, peer, deco)
+                  : _buildPeerCard(context, peer, deco)
               : _buildPeerTile(context, peer, deco))),
     );
   }
@@ -675,6 +678,177 @@ class _PeerCardState extends State<_PeerCard>
           )
       ]),
     );
+  }
+
+  Widget _buildKqReferenceRecentCard(
+      BuildContext context, Peer peer, Rx<BoxDecoration?> deco) {
+    final title = peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
+    final rawSubtitle =
+        peer.hostname.trim().isNotEmpty ? peer.hostname : peer.username;
+    final subtitle = rawSubtitle.trim().isEmpty ? '远程设备' : rawSubtitle.trim();
+    const cardRadius = 8.0;
+    final q = KqTheme.of(context);
+    final peerTabModel = Provider.of<PeerTabModel>(context);
+    return Obx(() {
+      final selected = peerTabModel.isPeerSelected(peer.id);
+      final statusColor = peer.onlineStateKnown
+          ? (peer.online ? _kqCardOnline : _kqCardOffline)
+          : _kqCardUnknown;
+      final statusText = peer.onlineStateKnown
+          ? _kqPeerStatusText(peer.online)
+          : _kqPeerCardText('Checking');
+      return Tooltip(
+        message: title,
+        waitDuration: const Duration(seconds: 1),
+        child: Listener(
+          onPointerDown: (e) {
+            if (e.buttons == 2) {
+              final x = e.position.dx;
+              final y = e.position.dy;
+              _menuPos = RelativeRect.fromLTRB(x, y, x, y);
+              _showPeerMenu(peer.id);
+            }
+          },
+          child: Container(
+            // kq-recent-reference-card
+            // kq-recent-reference-card-light-blue
+            // kq-v213-recent-white-card
+            foregroundDecoration: selected
+                ? BoxDecoration(
+                    border: Border.all(
+                      color: q.primary.withOpacity(0.78),
+                      width: 1.6,
+                    ),
+                    borderRadius: BorderRadius.circular(cardRadius),
+                  )
+                : deco.value,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(cardRadius),
+              color: q.isDark ? q.panelStrong.withOpacity(0.9) : Colors.white,
+              border: Border.all(
+                color: q.isDark
+                    ? q.line.withOpacity(0.84)
+                    : const Color(0xFFE5EAF0),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1D4ED8)
+                      .withOpacity(q.isDark ? 0.10 : 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        // kq-recent-card-platform-watermark-visible
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: q.primary.withOpacity(q.isDark ? 0.16 : 0.10),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: ColorFiltered(
+                              // kq-recent-card-platform-icon-visible-color
+                              colorFilter: ColorFilter.mode(
+                                q.primaryDeep
+                                    .withOpacity(q.isDark ? 0.86 : 0.78),
+                                BlendMode.srcIn,
+                              ),
+                              child: getPlatformImage(peer.platform, size: 22),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _toggleFavorite(peer.id),
+                        child: Obx(() {
+                          final isFavorite = _isFavorite.value;
+                          return SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: Icon(
+                              isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              size: 20,
+                              color: isFavorite
+                                  ? const Color(0xFFF43F5E)
+                                  : const Color(0xFF9AA7B8),
+                            ),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 13),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: q.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      height: 1.05,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: q.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      height: 1.05,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    });
   }
 
   List _frontN<T>(List list, int n) {

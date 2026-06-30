@@ -294,15 +294,25 @@ Invoke-Step "Custom client signer smoke check" {
 
         $scriptJsonPath = Join-Path $smokeDir "script-custom-client.json"
         $scriptCustomTxtPath = Join-Path $smokeDir "script-custom.txt"
-        & "$PSScriptRoot\new-kq-custom-client-config.ps1" `
-            -RendezvousServer "127.0.0.1:21116" `
-            -RelayServer "127.0.0.1:21117" `
-            -ApiServer "https://127.0.0.1" `
-            -ServerKey "smoke-server-key" `
-            -SecretKey $secretKey `
-            -PublicKey $publicKey `
-            -OutputJson $scriptJsonPath `
-            -OutputCustomTxt $scriptCustomTxtPath | Out-Host
+        $previousSignerTargetDir = $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR
+        try {
+            $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $signerTargetDir
+            & "$PSScriptRoot\new-kq-custom-client-config.ps1" `
+                -RendezvousServer "127.0.0.1:21116" `
+                -RelayServer "127.0.0.1:21117" `
+                -ApiServer "https://127.0.0.1" `
+                -ServerKey "smoke-server-key" `
+                -SecretKey $secretKey `
+                -PublicKey $publicKey `
+                -OutputJson $scriptJsonPath `
+                -OutputCustomTxt $scriptCustomTxtPath | Out-Host
+        } finally {
+            if ($null -eq $previousSignerTargetDir) {
+                Remove-Item Env:\KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR -ErrorAction SilentlyContinue
+            } else {
+                $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $previousSignerTargetDir
+            }
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "new-kq-custom-client-config.ps1 failed with exit code $LASTEXITCODE"
         }
@@ -311,8 +321,32 @@ Invoke-Step "Custom client signer smoke check" {
         }
 
         $privatePackageRoot = Join-Path $smokeDir "private-package"
-        $guardFailedAsExpected = $false
+        $previousSignerTargetDir = $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR
         try {
+            $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $signerTargetDir
+            $guardFailedAsExpected = $false
+            try {
+                & "$PSScriptRoot\new-kq-private-server-client-package.ps1" `
+                    -RendezvousServer "127.0.0.1:21116" `
+                    -RelayServer "127.0.0.1:21117" `
+                    -ApiServer "https://127.0.0.1" `
+                    -ServerKey "smoke-server-key" `
+                    -PublicKey $publicKey `
+                    -SecretKey $secretKey `
+                    -ReleaseDir ".\flutter\build\windows\x64\runner\Release" `
+                    -OutputRoot (Join-Path $privatePackageRoot "guard") `
+                    -PackageName "KQ-Remote-Link-private-guard" | Out-Host
+            } catch {
+                if ($_.Exception.Message -match "Use -BuildClient") {
+                    $guardFailedAsExpected = $true
+                } else {
+                    throw
+                }
+            }
+            if (-not $guardFailedAsExpected) {
+                throw "new-kq-private-server-client-package.ps1 did not require BuildClient or explicit existing-build confirmation"
+            }
+
             & "$PSScriptRoot\new-kq-private-server-client-package.ps1" `
                 -RendezvousServer "127.0.0.1:21116" `
                 -RelayServer "127.0.0.1:21117" `
@@ -320,31 +354,17 @@ Invoke-Step "Custom client signer smoke check" {
                 -ServerKey "smoke-server-key" `
                 -PublicKey $publicKey `
                 -SecretKey $secretKey `
+                -UseExistingBuildWithMatchingKey `
                 -ReleaseDir ".\flutter\build\windows\x64\runner\Release" `
-                -OutputRoot (Join-Path $privatePackageRoot "guard") `
-                -PackageName "KQ-Remote-Link-private-guard" | Out-Host
-        } catch {
-            if ($_.Exception.Message -match "Use -BuildClient") {
-                $guardFailedAsExpected = $true
+                -OutputRoot $privatePackageRoot `
+                -PackageName "KQ-Remote-Link-private-smoke" | Out-Host
+        } finally {
+            if ($null -eq $previousSignerTargetDir) {
+                Remove-Item Env:\KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR -ErrorAction SilentlyContinue
             } else {
-                throw
+                $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $previousSignerTargetDir
             }
         }
-        if (-not $guardFailedAsExpected) {
-            throw "new-kq-private-server-client-package.ps1 did not require BuildClient or explicit existing-build confirmation"
-        }
-
-        & "$PSScriptRoot\new-kq-private-server-client-package.ps1" `
-            -RendezvousServer "127.0.0.1:21116" `
-            -RelayServer "127.0.0.1:21117" `
-            -ApiServer "https://127.0.0.1" `
-            -ServerKey "smoke-server-key" `
-            -PublicKey $publicKey `
-            -SecretKey $secretKey `
-            -UseExistingBuildWithMatchingKey `
-            -ReleaseDir ".\flutter\build\windows\x64\runner\Release" `
-            -OutputRoot $privatePackageRoot `
-            -PackageName "KQ-Remote-Link-private-smoke" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "new-kq-private-server-client-package.ps1 failed with exit code $LASTEXITCODE"
         }

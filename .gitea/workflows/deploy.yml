@@ -88,6 +88,8 @@ jobs:
           KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT: "2"
           KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT: "8"
           KQ_APP_SCHEME: kqremote
+          KQ_ADMIN_GATE_TOKEN: qwertyuiopasdfghjklzxcvbnm
+          KQ_REQUEST_GATE_STATE_FILE: /app/data/request-gate.json
           KQ_DB_HOST: ${{ secrets.KQ_DB_HOST }}
           KQ_DB_PORT: ${{ secrets.KQ_DB_PORT }}
           KQ_DB_USER: ${{ secrets.KQ_DB_USER }}

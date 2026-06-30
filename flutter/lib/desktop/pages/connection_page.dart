@@ -5,8 +5,8 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/kq_theme.dart';
-import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -210,7 +210,14 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget {
-  const ConnectionPage({Key? key}) : super(key: key);
+  final bool showOnlineStatusFooter;
+  final bool showRecentPeers;
+
+  const ConnectionPage({
+    Key? key,
+    this.showOnlineStatusFooter = true,
+    this.showRecentPeers = true,
+  }) : super(key: key);
 
   @override
   State<ConnectionPage> createState() => _ConnectionPageState();
@@ -227,7 +234,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   final FocusNode _idFocusNode = FocusNode();
   final TextEditingController _idEditingController = TextEditingController();
 
-  String selectedConnectionType = 'Connect';
+  bool _connectAsFileTransfer = false;
   bool _passwordVisible = false;
 
   bool isWindowMinimized = false;
@@ -325,31 +332,47 @@ class _ConnectionPageState extends State<ConnectionPage>
     }
   }
 
+  void _selectConnectionMode({required bool fileTransfer}) {
+    // kq-v224-file-transfer-mode-selection
+    if (_connectAsFileTransfer == fileTransfer) return;
+    setState(() {
+      _connectAsFileTransfer = fileTransfer;
+    });
+  }
+
+  void _connectWithSelectedMode() {
+    onConnect(isFileTransfer: _connectAsFileTransfer);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isOutgoingOnly = bind.isOutgoingOnly();
     final q = KqTheme.of(context);
+    final connectionForm = _buildRemoteIDTextField(context);
     return Container(
       color: Colors.transparent,
-      child: Column(
-        children: [
-          Expanded(
-              child: Column(
-            children: [
-              Row(
+      child: Padding(
+        padding: EdgeInsets.zero,
+        child: Column(
+          children: [
+            if (widget.showRecentPeers)
+              Expanded(
+                  child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Flexible(child: _buildRemoteIDTextField(context)),
+                  connectionForm,
+                  const SizedBox(height: 18),
+                  const Expanded(child: PeerTabPage()),
                 ],
-              ).marginOnly(top: 22),
-              const SizedBox(height: 12),
-              Divider(height: 1, color: q.line).paddingOnly(right: 14),
-              const Expanded(child: PeerTabPage()),
-            ],
-          ).paddingOnly(left: 12.0)),
-          if (!isOutgoingOnly) Divider(height: 1, color: q.line),
-          if (!isOutgoingOnly)
-            const OnlineStatusWidget().marginSymmetric(vertical: 10)
-        ],
+              ))
+            else
+              connectionForm,
+            if (widget.showOnlineStatusFooter && !isOutgoingOnly)
+              Divider(height: 1, color: q.line),
+            if (widget.showOnlineStatusFooter && !isOutgoingOnly)
+              const OnlineStatusWidget().marginSymmetric(vertical: 10)
+          ],
+        ),
       ),
     );
   }
@@ -373,393 +396,546 @@ class _ConnectionPageState extends State<ConnectionPage>
   /// Search for a peer.
   Widget _buildRemoteIDTextField(BuildContext context) {
     final q = KqTheme.of(context);
-    var w = Container(
-      width: 320 + 20 * 2,
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: q.panelGradient,
+    final formOnly = !widget.showRecentPeers;
+    final inputHeight = formOnly ? 38.0 : 46.0;
+    final inputTextStyle = TextStyle(
+      // kq-v223-password-field-tight-38-height
+      // kq-v223-password-field-matches-id-font-size
+      fontFamily: 'WorkSans',
+      fontSize: formOnly ? 14 : 16,
+      height: formOnly ? 1.25 : 1.35,
+      color: q.ink,
+      fontWeight: FontWeight.w600,
+    );
+    final inputHintStyle = TextStyle(
+      color: q.muted,
+      fontSize: formOnly ? 14 : 15,
+      fontWeight: FontWeight.w500,
+    );
+
+    InputDecoration kqConnectionInputDecoration({
+      String? hintText,
+    }) {
+      return InputDecoration(
+        // kq-v224-identical-id-password-input-decoration
+        filled: true,
+        fillColor: q.field,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(5),
+          borderSide: BorderSide(color: q.line),
         ),
-        borderRadius: const BorderRadius.all(Radius.circular(16)),
-        border: Border.all(color: q.line),
-        boxShadow: [
-          BoxShadow(
-            color: q.shadow,
-            blurRadius: 22,
-            offset: const Offset(0, 10),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(5),
+          borderSide: BorderSide(color: q.primary, width: 1.4),
+        ),
+        counterText: '',
+        hintText: hintText,
+        hintStyle: inputHintStyle,
+        contentPadding: EdgeInsets.fromLTRB(
+          14,
+          formOnly ? 9 : 13,
+          44,
+          formOnly ? 9 : 13,
+        ),
+      );
+    }
+
+    Widget kqConnectionInputFrame({required Widget child}) {
+      // kq-v224-identical-id-password-inputs
+      // kq-v224-identical-id-password-input-frame
+      return SizedBox(height: inputHeight, child: child);
+    }
+
+    Widget kqConnectionTextField({
+      required TextEditingController controller,
+      FocusNode? focusNode,
+      String? hintText,
+      bool obscureText = false,
+      List<TextInputFormatter>? inputFormatters,
+      ValueChanged<String>? onChanged,
+      ValueChanged<String>? onSubmitted,
+      Widget? trailing,
+    }) {
+      // kq-v225-single-input-component-for-id-and-code
+      return kqConnectionInputFrame(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: TextField(
+                controller: controller,
+                autocorrect: false,
+                enableSuggestions: false,
+                keyboardType: TextInputType.visiblePassword,
+                focusNode: focusNode,
+                obscureText: obscureText,
+                style: inputTextStyle,
+                maxLines: 1,
+                cursorColor: q.primary,
+                decoration: kqConnectionInputDecoration(hintText: hintText),
+                inputFormatters: inputFormatters,
+                onChanged: onChanged,
+                onSubmitted: onSubmitted,
+              ).workaroundFreezeLinuxMint(),
+            ),
+            if (trailing != null)
+              Positioned(
+                right: 4,
+                top: 0,
+                bottom: 0,
+                width: 32,
+                // kq-v223-password-field-tight-suffix-slot
+                // kq-v225-trailing-overlay-does-not-affect-textfield-height
+                child: Center(child: trailing),
+              ),
+          ],
+        ),
+      );
+    }
+
+    final passwordInput = kqConnectionTextField(
+      controller: _passwordController,
+      obscureText: !_passwordVisible,
+      // kq-v222-password-hint-hidden-under-label
+      hintText: formOnly ? null : '验证码（可为空）',
+      trailing: IconButton(
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+        // kq-v223-password-eye-no-extra-padding
+        padding: EdgeInsets.zero,
+        tooltip: _passwordVisible ? '隐藏密码' : '显示密码',
+        icon: Icon(
+          _passwordVisible ? Icons.visibility : Icons.visibility_off,
+          size: 18,
+          color: q.muted,
+        ),
+        onPressed: () {
+          setState(() {
+            _passwordVisible = !_passwordVisible;
+          });
+        },
+      ),
+      onSubmitted: (_) {
+        _connectWithSelectedMode();
+      },
+    );
+    Widget labelWrap(String label, Widget child) {
+      if (!formOnly) return child;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: q.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          child,
+        ],
+      );
+    }
+
+    Widget modeOption({
+      required bool selected,
+      required String label,
+      VoidCallback? onTap,
+    }) {
+      // kq-v222-mode-option-consistent-typography
+      final content = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            selected
+                ? Icons.radio_button_checked_rounded
+                : Icons.radio_button_unchecked_rounded,
+            size: 17,
+            color: selected ? q.primary : q.line,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: q.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1,
+            ),
           ),
         ],
-      ),
+      );
+
+      if (onTap == null) {
+        return SizedBox(height: 30, child: Center(child: content));
+      }
+
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: SizedBox(height: 30, child: Center(child: content)),
+        ),
+      );
+    }
+
+    var w = Container(
+      width: double.infinity,
+      padding: EdgeInsets.zero,
       child: Ink(
         color: Colors.transparent,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            getConnectionPageTitle(context, false).marginOnly(bottom: 15),
+            if (formOnly)
+              Row(
+                children: [
+                  Icon(Icons.people_alt_outlined, color: q.ink, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    '远程协助他人',
+                    style: TextStyle(
+                      color: q.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                ],
+              ).marginOnly(bottom: 17)
+            else
+              Text(
+                '远程协助他人',
+                style: TextStyle(
+                  color: q.ink,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w500,
+                  height: 1,
+                ),
+              ).marginOnly(bottom: 22),
             Row(
+              crossAxisAlignment:
+                  formOnly ? CrossAxisAlignment.end : CrossAxisAlignment.center,
               children: [
                 Expanded(
-                    child: RawAutocomplete<Peer>(
-                  optionsBuilder: (TextEditingValue textEditingValue) {
-                    if (textEditingValue.text == '') {
-                      _autocompleteOpts = const Iterable<Peer>.empty();
-                    } else if (_allPeersLoader.peers.isEmpty &&
-                        !_allPeersLoader.isPeersLoaded) {
-                      Peer emptyPeer = Peer(
-                        id: '',
-                        username: '',
-                        hostname: '',
-                        alias: '',
-                        platform: '',
-                        tags: [],
-                        hash: '',
-                        password: '',
-                        forceAlwaysRelay: false,
-                        rdpPort: '',
-                        rdpUsername: '',
-                        loginName: '',
-                        device_group_name: '',
-                        note: '',
-                      );
-                      _autocompleteOpts = [emptyPeer];
-                    } else {
-                      String textWithoutSpaces =
-                          textEditingValue.text.replaceAll(" ", "");
-                      if (int.tryParse(textWithoutSpaces) != null) {
-                        textEditingValue = TextEditingValue(
-                          text: textWithoutSpaces,
-                          selection: textEditingValue.selection,
-                        );
-                      }
-                      String textToFind = textEditingValue.text.toLowerCase();
-                      _autocompleteOpts = _allPeersLoader.peers
-                          .where((peer) =>
-                              peer.id.toLowerCase().contains(textToFind) ||
-                              peer.username
-                                  .toLowerCase()
-                                  .contains(textToFind) ||
-                              peer.hostname
-                                  .toLowerCase()
-                                  .contains(textToFind) ||
-                              peer.alias.toLowerCase().contains(textToFind))
-                          .toList();
-                    }
-                    return _autocompleteOpts;
-                  },
-                  focusNode: _idFocusNode,
-                  textEditingController: _idEditingController,
-                  fieldViewBuilder: (
-                    BuildContext context,
-                    TextEditingController fieldTextEditingController,
-                    FocusNode fieldFocusNode,
-                    VoidCallback onFieldSubmitted,
-                  ) {
-                    updateTextAndPreserveSelection(
-                        fieldTextEditingController, _idController.text);
-                    return Obx(() => TextField(
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          keyboardType: TextInputType.visiblePassword,
-                          focusNode: fieldFocusNode,
-                          style: TextStyle(
-                            fontFamily: 'WorkSans',
-                            fontSize: 22,
-                            height: 1.4,
-                            color: q.ink,
-                            fontWeight: FontWeight.w800,
-                          ),
-                          maxLines: 1,
-                          cursorColor: q.primary,
-                          decoration: InputDecoration(
-                              filled: true,
-                              fillColor: q.field,
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: q.line),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide:
-                                    BorderSide(color: q.primary, width: 1.4),
-                              ),
-                              counterText: '',
-                              hintStyle: TextStyle(
-                                color: q.muted,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              hintText: _idInputFocused.value
-                                  ? null
-                                  : translate('Enter Remote ID'),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 15, vertical: 13)),
-                          controller: fieldTextEditingController,
-                          inputFormatters: [IDTextInputFormatter()],
-                          onChanged: (v) {
-                            _idController.id = v;
+                    flex: formOnly ? 4 : 1,
+                    child: labelWrap(
+                        '对方识别码',
+                        RawAutocomplete<Peer>(
+                          optionsBuilder: (TextEditingValue textEditingValue) {
+                            if (textEditingValue.text == '') {
+                              _autocompleteOpts = const Iterable<Peer>.empty();
+                            } else if (_allPeersLoader.peers.isEmpty &&
+                                !_allPeersLoader.isPeersLoaded) {
+                              Peer emptyPeer = Peer(
+                                id: '',
+                                username: '',
+                                hostname: '',
+                                alias: '',
+                                platform: '',
+                                tags: [],
+                                hash: '',
+                                password: '',
+                                forceAlwaysRelay: false,
+                                rdpPort: '',
+                                rdpUsername: '',
+                                loginName: '',
+                                device_group_name: '',
+                                note: '',
+                              );
+                              _autocompleteOpts = [emptyPeer];
+                            } else {
+                              String textWithoutSpaces =
+                                  textEditingValue.text.replaceAll(" ", "");
+                              if (int.tryParse(textWithoutSpaces) != null) {
+                                textEditingValue = TextEditingValue(
+                                  text: textWithoutSpaces,
+                                  selection: textEditingValue.selection,
+                                );
+                              }
+                              String textToFind =
+                                  textEditingValue.text.toLowerCase();
+                              _autocompleteOpts = _allPeersLoader.peers
+                                  .where((peer) =>
+                                      peer.id
+                                          .toLowerCase()
+                                          .contains(textToFind) ||
+                                      peer.username
+                                          .toLowerCase()
+                                          .contains(textToFind) ||
+                                      peer.hostname
+                                          .toLowerCase()
+                                          .contains(textToFind) ||
+                                      peer.alias
+                                          .toLowerCase()
+                                          .contains(textToFind))
+                                  .toList();
+                            }
+                            return _autocompleteOpts;
                           },
-                          onSubmitted: (_) {
-                            onConnect();
+                          focusNode: _idFocusNode,
+                          textEditingController: _idEditingController,
+                          fieldViewBuilder: (
+                            BuildContext context,
+                            TextEditingController fieldTextEditingController,
+                            FocusNode fieldFocusNode,
+                            VoidCallback onFieldSubmitted,
+                          ) {
+                            updateTextAndPreserveSelection(
+                                fieldTextEditingController, _idController.text);
+                            return Obx(() => kqConnectionTextField(
+                                  controller: fieldTextEditingController,
+                                  focusNode: fieldFocusNode,
+                                  hintText: _idInputFocused.value
+                                      ? null
+                                      : translate('Enter Remote ID'),
+                                  inputFormatters: [IDTextInputFormatter()],
+                                  onChanged: (v) {
+                                    _idController.id = v;
+                                  },
+                                  onSubmitted: (_) {
+                                    _connectWithSelectedMode();
+                                  },
+                                ));
                           },
-                        ).workaroundFreezeLinuxMint());
-                  },
-                  onSelected: (option) {
-                    setState(() {
-                      _idController.id = option.id;
-                      FocusScope.of(context).unfocus();
-                    });
-                  },
-                  optionsViewBuilder: (BuildContext context,
-                      AutocompleteOnSelected<Peer> onSelected,
-                      Iterable<Peer> options) {
-                    options = _autocompleteOpts;
-                    double maxHeight = options.length * 50;
-                    if (options.length == 1) {
-                      maxHeight = 52;
-                    } else if (options.length == 3) {
-                      maxHeight = 146;
-                    } else if (options.length == 4) {
-                      maxHeight = 193;
-                    }
-                    maxHeight = maxHeight.clamp(0, 200);
+                          onSelected: (option) {
+                            setState(() {
+                              _idController.id = option.id;
+                              FocusScope.of(context).unfocus();
+                            });
+                          },
+                          optionsViewBuilder: (BuildContext context,
+                              AutocompleteOnSelected<Peer> onSelected,
+                              Iterable<Peer> options) {
+                            options = _autocompleteOpts;
+                            double maxHeight = options.length * 50;
+                            if (options.length == 1) {
+                              maxHeight = 52;
+                            } else if (options.length == 3) {
+                              maxHeight = 146;
+                            } else if (options.length == 4) {
+                              maxHeight = 193;
+                            }
+                            maxHeight = maxHeight.clamp(0, 200);
 
-                    return Align(
-                      alignment: Alignment.topLeft,
-                      child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: q.shadow,
-                                blurRadius: 18,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Material(
-                                color: q.panelStrong,
-                                elevation: 4,
-                                child: ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    maxHeight: maxHeight,
-                                    maxWidth: 319,
+                            return Align(
+                              alignment: Alignment.topLeft,
+                              child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: q.shadow,
+                                        blurRadius: 18,
+                                        offset: const Offset(0, 10),
+                                      ),
+                                    ],
                                   ),
-                                  child: _allPeersLoader.peers.isEmpty &&
-                                          !_allPeersLoader.isPeersLoaded
-                                      ? Container(
-                                          height: 80,
-                                          child: Center(
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ))
-                                      : Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 5),
-                                          child: ListView(
-                                            children: options
-                                                .map((peer) =>
-                                                    AutocompletePeerTile(
-                                                        onSelect: () =>
-                                                            onSelected(peer),
-                                                        peer: peer))
-                                                .toList(),
+                                  child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Material(
+                                        color: q.panelStrong,
+                                        elevation: 4,
+                                        child: ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            maxHeight: maxHeight,
+                                            maxWidth: 460,
                                           ),
+                                          child: _allPeersLoader
+                                                      .peers.isEmpty &&
+                                                  !_allPeersLoader.isPeersLoaded
+                                              ? Container(
+                                                  height: 80,
+                                                  child: Center(
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                                  ))
+                                              : Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 5),
+                                                  child: ListView(
+                                                    children: options
+                                                        .map((peer) =>
+                                                            AutocompletePeerTile(
+                                                                onSelect: () =>
+                                                                    onSelected(
+                                                                        peer),
+                                                                peer: peer))
+                                                        .toList(),
+                                                  ),
+                                                ),
                                         ),
-                                ),
-                              ))),
-                    );
-                  },
-                )),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _passwordController,
-              autocorrect: false,
-              enableSuggestions: false,
-              keyboardType: TextInputType.visiblePassword,
-              obscureText: !_passwordVisible,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.35,
-                color: q.ink,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              cursorColor: q.primary,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: q.field,
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: q.line),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: q.primary, width: 1.4),
-                ),
-                hintText: '连接密码（可选，留空需对方确认）',
-                hintStyle: TextStyle(
-                  color: q.muted,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-                prefixIcon: Icon(
-                  Icons.lock_outline,
-                  size: 18,
-                  color: q.muted,
-                ),
-                suffixIcon: IconButton(
-                  tooltip: _passwordVisible ? '隐藏密码' : '显示密码',
-                  icon: Icon(
-                    _passwordVisible ? Icons.visibility : Icons.visibility_off,
-                    size: 18,
-                    color: q.muted,
+                                      ))),
+                            );
+                          },
+                        ))),
+                const SizedBox(width: 10),
+                if (formOnly)
+                  Expanded(
+                    flex: 3,
+                    child: labelWrap('验证码（可为空）', passwordInput),
+                  )
+                else
+                  SizedBox(
+                    width: 174,
+                    child: passwordInput,
                   ),
-                  onPressed: () {
-                    setState(() {
-                      _passwordVisible = !_passwordVisible;
-                    });
-                  },
-                ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-              onSubmitted: (_) {
-                onConnect();
-              },
-            ).workaroundFreezeLinuxMint(),
-            Padding(
-              padding: const EdgeInsets.only(top: 13.0),
-              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                const SizedBox(width: 10),
                 SizedBox(
-                  height: 34.0,
+                  height: formOnly ? 42 : 46,
+                  width: formOnly ? 100 : 190,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: q.primary,
                       foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      elevation: formOnly ? 8 : 0,
+                      shadowColor: q.primary.withOpacity(0.24),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(formOnly ? 6 : 12),
                       ),
                     ),
                     onPressed: () {
-                      onConnect();
+                      _connectWithSelectedMode();
                     },
-                    child: Text(translate("Connect")),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (formOnly) ...[
+                          const Icon(Icons.arrow_forward_rounded, size: 16),
+                          const SizedBox(width: 5),
+                        ],
+                        Flexible(
+                          child: Text(
+                            translate("Connect"),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight:
+                                  formOnly ? FontWeight.w700 : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  height: 34.0,
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: q.field,
-                      foregroundColor: q.primaryDeep,
-                      side: BorderSide(color: q.line),
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+              ],
+            ),
+            Padding(
+              padding: EdgeInsets.only(top: formOnly ? 12.0 : 13.0),
+              child: Row(mainAxisAlignment: MainAxisAlignment.start, children: [
+                modeOption(
+                  selected: !_connectAsFileTransfer,
+                  onTap: () {
+                    _selectConnectionMode(fileTransfer: false);
+                  },
+                  label: '远程桌面',
+                ),
+                const SizedBox(width: 16),
+                modeOption(
+                  selected: _connectAsFileTransfer,
+                  label: translate('Transfer file'),
+                  onTap: () {
+                    _selectConnectionMode(fileTransfer: true);
+                  },
+                ),
+                if (!formOnly) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    height: 34.0,
+                    width: 34.0,
+                    decoration: BoxDecoration(
+                      color: q.field,
+                      border: Border.all(color: q.line),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Center(
+                      child: StatefulBuilder(
+                        builder: (context, setState) {
+                          var offset = Offset(0, 0);
+                          return Obx(() => InkWell(
+                                child: _menuOpen.value
+                                    ? Transform.rotate(
+                                        angle: pi,
+                                        child: Icon(IconFont.more,
+                                            size: 14, color: q.ink),
+                                      )
+                                    : Icon(IconFont.more,
+                                        size: 14, color: q.ink),
+                                onTapDown: (e) {
+                                  offset = e.globalPosition;
+                                },
+                                onTap: () async {
+                                  _menuOpen.value = true;
+                                  final x = offset.dx;
+                                  final y = offset.dy;
+                                  final menuItems = <(String, VoidCallback)>[
+                                    (
+                                      'Terminal',
+                                      () => onConnect(isTerminal: true)
+                                    ),
+                                  ];
+                                  await mod_menu
+                                      .showMenu(
+                                    context: context,
+                                    position: RelativeRect.fromLTRB(x, y, x, y),
+                                    items: menuItems
+                                        .map((e) => MenuEntryButton<String>(
+                                              childBuilder:
+                                                  (TextStyle? style) => Text(
+                                                translate(e.$1),
+                                                style: style,
+                                              ),
+                                              proc: () => e.$2(),
+                                              padding: EdgeInsets.symmetric(
+                                                  horizontal:
+                                                      kDesktopMenuPadding.left),
+                                              dismissOnClicked: true,
+                                            ))
+                                        .map((e) => e.build(
+                                            context,
+                                            const MenuConfig(
+                                                commonColor:
+                                                    CustomPopupMenuTheme
+                                                        .commonColor,
+                                                height:
+                                                    CustomPopupMenuTheme.height,
+                                                dividerHeight:
+                                                    CustomPopupMenuTheme
+                                                        .dividerHeight)))
+                                        .expand((i) => i)
+                                        .toList(),
+                                    elevation: 8,
+                                  )
+                                      .then((_) {
+                                    _menuOpen.value = false;
+                                  });
+                                },
+                              ));
+                        },
                       ),
                     ),
-                    onPressed: () {
-                      onConnect(isFileTransfer: true);
-                    },
-                    icon: const Icon(Icons.folder_copy_outlined, size: 17),
-                    label: Text(
-                      translate('Transfer file'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  height: 34.0,
-                  width: 34.0,
-                  decoration: BoxDecoration(
-                    color: q.field,
-                    border: Border.all(color: q.line),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Center(
-                    child: StatefulBuilder(
-                      builder: (context, setState) {
-                        var offset = Offset(0, 0);
-                        return Obx(() => InkWell(
-                              child: _menuOpen.value
-                                  ? Transform.rotate(
-                                      angle: pi,
-                                      child: Icon(IconFont.more,
-                                          size: 14, color: q.ink),
-                                    )
-                                  : Icon(IconFont.more, size: 14, color: q.ink),
-                              onTapDown: (e) {
-                                offset = e.globalPosition;
-                              },
-                              onTap: () async {
-                                _menuOpen.value = true;
-                                final x = offset.dx;
-                                final y = offset.dy;
-                                final menuItems = <(String, VoidCallback)>[
-                                  (
-                                    'Terminal',
-                                    () => onConnect(isTerminal: true)
-                                  ),
-                                ];
-                                await mod_menu
-                                    .showMenu(
-                                  context: context,
-                                  position: RelativeRect.fromLTRB(x, y, x, y),
-                                  items: menuItems
-                                      .map((e) => MenuEntryButton<String>(
-                                            childBuilder: (TextStyle? style) =>
-                                                Text(
-                                              translate(e.$1),
-                                              style: style,
-                                            ),
-                                            proc: () => e.$2(),
-                                            padding: EdgeInsets.symmetric(
-                                                horizontal:
-                                                    kDesktopMenuPadding.left),
-                                            dismissOnClicked: true,
-                                          ))
-                                      .map((e) => e.build(
-                                          context,
-                                          const MenuConfig(
-                                              commonColor: CustomPopupMenuTheme
-                                                  .commonColor,
-                                              height:
-                                                  CustomPopupMenuTheme.height,
-                                              dividerHeight:
-                                                  CustomPopupMenuTheme
-                                                      .dividerHeight)))
-                                      .expand((i) => i)
-                                      .toList(),
-                                  elevation: 8,
-                                )
-                                    .then((_) {
-                                  _menuOpen.value = false;
-                                });
-                              },
-                            ));
-                      },
-                    ),
-                  ),
-                ),
+                ],
               ]),
             ),
           ],
         ),
       ),
     );
+    if (formOnly) {
+      return w;
+    }
     return Container(
-        constraints: const BoxConstraints(maxWidth: 600), child: w);
+        constraints: const BoxConstraints(maxWidth: 860), child: w);
   }
 }

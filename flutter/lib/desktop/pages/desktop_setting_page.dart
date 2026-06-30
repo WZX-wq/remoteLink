@@ -6,6 +6,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/formatter/id_formatter.dart';
+import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
@@ -28,21 +30,25 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
 
-const double _kTabWidth = 200;
+const double _kTabWidth = 236;
 const double _kTabHeight = 42;
 const double _kCardFixedWidth = 540;
-const double _kCardLeftMargin = 15;
+const double _kCardLeftMargin = 24;
 const double _kContentHMargin = 15;
 const double _kContentHSubMargin = _kContentHMargin + 33;
 const double _kCheckBoxLeftMargin = 10;
 const double _kRadioLeftMargin = 10;
 const double _kListViewBottomMargin = 15;
 const double _kTitleFontSize = 20;
-const double _kCardTitleFontSize = 18;
 const double _kContentFontSize = 15;
 const Color _accentColor = MyTheme.accent;
 const String _kSettingPageControllerTag = 'settingPageController';
 const String _kSettingPageTabKeyTag = 'settingPageTabKey';
+const Color _kqDesignerBlue = Color(0xFF2563EB);
+const Color _kqDesignerBlueSoft = Color(0xFFEFF6FF);
+const Color _kqDesignerCardBorder = Color(0xFFE4E8EE);
+const Color _kqDesignerTextPrimary = Color(0xFF1A2332);
+const Color _kqDesignerTextSecondary = Color(0xFF6B7A8D);
 
 class _TabInfo {
   late final SettingsTabKey key;
@@ -119,24 +125,24 @@ _SettingPalette _settingPalette(BuildContext context) {
     );
   }
   return const _SettingPalette(
-    pageBackground: Color(0xFFEAF6FF),
-    contentBackground: Color(0xFFF5FBFF),
-    sidebarBackground: Color(0xFFE8F5FF),
-    sidebarBorder: Color(0xFFC7E4F8),
-    navText: Color(0xFF2F4D68),
-    navIcon: Color(0xFF4E789C),
-    navSelectedText: Color(0xFF005FBA),
-    navSelectedBackground: Color(0xFFDDF0FF),
-    navHoverBackground: Color(0xFFEFF8FF),
+    pageBackground: Colors.white,
+    contentBackground: Colors.white,
+    sidebarBackground: Colors.white,
+    sidebarBorder: Color(0xFFE8ECF2),
+    navText: Color(0xFF5D6572),
+    navIcon: Color(0xFF8A929D),
+    navSelectedText: Color(0xFF26384D),
+    navSelectedBackground: Color(0xFFEAF1FF),
+    navHoverBackground: Color(0xFFF3F7FF),
     cardBackground: Colors.white,
-    cardBorder: Color(0xFFC4E1F5),
-    cardHeaderBackground: Color(0xFFF0F8FF),
-    fieldFill: Color(0xFFF8FCFF),
-    fieldBorder: Color(0xFFAED4EF),
-    primaryText: Color(0xFF18344F),
-    mutedText: Color(0xFF5B7892),
-    disabledText: Color(0xFF90A4B4),
-    shadow: Color(0x1A2377AA),
+    cardBorder: Color(0xFFE5EAF1),
+    cardHeaderBackground: Colors.white,
+    fieldFill: Color(0xFFFFFFFF),
+    fieldBorder: Color(0xFFD7DEE8),
+    primaryText: Color(0xFF222832),
+    mutedText: Color(0xFF7B8490),
+    disabledText: Color(0xFFA7AFBA),
+    shadow: Color(0x00000000),
   );
 }
 
@@ -202,13 +208,12 @@ enum SettingsTabKey {
   network,
   display,
   plugin,
-  account,
-  printer,
   about,
 }
 
 class DesktopSettingPage extends StatefulWidget {
   final SettingsTabKey initialTabkey;
+  final bool embedded;
   static final List<SettingsTabKey> tabKeys = [
     SettingsTabKey.general,
     if (!isWeb &&
@@ -222,18 +227,18 @@ class DesktopSettingPage extends StatefulWidget {
     if (!bind.isIncomingOnly()) SettingsTabKey.display,
     if (!isWeb && !bind.isIncomingOnly() && bind.pluginFeatureIsEnabled())
       SettingsTabKey.plugin,
-    if (!bind.isDisableAccount()) SettingsTabKey.account,
-    if (isWindows &&
-        bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
-      SettingsTabKey.printer,
     SettingsTabKey.about,
   ];
 
-  DesktopSettingPage({Key? key, required this.initialTabkey}) : super(key: key);
+  DesktopSettingPage({
+    Key? key,
+    required this.initialTabkey,
+    this.embedded = false,
+  }) : super(key: key);
 
   @override
   State<DesktopSettingPage> createState() =>
-      _DesktopSettingPageState(initialTabkey);
+      _DesktopSettingPageState(initialTabkey, registerNavigation: !embedded);
 
   static void switch2page(SettingsTabKey page) {
     try {
@@ -265,6 +270,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         WidgetsBindingObserver {
   late PageController controller;
   late Rx<SettingsTabKey> selectedTab;
+  final bool registerNavigation;
 
   @override
   bool get wantKeepAlive => true;
@@ -275,15 +281,20 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   bool _syncingMemberEntitlement = false;
   DateTime? _lastMemberEntitlementSyncAt;
 
-  _DesktopSettingPageState(SettingsTabKey initialTabkey) {
+  _DesktopSettingPageState(
+    SettingsTabKey initialTabkey, {
+    required this.registerNavigation,
+  }) {
     var initialIndex = DesktopSettingPage.tabKeys.indexOf(initialTabkey);
     if (initialIndex == -1) {
       initialIndex = 0;
     }
     selectedTab = DesktopSettingPage.tabKeys[initialIndex].obs;
-    Get.put<Rx<SettingsTabKey>>(selectedTab, tag: _kSettingPageTabKeyTag);
     controller = PageController(initialPage: initialIndex);
-    Get.put<PageController>(controller, tag: _kSettingPageControllerTag);
+    if (registerNavigation) {
+      Get.put<Rx<SettingsTabKey>>(selectedTab, tag: _kSettingPageTabKeyTag);
+      Get.put<PageController>(controller, tag: _kSettingPageControllerTag);
+    }
     controller.addListener(() {
       if (controller.page != null) {
         int page = controller.page!.toInt();
@@ -320,8 +331,10 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   @override
   void dispose() {
     super.dispose();
-    Get.delete<PageController>(tag: _kSettingPageControllerTag);
-    Get.delete<RxInt>(tag: _kSettingPageTabKeyTag);
+    if (registerNavigation) {
+      Get.delete<PageController>(tag: _kSettingPageControllerTag);
+      Get.delete<Rx<SettingsTabKey>>(tag: _kSettingPageTabKeyTag);
+    }
     WidgetsBinding.instance.removeObserver(this);
     _videoConnTimer?.cancel();
   }
@@ -373,14 +386,6 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           settingTabs.add(_TabInfo(
               tab, 'Plugin', Icons.extension_outlined, Icons.extension));
           break;
-        case SettingsTabKey.account:
-          settingTabs.add(
-              _TabInfo(tab, 'Account', Icons.person_outline, Icons.person));
-          break;
-        case SettingsTabKey.printer:
-          settingTabs
-              .add(_TabInfo(tab, 'Printer', Icons.print_outlined, Icons.print));
-          break;
         case SettingsTabKey.about:
           settingTabs
               .add(_TabInfo(tab, 'About', Icons.info_outline, Icons.info));
@@ -408,12 +413,6 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           break;
         case SettingsTabKey.plugin:
           children.add(const _Plugin());
-          break;
-        case SettingsTabKey.account:
-          children.add(const _Account());
-          break;
-        case SettingsTabKey.printer:
-          children.add(const _Printer());
           break;
         case SettingsTabKey.about:
           children.add(const _About());
@@ -450,40 +449,171 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   Widget build(BuildContext context) {
     super.build(context);
     final palette = _settingPalette(context);
-    return Theme(
-      data: _settingTheme(context, palette),
-      child: Scaffold(
-        backgroundColor: palette.pageBackground,
-        body: _buildBlock(
-          children: <Widget>[
-            Container(
-              width: _kTabWidth,
-              decoration: BoxDecoration(
-                color: palette.sidebarBackground,
-                border: Border(
-                  right: BorderSide(color: palette.sidebarBorder),
-                ),
-              ),
+    final useDesignerSettingsTabs = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerSettingsTabs) {
+      final content = _buildBlock(
+        children: <Widget>[
+          Expanded(
+            child: Container(
+              // kq-settings-reference-layout
+              color: palette.contentBackground,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _header(context),
-                  Flexible(child: _listView(tabs: _settingTabs())),
+                  _buildDesignerSettingsTabs(tabs: _settingTabs()),
+                  Expanded(
+                    child: Container(
+                      color: palette.contentBackground,
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+                      child: PageView(
+                        controller: controller,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: _children(),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: palette.contentBackground,
-                ),
-                child: PageView(
-                  controller: controller,
-                  physics: NeverScrollableScrollPhysics(),
-                  children: _children(),
+          ),
+        ],
+      );
+      return Theme(
+        data: _settingTheme(context, palette),
+        child: widget.embedded
+            ? Material(color: palette.pageBackground, child: content)
+            : Scaffold(
+                backgroundColor: palette.pageBackground,
+                body: content,
+              ),
+      );
+    }
+    final content = _buildBlock(
+      children: <Widget>[
+        Container(
+          // kq-settings-reference-layout
+          width: _kTabWidth,
+          decoration: BoxDecoration(
+            color: palette.sidebarBackground,
+            border: Border(
+              right: BorderSide(color: palette.sidebarBorder),
+            ),
+          ),
+          child: Column(
+            children: [
+              _header(context),
+              Flexible(child: _listView(tabs: _settingTabs())),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: palette.contentBackground,
+            ),
+            child: PageView(
+              controller: controller,
+              physics: const NeverScrollableScrollPhysics(),
+              children: _children(),
+            ),
+          ),
+        )
+      ],
+    );
+    return Theme(
+      data: _settingTheme(context, palette),
+      child: widget.embedded
+          ? Material(color: palette.pageBackground, child: content)
+          : Scaffold(
+              backgroundColor: palette.pageBackground,
+              body: content,
+            ),
+    );
+  }
+
+  Widget _buildDesignerSettingsTabs({required List<_TabInfo> tabs}) {
+    return Obx(() {
+      return Container(
+        // kq-designer-settings-tabs
+        // kq-v218-settings-reference-tabs
+        height: 45,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: const BoxDecoration(
+          color: Color(0xCCEAF2FF),
+          border: Border(bottom: BorderSide(color: Color(0xFFF0F2F6))),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: tabs
+                .map((tab) => _buildDesignerSettingsTab(
+                      tab: tab,
+                      selected: tab.key == selectedTab.value,
+                    ))
+                .toList(),
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _buildDesignerSettingsTab({
+    required _TabInfo tab,
+    required bool selected,
+  }) {
+    final iconColor =
+        selected ? _kqDesignerBlue : _kqDesignerTextSecondary.withOpacity(0.86);
+    return Padding(
+      padding: const EdgeInsets.only(right: 5),
+      child: Material(
+        color: selected ? _kqDesignerBlueSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          hoverColor: _kqDesignerBlueSoft,
+          onTap: () {
+            final index = DesktopSettingPage.tabKeys.indexOf(tab.key);
+            if (index == -1) {
+              return;
+            }
+            if (selectedTab.value != tab.key) {
+              controller.jumpToPage(index);
+            }
+            selectedTab.value = tab.key;
+          },
+          child: Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: selected ? _kqDesignerBlue : Colors.transparent,
+                  width: 2,
                 ),
               ),
-            )
-          ],
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  selected ? tab.selected : tab.unselected,
+                  color: iconColor,
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  translate(tab.label),
+                  style: TextStyle(
+                    color:
+                        selected ? _kqDesignerBlue : _kqDesignerTextSecondary,
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -545,9 +675,10 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
       final textColor = selected ? palette.navSelectedText : palette.navText;
       final iconColor = selected ? _accentColor : palette.navIcon;
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        // kq-settings-reference-nav-item
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         child: SizedBox(
-          width: _kTabWidth - 20,
+          width: _kTabWidth - 16,
           height: _kTabHeight,
           child: Material(
             color:
@@ -567,20 +698,12 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
                 selectedTab.value = tab.key;
               },
               child: Row(children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  width: 4,
-                  height: selected ? _kTabHeight * 0.58 : 0,
-                  decoration: BoxDecoration(
-                    color: selected ? _accentColor : Colors.transparent,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ).marginOnly(left: 6),
+                const SizedBox(width: 12),
                 Icon(
                   selected ? tab.selected : tab.unselected,
                   color: iconColor,
                   size: 20,
-                ).marginOnly(left: 11, right: 10),
+                ).marginOnly(right: 10),
                 Text(
                   translate(tab.label),
                   style: TextStyle(
@@ -597,6 +720,314 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   }
 }
 
+class DesktopAccountPage extends StatelessWidget {
+  final bool embedded;
+
+  const DesktopAccountPage({
+    Key? key,
+    this.embedded = false,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _settingPalette(context);
+    const content = _Account();
+    return Theme(
+      data: _settingTheme(context, palette),
+      child: embedded
+          ? Material(color: palette.contentBackground, child: content)
+          : Scaffold(
+              backgroundColor: palette.pageBackground,
+              body: content,
+            ),
+    );
+  }
+}
+
+class _SettingsReferencePage extends StatelessWidget {
+  final String marker;
+  final List<Widget> children;
+
+  const _SettingsReferencePage({
+    required this.marker,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 828),
+          child: Column(
+            // The marker is intentionally kept in the widget tree for release
+            // checks while staying invisible to the user.
+            key: ValueKey<String>(marker),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsReferenceCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Widget child;
+  final EdgeInsets padding;
+
+  const _SettingsReferenceCard({
+    required this.icon,
+    required this.title,
+    required this.child,
+    this.padding = const EdgeInsets.fromLTRB(12, 12, 12, 12),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _settingPalette(context);
+    return Container(
+      // kq-v218-settings-reference-card
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: padding,
+      decoration: BoxDecoration(
+        color: palette.cardBackground,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE6EBF2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17, color: _kqDesignerBlue),
+              const SizedBox(width: 7),
+              Text(
+                translate(title),
+                style: const TextStyle(
+                  color: _kqDesignerTextPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsReferenceControlRow extends StatelessWidget {
+  final String label;
+  final Widget control;
+  final String? helper;
+
+  const _SettingsReferenceControlRow({
+    required this.label,
+    required this.control,
+    this.helper,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _settingPalette(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              translate(label),
+              style: TextStyle(
+                color: palette.mutedText,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+          Expanded(child: control),
+          if (helper != null) ...[
+            const SizedBox(width: 10),
+            Text(
+              translate(helper!),
+              style: TextStyle(color: palette.mutedText, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsReferenceCheckGrid extends StatelessWidget {
+  final List<Widget> children;
+
+  const _SettingsReferenceCheckGrid({
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      const gap = 10.0;
+      final columns = constraints.maxWidth >= 520 ? 2 : 1;
+      final itemWidth = columns == 1
+          ? constraints.maxWidth
+          : (constraints.maxWidth - gap) / columns;
+      return Wrap(
+        // kq-v218-settings-two-column-checks
+        spacing: gap,
+        runSpacing: 2,
+        children: children
+            .map((child) => SizedBox(width: itemWidth, child: child))
+            .toList(),
+      );
+    });
+  }
+}
+
+class _SettingsStaticCheck extends StatelessWidget {
+  final String label;
+  final bool checked;
+  final bool enabled;
+
+  const _SettingsStaticCheck({
+    required this.label,
+    this.checked = true,
+    this.enabled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _settingPalette(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: _kCheckBoxLeftMargin),
+      child: Row(
+        children: [
+          Checkbox(value: checked, onChanged: enabled ? (_) {} : null)
+              .marginOnly(right: 6),
+          Expanded(
+            child: Text(
+              translate(label),
+              style: TextStyle(
+                color: enabled ? palette.primaryText : palette.disabledText,
+                fontSize: _kContentFontSize,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Widget _settingsReferenceDivider() {
+  return const Divider(height: 18, color: Color(0xFFE8EDF5));
+}
+
+Widget _settingsChoicePill(
+  BuildContext context, {
+  required String label,
+  required bool selected,
+  required bool enabled,
+  required VoidCallback onTap,
+  IconData? icon,
+  bool pro = false,
+}) {
+  final foreground = selected
+      ? Colors.white
+      : enabled
+          ? _kqDesignerTextPrimary
+          : const Color(0xFF9AA8B8);
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: enabled ? onTap : null,
+      child: Container(
+        height: 35,
+        constraints: const BoxConstraints(minWidth: 62),
+        padding:
+            EdgeInsets.fromLTRB(icon == null ? 15 : 12, 0, pro ? 10 : 15, 0),
+        decoration: BoxDecoration(
+          color: selected ? _kqDesignerBlue : const Color(0xFFF6F8FC),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? _kqDesignerBlue : const Color(0xFFDDE6F2),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14, color: foreground),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              translate(label),
+              style: TextStyle(
+                color: foreground,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            if (pro) ...[
+              const SizedBox(width: 8),
+              const Text(
+                'PRO',
+                style: TextStyle(
+                  color: Color(0xFFF59E0B),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _settingsLightButton({
+  required IconData icon,
+  required String label,
+  required VoidCallback? onPressed,
+  bool primary = false,
+}) {
+  final child = Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 16),
+      const SizedBox(width: 6),
+      Text(translate(label)),
+    ],
+  );
+  return primary
+      ? FilledButton(onPressed: onPressed, child: child)
+      : OutlinedButton(onPressed: onPressed, child: child);
+}
+
 //#region pages
 
 class _General extends StatefulWidget {
@@ -609,19 +1040,318 @@ class _General extends StatefulWidget {
 class _GeneralState extends State<_General> {
   @override
   Widget build(BuildContext context) {
-    final scrollController = ScrollController();
-    return ListView(
-      controller: scrollController,
+    return _SettingsReferencePage(
+      marker: 'kq-v218-settings-common-page',
       children: [
-        theme(),
-        _Card(title: 'Language', children: [language()]),
-        if (!isWeb) hwcodec(),
-        if (!isWeb) audio(context),
-        if (!isWeb) record(context),
-        if (!isWeb) WaylandCard(),
-        other()
+        _themeReferenceCard(context),
+        _languageReferenceCard(context),
+        if (!isWeb && !bind.isOutgoingOnly()) _audioReferenceCard(context),
+        if (!isWeb) _recordReferenceCard(context),
+        _otherReferenceCard(context),
       ],
-    ).marginOnly(bottom: _kListViewBottomMargin);
+    );
+  }
+
+  Widget _themeReferenceCard(BuildContext context) {
+    final current = MyTheme.getThemeModePreference().toShortString();
+    onChanged(String value) async {
+      await MyTheme.changeDarkMode(MyTheme.themeModeFromString(value));
+      setState(() {});
+    }
+
+    final isOptFixed = isOptionFixed(kCommConfKeyTheme);
+    return _SettingsReferenceCard(
+      icon: Icons.light_mode_outlined,
+      title: 'Theme',
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _settingsChoicePill(
+            context,
+            label: 'Light',
+            selected: current == 'light',
+            enabled: !isOptFixed,
+            onTap: () => onChanged('light'),
+          ),
+          _settingsChoicePill(
+            context,
+            label: 'Dark',
+            selected: current == 'dark',
+            enabled: !isOptFixed,
+            onTap: () => onChanged('dark'),
+          ),
+          _settingsChoicePill(
+            context,
+            label: 'Follow System',
+            selected: current == 'system',
+            enabled: !isOptFixed,
+            onTap: () => onChanged('system'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _languageReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.language_rounded,
+      title: 'Language',
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(width: 220, child: _languageControl()),
+      ),
+    );
+  }
+
+  Widget _languageControl() {
+    return futureBuilder(future: () async {
+      String langs = await bind.mainGetLangs();
+      return {'langs': langs};
+    }(), hasData: (res) {
+      Map<String, String> data = res as Map<String, String>;
+      List<dynamic> langsList = jsonDecode(data['langs']!);
+      Map<String, String> langsMap = {for (var v in langsList) v[0]: v[1]};
+      List<String> keys = langsMap.keys.toList();
+      List<String> values = langsMap.values.toList();
+      keys.insert(0, defaultOptionLang);
+      values.insert(0, translate('Default'));
+      String currentKey = bind.mainGetLocalOption(key: kCommConfKeyLang);
+      if (!keys.contains(currentKey)) {
+        currentKey = defaultOptionLang;
+      }
+      final isOptFixed = isOptionFixed(kCommConfKeyLang);
+      return ComboBox(
+        keys: keys,
+        values: values,
+        initialKey: currentKey,
+        onChanged: (key) async {
+          await bind.mainSetLocalOption(key: kCommConfKeyLang, value: key);
+          if (!isWeb) await bind.mainChangeLanguage(lang: key);
+          if (isWeb) reloadCurrentWindow();
+          if (!isWeb) reloadAllWindows();
+          setState(() {});
+        },
+        enabled: !isOptFixed,
+      );
+    });
+  }
+
+  Widget _audioReferenceCard(BuildContext context) {
+    builder(devices, currentDevice, setDevice) {
+      return _SettingsReferenceCard(
+        icon: Icons.mic_none_rounded,
+        title: 'Audio Input Device',
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: 220,
+            child: ComboBox(
+              keys: devices,
+              values: devices,
+              initialKey: currentDevice,
+              onChanged: (key) async {
+                setDevice(key);
+                setState(() {});
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
+    return AudioInput(builder: builder, isCm: false, isVoiceCall: false);
+  }
+
+  Widget _recordReferenceCard(BuildContext context) {
+    final showRootDir = isWindows && bind.mainIsInstalled();
+    return futureBuilder(future: () async {
+      String customDir =
+          bind.mainGetLocalOption(key: kOptionVideoSaveDirectory).trim();
+      String userDir = bind.mainVideoSaveDirectory(root: false);
+      String rootDir =
+          showRootDir ? bind.mainVideoSaveDirectory(root: true) : '';
+      bool userDirExists = await Directory(userDir).exists();
+      bool rootDirExists =
+          showRootDir ? await Directory(rootDir).exists() : false;
+      return {
+        'customDir': customDir,
+        'userDir': userDir,
+        'rootDir': rootDir,
+        'userDirExists': userDirExists,
+        'rootDirExists': rootDirExists,
+      };
+    }(), hasData: (data) {
+      final map = data as Map<String, dynamic>;
+      final userDir = map['userDir'] as String;
+      final rootDir = map['rootDir'] as String;
+      final rootDirExists = map['rootDirExists'] as bool;
+      final userDirExists = map['userDirExists'] as bool;
+      final editableDir =
+          showRootDir && bind.isIncomingOnly() ? rootDir : userDir;
+      final editableDirExists =
+          showRootDir && bind.isIncomingOnly() ? rootDirExists : userDirExists;
+      return _SettingsReferenceCard(
+        icon: Icons.videocam_outlined,
+        title: 'Recording',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _SettingsReferenceCheckGrid(
+              children: [
+                if (!bind.isOutgoingOnly())
+                  _OptionCheckBox(
+                      context,
+                      'Automatically record incoming sessions',
+                      kOptionAllowAutoRecordIncoming),
+                if (!bind.isIncomingOnly())
+                  _OptionCheckBox(
+                      context,
+                      'Automatically record outgoing sessions',
+                      kOptionAllowAutoRecordOutgoing,
+                      isServer: false),
+              ],
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: editableDirExists
+                        ? () => launchUrl(Uri.file(editableDir))
+                        : null,
+                    child: Container(
+                      height: 31,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5F8FD),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFE0E7F1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.folder_outlined,
+                              size: 16,
+                              color: _settingPalette(context).mutedText),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              editableDir,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _settingPalette(context).mutedText,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 32,
+                  child: _settingsLightButton(
+                    icon: Icons.edit_outlined,
+                    label: 'Change',
+                    onPressed: isOptionFixed(kOptionVideoSaveDirectory)
+                        ? null
+                        : () async {
+                            String? initialDirectory;
+                            final customDir = map['customDir'] as String;
+                            final pickerDir =
+                                customDir.isNotEmpty ? customDir : editableDir;
+                            if (await Directory.fromUri(
+                                    Uri.directory(pickerDir))
+                                .exists()) {
+                              initialDirectory = pickerDir;
+                            } else if (await Directory.fromUri(
+                                    Uri.directory(userDir))
+                                .exists()) {
+                              initialDirectory = userDir;
+                            }
+                            String? selectedDirectory =
+                                await FilePicker.platform.getDirectoryPath(
+                                    initialDirectory: initialDirectory);
+                            if (selectedDirectory != null) {
+                              await bind.mainSetLocalOption(
+                                  key: kOptionVideoSaveDirectory,
+                                  value: selectedDirectory);
+                              await bind.mainSetOption(
+                                  key: kOptionVideoSaveDirectory,
+                                  value: selectedDirectory);
+                              setState(() {});
+                            }
+                          },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _otherReferenceCard(BuildContext context) {
+    final showAutoUpdate = isWindows && bind.mainIsInstalled();
+    return _SettingsReferenceCard(
+      icon: Icons.more_horiz_rounded,
+      title: 'Other',
+      child: _SettingsReferenceCheckGrid(
+        children: [
+          if (!isWeb && !bind.isIncomingOnly())
+            _OptionCheckBox(context, 'Confirm before closing multiple tabs',
+                kOptionEnableConfirmClosingTabs,
+                isServer: false),
+          if (!isWeb && !bind.isIncomingOnly())
+            _OptionCheckBox(
+              context,
+              'Open connection in new tab',
+              kOptionOpenNewConnInTabs,
+              isServer: false,
+            ),
+          if (!isWeb && !bind.isCustomClient())
+            _OptionCheckBox(
+              context,
+              'Check for software update on startup',
+              kOptionEnableCheckUpdate,
+              isServer: false,
+            ),
+          if (showAutoUpdate)
+            _OptionCheckBox(
+              context,
+              'Auto update',
+              kOptionAllowAutoUpdate,
+              isServer: true,
+            ),
+          if (!bind.isIncomingOnly())
+            _OptionCheckBox(
+              context,
+              'keep-awake-during-outgoing-sessions-label',
+              kOptionKeepAwakeDuringOutgoingSessions,
+              isServer: false,
+            ),
+          if (!bind.isDisableAccount())
+            _OptionCheckBox(
+              context,
+              'note-at-conn-end-tip',
+              kOptionAllowAskForNoteAtEndOfConnection,
+              isServer: false,
+              optSetter: (key, value) async {
+                if (value && !gFFI.userModel.isLogin) {
+                  final res = await loginDialog();
+                  if (res != true) return;
+                }
+                await mainSetLocalBoolOption(key, value);
+              },
+            ),
+        ],
+      ),
+    );
   }
 
   Widget theme() {
@@ -1018,23 +1748,570 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return SingleChildScrollView(
-        controller: scrollController,
-        child: Column(
-          children: [
-            _lock(locked, 'Unlock Security Settings', () {
-              locked = false;
-              setState(() => {});
-            }),
-            preventMouseKeyBuilder(
-              block: locked,
-              child: Column(children: [
-                permissions(context),
-                more(context),
-              ]),
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _accessPasswordReferenceCard(context),
+        _verificationReferenceCard(context),
+        _encryptionReferenceCard(context),
+      ],
+    );
+    return _SettingsReferencePage(
+      marker: 'kq-v218-settings-safety-page',
+      children: [
+        if (locked) _unlockReferenceCard(context, 'Unlock Security Settings'),
+        AbsorbPointer(
+          absorbing: locked,
+          child: Opacity(opacity: locked ? 0.58 : 1, child: content),
+        ),
+      ],
+    );
+  }
+
+  Widget _unlockReferenceCard(BuildContext context, String label) {
+    return _SettingsReferenceCard(
+      icon: Icons.admin_panel_settings_outlined,
+      title: 'Security',
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              translate(label),
+              style: TextStyle(
+                color: _settingPalette(context).mutedText,
+                fontSize: 13,
+              ),
             ),
+          ),
+          _settingsLightButton(
+            icon: Icons.lock_open_rounded,
+            label: label,
+            primary: true,
+            onPressed: () async {
+              final unlockPin = bind.mainGetUnlockPin();
+              if (unlockPin.isEmpty || isUnlockPinDisabled()) {
+                bool checked = await callMainCheckSuperUserPermission();
+                if (checked) {
+                  locked = false;
+                  setState(() {});
+                }
+              } else {
+                checkUnlockPinDialog(unlockPin, () {
+                  locked = false;
+                  setState(() {});
+                });
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accessPasswordReferenceCard(BuildContext context) {
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(builder: (context, model, child) {
+        final requirePassword = model.approveMode != 'click';
+        return _SettingsReferenceCard(
+          icon: Icons.lock_outline_rounded,
+          title: '访问密码',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SettingsReferenceControlRow(
+                label: '验证码类型',
+                control: Align(
+                  alignment: Alignment.centerLeft,
+                  child: PopupMenuButton<KqPasswordKind>(
+                    tooltip: '选择验证码类型',
+                    initialValue: model.selectedPasswordKind,
+                    onSelected: model.setSelectedPasswordKind,
+                    color: Colors.white,
+                    elevation: 8,
+                    shadowColor: _kqDesignerBlue.withOpacity(0.16),
+                    offset: const Offset(0, 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: const BorderSide(color: Color(0xFFE0E7F1)),
+                    ),
+                    itemBuilder: (context) => KqPasswordKind.values
+                        .map((kind) => PopupMenuItem<KqPasswordKind>(
+                              value: kind,
+                              height: 38,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                      child: Text(
+                                          _settingsPasswordKindLabel(kind))),
+                                  if (kind == model.selectedPasswordKind)
+                                    const Icon(Icons.check_rounded,
+                                        size: 16, color: _kqDesignerBlue),
+                                ],
+                              ),
+                            ))
+                        .toList(),
+                    child: Container(
+                      height: 42,
+                      width: 220,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFD),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFD7DEE8)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _settingsPasswordKindLabel(
+                                  model.selectedPasswordKind),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _kqDesignerTextPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.expand_more_rounded,
+                              size: 18, color: _kqDesignerTextSecondary),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                height: 42,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFD),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFD7DEE8)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        model.selectedPasswordText,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          color: _kqDesignerTextPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                    _settingsIconAction(
+                      tooltip: translate('Refresh Password'),
+                      icon: Icons.refresh_rounded,
+                      onTap: model.selectedPasswordCanRefresh
+                          ? () => model.refreshSelectedPassword()
+                          : null,
+                    ),
+                    _settingsIconAction(
+                      tooltip: translate('Copy'),
+                      icon: Icons.copy_rounded,
+                      onTap: model.selectedPasswordCanCopy
+                          ? () => _copySelectedPassword(model)
+                          : null,
+                    ),
+                    _settingsIconAction(
+                      tooltip: '复制并分享',
+                      icon: Icons.ios_share_rounded,
+                      onTap: model.selectedPasswordCanShare
+                          ? () => _copyRemoteAssistShare(model)
+                          : null,
+                    ),
+                    _settingsIconAction(
+                      tooltip: translate('Change Password'),
+                      icon: Icons.edit_rounded,
+                      onTap: bind.isDisableSettings()
+                          ? null
+                          : () => _showKqPasswordDialog(model),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 7),
+              _SettingsReferenceCheckGrid(
+                children: [
+                  _settingsInlineCheckbox(
+                    context,
+                    label: '连接时需要输入密码',
+                    value: requirePassword,
+                    enabled: !locked && !isOptionFixed(kOptionApproveMode),
+                    onChanged: (value) async {
+                      await bind.mainSetOption(
+                        key: kOptionApproveMode,
+                        value: value ? defaultOptionApproveMode : 'click',
+                      );
+                      await model.updatePasswordModel();
+                      setState(() {});
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _verificationReferenceCard(BuildContext context) {
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(builder: (context, model, child) {
+        return _SettingsReferenceCard(
+          icon: Icons.shield_outlined,
+          title: '验证码策略',
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: 220,
+              child: ComboBox(
+                keys: const [
+                  kUseTemporaryPassword,
+                  kUseBothPasswords,
+                  kUsePermanentPassword,
+                ],
+                values: const [
+                  '随机生成（每次刷新）',
+                  '一次性与长期都可用',
+                  '长期验证码',
+                ],
+                initialKey: model.verificationMethod,
+                enabled: !locked && !isOptionFixed(kOptionVerificationMethod),
+                onChanged: (method) async {
+                  await model.setVerificationMethod(method);
+                  await model.updatePasswordModel();
+                  setState(() {});
+                },
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _encryptionReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.enhanced_encryption_outlined,
+      title: '加密与锁定',
+      child: _SettingsReferenceCheckGrid(
+        children: [
+          const _SettingsStaticCheck(label: '端到端加密', checked: true),
+          if (isWindows)
+            _OptionCheckBox(
+              context,
+              'Enable blocking user input',
+              kOptionEnableBlockInput,
+              enabled: !locked,
+            ),
+          _OptionCheckBox(
+            context,
+            'Lock after session end',
+            kOptionLockAfterSessionEnd,
+            isServer: false,
+            enabled: !locked,
+          ),
+          if (bind.mainSupportedPrivacyModeImpls() != '[]')
+            _OptionCheckBox(
+              context,
+              'Privacy mode',
+              kOptionPrivacyMode,
+              isServer: false,
+              enabled: !locked,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _settingsIconAction({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        splashRadius: 16,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+        icon: Icon(icon, size: 17),
+        color: onTap == null ? const Color(0xFFB6C0CF) : _kqDesignerBlue,
+        onPressed: onTap,
+      ),
+    );
+  }
+
+  Widget _settingsInlineCheckbox(
+    BuildContext context, {
+    required String label,
+    required bool value,
+    required bool enabled,
+    required ValueChanged<bool> onChanged,
+  }) {
+    final palette = _settingPalette(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: _kCheckBoxLeftMargin),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: enabled ? palette.navHoverBackground : null,
+        onTap: enabled ? () => onChanged(!value) : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: Row(
+            children: [
+              Checkbox(
+                value: value,
+                onChanged: enabled ? (v) => onChanged(v ?? false) : null,
+              ).marginOnly(right: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: enabled ? palette.primaryText : palette.disabledText,
+                    fontSize: _kContentFontSize,
+                    fontWeight: value ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _copySelectedPassword(ServerModel model) {
+    Clipboard.setData(ClipboardData(text: model.selectedPasswordText.trim()));
+    showToast(translate("Copied"));
+  }
+
+  Future<void> _copyRemoteAssistShare(ServerModel model) async {
+    final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
+    final password = model.selectedPasswordText.trim();
+    if (id.isEmpty || id == '--' || !model.selectedPasswordCanShare) {
+      showToast('设备号或验证码还未就绪');
+      return;
+    }
+    final link = _buildKqInviteLink(id: id, password: password);
+    final text = [
+      '使用 鲲穹远程桌面 即可对我发起远程协助',
+      '设备ID：${formatID(id)}',
+      '设备验证码：$password',
+      '点击链接可直接发起远程协助：$link',
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    showToast('已复制远程协助分享信息');
+  }
+
+  String _buildKqInviteLink({required String id, required String password}) {
+    final base = _kqInviteBaseUrl();
+    final payload = base64UrlEncode(utf8.encode(jsonEncode({
+      'id': id,
+      'password': password,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    })));
+    return '$base?i=$payload';
+  }
+
+  String _kqInviteBaseUrl() {
+    final configured =
+        bind.mainGetBuildinOption(key: 'kq-share-invite-url').trim();
+    if (configured.isNotEmpty) {
+      return configured.replaceFirst(RegExp(r'/+$'), '');
+    }
+    final apiBase = bind
+        .mainGetBuildinOption(key: 'kq-project-api-server')
+        .trim()
+        .replaceFirst(RegExp(r'/+$'), '');
+    if (apiBase.endsWith('/api')) {
+      return '${apiBase.substring(0, apiBase.length - 4)}/invite';
+    }
+    return 'https://remotelink.kunqiongai.com/kq-api/invite';
+  }
+
+  String _settingsPasswordKindLabel(KqPasswordKind kind) {
+    switch (kind) {
+      case KqPasswordKind.oneTime:
+        return '一次性验证码';
+      case KqPasswordKind.daily:
+        return '今日验证码';
+      case KqPasswordKind.permanent:
+        return '长期验证码';
+    }
+  }
+
+  void _showKqPasswordDialog(ServerModel model) {
+    final editingKind = model.selectedPasswordKind;
+    final controller = TextEditingController(
+      text: model.selectedPasswordCanCopy ? model.selectedPasswordText : '',
+    );
+    final confirmController = TextEditingController(text: '');
+    final maxLength = bind.mainMaxEncryptLen();
+    var errMsg = '';
+    var confirmErrMsg = '';
+    var submitting = false;
+
+    gFFI.dialogManager.show((setState, close, context) {
+      final isPermanent = editingKind == KqPasswordKind.permanent;
+      final title = _settingsPasswordKindLabel(editingKind);
+      final canRemovePermanent =
+          isPermanent && model.localPermanentPasswordSet && !submitting;
+
+      submit() async {
+        if (submitting) {
+          return;
+        }
+        setState(() {
+          errMsg = '';
+          confirmErrMsg = '';
+          submitting = true;
+        });
+        final value = controller.text.trim();
+        if (value.isEmpty) {
+          setState(() {
+            errMsg = '验证码不能为空';
+            submitting = false;
+          });
+          return;
+        }
+        if (isPermanent && confirmController.text.trim() != value) {
+          setState(() {
+            confirmErrMsg = translate("The confirmation is not identical.");
+            submitting = false;
+          });
+          return;
+        }
+        var ok = true;
+        if (editingKind == KqPasswordKind.oneTime) {
+          await model.setOneTimePassword(value);
+        } else if (editingKind == KqPasswordKind.daily) {
+          await model.setDailyPassword(value);
+        } else {
+          ok = await model.setPermanentPasswordPreview(value);
+        }
+        if (!ok) {
+          setState(() {
+            errMsg = translate("Failed");
+            submitting = false;
+          });
+          return;
+        }
+        showToast('已更新$title');
+        close();
+      }
+
+      removePermanent() async {
+        if (submitting) {
+          return;
+        }
+        setState(() {
+          errMsg = '';
+          confirmErrMsg = '';
+          submitting = true;
+        });
+        final ok = await model.removePermanentPassword();
+        if (!ok) {
+          setState(() {
+            errMsg = translate("Failed");
+            submitting = false;
+          });
+          return;
+        }
+        showToast('已移除$title');
+        close();
+      }
+
+      return CustomAlertDialog(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.key_rounded, color: MyTheme.accent),
+            Text('修改$title').paddingOnly(left: 10),
           ],
-        )).marginOnly(bottom: _kListViewBottomMargin);
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 430),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                obscureText: false,
+                decoration: InputDecoration(
+                  labelText: title,
+                  errorText: errMsg.isEmpty ? null : errMsg,
+                ),
+                enabled: !submitting,
+                maxLength: maxLength,
+                onChanged: (_) {
+                  if (errMsg.isNotEmpty) {
+                    setState(() => errMsg = '');
+                  }
+                },
+              ).workaroundFreezeLinuxMint(),
+              if (isPermanent) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: confirmController,
+                  obscureText: false,
+                  decoration: InputDecoration(
+                    labelText: translate('Confirmation'),
+                    errorText: confirmErrMsg.isEmpty ? null : confirmErrMsg,
+                  ),
+                  enabled: !submitting,
+                  maxLength: maxLength,
+                  onChanged: (_) {
+                    if (confirmErrMsg.isNotEmpty) {
+                      setState(() => confirmErrMsg = '');
+                    }
+                  },
+                ).workaroundFreezeLinuxMint(),
+                const SizedBox(height: 4),
+                Text(
+                  '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                  style: TextStyle(
+                    color: KqTheme.of(context).muted,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+              if (submitting)
+                const LinearProgressIndicator().marginOnly(top: 12),
+            ],
+          ),
+        ),
+        actions: [
+          dialogButton("Cancel", onPressed: close, isOutline: true),
+          if (canRemovePermanent)
+            dialogButton(
+              "Remove",
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: removePermanent,
+              isOutline: true,
+            ),
+          dialogButton(
+            "OK",
+            icon: const Icon(Icons.done_rounded),
+            onPressed: submitting ? null : submit,
+          ),
+        ],
+        onSubmit: submitting ? null : submit,
+        onCancel: close,
+      );
+    });
   }
 
   Widget tfa() {
@@ -1599,18 +2876,167 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return ListView(controller: scrollController, children: [
-      _lock(locked, 'Unlock Network Settings', () {
-        locked = false;
-        setState(() => {});
-      }),
-      preventMouseKeyBuilder(
-        block: locked,
-        child: Column(children: [
-          network(context),
-        ]),
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _proxyReferenceCard(context),
+        _connectionQualityReferenceCard(context),
+        _advancedNetworkReferenceCard(context),
+      ],
+    );
+    return _SettingsReferencePage(
+      marker: 'kq-v218-settings-network-page',
+      children: [
+        if (locked) _unlockNetworkReferenceCard(context),
+        AbsorbPointer(
+          absorbing: locked,
+          child: Opacity(opacity: locked ? 0.58 : 1, child: content),
+        ),
+      ],
+    );
+  }
+
+  Widget _unlockNetworkReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.admin_panel_settings_outlined,
+      title: 'Network',
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              translate('Unlock Network Settings'),
+              style: TextStyle(
+                color: _settingPalette(context).mutedText,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          _settingsLightButton(
+            icon: Icons.lock_open_rounded,
+            label: 'Unlock Network Settings',
+            primary: true,
+            onPressed: () async {
+              final unlockPin = bind.mainGetUnlockPin();
+              if (unlockPin.isEmpty || isUnlockPinDisabled()) {
+                bool checked = await callMainCheckSuperUserPermission();
+                if (checked) {
+                  locked = false;
+                  setState(() {});
+                }
+              } else {
+                checkUnlockPinDialog(unlockPin, () {
+                  locked = false;
+                  setState(() {});
+                });
+              }
+            },
+          ),
+        ],
       ),
-    ]).marginOnly(bottom: _kListViewBottomMargin);
+    );
+  }
+
+  Widget _proxyReferenceCard(BuildContext context) {
+    final hideProxy =
+        isWeb || bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
+    if (hideProxy) {
+      return const Offstage();
+    }
+    return _SettingsReferenceCard(
+      icon: Icons.credit_card_outlined,
+      title: '代理设置',
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: _settingsLightButton(
+          icon: Icons.tune_rounded,
+          label: 'Socks5/Http(s) Proxy',
+          onPressed: locked ? null : changeSocks5Proxy,
+        ),
+      ),
+    );
+  }
+
+  Widget _connectionQualityReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.speed_rounded,
+      title: '连接质量',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SettingsReferenceControlRow(
+            label: 'Quality',
+            control: SizedBox(
+              width: 220,
+              child: ComboBox(
+                keys: const ['auto'],
+                values: const ['自动'],
+                initialKey: 'auto',
+                enabled: false,
+                onChanged: (_) {},
+              ),
+            ),
+          ),
+          _SettingsReferenceCheckGrid(
+            children: [
+              _OptionCheckBox(
+                context,
+                'Adaptive bitrate',
+                kOptionEnableAbr,
+                enabled: !locked,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _advancedNetworkReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.wifi_tethering_rounded,
+      title: '高级网络',
+      child: _SettingsReferenceCheckGrid(
+        children: [
+          if (!bind.isIncomingOnly())
+            _OptionCheckBox(
+              context,
+              'Enable UDP hole punching',
+              kOptionEnableUdpPunch,
+              isServer: false,
+              enabled: !locked,
+            ),
+          if (!bind.isIncomingOnly())
+            _OptionCheckBox(
+              context,
+              'Enable IPv6 P2P connection',
+              kOptionEnableIpv6Punch,
+              isServer: false,
+              enabled: !locked,
+            ),
+          if (!bind.isOutgoingOnly())
+            _OptionCheckBox(
+              context,
+              'Disable UDP',
+              kOptionDisableUdp,
+              enabled: !locked,
+            ),
+          if (isWindows && !bind.isOutgoingOnly())
+            _OptionCheckBox(
+              context,
+              'Capture screen using DirectX',
+              kOptionDirectxCapture,
+              enabled: !locked,
+            ),
+          if (!isWeb)
+            _OptionCheckBox(
+              context,
+              'Use WebSocket',
+              kOptionAllowWebSocket,
+              enabled: !locked,
+            ),
+        ],
+      ),
+    );
   }
 
   Widget network(BuildContext context) {
@@ -1789,15 +3215,140 @@ class _Display extends StatefulWidget {
 }
 
 class _DisplayState extends State<_Display> {
+  bool _syncingMemberEntitlement = false;
+  DateTime? _lastMemberEntitlementSyncAt;
+
+  Future<void> _syncMemberEntitlementFromDisk({bool force = false}) async {
+    if (_syncingMemberEntitlement) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastMemberEntitlementSyncAt != null &&
+        now.difference(_lastMemberEntitlementSyncAt!) <
+            const Duration(seconds: 2)) {
+      return;
+    }
+    _lastMemberEntitlementSyncAt = now;
+    _syncingMemberEntitlement = true;
+    try {
+      final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } finally {
+      _syncingMemberEntitlement = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scrollController = ScrollController();
+    unawaited(_syncMemberEntitlementFromDisk());
     final privacyModeChildren =
         !isWeb ? privacyModeImpl(context) : const <Widget>[];
-    return ListView(controller: scrollController, children: [
-      _FoldoutCard(
-        title: 'Default View Style',
-        initiallyExpanded: true,
+    return _SettingsReferencePage(
+      marker: 'kq-v218-settings-display-page',
+      children: [
+        _qualityReferenceCard(context),
+        _viewAndScrollReferenceCard(context),
+        _imageQualityCodecReferenceCard(context),
+        _renderReferenceCard(context),
+        _displayOptionsReferenceCard(context),
+        _otherDefaultsReferenceCard(context, privacyModeChildren),
+      ],
+    );
+  }
+
+  Future<void> _saveRemotePerformance({
+    String? resolutionTier,
+    int? fps,
+  }) async {
+    final user = gFFI.userModel;
+    await _syncMemberEntitlementFromDisk(force: true);
+    await user.setRemotePerformanceProfile(
+      resolutionTier: resolutionTier ?? user.remoteResolutionSelection,
+      fps: fps ?? user.remoteFpsSelection,
+    );
+    setState(() {});
+    showToast(
+        '${translate('Remote experience updated')}: ${user.remoteQualityLabel}');
+  }
+
+  Widget _qualityReferenceCard(BuildContext context) {
+    final user = gFFI.userModel;
+    final isMember = user.isMember.value;
+    final resolution = user.remoteResolutionSelection;
+    final fps = user.remoteFpsSelection;
+    return _SettingsReferenceCard(
+      icon: Icons.desktop_windows_outlined,
+      title: '画质设置',
+      child: LayoutBuilder(builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 560;
+        final resolutionControl = _SettingsReferenceControlRow(
+          label: '默认分辨率',
+          control: SizedBox(
+            width: 220,
+            child: ComboBox(
+              keys: const [
+                UserModel.remoteResolution720p,
+                UserModel.remoteResolution1080p,
+              ],
+              values: const ['720p', '1080p'],
+              initialKey: resolution,
+              onChanged: (value) {
+                if (value == UserModel.remoteResolution1080p && !isMember) {
+                  showToast(translate('Members can use 1080p / 60 FPS'));
+                  setState(() {});
+                  return;
+                }
+                _saveRemotePerformance(resolutionTier: value);
+              },
+            ),
+          ),
+          helper: isMember ? '会员已解锁' : '会员可用 1080p',
+        );
+        final fpsControl = _SettingsReferenceControlRow(
+          label: '默认帧率',
+          control: SizedBox(
+            width: 220,
+            child: ComboBox(
+              keys: const ['30', '60'],
+              values: const ['30 FPS', '60 FPS'],
+              initialKey: fps >= 60 ? '60' : '30',
+              onChanged: (value) {
+                final nextFps = int.tryParse(value) ?? 30;
+                if (nextFps >= 60 && !isMember) {
+                  showToast(translate('Members can use 1080p / 60 FPS'));
+                  setState(() {});
+                  return;
+                }
+                _saveRemotePerformance(fps: nextFps);
+              },
+            ),
+          ),
+          helper: isMember ? '会员已解锁' : '会员可用 60 FPS',
+        );
+        if (wide) {
+          return Row(
+            children: [
+              Expanded(child: resolutionControl),
+              const SizedBox(width: 14),
+              Expanded(child: fpsControl),
+            ],
+          );
+        }
+        return Column(children: [resolutionControl, fpsControl]);
+      }),
+    );
+  }
+
+  Widget _viewAndScrollReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.open_in_full_rounded,
+      title: 'Default View Style',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           ...viewStyle(context),
           _SettingSectionDivider(context),
@@ -1805,8 +3356,16 @@ class _DisplayState extends State<_Display> {
           ...scrollStyle(context),
         ],
       ),
-      _FoldoutCard(
-        title: 'Default Image Quality',
+    );
+  }
+
+  Widget _imageQualityCodecReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.high_quality_rounded,
+      title: 'Default Image Quality',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           ...imageQuality(context),
           _SettingSectionDivider(context),
@@ -1819,8 +3378,116 @@ class _DisplayState extends State<_Display> {
           ],
         ],
       ),
-      _FoldoutCard(
-        title: 'Other Default Options',
+    );
+  }
+
+  Widget _renderReferenceCard(BuildContext context) {
+    final children = <Widget>[
+      if (bind.mainHasHwcodec() || bind.mainHasVram())
+        _OptionCheckBox(
+          context,
+          'Enable hardware codec',
+          kOptionEnableHwcodec,
+          update: (bool v) {
+            if (v) {
+              bind.mainCheckHwcodec();
+            }
+          },
+        ),
+      if (!isWeb && !bind.isIncomingOnly())
+        Tooltip(
+          message: translate('texture_render_tip'),
+          child: _OptionCheckBox(
+            context,
+            "Use texture rendering",
+            kOptionTextureRender,
+            optGetter: bind.mainGetUseTextureRender,
+            optSetter: (k, v) async =>
+                await bind.mainSetLocalOption(key: k, value: v ? 'Y' : 'N'),
+          ),
+        ),
+      if (isWindows && !bind.isIncomingOnly())
+        Tooltip(
+          message: translate('d3d_render_tip'),
+          child: _OptionCheckBox(
+            context,
+            "Use D3D rendering",
+            kOptionD3DRender,
+            isServer: false,
+          ),
+        ),
+      if (!bind.isOutgoingOnly()) _removeWallpaperReferenceCheck(context),
+    ];
+    return _SettingsReferenceCard(
+      icon: Icons.bolt_rounded,
+      title: '渲染与性能',
+      child: _SettingsReferenceCheckGrid(children: children),
+    );
+  }
+
+  Widget _removeWallpaperReferenceCheck(BuildContext context) {
+    return futureBuilder(future: () async {
+      return await bind.mainSupportRemoveWallpaper();
+    }(), hasData: (data) {
+      if (data is bool && data) {
+        return _OptionCheckBox(
+          context,
+          'Remove wallpaper during incoming sessions',
+          kOptionAllowRemoveWallpaper,
+          update: (bool v) => setState(() {}),
+        );
+      }
+      return const Offstage();
+    });
+  }
+
+  Widget _displayOptionsReferenceCard(BuildContext context) {
+    return _SettingsReferenceCard(
+      icon: Icons.visibility_outlined,
+      title: '显示选项',
+      child: _SettingsReferenceCheckGrid(
+        children: [
+          if (isDesktop || isWebDesktop)
+            _OptionCheckBox(
+              context,
+              'show_monitors_tip',
+              kKeyShowMonitorsToolbar,
+              isServer: false,
+            ),
+          _OptionCheckBox(
+            context,
+            'Show quality monitor',
+            kOptionShowQualityMonitor,
+            isServer: false,
+          ),
+          if (isDesktop || isWebDesktop)
+            _OptionCheckBox(
+              context,
+              'Collapse toolbar',
+              kOptionCollapseToolbar,
+              isServer: false,
+            ),
+          _OptionCheckBox(
+            context,
+            'Show remote cursor',
+            kOptionShowRemoteCursor,
+            isServer: false,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _otherDefaultsReferenceCard(
+    BuildContext context,
+    List<Widget> privacyModeChildren,
+  ) {
+    return _SettingsReferenceCard(
+      icon: Icons.tune_rounded,
+      title: 'Other Default Options',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           if (privacyModeChildren.isNotEmpty) ...[
             _SettingSectionTitle(context, 'Privacy mode'),
@@ -1830,7 +3497,7 @@ class _DisplayState extends State<_Display> {
           ...other(context),
         ],
       ),
-    ]).marginOnly(bottom: _kListViewBottomMargin);
+    );
   }
 
   List<Widget> viewStyle(BuildContext context) {
@@ -2120,270 +3787,841 @@ class _AccountState extends State<_Account> {
     return ListView(
       controller: scrollController,
       children: [
-        _Card(title: 'Account', children: [
-          Obx(() {
-            if (gFFI.userModel.userName.value.isEmpty) {
-              return _signedOutPanel(context);
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _profilePanel(context),
-                _membershipPanel(context).marginOnly(top: 12),
-                _remotePerformancePanel(context).marginOnly(top: 12),
-                _quotaPanel(context).marginOnly(top: 12),
-                _accountActions(context).marginOnly(top: 12),
-              ],
-            );
-          }).marginOnly(left: _kContentHMargin, right: _kContentHMargin),
-        ]),
+        Obx(() {
+          if (gFFI.userModel.userName.value.isEmpty) {
+            return _accountShell(context, _signedOutReferencePanel(context));
+          }
+          return _accountShell(
+            context,
+            _signedInReferencePanel(context),
+          );
+        }),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
   }
 
-  Widget _signedOutPanel(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+  Widget _accountShell(BuildContext context, Widget child) {
+    final palette = _settingPalette(context);
+    final useDesignerAccountShell = DateTime.now().microsecondsSinceEpoch >= 0;
+    if (useDesignerAccountShell) {
+      return Container(
+        margin: EdgeInsets.zero,
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+        color: palette.contentBackground,
+        child: child,
+      );
+    }
     return Container(
-      padding: const EdgeInsets.all(18),
+      margin: const EdgeInsets.fromLTRB(24, 15, 24, 0),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        color: palette.cardBackground,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: palette.cardBorder),
       ),
-      child: Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
         children: [
           Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: colors.primary.withOpacity(0.12),
-              shape: BoxShape.circle,
+            constraints: const BoxConstraints(minHeight: 42),
+            padding: const EdgeInsets.symmetric(
+              horizontal: _kContentHMargin,
+              vertical: 10,
             ),
-            child: Icon(Icons.person_outline, color: colors.primary, size: 30),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            decoration: BoxDecoration(
+              color: palette.cardHeaderBackground,
+              border: Border(bottom: BorderSide(color: palette.cardBorder)),
+            ),
+            child: Row(
               children: [
-                Text(
-                  translate('Log in to your Kunqiong account'),
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  translate(
-                      'Log in to sync your profile. Membership, device quotas, and value-added benefits will appear here later.'),
-                  style: TextStyle(
-                    color: Theme.of(context).textTheme.bodySmall?.color,
+                Icon(Icons.person_rounded, color: palette.navSelectedText),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    translate('Account'),
+                    style: TextStyle(
+                      color: palette.primaryText,
+                      fontSize: _kContentFontSize,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
+                _membershipBadge(context),
               ],
             ),
           ),
-          const SizedBox(width: 16),
-          ElevatedButton(
-            onPressed: loginDialog,
-            child: Text(translate('Log in now')),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 14, 15, 16),
+            child: child,
           ),
         ],
       ),
     );
   }
 
-  Widget _profilePanel(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final userInfo = UserModel.getLocalUserInfo() ?? {};
-    final email = (userInfo['email'] ?? '').toString();
+  Widget _signedInReferencePanel(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        // kq-v216-account-reference-page
+        constraints: const BoxConstraints(maxWidth: 812),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _profileReferenceBanner(context),
+            const SizedBox(height: 14),
+            _membershipReferenceCard(context),
+            const SizedBox(height: 14),
+            _remotePerformancePanel(context),
+            const SizedBox(height: 16),
+            _centeredLogoutButton(context),
+            const SizedBox(height: 16),
+            _qualityReferenceNote(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _referenceCard({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(16),
+  }) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: padding,
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _kqDesignerCardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.055),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _profileReferenceBanner(BuildContext context) {
+    final user = gFFI.userModel;
+    return _referenceCard(
+      // kq-v216-account-profile-banner
+      padding: const EdgeInsets.fromLTRB(18, 14, 20, 14),
+      child: Row(
+        children: [
+          _buildReferenceAvatar(context, 48),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  user.displayNameOrUserName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _kqDesignerTextPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '@${user.userName.value}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF8B9AAF),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _referenceMembershipBadge(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _referenceMembershipBadge(BuildContext context) {
+    final isMember = gFFI.userModel.isMember.value;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF3FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD7E8FF)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildUserAvatar(context),
+          Icon(
+            isMember ? Icons.workspace_premium_outlined : Icons.layers_rounded,
+            size: 14,
+            color: _kqDesignerBlue,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            isMember ? '会员版' : '基础版',
+            style: const TextStyle(
+              color: _kqDesignerBlue,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _membershipReferenceCard(BuildContext context) {
+    final user = gFFI.userModel;
+    final isMember = user.isMember.value;
+    final expireAt = user.memberExpireAt.value.trim();
+    final expireLabel = _memberExpireAtLabel(expireAt);
+    final title = isMember ? '当前为会员版' : '当前为基础版';
+    final subtitle = isMember ? '$expireLabel，可使用更高分辨率与帧率' : '升级会员解锁更高分辨率与帧率';
+    return _referenceCard(
+      // kq-v216-account-member-card
+      // kq-v219-account-member-expire-at
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _referenceSectionTitle(
+            icon: Icons.star_border_rounded,
+            title: '会员权益',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F8FD),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: const Color(0xFFE8EDF5)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5F1FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    color: Color(0xFF48A5FF),
+                    size: 17,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _kqDesignerTextPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _kqDesignerTextSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: _showMemberRechargeDialog,
+                  icon: const Icon(Icons.star_border_rounded, size: 17),
+                  label: Text(isMember ? '续费会员' : '开通会员'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _kqDesignerBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 4,
+                    shadowColor: _kqDesignerBlue.withOpacity(0.28),
+                    minimumSize: const Size(128, 42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: user.isRefreshingMembership.value
+                      ? null
+                      : () => gFFI.userModel.refreshMembership(showError: true),
+                  icon: user.isRefreshingMembership.value
+                      ? const SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('刷新权益'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _kqDesignerTextPrimary,
+                    minimumSize: const Size(128, 42),
+                    side: const BorderSide(color: Color(0xFFDDE5F0)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _memberExpireAtLabel(String expireAt) {
+    if (expireAt.isEmpty) {
+      return '到期时间：暂未同步';
+    }
+    if (expireAt.toLowerCase() == 'unlimited') {
+      return '到期时间：长期有效';
+    }
+    final normalized = expireAt
+        .replaceFirst('T', ' ')
+        .replaceFirst(RegExp(r'\.\d+Z?$'), '')
+        .replaceFirst(RegExp(r'Z$'), '')
+        .trim();
+    return '到期时间：$normalized';
+  }
+
+  Widget _referenceSectionTitle({
+    required IconData icon,
+    required String title,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: _kqDesignerTextPrimary),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            color: _kqDesignerTextPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _centeredLogoutButton(BuildContext context) {
+    return Center(
+      // kq-v216-account-logout-centered
+      child: OutlinedButton.icon(
+        onPressed: logOutConfirmDialog,
+        icon: const Icon(Icons.logout_rounded, size: 16),
+        label: const Text('退出登录'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFFFF4D4F),
+          minimumSize: const Size(130, 36),
+          side: const BorderSide(color: Color(0xFFE3E8F0)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _qualityReferenceNote(BuildContext context) {
+    return Container(
+      // kq-v216-account-quality-note
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3F0FF),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: const Color(0xFFBFD9FF)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: Color(0xFF48A5FF), size: 19),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '画质与帧率说明：基础版用户可使用 720p / 30 FPS。升级会员后可解锁 1080p 高清画质及 60 FPS 高帧率，获得更加流畅、清晰的远程桌面体验。',
+              style: TextStyle(
+                color: Color(0xFF74849A),
+                fontSize: 14,
+                height: 1.6,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReferenceAvatar(BuildContext context, double size) {
+    final avatar =
+        bind.mainResolveAvatarUrl(avatar: gFFI.userModel.avatar.value);
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF60A5FA), Color(0xFF2563EB)],
+        ),
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: _kqDesignerBlue.withOpacity(0.22),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Icon(
+        Icons.person_outline_rounded,
+        size: size * 0.52,
+        color: Colors.white,
+      ),
+    );
+    return buildAvatarWidget(
+          avatar: avatar,
+          size: size,
+          fallback: fallback,
+        ) ??
+        fallback;
+  }
+
+  Widget _signedOutReferencePanel(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        // kq-v217-account-signed-out-reference-panel
+        constraints: const BoxConstraints(maxWidth: 812, minHeight: 520),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _referenceCard(
+              padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+              child: Row(
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [_kqDesignerBlue, Color(0xFF60A5FA)],
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.person_outline_rounded,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '登录鲲穹账号',
+                          style: TextStyle(
+                            color: _kqDesignerTextPrimary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 7),
+                        Text(
+                          '登录后可查看会员权益、同步账号设备，并解锁对应的远控画质与帧率。',
+                          style: TextStyle(
+                            color: _kqDesignerTextSecondary,
+                            fontSize: 13,
+                            height: 1.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  SizedBox(
+                    height: 42,
+                    child: FilledButton.icon(
+                      // kq-v217-account-signed-out-login-action
+                      onPressed: loginDialog,
+                      icon: const Icon(Icons.login_rounded, size: 17),
+                      label: const Text('立即登录'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _kqDesignerBlue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 22),
+                        textStyle: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            _referenceCard(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _guestFeatureItem(
+                      icon: Icons.verified_user_outlined,
+                      title: '安全远控',
+                      subtitle: '账号体系保护远程协助流程',
+                      color: _kqDesignerBlue,
+                      background: const Color(0xFFDBEAFE),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _guestFeatureItem(
+                      icon: Icons.devices_rounded,
+                      title: '账号设备',
+                      subtitle: '查看登录过本账号的设备',
+                      color: const Color(0xFF059669),
+                      background: const Color(0xFFD1FAE5),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _guestFeatureItem(
+                      icon: Icons.bolt_rounded,
+                      title: '会员权益',
+                      subtitle: '会员可解锁 1080p / 60 FPS',
+                      color: const Color(0xFFD97706),
+                      background: const Color(0xFFFEF3C7),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _signedOutPanel(BuildContext context) {
+    return Container(
+      // kq-designer-account-guest-layout
+      constraints: const BoxConstraints(minHeight: 520),
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 11,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 38),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '欢迎使用\n鲲穹远程桌面',
+                    style: TextStyle(
+                      color: _kqDesignerTextPrimary,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    '登录鲲穹账号，解锁完整的远程协作体验。\n跨设备管理、数据同步、会员专属权益，一切尽在掌握。',
+                    style: TextStyle(
+                      color: _kqDesignerTextSecondary,
+                      fontSize: 14,
+                      height: 1.75,
+                    ),
+                  ),
+                  const SizedBox(height: 34),
+                  _guestFeatureItem(
+                    icon: Icons.verified_user_outlined,
+                    title: '安全连接',
+                    subtitle: '端到端加密，数据安全有保障',
+                    color: _kqDesignerBlue,
+                    background: const Color(0xFFDBEAFE),
+                  ),
+                  const SizedBox(height: 8),
+                  _guestFeatureItem(
+                    icon: Icons.devices_rounded,
+                    title: '多平台支持',
+                    subtitle: '支持 Windows、Android 等设备协作',
+                    color: const Color(0xFF059669),
+                    background: const Color(0xFFD1FAE5),
+                  ),
+                  const SizedBox(height: 8),
+                  _guestFeatureItem(
+                    icon: Icons.bolt_rounded,
+                    title: '高清流畅',
+                    subtitle: '会员可解锁 1080p / 60 FPS 远控体验',
+                    color: const Color(0xFFD97706),
+                    background: const Color(0xFFFEF3C7),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 9,
+            child: Center(
+              child: Container(
+                width: 340,
+                padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: _kqDesignerCardBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _kqDesignerBlue.withOpacity(0.08),
+                      blurRadius: 40,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFEFF6FF), Color(0xFFDBEAFE)],
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.person_outline_rounded,
+                        color: _kqDesignerBlue,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      '登录鲲穹账号',
+                      style: TextStyle(
+                        color: _kqDesignerTextPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '同步数据、管理设备、享受会员权益',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _kqDesignerTextSecondary,
+                        fontSize: 13,
+                        height: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: FilledButton.icon(
+                        onPressed: loginDialog,
+                        icon: const Icon(Icons.login_rounded, size: 17),
+                        label: const Text('立即登录'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _guestFeatureItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required Color background,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFF0F2F6)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        gFFI.userModel.displayNameOrUserName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    if (gFFI.userModel.isAdmin.value)
-                      _tag(context, translate('Admin'),
-                              Icons.verified_user_outlined)
-                          .marginOnly(left: 8),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                SelectionArea(
-                  child: Text(
-                    '@${gFFI.userModel.userName.value}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Theme.of(context).textTheme.bodySmall?.color,
-                    ),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _kqDesignerTextPrimary,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (email.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  SelectionArea(
-                    child: Text(
-                      email,
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: _kqDesignerTextSecondary,
+                    fontSize: 12.5,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _accountOverviewPanel(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final user = gFFI.userModel;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colors.primary.withOpacity(0.14),
+            colors.primaryContainer.withOpacity(0.16),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.primary.withOpacity(0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colors.primary.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.insights_rounded, color: colors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      translate('账户概览'),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      user.remoteEntitlementHint,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: Theme.of(context).textTheme.bodySmall?.color,
                       ),
                     ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          _membershipBadge(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _membershipPanel(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final user = gFFI.userModel;
-    final isMember = user.isMember.value;
-    final expireAt = user.memberExpireAt.value.trim();
-    final lastError = user.memberLastError.value.trim();
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isMember
-              ? [
-                  colors.primary.withOpacity(0.18),
-                  colors.tertiary.withOpacity(0.10),
-                ]
-              : [
-                  colors.surfaceContainerHighest,
-                  colors.primary.withOpacity(0.06),
-                ],
-        ),
-        border: Border.all(
-          color: isMember
-              ? colors.primary.withOpacity(0.32)
-              : colors.primary.withOpacity(0.16),
-        ),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: colors.primary.withOpacity(isMember ? 0.20 : 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.workspace_premium_outlined,
-                color: colors.primary, size: 28),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        translate(isMember
-                            ? 'Membership benefits active'
-                            : 'Current plan: Basic'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    if (user.isRefreshingMembership.value)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ).marginOnly(left: 8),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  user.remoteEntitlementHint,
-                  style: TextStyle(
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
-                ),
-                if (isMember && expireAt.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    '${translate('Membership valid until')} $expireAt',
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ] else if (!isMember && lastError.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    '${translate('Membership status not confirmed')}: $lastError',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.error,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              FilledButton.icon(
-                onPressed: _showMemberRechargeDialog,
-                icon: const Icon(Icons.workspace_premium_outlined, size: 16),
-                label:
-                    Text(translate(isMember ? 'Renew membership' : 'Upgrade')),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: user.isRefreshingMembership.value
-                    ? null
-                    : () => gFFI.userModel.refreshMembership(showError: true),
-                icon: user.isRefreshingMembership.value
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh, size: 16),
-                label: Text(translate('Refresh benefits')),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _accountMiniMetric(
+                context,
+                label: translate('Current tier'),
+                value: user.membershipName,
+                icon: Icons.workspace_premium_outlined,
+              ),
+              _accountMiniMetric(
+                context,
+                label: translate('Remote quality'),
+                value: user.remoteQualityLabel,
+                icon: Icons.speed_outlined,
+              ),
+              _accountMiniMetric(
+                context,
+                label: translate('Max frame rate'),
+                value: '${user.remoteMaxFps} FPS',
+                icon: Icons.videocam_outlined,
               ),
             ],
           ),
@@ -2392,46 +4630,251 @@ class _AccountState extends State<_Account> {
     );
   }
 
-  Widget _quotaPanel(BuildContext context) {
+  // ignore: unused_element
+  Widget _accountBenefitChecklist(BuildContext context) {
     final user = gFFI.userModel;
-    return Row(
+    final isMember = user.isMember.value;
+    return Container(
+      // kq-account-legacy-benefit-checklist-unused
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            translate('会员权益'),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          _accountBenefitItem(
+            context,
+            enabled: true,
+            title: '720p / 30 FPS',
+            subtitle: translate('基础远控可用'),
+          ),
+          _accountBenefitItem(
+            context,
+            enabled: isMember,
+            title: '1080p / 60 FPS',
+            subtitle: translate('Member HD remote control'),
+          ),
+          _accountBenefitItem(
+            context,
+            enabled: isMember,
+            title: translate('Member acceleration route'),
+            subtitle: translate('会员畅享专属加速链路'),
+          ),
+          _accountBenefitItem(
+            context,
+            enabled: true,
+            title: translate('本机账户设置'),
+            subtitle: translate('偏好设置保存在本机'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accountQuickActions(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final user = gFFI.userModel;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            translate('账户快捷操作'),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _accountActionButton(
+                context,
+                icon: Icons.workspace_premium_outlined,
+                label: translate(user.isMember.value
+                    ? 'Renew membership'
+                    : 'Upgrade membership'),
+                primary: true,
+                onPressed: _showMemberRechargeDialog,
+              ),
+              _accountActionButton(
+                context,
+                icon: user.isRefreshingMembership.value
+                    ? Icons.hourglass_empty_rounded
+                    : Icons.refresh_rounded,
+                label: translate('Refresh benefits'),
+                onPressed: user.isRefreshingMembership.value
+                    ? null
+                    : () => gFFI.userModel.refreshMembership(showError: true),
+              ),
+              _accountActionButton(
+                context,
+                icon: Icons.public_rounded,
+                label: translate('官网'),
+                onPressed: () => launchUrl(
+                  Uri.parse('https://kunqiongai.com/'),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accountSupportPanel(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.primary.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.primary.withOpacity(0.14)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.verified_user_outlined, color: colors.primary, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              translate('画质和帧率会在新建远控会话时生效；开通或续费会员后可点击刷新权益同步状态。'),
+              style: TextStyle(
+                color: Theme.of(context).textTheme.bodySmall?.color,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accountMiniMetric(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required IconData icon,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: 152,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surface.withOpacity(0.82),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.primary.withOpacity(0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: colors.primary, size: 18),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accountBenefitItem(
+    BuildContext context, {
+    required bool enabled,
+    required String title,
+    required String subtitle,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            enabled ? Icons.check_circle_rounded : Icons.lock_outline_rounded,
+            color: enabled ? colors.primary : colors.outline,
+            size: 18,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: enabled ? null : colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accountActionButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    bool primary = false,
+  }) {
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: _metricTile(
-            context,
-            icon: Icons.high_quality_outlined,
-            label: translate('Max quality'),
-            value: user.remoteResolutionLabel,
-            caption: user.isMember.value
-                ? translate('Member HD remote control')
-                : translate('Basic clarity limit'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _metricTile(
-            context,
-            icon: Icons.speed_outlined,
-            label: translate('Max frame rate'),
-            value: '${user.remoteMaxFps} FPS',
-            caption: user.isMember.value
-                ? translate('Smoother remote operation')
-                : translate('Free user frame rate limit'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _metricTile(
-            context,
-            icon: Icons.workspace_premium_outlined,
-            label: translate('Current tier'),
-            value: user.membershipName,
-            caption: user.isMember.value
-                ? translate('Membership benefits unlocked')
-                : translate('Upgradeable to 1080p/60'),
-          ),
-        ),
+        Icon(icon, size: 16),
+        const SizedBox(width: 7),
+        Text(label),
       ],
+    );
+    if (primary) {
+      return FilledButton(
+        onPressed: onPressed,
+        child: child,
+      );
+    }
+    return OutlinedButton(
+      onPressed: onPressed,
+      child: child,
     );
   }
 
@@ -2452,133 +4895,175 @@ class _AccountState extends State<_Account> {
 
   Widget _remotePerformancePanel(BuildContext context) {
     unawaited(_syncMemberEntitlementFromDisk());
-    final colors = Theme.of(context).colorScheme;
     final user = gFFI.userModel;
     final isMember = user.isMember.value;
     final resolution = user.remoteResolutionSelection;
     final fps = user.remoteFpsSelection;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return _referenceCard(
+      // kq-v216-account-remote-experience-card
+      // kq-designer-account-performance-right
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          _referenceSectionTitle(
+            icon: Icons.desktop_windows_outlined,
+            title: '远控体验',
+          ),
+          const SizedBox(height: 16),
+          _referenceOptionRow(
+            title: '分辨率',
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: colors.primary.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child:
-                    Icon(Icons.tune_outlined, size: 20, color: colors.primary),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      translate('Remote experience'),
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      user.remoteEntitlementHint,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Theme.of(context).textTheme.bodySmall?.color,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+              _referencePillOption(
+                context,
+                icon: Icons.desktop_windows_outlined,
+                label: '720p',
+                selected: resolution == UserModel.remoteResolution720p,
+                enabled: true,
+                onTap: () => _saveRemotePerformance(
+                  resolutionTier: UserModel.remoteResolution720p,
                 ),
               ),
-              _tag(context, user.remoteQualityLabel, Icons.speed_outlined),
+              _referencePillOption(
+                context,
+                icon: Icons.desktop_windows_outlined,
+                label: '1080p',
+                selected: resolution == UserModel.remoteResolution1080p,
+                enabled: isMember,
+                locked: !isMember,
+                pro: !isMember,
+                onTap: () => _saveRemotePerformance(
+                  resolutionTier: UserModel.remoteResolution1080p,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 14),
-          LayoutBuilder(builder: (context, constraints) {
-            final groups = [
-              _remoteOptionGroup(
+          const SizedBox(height: 13),
+          _referenceOptionRow(
+            title: '帧率',
+            children: [
+              _referencePillOption(
                 context,
-                title: translate('Clarity'),
-                icon: Icons.high_quality_outlined,
-                children: [
-                  _remoteOptionButton(
-                    context,
-                    label: '720p',
-                    caption: translate('Saves bandwidth'),
-                    selected: resolution == UserModel.remoteResolution720p,
-                    enabled: true,
-                    onTap: () => _saveRemotePerformance(
-                      resolutionTier: UserModel.remoteResolution720p,
-                    ),
-                  ),
-                  _remoteOptionButton(
-                    context,
-                    label: '1080p',
-                    caption: translate('HD'),
-                    selected: resolution == UserModel.remoteResolution1080p,
-                    enabled: isMember,
-                    locked: !isMember,
-                    onTap: () => _saveRemotePerformance(
-                      resolutionTier: UserModel.remoteResolution1080p,
-                    ),
-                  ),
-                ],
+                icon: Icons.speed_rounded,
+                label: '30 FPS',
+                selected: fps == 30,
+                enabled: true,
+                onTap: () => _saveRemotePerformance(fps: 30),
               ),
-              _remoteOptionGroup(
+              _referencePillOption(
                 context,
-                title: translate('Frame rate'),
-                icon: Icons.speed_outlined,
-                children: [
-                  _remoteOptionButton(
-                    context,
-                    label: '30 FPS',
-                    caption: translate('Stable'),
-                    selected: fps == 30,
-                    enabled: true,
-                    onTap: () => _saveRemotePerformance(fps: 30),
-                  ),
-                  _remoteOptionButton(
-                    context,
-                    label: '60 FPS',
-                    caption: translate('Smooth'),
-                    selected: fps == 60,
-                    enabled: isMember,
-                    locked: !isMember,
-                    onTap: () => _saveRemotePerformance(fps: 60),
-                  ),
-                ],
+                icon: Icons.speed_rounded,
+                label: '60 FPS',
+                selected: fps == 60,
+                enabled: isMember,
+                locked: !isMember,
+                pro: !isMember,
+                onTap: () => _saveRemotePerformance(fps: 60),
               ),
-            ];
-            if (constraints.maxWidth < 620) {
-              return Column(
-                children: [
-                  groups[0],
-                  const SizedBox(height: 10),
-                  groups[1],
-                ],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(child: groups[0]),
-                const SizedBox(width: 10),
-                Expanded(child: groups[1]),
-              ],
-            );
-          }),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _referenceOptionRow({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xFF6B7A8D),
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: children,
+        ),
+      ],
+    );
+  }
+
+  Widget _referencePillOption(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+    bool locked = false,
+    bool pro = false,
+  }) {
+    final foreground = selected
+        ? Colors.white
+        : enabled
+            ? _kqDesignerTextPrimary
+            : const Color(0xFF9AA8B8);
+    return Material(
+      // kq-v216-account-pill-option
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          height: 35,
+          constraints: const BoxConstraints(minWidth: 84),
+          padding: EdgeInsets.fromLTRB(15, 0, pro ? 10 : 15, 0),
+          decoration: BoxDecoration(
+            color: selected ? _kqDesignerBlue : const Color(0xFFF4F7FB),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected ? _kqDesignerBlue : const Color(0xFFE0E7F1),
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: _kqDesignerBlue.withOpacity(0.24),
+                      blurRadius: 9,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(locked && !enabled ? Icons.lock_outline_rounded : icon,
+                  size: 14, color: foreground),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
+              ),
+              if (pro) ...[
+                const SizedBox(width: 8),
+                const Text(
+                  'PRO',
+                  style: TextStyle(
+                    color: Color(0xFFF59E0B),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -3268,6 +5753,7 @@ class _AccountState extends State<_Account> {
     );
   }
 
+  // ignore: unused_element
   Widget _metricTile(
     BuildContext context, {
     required IconData icon,
@@ -3604,6 +6090,8 @@ class _About extends StatefulWidget {
 
 class _AboutState extends State<_About> {
   static final Uri _companyWebsite = Uri.parse('https://kunqiongai.com/');
+  static final Uri _downloadWebsite =
+      Uri.parse('https://remotelink.kunqiongai.com/kq-api/download');
 
   @override
   Widget build(BuildContext context) {
@@ -3617,157 +6105,250 @@ class _AboutState extends State<_About> {
     }(), hasData: (data) {
       final version = data['version'].toString();
       final buildDate = data['buildDate'].toString();
-      final scrollController = ScrollController();
-      return SingleChildScrollView(
-        controller: scrollController,
-        child: Row(
-          children: [
-            Flexible(
-              child: SizedBox(
-                width: _kCardFixedWidth,
-                child: Card(
-                  elevation: 0.8,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                      color: _accentColor.withOpacity(0.12),
-                    ),
+      return _SettingsReferencePage(
+        marker: 'kq-v218-settings-about-page',
+        children: [
+          _aboutHero(version),
+          _SettingsReferenceCard(
+            icon: Icons.article_outlined,
+            title: '软件信息',
+            child: Column(
+              children: [
+                _aboutInfoRow('软件名称', '鲲穹远程桌面 桌面端'),
+                _settingsReferenceDivider(),
+                _aboutInfoRow('Version', 'v$version (Build $buildDate)'),
+                _settingsReferenceDivider(),
+                _aboutInfoRow(
+                  '运行环境',
+                  isWindows
+                      ? 'Windows 10 / 11 (x64)'
+                      : Platform.operatingSystem,
+                ),
+                _settingsReferenceDivider(),
+                _aboutInfoRow('许可证', '个人免费版'),
+              ],
+            ),
+          ),
+          _SettingsReferenceCard(
+            icon: Icons.update_rounded,
+            title: '更新',
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '当前已是最新版本',
+                        style: TextStyle(
+                          color: Color(0xFF16A34A),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '上次检查：${DateTime.now().toString().substring(0, 16)}',
+                        style: const TextStyle(
+                          color: _kqDesignerTextSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          _accentColor.withOpacity(0.08),
-                          Theme.of(context).cardColor,
-                        ],
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: _kContentHMargin,
-                        vertical: 18,
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 240,
-                            height: 92,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Image.asset(
-                                  'assets/kq_about_logo.png',
-                                  width: 56,
-                                  height: 56,
-                                  fit: BoxFit.contain,
-                                  filterQuality: FilterQuality.high,
-                                ),
-                                const SizedBox(height: 7),
-                                Text(
-                                  '鲲穹远程桌面',
-                                  style: TextStyle(
-                                    color: _accentColor,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 28),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                SelectionArea(
-                                  child: Text(
-                                    '${translate('Version')}: $version',
-                                    style: const TextStyle(
-                                      fontSize: _kContentFontSize,
-                                    ),
-                                  ).marginSymmetric(vertical: 3.0),
-                                ),
-                                SelectionArea(
-                                  child: Text(
-                                    '${translate('Build Date')}: $buildDate',
-                                    style: const TextStyle(
-                                      fontSize: _kContentFontSize,
-                                    ),
-                                  ).marginSymmetric(vertical: 3.0),
-                                ),
-                                const SizedBox(height: 8),
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(6),
-                                  onTap: () => launchUrl(
-                                    _companyWebsite,
-                                    mode: LaunchMode.externalApplication,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 5,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.language,
-                                          size: 16,
-                                          color: _accentColor,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '公司官网',
-                                          style: TextStyle(
-                                            color: _accentColor,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            'kunqiongai.com',
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: _accentColor,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Icon(
-                                          Icons.open_in_new,
-                                          size: 14,
-                                          color: _accentColor.withOpacity(0.78),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                ),
+                FilledButton(
+                  onPressed: () => launchUrl(
+                    _downloadWebsite,
+                    mode: LaunchMode.externalApplication,
                   ),
-                ).marginOnly(left: _kCardLeftMargin, top: 15),
+                  child: const Text('检查更新'),
+                ),
+              ],
+            ),
+          ),
+          _SettingsReferenceCard(
+            icon: Icons.open_in_new_rounded,
+            title: '链接',
+            child: Wrap(
+              spacing: 18,
+              runSpacing: 8,
+              children: [
+                _aboutLink('官方网站', _companyWebsite),
+                _aboutLink('帮助文档', _companyWebsite),
+                _aboutLink('意见反馈', _companyWebsite),
+                _aboutLink('隐私政策', _companyWebsite),
+              ],
+            ),
+          ),
+          Center(
+            child: Text(
+              '鲲穹远程桌面 v$version',
+              style: const TextStyle(
+                color: Color(0xFF9BA8B8),
+                fontSize: 12,
               ),
             ),
-          ],
-        ),
+          ).marginOnly(top: 6),
+        ],
       );
     });
   }
-}
 
+  Widget _aboutHero(String version) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE7F1FF),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFD8E8FF)),
+        boxShadow: [
+          BoxShadow(
+            color: _kqDesignerBlue.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: _kqDesignerBlue,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: _kqDesignerBlue.withOpacity(0.24),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Image.asset(
+              'assets/kq_about_logo.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '鲲穹远程桌面',
+                  style: TextStyle(
+                    color: _kqDesignerTextPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Row(
+                  children: [
+                    Text(
+                      '版本 $version',
+                      style: const TextStyle(
+                        color: _kqDesignerTextSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE9FFF3),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        '最新',
+                        style: TextStyle(
+                          color: Color(0xFF16A34A),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '安全、快速、高清的远程桌面解决方案',
+                  style: TextStyle(
+                    color: _kqDesignerTextSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aboutInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              translate(label),
+              style: const TextStyle(
+                color: _kqDesignerTextSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectionArea(
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: _kqDesignerTextPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aboutLink(String label, Uri uri) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: () => launchUrl(uri, mode: LaunchMode.externalApplication),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: _kqDesignerBlue,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
 //#endregion
 
 //#region components
@@ -3787,25 +6368,19 @@ Widget _Card(
             child: Container(
               margin: const EdgeInsets.only(left: _kCardLeftMargin, top: 15),
               decoration: BoxDecoration(
+                // kq-settings-reference-card
                 color: palette.cardBackground,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: palette.cardBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: palette.shadow,
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
                 children: [
                   Container(
-                    constraints: const BoxConstraints(minHeight: 48),
+                    constraints: const BoxConstraints(minHeight: 42),
                     padding: const EdgeInsets.symmetric(
                       horizontal: _kContentHMargin,
-                      vertical: 12,
+                      vertical: 10,
                     ),
                     decoration: BoxDecoration(
                       color: palette.cardHeaderBackground,
@@ -3821,7 +6396,7 @@ Widget _Card(
                             textAlign: TextAlign.start,
                             style: TextStyle(
                               color: palette.primaryText,
-                              fontSize: _kCardTitleFontSize,
+                              fontSize: _kContentFontSize,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -3832,8 +6407,8 @@ Widget _Card(
                   ),
                   Padding(
                     padding: const EdgeInsets.only(
-                      top: 10,
-                      bottom: 12,
+                      top: 8,
+                      bottom: 10,
                     ),
                     child: Column(
                       children: children
@@ -3889,16 +6464,10 @@ class _FoldoutCardState extends State<_FoldoutCard> {
             child: Container(
               margin: const EdgeInsets.only(left: _kCardLeftMargin, top: 15),
               decoration: BoxDecoration(
+                // kq-settings-reference-card
                 color: palette.cardBackground,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: palette.cardBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: palette.shadow,
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -3909,10 +6478,10 @@ class _FoldoutCardState extends State<_FoldoutCard> {
                       hoverColor: palette.navHoverBackground,
                       onTap: () => setState(() => _expanded = !_expanded),
                       child: Container(
-                        constraints: const BoxConstraints(minHeight: 48),
+                        constraints: const BoxConstraints(minHeight: 42),
                         padding: const EdgeInsets.symmetric(
                           horizontal: _kContentHMargin,
-                          vertical: 12,
+                          vertical: 10,
                         ),
                         decoration: BoxDecoration(
                           border: Border(
@@ -3927,7 +6496,7 @@ class _FoldoutCardState extends State<_FoldoutCard> {
                                 textAlign: TextAlign.start,
                                 style: TextStyle(
                                   color: palette.primaryText,
-                                  fontSize: _kCardTitleFontSize,
+                                  fontSize: _kContentFontSize,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -3952,7 +6521,7 @@ class _FoldoutCardState extends State<_FoldoutCard> {
                     curve: Curves.easeOutCubic,
                     child: _expanded
                         ? Padding(
-                            padding: const EdgeInsets.only(top: 10, bottom: 12),
+                            padding: const EdgeInsets.only(top: 8, bottom: 10),
                             child: Column(
                               children: widget.children
                                   .map((e) => e.marginOnly(

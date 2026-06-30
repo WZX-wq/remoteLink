@@ -101,7 +101,12 @@ class _PeersViewState extends State<_PeersView>
     LoadEvent.lan: 'empty_lan_tip',
     LoadEvent.addressBook: 'empty_address_book_tip',
   });
-  final space = (isDesktop || isWebDesktop) ? 12.0 : 8.0;
+  double get space =>
+      widget.peers.loadEvent == LoadEvent.recent && (isDesktop || isWebDesktop)
+          ? 8.0
+          : (isDesktop || isWebDesktop)
+              ? 12.0
+              : 8.0;
   final _curPeers = <String>{};
   var _lastChangeTime = DateTime.now();
   var _lastQueryPeers = <String>{};
@@ -325,7 +330,15 @@ class _PeersViewState extends State<_PeersView>
                       ? Container(height: 45, child: visibilityChild)
                       : peerCardUiType.value == PeerUiType.grid
                           ? SizedBox(
-                              width: 220, height: 92, child: visibilityChild)
+                              // kq-recent-reference-card-size
+                              // kq-v213-recent-card-264x140
+                              width: widget.peers.loadEvent == LoadEvent.recent
+                                  ? 264
+                                  : 220,
+                              height: widget.peers.loadEvent == LoadEvent.recent
+                                  ? 140
+                                  : 92,
+                              child: visibilityChild)
                           : SizedBox(
                               width: 220, height: 42, child: visibilityChild))
                   : Container(child: visibilityChild);

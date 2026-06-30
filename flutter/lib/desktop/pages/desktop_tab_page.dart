@@ -12,9 +12,6 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../common/shared_state.dart';
 
-const _kqSettingsBlue = Color(0xFF1277D9);
-const _kqSettingsLine = Color(0xFFC6E3FF);
-
 class DesktopTabPage extends StatefulWidget {
   const DesktopTabPage({Key? key}) : super(key: key);
 
@@ -100,12 +97,10 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             body: DesktopTab(
               controller: tabController,
               showMaximize: false,
-              onAccountBadgeTap: () =>
-                  DesktopSettingPage.switch2page(SettingsTabKey.account),
-              tail: Offstage(
-                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
-                child: const _KqTitleSettingsButton(),
-              ),
+              onAccountBadgeTap: () {
+                tabController.jumpToByKey(kTabLabelHomePage);
+                openDesktopHomeAccountPage();
+              },
             )));
     return isMacOS || kUseCompatibleUiMode
         ? tabWidget
@@ -116,61 +111,5 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
               child: tabWidget,
             ),
           );
-  }
-}
-
-class _KqTitleSettingsButton extends StatefulWidget {
-  const _KqTitleSettingsButton();
-
-  @override
-  State<_KqTitleSettingsButton> createState() => _KqTitleSettingsButtonState();
-}
-
-class _KqTitleSettingsButtonState extends State<_KqTitleSettingsButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: translate('Settings'),
-      waitDuration: const Duration(milliseconds: 500),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onHover: (value) => setState(() => _hover = value),
-          onTap: DesktopTabPage.onAddSetting,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-            width: 38,
-            height: 28,
-            decoration: BoxDecoration(
-              color: _hover
-                  ? _kqSettingsBlue.withOpacity(0.14)
-                  : _kqSettingsBlue.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _hover ? _kqSettingsBlue : _kqSettingsLine,
-                width: 1.2,
-              ),
-              boxShadow: [
-                if (_hover)
-                  BoxShadow(
-                    color: _kqSettingsBlue.withOpacity(0.18),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-              ],
-            ),
-            child: Icon(
-              Icons.settings_rounded,
-              color: _kqSettingsBlue,
-              size: 18,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }

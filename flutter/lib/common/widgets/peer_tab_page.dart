@@ -124,33 +124,47 @@ class _PeerTabPageState extends State<PeerTabPage>
       textBaseline: TextBaseline.ideographic,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Obx(() => SizedBox(
-              height: stateGlobal.isPortrait.isTrue
-                  ? _mobilePortraitToolbarHeight(model)
-                  : 44,
-              child: Container(
-                margin: stateGlobal.isPortrait.isTrue
-                    ? const EdgeInsets.fromLTRB(0, 16, 0, 0)
-                    : const EdgeInsets.fromLTRB(14, 12, 14, 0),
-                padding: stateGlobal.isPortrait.isTrue
-                    ? EdgeInsets.zero
-                    : const EdgeInsets.symmetric(horizontal: 4),
-                child: selectionWrap(stateGlobal.isPortrait.isTrue
-                    ? _buildPortraitToolbar(context)
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          visibleContextMenuListener(_createSwitchBar(context)),
-                          const Spacer(),
-                          ..._landscapeRightActions(context)
-                        ],
-                      )),
-              ),
-            )),
+        Obx(() {
+          final hideReferenceHeader =
+              _isDesktopRecentReference(model) && !model.multiSelectionMode;
+          return SizedBox(
+            height: hideReferenceHeader
+                ? 0
+                : stateGlobal.isPortrait.isTrue
+                    ? _mobilePortraitToolbarHeight(model)
+                    : 44,
+            child: hideReferenceHeader
+                ? const SizedBox.shrink()
+                : Container(
+                    margin: stateGlobal.isPortrait.isTrue
+                        ? const EdgeInsets.fromLTRB(0, 16, 0, 0)
+                        : const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                    padding: stateGlobal.isPortrait.isTrue
+                        ? EdgeInsets.zero
+                        : const EdgeInsets.symmetric(horizontal: 4),
+                    child: selectionWrap(stateGlobal.isPortrait.isTrue
+                        ? _buildPortraitToolbar(context)
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              visibleContextMenuListener(
+                                  _createSwitchBar(context)),
+                              const Spacer(),
+                              ..._landscapeRightActions(context)
+                            ],
+                          )),
+                  ),
+          );
+        }),
         _createPeersView(),
       ],
     );
   }
+
+  bool _isDesktopRecentReference(PeerTabModel model) =>
+      (isDesktop || isWebDesktop) &&
+      !stateGlobal.isPortrait.isTrue &&
+      model.currentTab == PeerTabIndex.recent.index;
 
   Widget _buildPortraitToolbar(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
@@ -380,6 +394,7 @@ class _PeerTabPageState extends State<PeerTabPage>
     final model = Provider.of<PeerTabModel>(context);
     final q = KqTheme.of(context);
     final isPortrait = stateGlobal.isPortrait.isTrue;
+    final isReferenceRecent = _isDesktopRecentReference(model);
     Widget child;
     if (model.visibleEnabledOrderedIndexs.isEmpty) {
       child = visibleContextMenuListener(Row(
@@ -398,25 +413,28 @@ class _PeerTabPageState extends State<PeerTabPage>
     }
     return Expanded(
       child: Container(
+        // kq-recent-reference-strip
         margin: isPortrait
             ? const EdgeInsets.fromLTRB(0, 8, 0, 14)
-            : EdgeInsets.fromLTRB(
-                14,
-                (isDesktop || isWebDesktop) ? 12.0 : 6.0,
-                14,
-                14,
-              ),
-        padding: isPortrait ? EdgeInsets.zero : const EdgeInsets.all(12),
-        decoration: isPortrait
+            : isReferenceRecent
+                ? const EdgeInsets.fromLTRB(0, 4, 0, 0)
+                : EdgeInsets.fromLTRB(
+                    14,
+                    (isDesktop || isWebDesktop) ? 12.0 : 6.0,
+                    14,
+                    14,
+                  ),
+        padding: isPortrait
+            ? EdgeInsets.zero
+            : isReferenceRecent
+                ? EdgeInsets.zero
+                : const EdgeInsets.all(12),
+        decoration: isPortrait || isReferenceRecent
             ? null
             : BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: q.workSurfaceGradient,
-                ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: q.line),
+                color: q.panelStrong.withOpacity(q.isDark ? 0.46 : 0.56),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: q.line.withOpacity(0.72)),
               ),
         child: child,
       ),

@@ -57,6 +57,11 @@ node_modules/
 .devcontainer/.*
 # build cache in examples
 examples/**/target/
+# Android request-gate helper local/build artifacts
+tools/request-gate-android/.gradle/
+tools/request-gate-android/build/
+tools/request-gate-android/app/build/
+tools/request-gate-android/local.properties
 # ===
 vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart

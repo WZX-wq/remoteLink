@@ -7,7 +7,11 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
-$targetDir = Join-Path $env:TEMP "kq-custom-client-signer-target"
+$targetDir = if ($env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR) {
+    [System.IO.Path]::GetFullPath($env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR)
+} else {
+    Join-Path $env:TEMP "kq-custom-client-signer-target"
+}
 $output = cargo run --quiet --target-dir $targetDir --manifest-path .\tools\custom_client_signer\Cargo.toml -- gen-key 2>&1
 if ($LASTEXITCODE -ne 0) {
     $output | Out-String | Write-Host

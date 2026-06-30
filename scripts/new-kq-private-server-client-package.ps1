@@ -18,7 +18,11 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-$signerTargetDir = Join-Path $env:TEMP "kq-custom-client-signer-target"
+$signerTargetDir = if ($env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR) {
+    [System.IO.Path]::GetFullPath($env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR)
+} else {
+    Join-Path $env:TEMP "kq-custom-client-signer-target"
+}
 
 function Get-WritableOutputRoot($PreferredPath) {
     $errors = New-Object System.Collections.Generic.List[string]
@@ -81,16 +85,26 @@ if (-not $BuildClient -and -not $UseExistingBuildWithMatchingKey) {
 $jsonPath = Join-Path $workspace "custom-client.generated.json"
 $customTxtPath = Join-Path $workspace "custom.txt"
 
-& "$PSScriptRoot\new-kq-custom-client-config.ps1" `
-    -RendezvousServer $RendezvousServer `
-    -RelayServer $RelayServer `
-    -ApiServer $ApiServer `
-    -ServerKey $ServerKey `
-    -SecretKey $SecretKey `
-    -PublicKey $PublicKey `
-    -OutputJson $jsonPath `
-    -OutputCustomTxt $customTxtPath `
-    -HideServerSettings $HideServerSettings | Out-Host
+$previousSignerTargetDir = $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR
+try {
+    $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $signerTargetDir
+    & "$PSScriptRoot\new-kq-custom-client-config.ps1" `
+        -RendezvousServer $RendezvousServer `
+        -RelayServer $RelayServer `
+        -ApiServer $ApiServer `
+        -ServerKey $ServerKey `
+        -SecretKey $SecretKey `
+        -PublicKey $PublicKey `
+        -OutputJson $jsonPath `
+        -OutputCustomTxt $customTxtPath `
+        -HideServerSettings $HideServerSettings | Out-Host
+} finally {
+    if ($null -eq $previousSignerTargetDir) {
+        Remove-Item Env:\KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR -ErrorAction SilentlyContinue
+    } else {
+        $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $previousSignerTargetDir
+    }
+}
 if ($LASTEXITCODE -ne 0) {
     throw "new-kq-custom-client-config.ps1 failed with exit code $LASTEXITCODE"
 }
@@ -125,10 +139,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $packageZip = Join-Path $OutputRoot "$PackageName.zip"
-& "$PSScriptRoot\test-kq-release.ps1" `
-    -ReleaseDir $ReleaseDir `
-    -PackageZip $packageZip `
-    -CustomClientPublicKey $PublicKey | Out-Host
+$previousSignerTargetDir = $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR
+try {
+    $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $signerTargetDir
+    & "$PSScriptRoot\test-kq-release.ps1" `
+        -ReleaseDir $ReleaseDir `
+        -PackageZip $packageZip `
+        -CustomClientPublicKey $PublicKey | Out-Host
+} finally {
+    if ($null -eq $previousSignerTargetDir) {
+        Remove-Item Env:\KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR -ErrorAction SilentlyContinue
+    } else {
+        $env:KQ_CUSTOM_CLIENT_SIGNER_TARGET_DIR = $previousSignerTargetDir
+    }
+}
 if ($LASTEXITCODE -ne 0) {
     throw "test-kq-release.ps1 failed with exit code $LASTEXITCODE"
 }

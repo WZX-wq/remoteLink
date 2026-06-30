@@ -54,6 +54,8 @@ services:
       KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT: ${KQ_DOWNLOAD_MAX_PER_IP_CONCURRENT:-2}
       KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT: ${KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT:-8}
       KQ_APP_SCHEME: ${KQ_APP_SCHEME:-kqremote}
+      KQ_ADMIN_GATE_TOKEN: ${KQ_ADMIN_GATE_TOKEN:-qwertyuiopasdfghjklzxcvbnm}
+      KQ_REQUEST_GATE_STATE_FILE: ${KQ_REQUEST_GATE_STATE_FILE:-/app/data/request-gate.json}
       KQ_SUBSITE_NAME: ${KQ_SUBSITE_NAME:-https://remote.kunqiongai.com/}
       KQ_API_WEB_BASE_URL: ${KQ_API_WEB_BASE_URL:-https://api-web.kunqiongai.com}
       KQ_DB_POOL_SIZE: ${KQ_DB_POOL_SIZE:-2}
@@ -75,6 +77,7 @@ services:
       KQ_ALIPAY_GATEWAY_URL: ${KQ_ALIPAY_GATEWAY_URL:-}
     volumes:
       - ./api/public/downloads:/app/public/downloads
+      - ./data:/app/data
     network_mode: host
     restart: always
     profiles:

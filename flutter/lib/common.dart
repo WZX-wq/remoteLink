@@ -1962,6 +1962,10 @@ Future _saveSessionWindowPosition(WindowType windowType, int windowId,
   }
 }
 
+const double kLegacyWideMainWindowDefaultWidth = 1360.0;
+const double kLegacyRoomyMainWindowDefaultWidth = 1120.0;
+const double kLegacyWideMainWindowMigrationTolerance = 24.0;
+
 Future<Size> _adjustRestoreMainWindowSize(double? width, double? height,
     {bool mainWindow = false}) async {
   final minWidth = mainWindow ? kDesktopMainWindowMinSize.width : 1.0;
@@ -1979,6 +1983,15 @@ Future<Size> _adjustRestoreMainWindowSize(double? width, double? height,
       .toDouble();
   double restoreWidth = width ?? defaultWidth;
   double restoreHeight = height ?? defaultHeight;
+
+  if (mainWindow &&
+      width != null &&
+      ((restoreWidth - kLegacyWideMainWindowDefaultWidth).abs() <=
+              kLegacyWideMainWindowMigrationTolerance ||
+          (restoreWidth - kLegacyRoomyMainWindowDefaultWidth).abs() <=
+              kLegacyWideMainWindowMigrationTolerance)) {
+    restoreWidth = defaultWidth;
+  }
 
   if (restoreWidth < minWidth) {
     restoreWidth = defaultWidth;

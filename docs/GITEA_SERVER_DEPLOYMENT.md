@@ -40,7 +40,7 @@ runner host. It uses:
 | --- | --- |
 | Repository | `http://43.154.197.96/giteaadmin/KQromoteLink.git` |
 | Deploy directory | `/www/wwwroot/KQromoteLink` |
-| Public host | `43.154.197.96` |
+| Public host | `remotelink.kunqiongai.com` |
 | Required TCP ports | `21115-21119` |
 | Required UDP ports | `21116` |
 
@@ -126,8 +126,9 @@ Use that key when generating the private-server client package:
 
 ```powershell
 .\scripts\new-kq-private-server-client-package.ps1 `
-  -RendezvousServer "43.154.197.96:21116" `
-  -RelayServer "43.154.197.96:21117" `
+  -RendezvousServer "remotelink.kunqiongai.com:21116" `
+  -RelayServer "remotelink.kunqiongai.com:21117" `
+  -ApiServer "https://remotelink.kunqiongai.com/kq-api/api" `
   -ServerKey "<hbbs public key>" `
   -PublicKey "<custom-client public key>" `
   -SecretKey "<custom-client secret key>" `
@@ -138,15 +139,17 @@ Then verify server connectivity from a client-side network:
 
 ```powershell
 .\scripts\test-kq-server.ps1 `
-  -RendezvousServer "43.154.197.96:21116" `
-  -RelayServer "43.154.197.96:21117"
+  -RendezvousServer "remotelink.kunqiongai.com:21116" `
+  -RelayServer "remotelink.kunqiongai.com:21117" `
+  -ApiServer "https://remotelink.kunqiongai.com/kq-api/api/health"
 ```
 
 When operations sends back the `hbbs` public key, validate it before packaging:
 
 ```powershell
 .\scripts\test-kq-server.ps1 `
-  -RendezvousServer "43.154.197.96:21116" `
-  -RelayServer "43.154.197.96:21117" `
+  -RendezvousServer "remotelink.kunqiongai.com:21116" `
+  -RelayServer "remotelink.kunqiongai.com:21117" `
+  -ApiServer "https://remotelink.kunqiongai.com/kq-api/api/health" `
   -ServerKey "<hbbs public key>"
 ```
