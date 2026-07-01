@@ -32,6 +32,7 @@ workflows:
           cargo --version
       - name: Install vcpkg dependencies
         script: |
+          set -euo pipefail
           cd "$CM_BUILD_DIR"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
           export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
@@ -50,6 +51,8 @@ workflows:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           rm -rf "$VCPKG_ROOT/installed/$VCPKG_TRIPLET" "$VCPKG_ROOT/installed/$VCPKG_HOST_TRIPLET"
           "$VCPKG_ROOT/vcpkg" install \
+            "libvpx:$VCPKG_TRIPLET" \
+            "libyuv:$VCPKG_TRIPLET" \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
             --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
@@ -65,6 +68,7 @@ workflows:
           pod install
       - name: Build Rust iOS static library
         script: |
+          set -euo pipefail
           cd "$CM_BUILD_DIR"
           export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
@@ -126,6 +130,7 @@ workflows:
           cargo --version
       - name: Install vcpkg dependencies
         script: |
+          set -euo pipefail
           cd "$CM_BUILD_DIR"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
           export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
@@ -144,6 +149,8 @@ workflows:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           rm -rf "$VCPKG_ROOT/installed/$VCPKG_TRIPLET" "$VCPKG_ROOT/installed/$VCPKG_HOST_TRIPLET"
           "$VCPKG_ROOT/vcpkg" install \
+            "libvpx:$VCPKG_TRIPLET" \
+            "libyuv:$VCPKG_TRIPLET" \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
             --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
@@ -159,6 +166,7 @@ workflows:
           pod install
       - name: Build Rust iOS static library
         script: |
+          set -euo pipefail
           cd "$CM_BUILD_DIR"
           export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"

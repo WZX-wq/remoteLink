@@ -55,6 +55,11 @@ Assert-Contains `
     -Message 'Codemagic must install with the iOS overlay triplet and verify native vcpkg libraries before Rust linking.'
 
 Assert-Contains `
+    -Path $codemagicYaml `
+    -Pattern 'set -euo pipefail[\s\S]*"libvpx:\$VCPKG_TRIPLET"[\s\S]*"libyuv:\$VCPKG_TRIPLET"' `
+    -Message 'Codemagic iOS vcpkg step must install only target libvpx/libyuv instead of the full manifest host dependency graph.'
+
+Assert-Contains `
     -Path $verifyVcpkg `
     -Pattern 'platform MACOS[\s\S]*exit 1' `
     -Message 'iOS vcpkg verification must fail early if libyuv contains macOS objects.'
