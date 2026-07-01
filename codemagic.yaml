@@ -13,6 +13,7 @@ workflows:
         VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
         VCPKG_DIR: .codemagic/vcpkg
         VCPKG_TRIPLET: arm64-ios
+        VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
         FLUTTER_BUILD_NUMBER: 4067
     scripts:
@@ -33,6 +34,8 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
+          export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             rm -rf "$VCPKG_ROOT"
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
@@ -40,6 +43,7 @@ workflows:
           git -C "$VCPKG_ROOT" fetch --depth=1 origin "$VCPKG_COMMIT_ID"
           git -C "$VCPKG_ROOT" checkout --force "$VCPKG_COMMIT_ID"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          rm -rf "$VCPKG_ROOT/installed/$VCPKG_TRIPLET" "$VCPKG_ROOT/installed/$VCPKG_HOST_TRIPLET"
           "$VCPKG_ROOT/vcpkg" install \
             --triplet "$VCPKG_TRIPLET" \
             --x-install-root="$VCPKG_ROOT/installed"
@@ -56,6 +60,8 @@ workflows:
           cd "$CM_BUILD_DIR"
           export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
+          export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
       - name: Build unsigned iOS app
         script: |
@@ -87,6 +93,7 @@ workflows:
         VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
         VCPKG_DIR: .codemagic/vcpkg
         VCPKG_TRIPLET: arm64-ios
+        VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
         FLUTTER_BUILD_NUMBER: 4067
         XCODE_WORKSPACE: flutter/ios/Runner.xcworkspace
@@ -110,6 +117,8 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
+          export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             rm -rf "$VCPKG_ROOT"
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
@@ -117,6 +126,7 @@ workflows:
           git -C "$VCPKG_ROOT" fetch --depth=1 origin "$VCPKG_COMMIT_ID"
           git -C "$VCPKG_ROOT" checkout --force "$VCPKG_COMMIT_ID"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          rm -rf "$VCPKG_ROOT/installed/$VCPKG_TRIPLET" "$VCPKG_ROOT/installed/$VCPKG_HOST_TRIPLET"
           "$VCPKG_ROOT/vcpkg" install \
             --triplet "$VCPKG_TRIPLET" \
             --x-install-root="$VCPKG_ROOT/installed"
@@ -133,6 +143,8 @@ workflows:
           cd "$CM_BUILD_DIR"
           export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
+          export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
       - name: Set up code signing settings
         script: |
