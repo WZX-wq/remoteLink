@@ -5,6 +5,8 @@ use std::{
     time::Instant,
 };
 
+#[cfg(not(target_os = "ios"))]
+use crate::aom::{self, AomDecoder, AomEncoder, AomEncoderConfig};
 #[cfg(feature = "hwcodec")]
 use crate::hwcodec::*;
 #[cfg(feature = "mediacodec")]
@@ -12,7 +14,6 @@ use crate::mediacodec::{MediaCodecDecoder, H264_DECODER_SUPPORT, H265_DECODER_SU
 #[cfg(feature = "vram")]
 use crate::vram::*;
 use crate::{
-    aom::{self, AomDecoder, AomEncoder, AomEncoderConfig},
     common::GoogleImage,
     vpxcodec::{self, VpxDecoder, VpxDecoderConfig, VpxEncoder, VpxEncoderConfig, VpxVideoCodecId},
     CodecFormat, EncodeInput, EncodeYuvFormat, ImageRgb, ImageTexture,
@@ -50,6 +51,7 @@ pub const ENCODE_NEED_SWITCH: &'static str = "ENCODE_NEED_SWITCH";
 #[derive(Debug, Clone)]
 pub enum EncoderCfg {
     VPX(VpxEncoderConfig),
+    #[cfg(not(target_os = "ios"))]
     AOM(AomEncoderConfig),
     #[cfg(feature = "hwcodec")]
     HWRAM(HwRamEncoderConfig),
@@ -103,6 +105,7 @@ impl DerefMut for Encoder {
 pub struct Decoder {
     vp8: Option<VpxDecoder>,
     vp9: Option<VpxDecoder>,
+    #[cfg(not(target_os = "ios"))]
     av1: Option<AomDecoder>,
     #[cfg(feature = "hwcodec")]
     h264_ram: Option<HwRamDecoder>,
@@ -137,6 +140,7 @@ impl Encoder {
             EncoderCfg::VPX(_) => Ok(Encoder {
                 codec: Box::new(VpxEncoder::new(config, i444)?),
             }),
+            #[cfg(not(target_os = "ios"))]
             EncoderCfg::AOM(_) => Ok(Encoder {
                 codec: Box::new(AomEncoder::new(config, i444)?),
             }),
@@ -193,7 +197,7 @@ impl Encoder {
         let vp8_useable = decodings.len() > 0 && decodings.iter().all(|(_, s)| s.ability_vp8 > 0);
         let av1_useable = decodings.len() > 0
             && decodings.iter().all(|(_, s)| s.ability_av1 > 0)
-            && !disable_av1();
+            && av1_enabled();
         let _all_support_h264_decoding =
             decodings.len() > 0 && decodings.iter().all(|(_, s)| s.ability_h264 > 0);
         let _all_support_h265_decoding =
@@ -364,6 +368,7 @@ impl Encoder {
                 VpxVideoCodecId::VP8 => CodecFormat::VP8,
                 VpxVideoCodecId::VP9 => CodecFormat::VP9,
             },
+            #[cfg(not(target_os = "ios"))]
             EncoderCfg::AOM(_) => CodecFormat::AV1,
             #[cfg(feature = "hwcodec")]
             EncoderCfg::HWRAM(hw) => {
@@ -410,6 +415,7 @@ impl Encoder {
                 VpxVideoCodecId::VP8 => false,
                 VpxVideoCodecId::VP9 => decodings.iter().all(|d| d.1.i444.vp9),
             },
+            #[cfg(not(target_os = "ios"))]
             EncoderCfg::AOM(_) => decodings.iter().all(|d| d.1.i444.av1),
             #[cfg(feature = "hwcodec")]
             EncoderCfg::HWRAM(_) => false,
@@ -433,10 +439,10 @@ impl Decoder {
         let mut decoding = SupportedDecoding {
             ability_vp8: 1,
             ability_vp9: 1,
-            ability_av1: if disable_av1() { 0 } else { 1 },
+            ability_av1: if av1_enabled() { 1 } else { 0 },
             i444: Some(CodecAbility {
                 vp9: true,
-                av1: true,
+                av1: av1_enabled(),
                 ..Default::default()
             })
             .into(),
@@ -500,7 +506,9 @@ impl Decoder {
 
     pub fn new(format: CodecFormat, _luid: Option<i64>) -> Decoder {
         log::info!("try create new decoder, format: {format:?}, _luid: {_luid:?}");
-        let (mut vp8, mut vp9, mut av1) = (None, None, None);
+        let (mut vp8, mut vp9) = (None, None);
+        #[cfg(not(target_os = "ios"))]
+        let mut av1 = None;
         #[cfg(feature = "hwcodec")]
         let (mut h264_ram, mut h265_ram) = (None, None);
         #[cfg(feature = "vram")]
@@ -529,11 +537,18 @@ impl Decoder {
                 valid = vp9.is_some();
             }
             CodecFormat::AV1 => {
-                match AomDecoder::new() {
-                    Ok(v) => av1 = Some(v),
-                    Err(e) => log::error!("create AV1 decoder failed: {}", e),
+                #[cfg(not(target_os = "ios"))]
+                {
+                    match AomDecoder::new() {
+                        Ok(v) => av1 = Some(v),
+                        Err(e) => log::error!("create AV1 decoder failed: {}", e),
+                    }
+                    valid = av1.is_some();
                 }
-                valid = av1.is_some();
+                #[cfg(target_os = "ios")]
+                {
+                    log::error!("AV1 decoder is not available on iOS");
+                }
             }
             CodecFormat::H264 => {
                 #[cfg(feature = "vram")]
@@ -599,6 +614,7 @@ impl Decoder {
         Decoder {
             vp8,
             vp9,
+            #[cfg(not(target_os = "ios"))]
             av1,
             #[cfg(feature = "hwcodec")]
             h264_ram,
@@ -651,6 +667,7 @@ impl Decoder {
                     bail!("vp9 decoder not available");
                 }
             }
+            #[cfg(not(target_os = "ios"))]
             video_frame::Union::Av1s(av1s) => {
                 if let Some(av1) = &mut self.av1 {
                     Decoder::handle_av1s_video_frame(av1, av1s, rgb, chroma)
@@ -658,6 +675,8 @@ impl Decoder {
                     bail!("av1 decoder not available");
                 }
             }
+            #[cfg(target_os = "ios")]
+            video_frame::Union::Av1s(_) => Err(anyhow!("av1 decoder not available on ios")),
             #[cfg(any(feature = "hwcodec", feature = "vram"))]
             video_frame::Union::H264s(h264s) => {
                 *chroma = Some(Chroma::I420);
@@ -736,6 +755,7 @@ impl Decoder {
     }
 
     // rgb [in/out] fmt and stride must be set in ImageRgb
+    #[cfg(not(target_os = "ios"))]
     fn handle_av1s_video_frame(
         decoder: &mut AomDecoder,
         av1s: &EncodedVideoFrames,
@@ -1030,6 +1050,10 @@ pub fn codec_thread_num(limit: usize) -> usize {
     res
 }
 
+fn av1_enabled() -> bool {
+    !cfg!(target_os = "ios") && !disable_av1()
+}
+
 fn disable_av1() -> bool {
     // aom is very slow for x86 sciter version on windows x64
     // disable it for all 32 bit platforms
@@ -1042,7 +1066,7 @@ pub fn test_av1() {
     use hbb_common::rand::Rng;
     use std::{sync::Once, time::Duration};
 
-    if disable_av1() || !Config::get_option(OPTION_AV1_TEST).is_empty() {
+    if !av1_enabled() || !Config::get_option(OPTION_AV1_TEST).is_empty() {
         log::info!("skip test av1");
         return;
     }

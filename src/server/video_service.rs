@@ -38,6 +38,8 @@ use hbb_common::{
         Mutex as TokioMutex,
     },
 };
+#[cfg(not(target_os = "ios"))]
+use scrap::aom::AomEncoderConfig;
 #[cfg(feature = "hwcodec")]
 use scrap::hwcodec::{HwRamEncoder, HwRamEncoderConfig};
 #[cfg(feature = "vram")]
@@ -45,7 +47,6 @@ use scrap::vram::{VRamEncoder, VRamEncoderConfig};
 #[cfg(not(windows))]
 use scrap::Capturer;
 use scrap::{
-    aom::AomEncoderConfig,
     codec::{Encoder, EncoderCfg},
     record::{Recorder, RecorderContext},
     vpxcodec::{VpxEncoderConfig, VpxVideoCodecId},
@@ -1016,10 +1017,19 @@ fn get_encoder_config(
             },
             keyframe_interval,
         }),
+        #[cfg(not(target_os = "ios"))]
         CodecFormat::AV1 => EncoderCfg::AOM(AomEncoderConfig {
             width: c.width as _,
             height: c.height as _,
             quality,
+            keyframe_interval,
+        }),
+        #[cfg(target_os = "ios")]
+        CodecFormat::AV1 => EncoderCfg::VPX(VpxEncoderConfig {
+            width: c.width as _,
+            height: c.height as _,
+            quality,
+            codec: VpxVideoCodecId::VP9,
             keyframe_interval,
         }),
         _ => EncoderCfg::VPX(VpxEncoderConfig {
