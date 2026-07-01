@@ -23,6 +23,10 @@ $codecRs = Join-Path $Root 'libs/scrap/src/common/codec.rs'
 $codemagicYaml = Join-Path $Root 'codemagic.yaml'
 $iosTriplet = Join-Path $Root 'res/vcpkg/triplets/arm64-ios.cmake'
 $verifyVcpkg = Join-Path $Root 'scripts/ci/verify-ios-vcpkg-libraries.sh'
+$iosProject = Join-Path $Root 'flutter/ios/Runner.xcodeproj/project.pbxproj'
+$iosInfoPlist = Join-Path $Root 'flutter/ios/Runner/Info.plist'
+$iosExportOptions = Join-Path $Root 'flutter/ios/exportOptions.plist'
+$iosBuildDoc = Join-Path $Root 'docs/KQ_REMOTE_LINK_IOS_BUILD.md'
 
 Assert-Contains `
     -Path $buildRs `
@@ -68,5 +72,30 @@ Assert-Contains `
     -Path $verifyVcpkg `
     -Pattern 'libyuv\.a" ''convert_argb\\\.cc\\\.o\$''' `
     -Message 'iOS vcpkg verification must inspect the libyuv object that failed in Codemagic.'
+
+Assert-Contains `
+    -Path $codemagicYaml `
+    -Pattern 'bundle_identifier: com\.kunqiong\.remotelink' `
+    -Message 'Codemagic signed iOS workflow must use the registered KQ Remote Link Bundle ID.'
+
+Assert-Contains `
+    -Path $iosProject `
+    -Pattern 'PRODUCT_BUNDLE_IDENTIFIER = com\.kunqiong\.remotelink;' `
+    -Message 'Runner Xcode project must use the registered KQ Remote Link Bundle ID.'
+
+Assert-Contains `
+    -Path $iosInfoPlist `
+    -Pattern '<string>com\.kunqiong\.remotelink</string>' `
+    -Message 'Runner Info.plist URL name must match the registered KQ Remote Link Bundle ID.'
+
+Assert-Contains `
+    -Path $iosExportOptions `
+    -Pattern '<key>com\.kunqiong\.remotelink</key>[\s\S]*<string>match AdHoc com\.kunqiong\.remotelink</string>' `
+    -Message 'iOS export options must reference the registered KQ Remote Link Bundle ID.'
+
+Assert-Contains `
+    -Path $iosBuildDoc `
+    -Pattern 'com\.kunqiong\.remotelink' `
+    -Message 'iOS build documentation must show the registered KQ Remote Link Bundle ID.'
 
 Write-Host 'KQ iOS Rust linkage checks passed'

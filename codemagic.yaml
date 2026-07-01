@@ -101,7 +101,7 @@ workflows:
       cocoapods: default
       ios_signing:
         distribution_type: ad_hoc
-        bundle_identifier: com.carriez.flutterHbb
+        bundle_identifier: com.kunqiong.remotelink
       vars:
         CARGO_TARGET: aarch64-apple-ios
         RUST_VERSION: "1.75"

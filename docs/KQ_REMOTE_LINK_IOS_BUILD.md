@@ -8,7 +8,7 @@
 - iOS Workspace：`flutter/ios/Runner.xcworkspace`
 - iOS Project：`flutter/ios/Runner.xcodeproj`
 - Scheme：`Runner`
-- Bundle ID：`com.carriez.flutterHbb`
+- Bundle ID：`com.kunqiong.remotelink`
 - App 显示名：`鲲穹远程桌面`
 - Rust iOS 静态库：`target/aarch64-apple-ios/release/liblibrustdesk.a`
 - Flutter 版本：`3.24.5`
@@ -47,7 +47,7 @@
 - Provisioning profile 的 Bundle ID 必须匹配：
 
 ```text
-com.carriez.flutterHbb
+com.kunqiong.remotelink
 ```
 
 - 要安装测试的 iPhone UDID 必须加入 Ad Hoc profile。
@@ -78,7 +78,7 @@ Windows 本机不能直接编译或签名 iOS IPA。本仓库当前只提供 iOS
 
 ## 常见问题
 
-- `No profiles for com.carriez.flutterHbb were found`
+- `No profiles for com.kunqiong.remotelink were found`
   - 没有上传匹配 Bundle ID 的 Ad Hoc provisioning profile。
 - `Signing certificate ... not found`
   - 证书没有上传，或者证书和描述文件不匹配。

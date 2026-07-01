@@ -6,8 +6,8 @@
 	<string>ad-hoc</string>
 	<key>provisioningProfiles</key>
 	<dict>
-		<key>com.carriez.flutterHbb</key>
-		<string>match AdHoc com.carriez.flutterHbb</string>
+		<key>com.kunqiong.remotelink</key>
+		<string>match AdHoc com.kunqiong.remotelink</string>
 	</dict>
 	<key>signingStyle</key>
 	<string>manual</string>
