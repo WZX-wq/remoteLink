@@ -34,9 +34,13 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
           export VCPKG_BINARY_SOURCES=clear
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
+          export VCPKG_OVERLAY_TRIPLETS="$CM_BUILD_DIR/res/vcpkg/triplets"
+          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos --show-sdk-path
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             rm -rf "$VCPKG_ROOT"
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
@@ -48,7 +52,9 @@ workflows:
           "$VCPKG_ROOT/vcpkg" install \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
-            --x-install-root="$VCPKG_ROOT/installed"
+            --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
+            --x-install-root="$VCPKG_INSTALLED_ROOT"
+          bash "$CM_BUILD_DIR/scripts/ci/verify-ios-vcpkg-libraries.sh"
       - name: Flutter dependencies
         script: |
           cd "$CM_BUILD_DIR/flutter"
@@ -62,9 +68,11 @@ workflows:
           cd "$CM_BUILD_DIR"
           export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
           export VCPKG_BINARY_SOURCES=clear
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
+          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           cargo build --features flutter --release --target "$CARGO_TARGET" --lib
       - name: Build unsigned iOS app
         script: |
@@ -120,9 +128,13 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
           export VCPKG_BINARY_SOURCES=clear
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
+          export VCPKG_OVERLAY_TRIPLETS="$CM_BUILD_DIR/res/vcpkg/triplets"
+          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos --show-sdk-path
           if [ ! -d "$VCPKG_ROOT/.git" ]; then
             rm -rf "$VCPKG_ROOT"
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
@@ -134,7 +146,9 @@ workflows:
           "$VCPKG_ROOT/vcpkg" install \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
-            --x-install-root="$VCPKG_ROOT/installed"
+            --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
+            --x-install-root="$VCPKG_INSTALLED_ROOT"
+          bash "$CM_BUILD_DIR/scripts/ci/verify-ios-vcpkg-libraries.sh"
       - name: Flutter dependencies
         script: |
           cd "$CM_BUILD_DIR/flutter"
@@ -148,9 +162,11 @@ workflows:
           cd "$CM_BUILD_DIR"
           export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
+          export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
           export VCPKG_BINARY_SOURCES=clear
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
+          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           cargo build --features flutter --release --target "$CARGO_TARGET" --lib
       - name: Set up code signing settings
         script: |
