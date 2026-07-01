@@ -21,8 +21,14 @@ workflows:
           brew install nasm yasm
       - name: Install Rust iOS target
         script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUST_VERSION" --profile minimal
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
           rustup default "$RUST_VERSION"
           rustup target add "$CARGO_TARGET"
+          rustc --version
+          cargo --version
       - name: Install vcpkg dependencies
         script: |
           cd "$CM_BUILD_DIR"
@@ -48,6 +54,7 @@ workflows:
       - name: Build Rust iOS static library
         script: |
           cd "$CM_BUILD_DIR"
+          export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
           cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
       - name: Build unsigned iOS app
@@ -91,8 +98,14 @@ workflows:
           brew install nasm yasm
       - name: Install Rust iOS target
         script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUST_VERSION" --profile minimal
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
           rustup default "$RUST_VERSION"
           rustup target add "$CARGO_TARGET"
+          rustc --version
+          cargo --version
       - name: Install vcpkg dependencies
         script: |
           cd "$CM_BUILD_DIR"
@@ -118,6 +131,7 @@ workflows:
       - name: Build Rust iOS static library
         script: |
           cd "$CM_BUILD_DIR"
+          export PATH="$HOME/.cargo/bin:$PATH"
           export VCPKG_ROOT="$CM_BUILD_DIR/$VCPKG_DIR"
           cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
       - name: Set up code signing settings
