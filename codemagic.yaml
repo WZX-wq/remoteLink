@@ -39,6 +39,7 @@ workflows:
           export VCPKG_BINARY_SOURCES=clear
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
+          export VCPKG_OVERLAY_PORTS="$CM_BUILD_DIR/res/vcpkg"
           export VCPKG_OVERLAY_TRIPLETS="$CM_BUILD_DIR/res/vcpkg/triplets"
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           xcrun --sdk iphoneos --show-sdk-path
@@ -53,9 +54,11 @@ workflows:
           "$VCPKG_ROOT/vcpkg" install \
             "libvpx:$VCPKG_TRIPLET" \
             "libyuv:$VCPKG_TRIPLET" \
+            "opus:$VCPKG_TRIPLET" \
             --classic \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
+            --overlay-ports "$VCPKG_OVERLAY_PORTS" \
             --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
             --x-install-root="$VCPKG_INSTALLED_ROOT"
           bash "$CM_BUILD_DIR/scripts/ci/verify-ios-vcpkg-libraries.sh"
@@ -138,6 +141,7 @@ workflows:
           export VCPKG_BINARY_SOURCES=clear
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
+          export VCPKG_OVERLAY_PORTS="$CM_BUILD_DIR/res/vcpkg"
           export VCPKG_OVERLAY_TRIPLETS="$CM_BUILD_DIR/res/vcpkg/triplets"
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           xcrun --sdk iphoneos --show-sdk-path
@@ -152,9 +156,11 @@ workflows:
           "$VCPKG_ROOT/vcpkg" install \
             "libvpx:$VCPKG_TRIPLET" \
             "libyuv:$VCPKG_TRIPLET" \
+            "opus:$VCPKG_TRIPLET" \
             --classic \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
+            --overlay-ports "$VCPKG_OVERLAY_PORTS" \
             --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
             --x-install-root="$VCPKG_INSTALLED_ROOT"
           bash "$CM_BUILD_DIR/scripts/ci/verify-ios-vcpkg-libraries.sh"

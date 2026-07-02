@@ -9,6 +9,17 @@ fi
 
 installed_root="${VCPKG_INSTALLED_ROOT:-$VCPKG_ROOT/installed}"
 lib_dir="$installed_root/$triplet/lib"
+include_dir="$installed_root/$triplet/include"
+
+check_header() {
+  local header="$1"
+  local path="$include_dir/$header"
+  if [[ ! -f "$path" ]]; then
+    echo "Missing vcpkg header: $path" >&2
+    exit 1
+  fi
+  echo "Found vcpkg header: $path"
+}
 
 check_archive_platform() {
   local archive="$1"
@@ -72,5 +83,7 @@ test -d "$lib_dir" || {
 
 check_archive_platform "$lib_dir/libyuv.a" 'convert_argb\.cc\.o$'
 check_archive_platform "$lib_dir/libvpx.a" '\.o$'
+check_header 'opus/opus_multistream.h'
+check_archive_platform "$lib_dir/libopus.a" '\.o$'
 
 echo "iOS vcpkg native library verification passed"

@@ -55,13 +55,18 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagicYaml `
-    -Pattern '--overlay-triplets "\$VCPKG_OVERLAY_TRIPLETS"[\s\S]*verify-ios-vcpkg-libraries\.sh' `
-    -Message 'Codemagic must install with the iOS overlay triplet and verify native vcpkg libraries before Rust linking.'
+    -Pattern '--overlay-ports "\$VCPKG_OVERLAY_PORTS"[\s\S]*--overlay-triplets "\$VCPKG_OVERLAY_TRIPLETS"[\s\S]*verify-ios-vcpkg-libraries\.sh' `
+    -Message 'Codemagic must install with project overlay ports, the iOS overlay triplet, and verify native vcpkg libraries before Rust linking.'
 
 Assert-Contains `
     -Path $codemagicYaml `
     -Pattern 'set -euo pipefail[\s\S]*"libvpx:\$VCPKG_TRIPLET"[\s\S]*"libyuv:\$VCPKG_TRIPLET"[\s\S]*--classic' `
     -Message 'Codemagic iOS vcpkg step must use classic mode and install only target libvpx/libyuv instead of the full manifest host dependency graph.'
+
+Assert-Contains `
+    -Path $codemagicYaml `
+    -Pattern '"opus:\$VCPKG_TRIPLET"[\s\S]*--classic' `
+    -Message 'Codemagic iOS vcpkg step must install target opus for magnum-opus headers and static library.'
 
 Assert-Contains `
     -Path $verifyVcpkg `
@@ -72,6 +77,16 @@ Assert-Contains `
     -Path $verifyVcpkg `
     -Pattern 'libyuv\.a" ''convert_argb\\\.cc\\\.o\$''' `
     -Message 'iOS vcpkg verification must inspect the libyuv object that failed in Codemagic.'
+
+Assert-Contains `
+    -Path $verifyVcpkg `
+    -Pattern 'opus/opus_multistream\.h' `
+    -Message 'iOS vcpkg verification must fail early if opus headers required by magnum-opus are missing.'
+
+Assert-Contains `
+    -Path $verifyVcpkg `
+    -Pattern 'libopus\.a" ''\\\.o\$''' `
+    -Message 'iOS vcpkg verification must inspect libopus before Rust linking.'
 
 Assert-Contains `
     -Path $codemagicYaml `
