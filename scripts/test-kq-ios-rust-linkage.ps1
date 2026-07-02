@@ -17,6 +17,18 @@ function Assert-Contains {
     }
 }
 
+function Assert-GitTracks {
+    param(
+        [string]$RelativePath,
+        [string]$Message
+    )
+
+    $null = & git -C $Root ls-files --error-unmatch $RelativePath 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw $Message
+    }
+}
+
 $buildRs = Join-Path $Root 'libs/scrap/build.rs'
 $modRs = Join-Path $Root 'libs/scrap/src/common/mod.rs'
 $codecRs = Join-Path $Root 'libs/scrap/src/common/codec.rs'
@@ -27,6 +39,8 @@ $iosProject = Join-Path $Root 'flutter/ios/Runner.xcodeproj/project.pbxproj'
 $iosInfoPlist = Join-Path $Root 'flutter/ios/Runner/Info.plist'
 $iosExportOptions = Join-Path $Root 'flutter/ios/exportOptions.plist'
 $iosBuildDoc = Join-Path $Root 'docs/KQ_REMOTE_LINK_IOS_BUILD.md'
+$iosRunnerBridgingHeader = Join-Path $Root 'flutter/ios/Runner/Runner-Bridging-Header.h'
+$iosBridgeHeader = Join-Path $Root 'flutter/ios/Runner/bridge_generated.h'
 
 Assert-Contains `
     -Path $buildRs `
@@ -112,5 +126,19 @@ Assert-Contains `
     -Path $iosBuildDoc `
     -Pattern 'com\.kunqiong\.remotelink' `
     -Message 'iOS build documentation must show the registered KQ Remote Link Bundle ID.'
+
+Assert-Contains `
+    -Path $iosRunnerBridgingHeader `
+    -Pattern '#import "bridge_generated\.h"' `
+    -Message 'Runner bridging header must import the flutter_rust_bridge C header.'
+
+Assert-Contains `
+    -Path $iosBridgeHeader `
+    -Pattern 'dummy_method_to_enforce_bundling[\s\S]*session_get_rgba' `
+    -Message 'iOS must include the generated flutter_rust_bridge C header used by AppDelegate.swift.'
+
+Assert-GitTracks `
+    -RelativePath 'flutter/ios/Runner/bridge_generated.h' `
+    -Message 'iOS generated bridge header must be tracked so Codemagic fresh clones can build.'
 
 Write-Host 'KQ iOS Rust linkage checks passed'
