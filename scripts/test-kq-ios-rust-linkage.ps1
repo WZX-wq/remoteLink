@@ -60,8 +60,8 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagicYaml `
-    -Pattern 'set -euo pipefail[\s\S]*"libvpx:\$VCPKG_TRIPLET"[\s\S]*"libyuv:\$VCPKG_TRIPLET"' `
-    -Message 'Codemagic iOS vcpkg step must install only target libvpx/libyuv instead of the full manifest host dependency graph.'
+    -Pattern 'set -euo pipefail[\s\S]*"libvpx:\$VCPKG_TRIPLET"[\s\S]*"libyuv:\$VCPKG_TRIPLET"[\s\S]*--classic' `
+    -Message 'Codemagic iOS vcpkg step must use classic mode and install only target libvpx/libyuv instead of the full manifest host dependency graph.'
 
 Assert-Contains `
     -Path $verifyVcpkg `

@@ -53,6 +53,7 @@ workflows:
           "$VCPKG_ROOT/vcpkg" install \
             "libvpx:$VCPKG_TRIPLET" \
             "libyuv:$VCPKG_TRIPLET" \
+            --classic \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
             --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
@@ -151,6 +152,7 @@ workflows:
           "$VCPKG_ROOT/vcpkg" install \
             "libvpx:$VCPKG_TRIPLET" \
             "libyuv:$VCPKG_TRIPLET" \
+            --classic \
             --triplet "$VCPKG_TRIPLET" \
             --host-triplet "$VCPKG_HOST_TRIPLET" \
             --overlay-triplets "$VCPKG_OVERLAY_TRIPLETS" \
