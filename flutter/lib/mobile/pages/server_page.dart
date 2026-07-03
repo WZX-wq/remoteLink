@@ -15,6 +15,8 @@ import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 import 'page_shape.dart';
 
+const _kqIOSBroadcastChannel = MethodChannel('mChannel');
+
 class ServerPage extends StatefulWidget implements PageShape {
   @override
   final title = translate("Share screen");
@@ -202,7 +204,7 @@ class _ServerPageState extends State<ServerPage> {
   @override
   Widget build(BuildContext context) {
     if (isIOS) {
-      return const _IOSScreenShareUnavailable();
+      return const _IOSScreenShareBroadcastMvp();
     }
     checkService();
     return ChangeNotifierProvider.value(
@@ -236,6 +238,366 @@ void checkService() async {
   }
 }
 
+class _IOSScreenShareBroadcastMvp extends StatefulWidget {
+  const _IOSScreenShareBroadcastMvp();
+
+  @override
+  State<_IOSScreenShareBroadcastMvp> createState() =>
+      _IOSScreenShareBroadcastMvpState();
+}
+
+class _IOSScreenShareBroadcastMvpState
+    extends State<_IOSScreenShareBroadcastMvp> {
+  Timer? _statusTimer;
+  Map<String, dynamic> _status = const {
+    'state': 'not_started',
+    'videoFrames': 0,
+    'appAudioFrames': 0,
+    'micAudioFrames': 0,
+    'width': 0,
+    'height': 0,
+    'updatedAt': 0.0,
+    'isFresh': false,
+  };
+  bool _opening = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshStatus();
+    _statusTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _refreshStatus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _openBroadcastPicker() async {
+    if (_opening) return;
+    setState(() {
+      _opening = true;
+      _errorText = null;
+    });
+    try {
+      final opened = await _kqIOSBroadcastChannel
+          .invokeMethod<bool>('show_broadcast_picker');
+      if (!mounted) return;
+      if (opened == true) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        await _refreshStatus();
+      } else {
+        setState(() {
+          _errorText = _iosShareText(
+            zhCn: '未能打开系统屏幕共享面板，请确认安装包包含 Broadcast 扩展。',
+            zhTw: '未能開啟系統螢幕分享面板，請確認安裝包包含 Broadcast 擴充功能。',
+            en: 'Could not open the system screen sharing panel. Check that the build includes the Broadcast extension.',
+          );
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = _iosShareText(
+          zhCn: '打开屏幕共享失败：$e',
+          zhTw: '開啟螢幕分享失敗：$e',
+          en: 'Failed to open screen sharing: $e',
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _opening = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshStatus() async {
+    try {
+      final raw =
+          await _kqIOSBroadcastChannel.invokeMethod('get_broadcast_status');
+      if (!mounted || raw is! Map) return;
+      setState(() {
+        _status = raw.map((key, value) => MapEntry(key.toString(), value));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = _iosShareText(
+          zhCn: '读取屏幕共享状态失败：$e',
+          zhTw: '讀取螢幕分享狀態失敗：$e',
+          en: 'Failed to read screen sharing status: $e',
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final state = (_status['state'] ?? 'not_started').toString();
+    final videoFrames = _statusInt('videoFrames');
+    final appAudioFrames = _statusInt('appAudioFrames');
+    final micAudioFrames = _statusInt('micAudioFrames');
+    final width = _statusInt('width');
+    final height = _statusInt('height');
+    final isFresh = _status['isFresh'] == true;
+    final hasVideo = videoFrames > 0;
+    final stateColor = hasVideo && isFresh
+        ? q.online
+        : state == 'finished'
+            ? q.muted
+            : q.warning;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
+      children: [
+        PaddingCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: q.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.mobile_screen_share_rounded,
+                      color: q.primary, size: 28),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _iosShareText(
+                          zhCn: 'iOS 屏幕共享',
+                          zhTw: 'iOS 螢幕分享',
+                          en: 'iOS screen sharing',
+                        ),
+                        style: TextStyle(
+                          color: q.ink,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _iosShareText(
+                          zhCn: '点击开始后，在系统面板里选择鲲穹远程桌面并开始直播。当前版本先验证采集链路。',
+                          zhTw: '點擊開始後，在系統面板裡選擇鯤穹遠程桌面並開始直播。目前版本先驗證擷取鏈路。',
+                          en: 'Tap start, choose KQ Remote Link in the system panel, and start broadcast. This build verifies the capture path first.',
+                        ),
+                        style: TextStyle(
+                          color: q.muted,
+                          fontSize: 13,
+                          height: 1.36,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _opening ? null : _openBroadcastPicker,
+                  icon: _opening
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: q.primary,
+                          ),
+                        )
+                      : const Icon(Icons.play_arrow_rounded),
+                  label: Text(_opening
+                      ? _iosShareText(
+                          zhCn: '正在打开...',
+                          zhTw: '正在開啟...',
+                          en: 'Opening...',
+                        )
+                      : _iosShareText(
+                          zhCn: '开始屏幕共享',
+                          zhTw: '開始螢幕分享',
+                          en: 'Start screen sharing',
+                        )),
+                ),
+              ),
+              if (_errorText != null) ...[
+                const SizedBox(height: 12),
+                _IOSShareRequirementNotice(text: _errorText!),
+              ],
+            ],
+          ),
+        ),
+        PaddingCard(
+          title: _iosShareText(
+            zhCn: '采集状态',
+            zhTw: '擷取狀態',
+            en: 'Capture status',
+          ),
+          titleIcon: Icon(Icons.sensors_rounded, color: stateColor),
+          child: Column(
+            children: [
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '状态',
+                  zhTw: '狀態',
+                  en: 'State',
+                ),
+                value: _statusLabel(state, hasVideo, isFresh),
+                color: stateColor,
+              ),
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '视频帧',
+                  zhTw: '影片幀',
+                  en: 'Video frames',
+                ),
+                value: '$videoFrames',
+              ),
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '分辨率',
+                  zhTw: '解析度',
+                  en: 'Resolution',
+                ),
+                value: width > 0 && height > 0 ? '${width}x$height' : '--',
+              ),
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '应用音频帧',
+                  zhTw: '應用音訊幀',
+                  en: 'App audio frames',
+                ),
+                value: '$appAudioFrames',
+              ),
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '麦克风音频帧',
+                  zhTw: '麥克風音訊幀',
+                  en: 'Mic audio frames',
+                ),
+                value: '$micAudioFrames',
+              ),
+            ],
+          ),
+        ),
+        PaddingCard(
+          child: _IOSShareRequirementNotice(
+            text: _iosShareText(
+              zhCn: '这是第一阶段 ReplayKit 采集验证。iOS 受系统限制，暂不能像安卓一样接收远程鼠标键盘控制。',
+              zhTw: '這是第一階段 ReplayKit 擷取驗證。iOS 受系統限制，暫不能像安卓一樣接收遠端滑鼠鍵盤控制。',
+              en: 'This is the first-stage ReplayKit capture check. iOS system limits still prevent Android-style remote mouse and keyboard control.',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  int _statusInt(String key) {
+    final value = _status[key];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _statusLabel(String state, bool hasVideo, bool isFresh) {
+    if (hasVideo && isFresh) {
+      return _iosShareText(
+        zhCn: '正在采集',
+        zhTw: '正在擷取',
+        en: 'Capturing',
+      );
+    }
+    if (state == 'finished') {
+      return _iosShareText(
+        zhCn: '已结束',
+        zhTw: '已結束',
+        en: 'Finished',
+      );
+    }
+    if (state == 'paused') {
+      return _iosShareText(
+        zhCn: '已暂停',
+        zhTw: '已暫停',
+        en: 'Paused',
+      );
+    }
+    if (hasVideo) {
+      return _iosShareText(
+        zhCn: '等待新画面',
+        zhTw: '等待新畫面',
+        en: 'Waiting for new frames',
+      );
+    }
+    return _iosShareText(
+      zhCn: '未开始',
+      zhTw: '未開始',
+      en: 'Not started',
+    );
+  }
+}
+
+class _IOSBroadcastStatusRow extends StatelessWidget {
+  const _IOSBroadcastStatusRow({
+    required this.label,
+    required this.value,
+    this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(children: [
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: q.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color ?? q.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+// ignore: unused_element
 class _IOSScreenShareUnavailable extends StatelessWidget {
   const _IOSScreenShareUnavailable();
 

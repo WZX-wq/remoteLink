@@ -1,12 +1,15 @@
 import UIKit
 import Flutter
 import WebKit
+import ReplayKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, WKNavigationDelegate {
   private var paymentWebView: WKWebView?
   private var paymentResult: FlutterResult?
   private var paymentTimeout: Timer?
+  private let broadcastExtensionBundleId = "com.kunqiong.remotelink.broadcast"
+  private let broadcastAppGroupId = "group.com.kunqiong.remotelink"
 
   override func application(
     _ application: UIApplication,
@@ -33,6 +36,10 @@ import WebKit
         self.openAlipayHtml(call.arguments as? String ?? "", result: result)
       case "open_payment_uri":
         self.openPaymentUri(call.arguments as? String ?? "", result: result)
+      case "show_broadcast_picker":
+        self.showBroadcastPicker(result: result)
+      case "get_broadcast_status":
+        self.getBroadcastStatus(result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -79,6 +86,62 @@ import WebKit
     UIApplication.shared.open(url, options: [:]) { opened in
       result(opened)
     }
+  }
+
+  private func showBroadcastPicker(result: @escaping FlutterResult) {
+    guard let rootView = window?.rootViewController?.view else {
+      result(false)
+      return
+    }
+
+    let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+    picker.preferredExtension = broadcastExtensionBundleId
+    picker.showsMicrophoneButton = false
+    picker.alpha = 0.01
+    picker.isAccessibilityElement = false
+    rootView.addSubview(picker)
+
+    for subview in picker.subviews {
+      if let button = subview as? UIButton {
+        button.sendActions(for: .touchUpInside)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+          picker.removeFromSuperview()
+        }
+        result(true)
+        return
+      }
+    }
+
+    picker.removeFromSuperview()
+    result(false)
+  }
+
+  private func getBroadcastStatus(result: @escaping FlutterResult) {
+    guard let defaults = UserDefaults(suiteName: broadcastAppGroupId) else {
+      result([
+        "state": "unavailable",
+        "videoFrames": 0,
+        "appAudioFrames": 0,
+        "micAudioFrames": 0,
+        "width": 0,
+        "height": 0,
+        "updatedAt": 0.0,
+        "isFresh": false,
+      ])
+      return
+    }
+
+    let updatedAt = defaults.double(forKey: "kq_broadcast_updated_at")
+    result([
+      "state": defaults.string(forKey: "kq_broadcast_state") ?? "not_started",
+      "videoFrames": defaults.integer(forKey: "kq_broadcast_video_frames"),
+      "appAudioFrames": defaults.integer(forKey: "kq_broadcast_app_audio_frames"),
+      "micAudioFrames": defaults.integer(forKey: "kq_broadcast_mic_audio_frames"),
+      "width": defaults.integer(forKey: "kq_broadcast_width"),
+      "height": defaults.integer(forKey: "kq_broadcast_height"),
+      "updatedAt": updatedAt,
+      "isFresh": updatedAt > 0 && Date().timeIntervalSince1970 - updatedAt < 5.0,
+    ])
   }
 
   private func finishPaymentHandoff(opened: Bool) {

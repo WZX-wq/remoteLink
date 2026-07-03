@@ -104,8 +104,8 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagicYaml `
-    -Pattern 'bundle_identifier: com\.kunqiong\.remotelink' `
-    -Message 'Codemagic signed iOS workflow must use the registered KQ Remote Link Bundle ID.'
+    -Pattern 'BUNDLE_ID:\s*com\.kunqiong\.remotelink[\s\S]*fetch-signing-files "\$BUNDLE_ID"[\s\S]*--bundle-id "\$BUNDLE_ID"' `
+    -Message 'Codemagic TestFlight workflow must use the registered KQ Remote Link Bundle ID for signing and upload.'
 
 Assert-Contains `
     -Path $iosProject `

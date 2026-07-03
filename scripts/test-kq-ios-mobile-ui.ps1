@@ -58,13 +58,18 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $mobileServerPage `
-    -Pattern 'if \(isIOS\) \{[\s\S]*return const _IOSScreenShareUnavailable\(\);[\s\S]*\}' `
-    -Message 'iOS Share screen page must show an iOS-specific unavailable state instead of the Android service controls.'
+    -Pattern 'if \(isIOS\) \{[\s\S]*return const _IOSScreenShareBroadcastMvp\(\);[\s\S]*\}' `
+    -Message 'iOS Share screen page must show the ReplayKit broadcast MVP instead of Android service controls.'
 
 Assert-Contains `
     -Path $mobileServerPage `
-    -Pattern 'class _IOSScreenShareUnavailable extends StatelessWidget' `
-    -Message 'iOS Share screen page must have a dedicated unavailable widget.'
+    -Pattern 'class _IOSScreenShareBroadcastMvp extends StatefulWidget' `
+    -Message 'iOS Share screen page must have a dedicated ReplayKit broadcast MVP widget.'
+
+Assert-Contains `
+    -Path $mobileServerPage `
+    -Pattern "invokeMethod<.*>\('show_broadcast_picker'\)|invokeMethod\('show_broadcast_picker'\)" `
+    -Message 'iOS Share screen page must open the native ReplayKit broadcast picker.'
 
 Assert-Contains `
     -Path $mobileServerPage `
@@ -74,11 +79,11 @@ Assert-Contains `
 Assert-Contains `
     -Path $nativeModel `
     -Pattern 'invokeMethod\(String method, \[dynamic arguments\]\) async \{[\s\S]*if \(!isAndroid\) return Future<bool>\(\(\) => false\);' `
-    -Message 'The current native service MethodChannel path is Android-only; iOS must not be wired to Android server controls.'
+    -Message 'The Android server-control MethodChannel path must remain Android-only; iOS ReplayKit uses its own native channel calls.'
 
-Assert-NotContains `
+Assert-Contains `
     -Path $iosProject `
-    -Pattern 'com\.apple\.product-type\.app-extension|RPBroadcast|ReplayKit' `
-    -Message 'The iOS project does not yet contain a ReplayKit broadcast extension; do not expose Android server controls as a working iOS screen sharing flow.'
+    -Pattern 'com\.apple\.product-type\.app-extension' `
+    -Message 'The iOS project must contain the ReplayKit broadcast upload extension target.'
 
 Write-Host 'KQ iOS mobile UI checks passed'

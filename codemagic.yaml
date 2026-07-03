@@ -15,7 +15,8 @@ workflows:
         VCPKG_TRIPLET: arm64-ios
         VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
-        FLUTTER_BUILD_NUMBER: 4072
+        FLUTTER_BUILD_NUMBER: 4073
+        EXTENSION_BUNDLE_ID: com.kunqiong.remotelink.broadcast
     scripts:
       - name: Install native build dependencies
         script: |
@@ -113,8 +114,9 @@ workflows:
         VCPKG_TRIPLET: arm64-ios
         VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
-        FLUTTER_BUILD_NUMBER: 4072
+        FLUTTER_BUILD_NUMBER: 4073
         BUNDLE_ID: com.kunqiong.remotelink
+        EXTENSION_BUNDLE_ID: com.kunqiong.remotelink.broadcast
         XCODE_WORKSPACE: flutter/ios/Runner.xcworkspace
         XCODE_PROJECT: Runner.xcodeproj
         XCODE_SCHEME: Runner
@@ -190,6 +192,9 @@ workflows:
       - name: Fetch App Store signing files
         script: |
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          app-store-connect fetch-signing-files "$EXTENSION_BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create
       - name: Set up signing certificate
