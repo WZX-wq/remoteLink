@@ -188,7 +188,9 @@ class _ServerPageState extends State<ServerPage> {
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
     });
-    gFFI.serverModel.checkAndroidPermission();
+    if (isAndroid) {
+      gFFI.serverModel.checkAndroidPermission();
+    }
   }
 
   @override

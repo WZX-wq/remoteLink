@@ -54,10 +54,12 @@ class HomePageState extends State<HomePage> {
       _pages.add(ConnectionPage(
         appBarActions: [],
       ));
-      _pages.add(RecentConnectionsPage());
     }
-    if (isAndroid && !bind.isOutgoingOnly()) {
+    if (!bind.isOutgoingOnly()) {
       _pages.add(ServerPage());
+    }
+    if (!bind.isIncomingOnly()) {
+      _pages.add(RecentConnectionsPage());
     }
     _pages.add(AccountPage());
   }
