@@ -105,9 +105,6 @@ workflows:
       flutter: 3.24.5
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.kunqiong.remotelink
       vars:
         CARGO_TARGET: aarch64-apple-ios
         RUST_VERSION: "1.75"
@@ -117,6 +114,7 @@ workflows:
         VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
         FLUTTER_BUILD_NUMBER: 4067
+        BUNDLE_ID: com.kunqiong.remotelink
         XCODE_WORKSPACE: flutter/ios/Runner.xcworkspace
         XCODE_PROJECT: Runner.xcodeproj
         XCODE_SCHEME: Runner
@@ -186,6 +184,17 @@ workflows:
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           cargo build --features flutter --release --target "$CARGO_TARGET" --lib
+      - name: Set up keychain
+        script: |
+          keychain initialize
+      - name: Fetch App Store signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Set up signing certificate
+        script: |
+          keychain add-certificates
       - name: Set up code signing settings
         script: |
           cd "$CM_BUILD_DIR/flutter/ios"
