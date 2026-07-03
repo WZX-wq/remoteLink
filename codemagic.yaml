@@ -222,8 +222,11 @@ workflows:
       - name: Upload IPA to App Store Connect
         script: |
           set -euo pipefail
+          if [ -z "${APP_STORE_CONNECT_APPLE_ID:-}" ]; then
+            echo "APP_STORE_CONNECT_APPLE_ID is required. Set it to the numeric Apple ID from App Store Connect > App Information."
+            exit 1
+          fi
           key_dir="$HOME/.appstoreconnect/private_keys"
-          key_path="$key_dir/AuthKey_${APP_STORE_CONNECT_KEY_IDENTIFIER}.p8"
           mkdir -p "$key_dir"
           python3 - <<'PY'
           import os
@@ -234,11 +237,20 @@ workflows:
           key_path = Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{os.environ['APP_STORE_CONNECT_KEY_IDENTIFIER']}.p8"
           key_path.write_text(key if key.endswith("\n") else key + "\n")
           PY
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$CM_BUILD_DIR/flutter/build/ios/ipa/KQRemoteLink.ipa" \
-            --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+          upload_args=(
+            --upload-package "$CM_BUILD_DIR/flutter/build/ios/ipa/KQRemoteLink.ipa"
+            --type ios
+            --apple-id "$APP_STORE_CONNECT_APPLE_ID"
+            --bundle-id "$BUNDLE_ID"
+            --bundle-short-version-string "$FLUTTER_BUILD_NAME"
+            --bundle-version "$FLUTTER_BUILD_NUMBER"
+            --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER"
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+          )
+          if [ -n "${APP_STORE_CONNECT_ASC_PUBLIC_ID:-}" ]; then
+            upload_args+=(--asc-public-id "$APP_STORE_CONNECT_ASC_PUBLIC_ID")
+          fi
+          xcrun altool "${upload_args[@]}"
     artifacts:
       - flutter/build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
