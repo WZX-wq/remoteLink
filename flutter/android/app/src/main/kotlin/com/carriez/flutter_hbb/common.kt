@@ -4,6 +4,7 @@ import android.Manifest.permission.*
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioRecord
 import android.media.AudioRecord.READ_BLOCKING
 import android.media.MediaCodecList
@@ -56,6 +57,8 @@ const val OPEN_PAYMENT_URI = "open_payment_uri"
 const val OPEN_WECHAT_PAY = "open_wechat_pay"
 const val OPEN_ALIPAY_ORDER = "open_alipay_order"
 const val OPEN_ALIPAY_HTML = "open_alipay_html"
+const val WECHAT_PACKAGE_NAME = "com.tencent.mm"
+const val ALIPAY_PACKAGE_NAME = "com.eg.android.AlipayGphone"
 
 const val KEY_IS_SUPPORT_VOICE_CALL = "KEY_IS_SUPPORT_VOICE_CALL"
 
@@ -106,14 +109,42 @@ fun startAction(context: Context, action: String) {
     }
 }
 
+fun isPackageInstalled(context: Context, packageName: String): Boolean {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageInfo(
+                packageName,
+                PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(packageName, 0)
+        }
+        true
+    } catch (e: PackageManager.NameNotFoundException) {
+        false
+    }
+}
+
+fun isAlipayInstalled(context: Context): Boolean {
+    return isPackageInstalled(context, ALIPAY_PACKAGE_NAME)
+}
+
 fun openPaymentUri(context: Context, uri: String): Boolean {
+    val lower = uri.trim().lowercase(Locale.ROOT)
+    val isWechatUri = lower.startsWith("weixin://")
+    val isAlipayUri = lower.startsWith("alipays://") || lower.startsWith("alipayqr://")
+    if (isAlipayUri && !isAlipayInstalled(context)) {
+        Log.w("common", "Alipay is not installed; skip payment uri launch")
+        return false
+    }
     return try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (uri.startsWith("weixin://", true)) {
-                setPackage("com.tencent.mm")
-            } else if (uri.startsWith("alipays://", true) || uri.startsWith("alipayqr://", true)) {
-                setPackage("com.eg.android.AlipayGphone")
+            if (isWechatUri) {
+                setPackage(WECHAT_PACKAGE_NAME)
+            } else if (isAlipayUri) {
+                setPackage(ALIPAY_PACKAGE_NAME)
             }
         })
         true
@@ -198,6 +229,10 @@ fun openAlipayOrder(activity: Activity, orderInfo: String): Map<String, String> 
 
 fun openAlipayHtmlCheckout(context: Context, html: String): Boolean {
     if (html.isBlank()) return false
+    if (!isAlipayInstalled(context)) {
+        Log.w("common", "Alipay is not installed; skip HTML checkout activity")
+        return false
+    }
     return try {
         context.startActivity(Intent(context, AlipayCheckoutActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

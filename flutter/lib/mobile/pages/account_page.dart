@@ -263,7 +263,7 @@ class _AccountPageState extends State<AccountPage> {
       }
       return _KqPaymentLaunchResult(
         _KqPaymentLaunchState.unavailable,
-        messageKey: isIOS
+        messageKey: (isAndroid || isIOS)
             ? 'Alipay is not installed. Please install Alipay and try again.'
             : null,
       );
@@ -420,9 +420,13 @@ class _AccountPageState extends State<AccountPage> {
                 clearPaymentLaunchWatchdog();
                 if (!alive) return;
                 final launchState = launchResult.state;
+                final isMobileAlipayUnavailable =
+                    launchState == _KqPaymentLaunchState.unavailable &&
+                        payType == 2 &&
+                        (isAndroid || isIOS);
                 final shouldShowQrFallback =
                     launchState == _KqPaymentLaunchState.unavailable &&
-                        !(isIOS && payType == 2);
+                        !isMobileAlipayUnavailable;
                 final nextStatusText = launchState ==
                         _KqPaymentLaunchState.opened
                     ? _mineText('Alipay cashier opened')

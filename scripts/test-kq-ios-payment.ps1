@@ -66,8 +66,13 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $accountPage `
-    -Pattern 'shouldShowQrFallback\s*=\s*launchState == _KqPaymentLaunchState\.unavailable[\s\S]*!\(isIOS && payType == 2\)' `
-    -Message 'iOS Alipay unavailable state must cancel the payment instead of enabling QR fallback.'
+    -Pattern 'isMobileAlipayUnavailable\s*=\s*launchState == _KqPaymentLaunchState\.unavailable[\s\S]*payType == 2[\s\S]*\(isAndroid \|\| isIOS\)' `
+    -Message 'Mobile Alipay unavailable state must be detected as a missing-app terminal state.'
+
+Assert-Contains `
+    -Path $accountPage `
+    -Pattern 'shouldShowQrFallback\s*=\s*launchState == _KqPaymentLaunchState\.unavailable &&[\s\S]*!isMobileAlipayUnavailable' `
+    -Message 'Mobile Alipay unavailable state must cancel the payment instead of enabling QR fallback.'
 
 Assert-Contains `
     -Path $accountPage `
