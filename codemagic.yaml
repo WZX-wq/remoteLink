@@ -95,16 +95,18 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
 
-  kq-remote-link-ios-ipa:
-    name: KQ Remote Link iOS - Signed IPA
+  kq-remote-link-ios-testflight:
+    name: KQ Remote Link iOS - TestFlight
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
+      groups:
+        - appstore_credentials
       flutter: 3.24.5
       xcode: latest
       cocoapods: default
       ios_signing:
-        distribution_type: ad_hoc
+        distribution_type: app_store
         bundle_identifier: com.kunqiong.remotelink
       vars:
         CARGO_TARGET: aarch64-apple-ios
@@ -201,3 +203,8 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
