@@ -19,7 +19,7 @@ import '../../utils/http_service.dart' as http;
 import 'page_shape.dart';
 import 'settings_page.dart';
 
-const _kqAndroidPaymentChannel = MethodChannel('mChannel');
+const _kqMobilePaymentChannel = MethodChannel('mChannel');
 
 enum _KqPaymentLaunchState { opened, cancelled, failed, unavailable }
 
@@ -199,8 +199,8 @@ class _AccountPageState extends State<AccountPage> {
       final html = order.alipaySubmitHtml.trim();
       if (html.isEmpty) return false;
       try {
-        if (isAndroid) {
-          final opened = await _kqAndroidPaymentChannel.invokeMethod(
+        if (isAndroid || isIOS) {
+          final opened = await _kqMobilePaymentChannel.invokeMethod(
             AndroidChannel.kOpenAlipayHtml,
             html,
           );
@@ -226,8 +226,8 @@ class _AccountPageState extends State<AccountPage> {
 
     Future<bool> openPaymentUri(Uri uri) async {
       try {
-        if (isAndroid) {
-          final opened = await gFFI.invokeMethod(
+        if (isAndroid || isIOS) {
+          final opened = await _kqMobilePaymentChannel.invokeMethod(
             AndroidChannel.kOpenPaymentUri,
             uri.toString(),
           );
@@ -267,7 +267,7 @@ class _AccountPageState extends State<AccountPage> {
       final appPayRequest = order.wechatAppPayRequest;
       if (isAndroid && appPayRequest != null) {
         try {
-          final result = await _kqAndroidPaymentChannel.invokeMethod(
+          final result = await _kqMobilePaymentChannel.invokeMethod(
             AndroidChannel.kOpenWechatPay,
             appPayRequest.toMethodChannelArgs(),
           );
