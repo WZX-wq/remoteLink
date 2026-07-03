@@ -15,7 +15,7 @@ workflows:
         VCPKG_TRIPLET: arm64-ios
         VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
-        FLUTTER_BUILD_NUMBER: 4071
+        FLUTTER_BUILD_NUMBER: 4072
     scripts:
       - name: Install native build dependencies
         script: |
@@ -113,7 +113,7 @@ workflows:
         VCPKG_TRIPLET: arm64-ios
         VCPKG_HOST_TRIPLET: arm64-osx
         FLUTTER_BUILD_NAME: 1.4.6
-        FLUTTER_BUILD_NUMBER: 4071
+        FLUTTER_BUILD_NUMBER: 4072
         BUNDLE_ID: com.kunqiong.remotelink
         XCODE_WORKSPACE: flutter/ios/Runner.xcworkspace
         XCODE_PROJECT: Runner.xcodeproj

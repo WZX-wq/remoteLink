@@ -33,6 +33,8 @@ function Assert-NotContains {
 $mobileHomePage = Join-Path $Root 'flutter/lib/mobile/pages/home_page.dart'
 $mobileConnectionPage = Join-Path $Root 'flutter/lib/mobile/pages/connection_page.dart'
 $mobileServerPage = Join-Path $Root 'flutter/lib/mobile/pages/server_page.dart'
+$nativeModel = Join-Path $Root 'flutter/lib/models/native_model.dart'
+$iosProject = Join-Path $Root 'flutter/ios/Runner.xcodeproj/project.pbxproj'
 
 Assert-Contains `
     -Path $mobileHomePage `
@@ -53,5 +55,30 @@ Assert-Contains `
     -Path $mobileServerPage `
     -Pattern 'if \(isAndroid\) \{[\s\S]*gFFI\.serverModel\.checkAndroidPermission\(\);[\s\S]*\}' `
     -Message 'iOS Share screen page must not invoke Android permission checks.'
+
+Assert-Contains `
+    -Path $mobileServerPage `
+    -Pattern 'if \(isIOS\) \{[\s\S]*return const _IOSScreenShareUnavailable\(\);[\s\S]*\}' `
+    -Message 'iOS Share screen page must show an iOS-specific unavailable state instead of the Android service controls.'
+
+Assert-Contains `
+    -Path $mobileServerPage `
+    -Pattern 'class _IOSScreenShareUnavailable extends StatelessWidget' `
+    -Message 'iOS Share screen page must have a dedicated unavailable widget.'
+
+Assert-Contains `
+    -Path $mobileServerPage `
+    -Pattern 'void checkService\(\) async \{[\s\S]*if \(!isAndroid\) return;[\s\S]*gFFI\.invokeMethod\("check_service"\);' `
+    -Message 'checkService must not run Android service checks on iOS.'
+
+Assert-Contains `
+    -Path $nativeModel `
+    -Pattern 'invokeMethod\(String method, \[dynamic arguments\]\) async \{[\s\S]*if \(!isAndroid\) return Future<bool>\(\(\) => false\);' `
+    -Message 'The current native service MethodChannel path is Android-only; iOS must not be wired to Android server controls.'
+
+Assert-NotContains `
+    -Path $iosProject `
+    -Pattern 'com\.apple\.product-type\.app-extension|RPBroadcast|ReplayKit' `
+    -Message 'The iOS project does not yet contain a ReplayKit broadcast extension; do not expose Android server controls as a working iOS screen sharing flow.'
 
 Write-Host 'KQ iOS mobile UI checks passed'

@@ -201,6 +201,9 @@ class _ServerPageState extends State<ServerPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (isIOS) {
+      return const _IOSScreenShareUnavailable();
+    }
     checkService();
     return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
@@ -223,6 +226,7 @@ class _ServerPageState extends State<ServerPage> {
 }
 
 void checkService() async {
+  if (!isAndroid) return;
   gFFI.invokeMethod("check_service");
   // for Android 10/11, request MANAGE_EXTERNAL_STORAGE permission from system setting page
   if (AndroidPermissionManager.isWaitingFile() && !gFFI.serverModel.fileOk) {
@@ -230,6 +234,131 @@ void checkService() async {
         await AndroidPermissionManager.check(kManageExternalStorage));
     debugPrint("file permission finished");
   }
+}
+
+class _IOSScreenShareUnavailable extends StatelessWidget {
+  const _IOSScreenShareUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
+      children: [
+        PaddingCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: q.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.mobile_screen_share_rounded,
+                      color: q.primary, size: 28),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _iosShareText(
+                          zhCn: 'iOS 屏幕共享暂不可用',
+                          zhTw: 'iOS 螢幕分享暫不可用',
+                          en: 'iOS screen sharing is not available yet',
+                        ),
+                        style: TextStyle(
+                          color: q.ink,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _iosShareText(
+                          zhCn:
+                              '当前安装包没有 iOS 屏幕采集服务，不能作为被控端共享本机屏幕；iPhone 仍可远程连接其他设备。',
+                          zhTw:
+                              '目前安裝包沒有 iOS 螢幕擷取服務，不能作為被控端分享本機螢幕；iPhone 仍可遠端連線其他裝置。',
+                          en: 'This build does not include the iOS screen capture service, so this iPhone cannot share its own screen as a controlled device. You can still connect from iPhone to other devices.',
+                        ),
+                        style: TextStyle(
+                          color: q.muted,
+                          fontSize: 13,
+                          height: 1.36,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 14),
+              _IOSShareRequirementNotice(
+                text: _iosShareText(
+                  zhCn: '要真正支持苹果端屏幕共享，需要接入 ReplayKit Broadcast 扩展并配置对应签名。',
+                  zhTw: '要真正支援蘋果端螢幕分享，需要接入 ReplayKit Broadcast 擴充功能並配置對應簽名。',
+                  en: 'Real iOS screen sharing requires a ReplayKit Broadcast extension and matching signing setup.',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IOSShareRequirementNotice extends StatelessWidget {
+  const _IOSShareRequirementNotice({
+    required this.text,
+  });
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: q.warning.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: q.warning.withOpacity(0.22)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.info_outline_rounded, color: q.warning, size: 19),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: q.ink,
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+String _iosShareText({
+  required String zhCn,
+  required String zhTw,
+  required String en,
+}) {
+  if (!kqUiPrefersChinese()) {
+    return translate(en);
+  }
+  return kqUiPrefersSimplifiedChinese() ? zhCn : zhTw;
 }
 
 class ServiceNotRunningNotification extends StatelessWidget {
