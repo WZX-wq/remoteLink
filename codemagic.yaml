@@ -207,13 +207,40 @@ workflows:
             --build-name "$FLUTTER_BUILD_NAME" \
             --build-number "$FLUTTER_BUILD_NUMBER" \
             --export-options-plist=/Users/builder/export_options.plist
+      - name: Normalize IPA filename
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/flutter"
+          ipa_path="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          if [ -z "$ipa_path" ]; then
+            echo "No IPA found in build/ios/ipa"
+            exit 1
+          fi
+          if [ "$ipa_path" != "build/ios/ipa/KQRemoteLink.ipa" ]; then
+            mv "$ipa_path" build/ios/ipa/KQRemoteLink.ipa
+          fi
+      - name: Upload IPA to App Store Connect
+        script: |
+          set -euo pipefail
+          key_dir="$HOME/.appstoreconnect/private_keys"
+          key_path="$key_dir/AuthKey_${APP_STORE_CONNECT_KEY_IDENTIFIER}.p8"
+          mkdir -p "$key_dir"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          key = os.environ["APP_STORE_CONNECT_PRIVATE_KEY"]
+          key = key.replace("\\n", "\n").replace("\r\n", "\n")
+          key_path = Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{os.environ['APP_STORE_CONNECT_KEY_IDENTIFIER']}.p8"
+          key_path.write_text(key if key.endswith("\n") else key + "\n")
+          PY
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$CM_BUILD_DIR/flutter/build/ios/ipa/KQRemoteLink.ipa" \
+            --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
     artifacts:
       - flutter/build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
-    publishing:
-      app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
