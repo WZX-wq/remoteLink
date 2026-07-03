@@ -25,11 +25,12 @@ enum _KqPaymentLaunchState { opened, cancelled, failed, unavailable }
 
 class _KqPaymentLaunchResult {
   final _KqPaymentLaunchState state;
+  final String? messageKey;
 
-  const _KqPaymentLaunchResult(this.state);
+  const _KqPaymentLaunchResult(this.state, {this.messageKey});
 
   String failureMessage(String Function(String) text) {
-    return text('Payment was not completed');
+    return text(messageKey ?? 'Payment was not completed');
   }
 }
 
@@ -260,7 +261,12 @@ class _AccountPageState extends State<AccountPage> {
           return const _KqPaymentLaunchResult(_KqPaymentLaunchState.opened);
         }
       }
-      return const _KqPaymentLaunchResult(_KqPaymentLaunchState.unavailable);
+      return _KqPaymentLaunchResult(
+        _KqPaymentLaunchState.unavailable,
+        messageKey: isIOS
+            ? 'Alipay is not installed. Please install Alipay and try again.'
+            : null,
+      );
     }
 
     Future<bool> openWechatPaymentApp(KqMemberOrder order) async {
@@ -414,24 +420,39 @@ class _AccountPageState extends State<AccountPage> {
                 clearPaymentLaunchWatchdog();
                 if (!alive) return;
                 final launchState = launchResult.state;
+                final shouldShowQrFallback =
+                    launchState == _KqPaymentLaunchState.unavailable &&
+                        !(isIOS && payType == 2);
+                final nextStatusText = launchState ==
+                        _KqPaymentLaunchState.opened
+                    ? _mineText('Alipay cashier opened')
+                    : launchState == _KqPaymentLaunchState.cancelled
+                        ? _mineText('Payment cancelled')
+                        : launchState == _KqPaymentLaunchState.failed
+                            ? launchResult.failureMessage(_mineText)
+                            : shouldShowQrFallback
+                                ? _mineText(
+                                    'Payment app unavailable. Scan the QR code to pay')
+                                : launchResult.failureMessage(_mineText);
+                final nextStatusIsError =
+                    launchState == _KqPaymentLaunchState.failed ||
+                        (launchState == _KqPaymentLaunchState.unavailable &&
+                            !shouldShowQrFallback);
                 setSheetState(() {
-                  order = nextOrder;
-                  showQrFallback =
-                      launchState == _KqPaymentLaunchState.unavailable;
-                  statusText = launchState == _KqPaymentLaunchState.opened
-                      ? _mineText('Alipay cashier opened')
-                      : launchState == _KqPaymentLaunchState.cancelled
-                          ? _mineText('Payment cancelled')
-                          : launchState == _KqPaymentLaunchState.failed
-                              ? launchResult.failureMessage(_mineText)
-                              : _mineText(
-                                  'Payment app unavailable. Scan the QR code to pay');
-                  statusIsError = launchState == _KqPaymentLaunchState.failed;
+                  order = shouldShowQrFallback ||
+                          launchState == _KqPaymentLaunchState.opened
+                      ? nextOrder
+                      : null;
+                  showQrFallback = shouldShowQrFallback;
+                  statusText = nextStatusText;
+                  statusIsError = nextStatusIsError;
                 });
                 if (launchState == _KqPaymentLaunchState.opened) {
                   startPolling(nextOrder);
                 } else if (launchState == _KqPaymentLaunchState.cancelled) {
                   showToast(_mineText('Payment cancelled'));
+                } else if (nextStatusIsError) {
+                  showToast(nextStatusText);
                 }
               } catch (e) {
                 if (!alive) return;
@@ -2264,6 +2285,8 @@ const _mineZh = {
   'WeChat Pay': '微信支付',
   'WeChat payment opened': '已打开微信支付',
   'Payment app unavailable. Scan the QR code to pay': '未能唤起支付应用，请扫码支付',
+  'Alipay is not installed. Please install Alipay and try again.':
+      '\u672a\u5b89\u88c5\u652f\u4ed8\u5b9d\uff0c\u8bf7\u5b89\u88c5\u540e\u518d\u652f\u4ed8',
   'Alipay cashier opened': '已打开支付宝收银台',
   'Payment cancelled': '\u652f\u4ed8\u5df2\u53d6\u6d88',
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
@@ -2282,6 +2305,8 @@ const _mineTw = {
   'WeChat Pay': '微信支付',
   'WeChat payment opened': '已開啟微信支付',
   'Payment app unavailable. Scan the QR code to pay': '未能喚起支付應用，請掃碼支付',
+  'Alipay is not installed. Please install Alipay and try again.':
+      '\u672a\u5b89\u88dd\u652f\u4ed8\u5bf6\uff0c\u8acb\u5b89\u88dd\u5f8c\u518d\u652f\u4ed8',
   'Alipay cashier opened': '已開啟支付寶收銀台',
   'Payment cancelled': '\u652f\u4ed8\u5df2\u53d6\u6d88',
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',

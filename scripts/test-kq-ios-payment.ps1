@@ -17,6 +17,19 @@ function Assert-Contains {
     }
 }
 
+function Assert-NotContains {
+    param(
+        [string]$Path,
+        [string]$Pattern,
+        [string]$Message
+    )
+
+    $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    if ($content -match $Pattern) {
+        throw $Message
+    }
+}
+
 $accountPage = Join-Path $Root 'flutter/lib/mobile/pages/account_page.dart'
 $appDelegate = Join-Path $Root 'flutter/ios/Runner/AppDelegate.swift'
 $infoPlist = Join-Path $Root 'flutter/ios/Runner/Info.plist'
@@ -45,5 +58,25 @@ Assert-Contains `
     -Path $infoPlist `
     -Pattern '<key>LSApplicationQueriesSchemes</key>[\s\S]*<string>alipays</string>[\s\S]*<string>alipayqr</string>[\s\S]*<string>alipay</string>' `
     -Message 'iOS Info.plist must whitelist Alipay URL schemes.'
+
+Assert-Contains `
+    -Path $accountPage `
+    -Pattern 'Alipay is not installed\. Please install Alipay and try again\.' `
+    -Message 'iOS Alipay unavailable state must tell the user to install Alipay instead of showing a QR fallback.'
+
+Assert-Contains `
+    -Path $accountPage `
+    -Pattern 'shouldShowQrFallback\s*=\s*launchState == _KqPaymentLaunchState\.unavailable[\s\S]*!\(isIOS && payType == 2\)' `
+    -Message 'iOS Alipay unavailable state must cancel the payment instead of enabling QR fallback.'
+
+Assert-Contains `
+    -Path $accountPage `
+    -Pattern 'order\s*=\s*shouldShowQrFallback \|\|[\s\S]*launchState == _KqPaymentLaunchState\.opened[\s\S]*\? nextOrder[\s\S]*: null' `
+    -Message 'iOS unavailable Alipay orders must not be retained for the QR order panel.'
+
+Assert-NotContains `
+    -Path $accountPage `
+    -Pattern 'showQrFallback\s*=\s*launchState == _KqPaymentLaunchState\.unavailable;' `
+    -Message 'Payment unavailable must not unconditionally show the QR fallback.'
 
 Write-Host 'KQ iOS payment checks passed'
