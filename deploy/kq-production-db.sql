@@ -1,15 +1,15 @@
--- KQremoteLink production database initialization script.
--- Target: MySQL 8.x / MariaDB with InnoDB and utf8mb4.
+-- KQremoteLink 正式数据库初始化脚本。
+-- 目标数据库：MySQL 8.x / MariaDB，使用 InnoDB 和 utf8mb4。
 --
--- Default app env:
+-- 默认应用环境变量：
 --   KQ_DB_NAME=kq_remote_link
 --   KQ_DB_PORT=3306
 --
--- Run as a privileged database user:
---   mysql -h <db-host> -P 3306 -u <root-or-admin> -p < deploy/kq-production-db.sql
+-- 使用有建库权限的数据库账号执行：
+--   mysql -h 127.0.0.1 -P 3306 -u root -p < deploy/kq-production-db.sql
 --
--- Optional user creation example. Replace placeholders before running if needed:
---   CREATE USER IF NOT EXISTS 'kq_remote_link'@'%' IDENTIFIED BY '<fill-database-password>';
+-- 可选：创建 API 专用数据库账号示例。需要时先把示例密码改成服务器正式密码再执行：
+--   CREATE USER IF NOT EXISTS 'kq_remote_link'@'%' IDENTIFIED BY 'change_this_password';
 --   GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES
 --     ON kq_remote_link.* TO 'kq_remote_link'@'%';
 --   FLUSH PRIVILEGES;
@@ -126,8 +126,8 @@ CREATE TABLE IF NOT EXISTS `kq_member_snapshots` (
     FOREIGN KEY (`user_id`) REFERENCES `kq_users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Conservative migration for databases initialized by older builds.
--- Add kq_account_devices.device_key if it is missing.
+-- 兼容旧版本初始化过的数据库。
+-- 如果缺少 kq_account_devices.device_key 字段，则补充该字段。
 SET @kq_missing_device_key := (
   SELECT COUNT(*) = 0
   FROM information_schema.COLUMNS
@@ -149,7 +149,7 @@ UPDATE `kq_account_devices`
 SET `device_key` = `device_id`
 WHERE `device_key` = '';
 
--- Drop the legacy unique index if present.
+-- 如果旧唯一索引存在，则删除旧索引。
 SET @kq_has_legacy_index := (
   SELECT COUNT(*) > 0
   FROM information_schema.STATISTICS
@@ -167,7 +167,7 @@ PREPARE kq_stmt FROM @kq_sql;
 EXECUTE kq_stmt;
 DEALLOCATE PREPARE kq_stmt;
 
--- Ensure the current unique index exists.
+-- 确保当前版本使用的新唯一索引存在。
 SET @kq_missing_device_key_index := (
   SELECT COUNT(*) = 0
   FROM information_schema.STATISTICS

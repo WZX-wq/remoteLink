@@ -6,10 +6,10 @@
 --   KQ_DB_PORT=3306
 --
 -- 使用有建库权限的数据库账号执行：
---   mysql -h <数据库地址> -P 3306 -u <root或管理员账号> -p < deploy/kq-production-db.sql
+--   mysql -h 127.0.0.1 -P 3306 -u root -p < deploy/kq-production-db.sql
 --
--- 可选：创建 API 专用数据库账号示例。需要时先替换密码占位符再执行：
---   CREATE USER IF NOT EXISTS 'kq_remote_link'@'%' IDENTIFIED BY '<填写数据库密码>';
+-- 可选：创建 API 专用数据库账号示例。需要时先把示例密码改成服务器正式密码再执行：
+--   CREATE USER IF NOT EXISTS 'kq_remote_link'@'%' IDENTIFIED BY 'change_this_password';
 --   GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES
 --     ON kq_remote_link.* TO 'kq_remote_link'@'%';
 --   FLUSH PRIVILEGES;
