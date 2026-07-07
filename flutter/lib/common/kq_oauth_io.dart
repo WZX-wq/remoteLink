@@ -373,15 +373,42 @@ class KqOauth {
       return const _InAppAuthView();
     }
 
-    final launched =
-        await launchUrl(authUri, mode: LaunchMode.externalApplication);
+    Object? externalLauncherError;
+    var launched = false;
+    try {
+      launched = await launchUrl(authUri, mode: LaunchMode.externalApplication);
+    } catch (err) {
+      externalLauncherError = err;
+    }
+    if (!launched && Platform.isWindows) {
+      launched = await _openWithWindowsShellDefaultBrowser(authUri);
+    }
     if (!launched) {
-      final detail = managedBrowserError == null
-          ? ''
-          : ' Managed browser error: $managedBrowserError';
+      final details = <String>[
+        if (managedBrowserError != null)
+          'Managed browser error: $managedBrowserError',
+        if (externalLauncherError != null)
+          'External browser error: $externalLauncherError',
+      ];
+      final detail = details.isEmpty ? '' : ' ${details.join(' ')}';
       throw KqOauthException('Unable to open the Kunqiong login page.$detail');
     }
     return null;
+  }
+
+  static Future<bool> _openWithWindowsShellDefaultBrowser(Uri authUri) async {
+    // kq-v236-windows-oauth-shell-browser-fallback
+    try {
+      final result = await Process.run('cmd', [
+        '/c',
+        'start',
+        '',
+        authUri.toString(),
+      ]).timeout(const Duration(seconds: 3));
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   static LoginResponse _toLoginResponse(
@@ -654,6 +681,31 @@ class _ManagedAuthBrowser implements _AuthView {
           ['Google', 'Chrome', 'Application', 'chrome.exe']),
       _joinPath(env['LOCALAPPDATA'],
           ['Google', 'Chrome', 'Application', 'chrome.exe']),
+      _joinPath(env['ProgramFiles'], ['Twinkstar', 'twinkstar.exe']),
+      _joinPath(env['PROGRAMFILES'], ['Twinkstar', 'twinkstar.exe']),
+      _joinPath(env['ProgramFiles(x86)'], ['Twinkstar', 'twinkstar.exe']),
+      _joinPath(env['PROGRAMFILES(X86)'], ['Twinkstar', 'twinkstar.exe']),
+      _joinPath(env['LOCALAPPDATA'], ['Twinkstar', 'twinkstar.exe']),
+      _joinPath(env['ProgramFiles'],
+          ['Twinkstar Browser', 'Application', 'twinkstar.exe']),
+      _joinPath(env['PROGRAMFILES'],
+          ['Twinkstar Browser', 'Application', 'twinkstar.exe']),
+      _joinPath(env['ProgramFiles(x86)'],
+          ['Twinkstar Browser', 'Application', 'twinkstar.exe']),
+      _joinPath(env['PROGRAMFILES(X86)'],
+          ['Twinkstar Browser', 'Application', 'twinkstar.exe']),
+      _joinPath(env['LOCALAPPDATA'],
+          ['Twinkstar Browser', 'Application', 'twinkstar.exe']),
+      _joinPath(
+          env['ProgramFiles'], ['Twinkstar', 'Application', 'twinkstar.exe']),
+      _joinPath(
+          env['PROGRAMFILES'], ['Twinkstar', 'Application', 'twinkstar.exe']),
+      _joinPath(env['ProgramFiles(x86)'],
+          ['Twinkstar', 'Application', 'twinkstar.exe']),
+      _joinPath(env['PROGRAMFILES(X86)'],
+          ['Twinkstar', 'Application', 'twinkstar.exe']),
+      _joinPath(
+          env['LOCALAPPDATA'], ['Twinkstar', 'Application', 'twinkstar.exe']),
     ];
 
     for (final candidate in candidates) {

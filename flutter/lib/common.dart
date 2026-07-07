@@ -1645,6 +1645,11 @@ bool kqUiPrefersChinese() {
   return localeName.toString().toLowerCase().startsWith('zh');
 }
 
+String kqLocaleText({required String zhCn, required String en}) {
+  // kq-v233-locale-text-helper
+  return kqUiPrefersChinese() ? zhCn : translate(en);
+}
+
 // This function must be kept the same as the one in rust and sciter code.
 // rust: libs/hbb_common/src/config.rs -> option2bool()
 // sciter: Does not have the function, but it should be kept the same.
@@ -2761,6 +2766,7 @@ connect(BuildContext context, String id,
     bool isRDP = false,
     bool forceRelay = false,
     String? password,
+    bool rememberPassword = false,
     String? connToken,
     bool? isSharedPassword}) async {
   if (id == '') return;
@@ -2783,6 +2789,14 @@ connect(BuildContext context, String id,
   final oldId = id;
   id = await bind.mainHandleRelayId(id: id);
   forceRelay = id != oldId || forceRelay;
+  if (isDesktop && password != null && password.isNotEmpty) {
+    // kq-v229-connect-remember-password-choice
+    bind.mainSetPeerOptionSync(
+      id: id,
+      key: kOptionKqRememberConnectPasswordOnce,
+      value: rememberPassword ? 'Y' : 'N',
+    );
+  }
   assert(!(isFileTransfer && isTcpTunneling && isRDP),
       "more than one connect type");
   if (isDesktop && desktopType == DesktopType.main) {

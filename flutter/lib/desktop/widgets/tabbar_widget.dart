@@ -592,10 +592,13 @@ class _DesktopTabState extends State<DesktopTab>
   /// Check whether to show ListView
   ///
   /// Conditions:
-  /// - hide single item only for install windows; the Home tab stays visible.
+  /// - kq-v235-hide-inert-main-home-tab-keep-drag:
+  ///   hide inert single Home/install tabs, while the outer opaque titlebar
+  ///   still receives drag events from empty space.
   bool isHideSingleItem() {
     return state.value.tabs.length == 1 &&
-        controller.tabType == DesktopTabType.install;
+        (controller.tabType == DesktopTabType.main ||
+            controller.tabType == DesktopTabType.install);
   }
 
   Widget _buildBar() {
@@ -1066,10 +1069,13 @@ class _ListView extends StatelessWidget {
   /// Check whether to show ListView
   ///
   /// Conditions:
-  /// - hide single item only for install windows; the Home tab stays visible.
+  /// - kq-v235-hide-inert-main-home-tab-keep-drag:
+  ///   hide inert single Home/install tabs, while the outer opaque titlebar
+  ///   still receives drag events from empty space.
   bool isHideSingleItem() {
     return state.value.tabs.length == 1 &&
-        controller.tabType == DesktopTabType.install;
+        (controller.tabType == DesktopTabType.main ||
+            controller.tabType == DesktopTabType.install);
   }
 
   onVisibilityChanged(VisibilityInfo info) {

@@ -184,7 +184,8 @@ void runMainApp(bool startService) async {
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
-    setResizable(!bind.isIncomingOnly());
+    // kq-v228-main-window-fixed-size: the desktop main window must not be user-resizable.
+    setResizable(false);
   });
 }
 

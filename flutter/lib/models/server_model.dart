@@ -187,11 +187,17 @@ class ServerModel with ChangeNotifier {
 
   void setSelectedPasswordKind(KqPasswordKind kind) {
     if (_selectedPasswordKind == kind) {
+      if (kind == KqPasswordKind.permanent) {
+        unawaited(_ensurePermanentPasswordPreviewOnSelect());
+      }
       return;
     }
     _selectedPasswordKind = kind;
     unawaited(bind.mainSetLocalOption(
         key: kOptionKqSelectedPasswordKind, value: kind.name));
+    if (kind == KqPasswordKind.permanent) {
+      unawaited(_ensurePermanentPasswordPreviewOnSelect());
+    }
     notifyListeners();
   }
 
@@ -207,12 +213,17 @@ class ServerModel with ChangeNotifier {
     final count = len.clamp(6, bind.mainMaxEncryptLen()).toInt();
     final charset = (numeric ?? _allowNumericOneTimePassword)
         ? '0123456789'
-        : '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        : '23456789abcdefghijkmnopqrstuvwxyz';
     final random = Random.secure();
     return List.generate(
       count,
       (_) => charset[random.nextInt(charset.length)],
     ).join();
+  }
+
+  String _normalizeVerificationCode(String password) {
+    // kq-v226-verification-code-normalize-lowercase
+    return password.trim().toLowerCase();
   }
 
   Future<String> _ensureDailyPassword({
@@ -221,13 +232,30 @@ class ServerModel with ChangeNotifier {
   }) async {
     final today = _todayPasswordDate();
     final date = await bind.mainGetOption(key: kOptionKqDailyPasswordDate);
-    var password = await bind.mainGetOption(key: kOptionKqDailyPassword);
-    if (date != today || password.trim().isEmpty) {
+    final storedPassword =
+        await bind.mainGetOption(key: kOptionKqDailyPassword);
+    var password = _normalizeVerificationCode(storedPassword);
+    if (date != today || password.isEmpty) {
       password = _generatePassword(length: length, numeric: numeric);
       await bind.mainSetOption(key: kOptionKqDailyPassword, value: password);
       await bind.mainSetOption(key: kOptionKqDailyPasswordDate, value: today);
+    } else if (password != storedPassword.trim()) {
+      await bind.mainSetOption(key: kOptionKqDailyPassword, value: password);
     }
-    return password.trim();
+    return password;
+  }
+
+  Future<void> _ensurePermanentPasswordPreviewOnSelect() async {
+    // kq-v234-permanent-password-autofill-on-select
+    if (_passwordServiceStopped ||
+        isChangePermanentPasswordDisabled() ||
+        _permanentPasswd.text.trim().isNotEmpty ||
+        _localPermanentPasswordSet ||
+        _permanentPasswordSet) {
+      return;
+    }
+    final password = _generatePassword();
+    await setPermanentPasswordPreview(password);
   }
 
   Future<void> refreshSelectedPassword() async {
@@ -248,7 +276,7 @@ class ServerModel with ChangeNotifier {
   }
 
   Future<void> setOneTimePassword(String password) async {
-    final value = password.trim();
+    final value = _normalizeVerificationCode(password);
     await bind.mainSetOption(key: kKqTemporaryPasswordControlKey, value: value);
     if (_serverPasswd.text != value) {
       _serverPasswd.text = value;
@@ -258,7 +286,7 @@ class ServerModel with ChangeNotifier {
   }
 
   Future<void> setDailyPassword(String password) async {
-    final value = password.trim();
+    final value = _normalizeVerificationCode(password);
     await bind.mainSetOption(key: kOptionKqDailyPassword, value: value);
     await bind.mainSetOption(
       key: kOptionKqDailyPasswordDate,
@@ -272,7 +300,7 @@ class ServerModel with ChangeNotifier {
   }
 
   Future<bool> setPermanentPasswordPreview(String password) async {
-    final value = password.trim();
+    final value = _normalizeVerificationCode(password);
     final ok = await bind.mainSetPermanentPasswordWithResult(password: value);
     if (!ok) {
       return false;
@@ -459,7 +487,13 @@ class ServerModel with ChangeNotifier {
 
   updatePasswordModel() async {
     var update = false;
-    final temporaryPassword = await bind.mainGetTemporaryPassword();
+    final rawTemporaryPassword = await bind.mainGetTemporaryPassword();
+    final temporaryPassword = _normalizeVerificationCode(rawTemporaryPassword);
+    if (temporaryPassword.isNotEmpty &&
+        temporaryPassword != rawTemporaryPassword.trim()) {
+      await bind.mainSetOption(
+          key: kKqTemporaryPasswordControlKey, value: temporaryPassword);
+    }
     final verificationMethod =
         await bind.mainGetOption(key: kOptionVerificationMethod);
     final temporaryPasswordLength =
@@ -477,15 +511,26 @@ class ServerModel with ChangeNotifier {
       length: temporaryPasswordLength,
       numeric: numericOneTimePassword,
     );
+    final rawPermanentPasswordPreview =
+        await bind.mainGetOption(key: kOptionKqPermanentPasswordPreview);
     var permanentPasswordPreview =
-        (await bind.mainGetOption(key: kOptionKqPermanentPasswordPreview))
-            .trim();
+        _normalizeVerificationCode(rawPermanentPasswordPreview);
     final localPermanentPasswordSet =
         (await bind.mainGetCommon(key: "local-permanent-password-set")) ==
             "true";
     final permanentPasswordSet =
         (await bind.mainGetCommon(key: "permanent-password-set")) == "true";
     final stopped = await mainGetBoolOption(kOptionStopService);
+    if (permanentPasswordPreview != rawPermanentPasswordPreview.trim()) {
+      await bind.mainSetOption(
+        key: kOptionKqPermanentPasswordPreview,
+        value: permanentPasswordPreview,
+      );
+      if (localPermanentPasswordSet && !isChangePermanentPasswordDisabled()) {
+        await bind.mainSetPermanentPasswordWithResult(
+            password: permanentPasswordPreview);
+      }
+    }
     if (!stopped &&
         permanentPasswordSet &&
         permanentPasswordPreview.isEmpty &&

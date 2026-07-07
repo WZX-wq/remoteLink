@@ -130,6 +130,8 @@ const String kOptionKqDailyPasswordDate = "kq-daily-password-date";
 const String kOptionKqPermanentPasswordPreview =
     "kq-permanent-password-preview";
 const String kOptionKqSelectedPasswordKind = "kq-selected-password-kind";
+const String kOptionKqRememberConnectPasswordOnce =
+    "kq-remember-connect-password-once";
 const String kOptionApproveMode = "approve-mode";
 const String kOptionAllowNumericOneTimePassword =
     "allow-numeric-one-time-password";

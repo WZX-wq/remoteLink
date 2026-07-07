@@ -49,6 +49,51 @@ const Color _kqDesignerCardBorder = Color(0xFFE4E8EE);
 const Color _kqDesignerTextPrimary = Color(0xFF1A2332);
 const Color _kqDesignerTextSecondary = Color(0xFF6B7A8D);
 
+Color _kqDesignerPanelColor(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.panelStrong.withOpacity(0.94) : Colors.white;
+}
+
+Color _kqDesignerPanelBorder(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.line.withOpacity(0.82) : _kqDesignerCardBorder;
+}
+
+Color _kqDesignerPanelShadow(BuildContext context, double lightOpacity) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.shadow : Colors.black.withOpacity(lightOpacity);
+}
+
+Color _kqDesignerPrimaryTextColor(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.ink : _kqDesignerTextPrimary;
+}
+
+Color _kqDesignerSecondaryTextColor(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.muted : _kqDesignerTextSecondary;
+}
+
+Color _kqDesignerDividerColor(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.line.withOpacity(0.7) : const Color(0xFFF0F3F8);
+}
+
+Color _kqDesignerInfoSurfaceColor(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.surfaceSoft.withOpacity(0.74) : const Color(0xFFEAF3FF);
+}
+
+Color _kqDesignerTableHeaderColor(BuildContext context) {
+  final q = KqTheme.of(context);
+  return q.isDark ? q.surfaceSoft.withOpacity(0.88) : const Color(0xFFBFE9FF);
+}
+
+String _kqHomeText(String zhCn, String en) {
+  // kq-v233-desktop-home-locale-text
+  return kqLocaleText(zhCn: zhCn, en: en);
+}
+
 final ValueNotifier<int> kqOpenDesktopHomeAccountEpoch = ValueNotifier<int>(0);
 
 void openDesktopHomeAccountPage() {
@@ -139,12 +184,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _designerPageCard({required Widget child}) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        // kq-v227-home-designer-panel-theme-colors
+        color: _kqDesignerPanelColor(context),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kqDesignerCardBorder),
+        border: Border.all(color: _kqDesignerPanelBorder(context)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: _kqDesignerPanelShadow(context, 0.04),
             blurRadius: 14,
             offset: const Offset(0, 6),
           ),
@@ -162,12 +208,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: Colors.white,
+        // kq-v227-home-designer-panel-theme-colors
+        color: _kqDesignerPanelColor(context),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _kqDesignerCardBorder),
+        border: Border.all(color: _kqDesignerPanelBorder(context)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.025),
+            color: _kqDesignerPanelShadow(context, 0.025),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -228,15 +275,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   String _homeTopBarTitle() {
     if (_showEmbeddedDevicesPage) {
-      return '设备';
+      return _kqHomeText('设备', 'Devices');
     }
     if (_showEmbeddedAccountPage) {
-      return '我的账户';
+      return _kqHomeText('我的账户', 'My account');
     }
     if (_embeddedSettingsPage != null) {
       return translate('Settings');
     }
-    return '远程协助';
+    return _kqHomeText('远程协助', 'Remote assistance');
   }
 
   IconData _homeTopBarIcon() {
@@ -296,7 +343,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '鲲穹远程桌面',
+                      _kqHomeText('鲲穹远程桌面', 'Kunqiong Remote Desktop'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -308,7 +355,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '私有安全中继',
+                      _kqHomeText('私有安全中继', 'Private secure relay'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -368,7 +415,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '远程协助本机',
+                  _kqHomeText('远程协助本机', 'Assist this device'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -380,7 +427,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '鲲穹AI旗下产品',
+                  _kqHomeText('鲲穹AI旗下产品', 'A Kunqiong AI product'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -421,7 +468,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
                 const SizedBox(width: 7),
                 Text(
-                  '可被连接',
+                  _kqHomeText('可被连接', 'Ready for connection'),
                   style: TextStyle(
                     color: q.ink,
                     fontSize: 12,
@@ -484,27 +531,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         ),
                       ),
                       const SizedBox(width: 11),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '鲲穹远程桌面',
+                              _kqHomeText('鲲穹远程桌面', 'Kunqiong Remote Desktop'),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 height: 1.2,
                               ),
                             ),
-                            SizedBox(height: 2),
+                            const SizedBox(height: 2),
                             Text(
-                              '桌面端',
+                              _kqHomeText('桌面端', 'Desktop'),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: Color(0x99FFFFFF),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w400,
@@ -525,7 +572,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       children: [
                         _KqSideRailItem(
                           icon: Icons.desktop_windows_rounded,
-                          label: '远程协助',
+                          label: _kqHomeText('远程协助', 'Remote assistance'),
                           active: _embeddedSettingsPage == null &&
                               !_showEmbeddedAccountPage &&
                               !_showEmbeddedDevicesPage,
@@ -534,7 +581,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         const SizedBox(height: 3),
                         _KqSideRailItem(
                           icon: Icons.devices_rounded,
-                          label: '设备',
+                          label: _kqHomeText('设备', 'Devices'),
                           active: _showEmbeddedDevicesPage,
                           onTap: _openEmbeddedDevices,
                         ),
@@ -543,7 +590,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           _KqSideRailItem(
                             // kq-home-my-account-entry
                             icon: Icons.person_rounded,
-                            label: '我的账户',
+                            label: _kqHomeText('我的账户', 'My account'),
                             active: _showEmbeddedAccountPage,
                             onTap: _openEmbeddedAccount,
                           ),
@@ -551,7 +598,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         const SizedBox(height: 3),
                         _KqSideRailItem(
                           icon: Icons.settings_rounded,
-                          label: '设置',
+                          label: translate('Settings'),
                           active: _embeddedSettingsPage != null &&
                               !_showEmbeddedAccountPage &&
                               !_showEmbeddedDevicesPage,
@@ -561,7 +608,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         const Spacer(),
                         _KqSideRailItem(
                           icon: Icons.public_rounded,
-                          label: '官网',
+                          label: _kqHomeText('官网', 'Website'),
                           compact: true,
                           onTap: () => launchUrl(
                             Uri.parse('https://kunqiongai.com/'),
@@ -611,7 +658,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '鲲穹远程桌面',
+                          _kqHomeText('鲲穹远程桌面', 'Kunqiong Remote Desktop'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -623,7 +670,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '桌面端',
+                          _kqHomeText('桌面端', 'Desktop'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -641,7 +688,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               const SizedBox(height: 22),
               _KqSideRailItem(
                 icon: Icons.screen_share_rounded,
-                label: '远程协助',
+                label: _kqHomeText('远程协助', 'Remote assistance'),
                 active:
                     _embeddedSettingsPage == null && !_showEmbeddedAccountPage,
                 onTap: _openHomeAssist,
@@ -651,7 +698,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 _KqSideRailItem(
                   // kq-home-my-account-entry
                   icon: Icons.person_rounded,
-                  label: '我的账户',
+                  label: _kqHomeText('我的账户', 'My account'),
                   active: _showEmbeddedAccountPage,
                   onTap: _openEmbeddedAccount,
                 ),
@@ -667,7 +714,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               const Spacer(),
               _KqSideRailItem(
                 icon: Icons.public_rounded,
-                label: '官网',
+                label: _kqHomeText('官网', 'Website'),
                 compact: true,
                 onTap: () => launchUrl(
                   Uri.parse('https://kunqiongai.com/'),
@@ -727,7 +774,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     Obx(
                       () => Text(
                         gFFI.userModel.userName.value.isEmpty
-                            ? '登录 ›'
+                            ? '${translate('Login')} ›'
                             : '${gFFI.userModel.displayNameOrUserName} ›',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -787,7 +834,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             child: Center(
               child: Text(
-                '会员畅享专属加速链路',
+                _kqHomeText(
+                    '会员畅享专属加速链路', 'Member exclusive acceleration route'),
                 style: TextStyle(
                   color: q.primaryDeep,
                   fontSize: 12,
@@ -896,33 +944,58 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget _buildDesignerMemberBanner(BuildContext context) {
     return Obx(() {
       // kq-v219-home-member-banner-entitlement-aware
+      final q = KqTheme.of(context);
       final isMember = gFFI.userModel.isMember.value;
-      final actionLabel = isMember ? '会员已生效' : '开通会员';
+      final actionLabel = isMember
+          ? _kqHomeText('会员已生效', 'Membership active')
+          : _kqHomeText('开通会员', 'Upgrade');
       final actionIcon =
           isMember ? Icons.check_circle_rounded : Icons.chevron_right_rounded;
+      final bannerGradient = q.isDark
+          ? LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                q.surfaceSoft.withOpacity(0.82),
+                q.panelStrong.withOpacity(0.96),
+                q.surfaceSoft.withOpacity(0.72),
+              ],
+            )
+          : const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Color(0xFFEFF6FF),
+                Color(0xFFDBEAFE),
+                Color(0xFFEFF6FF),
+              ],
+            );
       return Container(
         // kq-designer-home-member-banner
+        // kq-v227-home-member-banner-dark-colors
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [Color(0xFFEFF6FF), Color(0xFFDBEAFE), Color(0xFFEFF6FF)],
-          ),
+          gradient: bannerGradient,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0x1A2563EB)),
+          border: Border.all(
+            color:
+                q.isDark ? q.line.withOpacity(0.76) : const Color(0x1A2563EB),
+          ),
         ),
         child: Row(
           children: [
-            Icon(Icons.star_rounded, color: _kqDesignerBrandMid, size: 17),
+            Icon(Icons.star_rounded,
+                color: q.isDark ? q.primaryDeep : _kqDesignerBrandMid,
+                size: 17),
             const SizedBox(width: 7),
-            const Expanded(
+            Expanded(
               child: Text(
-                '会员畅享专属加速链路',
+                _kqHomeText(
+                    '会员畅享专属加速链路', 'Member exclusive acceleration route'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: Color(0xFF1D4ED8),
+                  color: q.isDark ? q.ink : const Color(0xFF1D4ED8),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -969,18 +1042,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       animation: gFFI.recentPeersModel,
       builder: (context, _) {
         final count = gFFI.recentPeersModel.getPeersCount();
+        final primaryText = _kqDesignerPrimaryTextColor(context);
+        final secondaryText = _kqDesignerSecondaryTextColor(context);
         return Row(
           children: [
-            const Icon(
+            Icon(
               Icons.bookmark_border_rounded,
-              color: _kqDesignerTextPrimary,
+              color: primaryText,
               size: 20,
             ),
             const SizedBox(width: 8),
-            const Text(
-              '已保存的连接',
+            Text(
+              _kqHomeText('已保存的连接', 'Saved connections'),
               style: TextStyle(
-                color: _kqDesignerTextPrimary,
+                color: primaryText,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 height: 1,
@@ -1009,9 +1084,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ),
             ),
             const Spacer(),
-            const Icon(
+            Icon(
               Icons.keyboard_arrow_down_rounded,
-              color: Color(0xFF9AA7B8),
+              color: secondaryText,
               size: 20,
             ),
           ],
@@ -1036,7 +1111,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 child: Center(child: _buildLocalIdInline(context, model)),
               ),
             ),
-            Container(width: 1, color: const Color(0xFFF0F2F6)),
+            Container(width: 1, color: _kqDesignerDividerColor(context)),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
@@ -1069,7 +1144,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '本机识别码',
+          _kqHomeText('本机识别码', 'This device ID'),
           style: TextStyle(
             color: q.muted,
             fontSize: 13,
@@ -1124,7 +1199,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
       if (model.selectedPasswordCanShare)
         _KqInlineIconButton(
-          tooltip: '复制并分享',
+          tooltip: _kqHomeText('复制并分享', 'Copy and share'),
           icon: Icons.ios_share_rounded,
           onTap: () => _copyRemoteAssistShare(model),
         ),
@@ -1139,7 +1214,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         PopupMenuButton<KqPasswordKind>(
-          tooltip: '选择验证码类型',
+          tooltip: _kqHomeText('选择验证码类型', 'Choose verification code type'),
           initialValue: model.selectedPasswordKind,
           onSelected: model.setSelectedPasswordKind,
           color: q.panelStrong,
@@ -1379,7 +1454,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '用户主动授权',
+                    _kqHomeText('用户主动授权', 'User-initiated authorization'),
                     style: TextStyle(
                       color: q.ink,
                       fontSize: 14,
@@ -1391,7 +1466,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             const SizedBox(height: 8),
             Text(
-              '启用后台服务后，被控端离线重启后仍可接入；低误报安装包不会静默申请权限。',
+              _kqHomeText('启用后台服务后，被控端离线重启后仍可接入；低误报安装包不会静默申请权限。',
+                  'After enabling the background service, this device can still be reached after restart. Low false-positive installers never request permissions silently.'),
               style: TextStyle(
                 color: q.muted,
                 fontSize: 12,
@@ -1401,14 +1477,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             const SizedBox(height: 10),
             _KqPermissionReminderButton(
-              label: '启用后台服务',
+              label: _kqHomeText('启用后台服务', 'Enable background service'),
               icon: Icons.verified_user_outlined,
               primary: true,
               busy: busy,
               onPressed: () => _runPostInstallAction(() async {
                 await bind.mainStartService();
                 await mainSetBoolOption(kOptionStopService, false);
-                showToast('已发起后台服务安装，请在系统授权弹窗中确认。');
+                showToast(_kqHomeText('已发起后台服务安装，请在系统授权弹窗中确认。',
+                    'Background service setup started. Please confirm in the system authorization prompt.'));
               }),
             ),
             const SizedBox(height: 8),
@@ -1416,7 +1493,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               children: [
                 Expanded(
                   child: _KqPermissionReminderButton(
-                    label: '修复防火墙',
+                    label: _kqHomeText('修复防火墙', 'Repair firewall'),
                     icon: Icons.security_update_good_outlined,
                     busy: busy,
                     onPressed: () => _runPostInstallAction(() async {
@@ -1428,7 +1505,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 const SizedBox(width: 8),
                 Expanded(
                   child: _KqPermissionReminderButton(
-                    label: '推荐权限',
+                    label: _kqHomeText('推荐权限', 'Recommended permissions'),
                     icon: Icons.tune_rounded,
                     busy: busy,
                     onPressed: () => _runPostInstallAction(() async {
@@ -1438,7 +1515,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       await bind.mainSetOption(
                           key: kOptionAllowRemoteConfigModification,
                           value: 'N');
-                      showToast('已应用推荐远控权限。');
+                      showToast(_kqHomeText('已应用推荐远控权限。',
+                          'Recommended remote-control permissions applied.'));
                     }),
                   ),
                 ),
@@ -1446,7 +1524,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
             const SizedBox(height: 8),
             _KqPermissionReminderButton(
-              label: '浏览器远控入口',
+              label: _kqHomeText('浏览器远控入口', 'Browser remote-control entry'),
               icon: Icons.link_rounded,
               busy: busy,
               onPressed: () => _runPostInstallAction(() async {
@@ -1503,7 +1581,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return Container(
         // kq-settings-reference-shell
         // kq-v218-settings-reference-shell-unframed
-        color: _kqDesignerAppBackground,
+        color: q.isDark ? q.pageGradient.first : _kqDesignerAppBackground,
         child: ClipRect(
           child: DesktopSettingPage(
             key: ValueKey<SettingsTabKey>(initialTabkey),
@@ -1589,7 +1667,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '本机识别码',
+                  _kqHomeText('本机识别码', 'This device ID'),
                   style: TextStyle(
                     fontSize: 13,
                     color: q.muted,
@@ -1703,7 +1781,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         InkWell(
           borderRadius: BorderRadius.circular(999),
           child: Tooltip(
-            message: '复制并分享',
+            message: _kqHomeText('复制并分享', 'Copy and share'),
             child: _KqPasswordToolButton(
               icon: Icons.ios_share_rounded,
               hover: shareHover,
@@ -1782,7 +1860,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: PopupMenuButton<KqPasswordKind>(
-                            tooltip: '选择验证码类型',
+                            tooltip: _kqHomeText(
+                                '选择验证码类型', 'Choose verification code type'),
                             initialValue: model.selectedPasswordKind,
                             onSelected: model.setSelectedPasswordKind,
                             color: q.panelStrong,
@@ -1909,18 +1988,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
     final password = model.selectedPasswordText.trim();
     if (id.isEmpty || id == '--' || !model.selectedPasswordCanShare) {
-      showToast('设备号或验证码还未就绪');
+      showToast(_kqHomeText(
+          '设备号或验证码还未就绪', 'Device ID or verification code is not ready yet'));
       return;
     }
     final link = _buildKqInviteLink(id: id, password: password);
     final text = [
-      '使用 鲲穹远程桌面 即可对我发起远程协助',
-      '设备ID：${formatID(id)}',
-      '设备验证码：$password',
-      '点击链接可直接发起远程协助：$link',
+      _kqHomeText('使用 鲲穹远程桌面 即可对我发起远程协助',
+          'Use Kunqiong Remote Desktop to start remote assistance with me'),
+      '${_kqHomeText('设备ID', 'Device ID')}: ${formatID(id)}',
+      '${_kqHomeText('设备验证码', 'Verification code')}: $password',
+      '${_kqHomeText('点击链接可直接发起远程协助', 'Open the link to start remote assistance')}: $link',
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: text));
-    showToast('已复制远程协助分享信息');
+    showToast(
+        _kqHomeText('已复制远程协助分享信息', 'Remote assistance share info copied'));
   }
 
   String _buildKqInviteLink({required String id, required String password}) {
@@ -1952,11 +2034,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   String _kqPasswordKindLabel(KqPasswordKind kind) {
     switch (kind) {
       case KqPasswordKind.oneTime:
-        return '一次性验证码';
+        return _kqHomeText('一次性验证码', 'One-time verification code');
       case KqPasswordKind.daily:
-        return '今日验证码';
+        return _kqHomeText('今日验证码', 'Today verification code');
       case KqPasswordKind.permanent:
-        return '长期验证码';
+        return _kqHomeText('长期验证码', 'Permanent verification code');
     }
   }
 
@@ -1989,7 +2071,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         final value = controller.text.trim();
         if (value.isEmpty) {
           setState(() {
-            errMsg = '验证码不能为空';
+            errMsg =
+                _kqHomeText('验证码不能为空', 'Verification code cannot be empty');
             submitting = false;
           });
           return;
@@ -2016,7 +2099,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           });
           return;
         }
-        showToast('已更新$title');
+        showToast('${_kqHomeText('已更新', 'Updated')} $title');
         close();
       }
 
@@ -2037,7 +2120,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           });
           return;
         }
-        showToast('已移除$title');
+        showToast('${_kqHomeText('已移除', 'Removed')} $title');
         close();
       }
 
@@ -2046,7 +2129,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.key_rounded, color: MyTheme.accent),
-            Text('修改$title').paddingOnly(left: 10),
+            Text('${_kqHomeText('修改', 'Edit')} $title').paddingOnly(left: 10),
           ],
         ),
         content: ConstrainedBox(
@@ -2090,7 +2173,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ).workaroundFreezeLinuxMint(),
                 const SizedBox(height: 4),
                 Text(
-                  '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                  _kqHomeText(
+                    '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                    'The permanent verification code also updates the permanent password used for remote connections and remains visible on this device.',
+                  ),
                   style: TextStyle(
                     color: KqTheme.of(context).muted,
                     fontSize: 12,
@@ -2677,57 +2763,66 @@ class _KqSideRailItemState extends State<_KqSideRailItem> {
       final active = widget.active;
       final bg = active
           ? Colors.white.withOpacity(0.2)
-          : (_hover ? Colors.white.withOpacity(0.12) : Colors.transparent);
-      final fg = active ? Colors.white : Colors.white.withOpacity(0.74);
-      return Tooltip(
-        message: widget.label,
-        waitDuration: const Duration(milliseconds: 500),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: widget.onTap,
-          onHover: (value) => setState(() => _hover = value),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-            height: widget.compact ? 38 : 42,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(8),
+          : (_hover
+              ? const Color(0xFF155AC8).withOpacity(0.34)
+              : Colors.transparent);
+      final fg =
+          active || _hover ? Colors.white : Colors.white.withOpacity(0.9);
+      return InkWell(
+        // kq-v231-sidebar-hover-readable-colors
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: Colors.transparent,
+        splashColor: Colors.white.withOpacity(0.08),
+        highlightColor: Colors.white.withOpacity(0.04),
+        onTap: widget.onTap,
+        onHover: (value) => setState(() => _hover = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          height: widget.compact ? 38 : 42,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: active || _hover
+                  ? Colors.white.withOpacity(_hover && !active ? 0.22 : 0.0)
+                  : Colors.transparent,
             ),
-            child: Row(
-              children: [
-                if (active)
-                  Container(
-                    width: 3,
-                    height: 16,
-                    margin: const EdgeInsets.only(right: 9),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.horizontal(
-                        right: Radius.circular(2),
-                      ),
-                    ),
-                  )
-                else
-                  const SizedBox(width: 12),
-                Icon(widget.icon, color: fg, size: widget.compact ? 17 : 18),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: fg,
-                      fontSize: widget.compact ? 14 : 14.5,
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                      height: 1,
+          ),
+          child: Row(
+            children: [
+              if (active)
+                Container(
+                  width: 3,
+                  height: 16,
+                  margin: const EdgeInsets.only(right: 9),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.horizontal(
+                      right: Radius.circular(2),
                     ),
                   ),
+                )
+              else
+                const SizedBox(width: 12),
+              Icon(widget.icon, color: fg, size: widget.compact ? 17 : 18),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: widget.compact ? 14 : 14.5,
+                    fontWeight:
+                        active || _hover ? FontWeight.w700 : FontWeight.w500,
+                    height: 1,
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       );
@@ -2737,45 +2832,47 @@ class _KqSideRailItemState extends State<_KqSideRailItem> {
     final bg = active
         ? q.primary.withOpacity(q.isDark ? 0.2 : 0.1)
         : (_hover ? q.surfaceSoft.withOpacity(0.86) : Colors.transparent);
-    final fg = active ? q.primaryDeep : q.muted;
-    return Tooltip(
-      message: widget.label,
-      waitDuration: const Duration(milliseconds: 500),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: widget.onTap,
-        onHover: (value) => setState(() => _hover = value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOut,
-          height: widget.compact ? 36 : 42,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: active ? q.primary.withOpacity(0.28) : Colors.transparent,
-            ),
+    final fg = active || _hover ? q.primaryDeep : q.muted;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      hoverColor: Colors.transparent,
+      splashColor: q.primary.withOpacity(0.08),
+      highlightColor: q.primary.withOpacity(0.04),
+      onTap: widget.onTap,
+      onHover: (value) => setState(() => _hover = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        height: widget.compact ? 36 : 42,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active || _hover
+                ? q.primary.withOpacity(active ? 0.28 : 0.22)
+                : Colors.transparent,
           ),
-          child: Row(
-            children: [
-              Icon(widget.icon, color: fg, size: widget.compact ? 17 : 19),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: active ? q.ink : fg,
-                    fontSize: widget.compact ? 12 : 13,
-                    fontWeight: active ? FontWeight.w900 : FontWeight.w700,
-                    height: 1,
-                  ),
+        ),
+        child: Row(
+          children: [
+            Icon(widget.icon, color: fg, size: widget.compact ? 17 : 19),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: active ? q.ink : fg,
+                  fontSize: widget.compact ? 12 : 13,
+                  fontWeight:
+                      active || _hover ? FontWeight.w900 : FontWeight.w700,
+                  height: 1,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -2843,7 +2940,7 @@ class _KqProductTagline extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(18, 12, 18, 2),
       alignment: Alignment.center,
       child: Text(
-        '鲲穹AI旗下产品',
+        _kqHomeText('鲲穹AI旗下产品', 'A Kunqiong AI product'),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
@@ -3194,7 +3291,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
             children: [
               _KqDesignerDevicesSectionHeader(
                 icon: Icons.access_time_rounded,
-                title: '最近连接',
+                title: _kqHomeText('最近连接', 'Recent connections'),
               ),
               const SizedBox(height: 10),
               SizedBox(
@@ -3218,7 +3315,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
               const SizedBox(height: 22),
               _KqDesignerDevicesSectionHeader(
                 icon: Icons.desktop_windows_outlined,
-                title: '全部设备',
+                title: _kqHomeText('全部设备', 'All devices'),
                 count: accountDevicePeers.length,
                 trailing: _KqDesignerDevicesRefreshButton(
                   onPressed: () => _refreshDevices(forceAccountDevices: true),
@@ -3274,8 +3371,8 @@ class _KqDesignerDevicesSectionHeader extends StatelessWidget {
             count == null ? title : '$title  $count',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _kqDesignerTextPrimary,
+            style: TextStyle(
+              color: _kqDesignerPrimaryTextColor(context),
               fontSize: 15,
               fontWeight: FontWeight.w800,
               letterSpacing: 0,
@@ -3302,20 +3399,26 @@ class _KqDesignerDeviceRecentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     return Container(
       width: 180,
       height: 112,
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        // kq-v227-devices-recent-card-dark-colors
+        color: _kqDesignerPanelColor(context),
         borderRadius: BorderRadius.circular(7),
         border: Border.all(
-          color: highlighted ? const Color(0xFFB8D5FF) : _kqDesignerCardBorder,
+          color: highlighted
+              ? (q.isDark
+                  ? q.primary.withOpacity(0.7)
+                  : const Color(0xFFB8D5FF))
+              : _kqDesignerPanelBorder(context),
         ),
         boxShadow: [
           if (highlighted)
             BoxShadow(
-              color: const Color(0xFF2F7AF6).withOpacity(0.12),
+              color: q.primary.withOpacity(q.isDark ? 0.2 : 0.12),
               blurRadius: 12,
               offset: const Offset(0, 5),
             ),
@@ -3336,8 +3439,8 @@ class _KqDesignerDeviceRecentCard extends StatelessWidget {
                       _kqDesignerDeviceName(peer),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _kqDesignerTextPrimary,
+                      style: TextStyle(
+                        color: _kqDesignerPrimaryTextColor(context),
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0,
@@ -3348,8 +3451,10 @@ class _KqDesignerDeviceRecentCard extends StatelessWidget {
                       _kqDesignerPeerId(peer),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF8A9BB0),
+                      style: TextStyle(
+                        color: q.isDark
+                            ? _kqDesignerSecondaryTextColor(context)
+                            : const Color(0xFF8A9BB0),
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0,
@@ -3387,9 +3492,10 @@ class _KqDesignerDevicesTable extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        // kq-v227-devices-table-dark-colors
+        color: _kqDesignerPanelColor(context),
         borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: const Color(0xFFE5EDF7)),
+        border: Border.all(color: _kqDesignerPanelBorder(context)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -3401,10 +3507,10 @@ class _KqDesignerDevicesTable extends StatelessWidget {
                 : ListView.separated(
                     padding: EdgeInsets.zero,
                     itemCount: peers.length,
-                    separatorBuilder: (_, __) => const Divider(
+                    separatorBuilder: (context, _) => Divider(
                       height: 1,
                       thickness: 1,
-                      color: Color(0xFFF0F3F8),
+                      color: _kqDesignerDividerColor(context),
                     ),
                     itemBuilder: (context, index) => _KqDesignerDevicesTableRow(
                       peer: peers[index],
@@ -3425,27 +3531,35 @@ class _KqDesignerDevicesTableHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 40,
-      color: const Color(0xFFBFE9FF),
+      color: _kqDesignerTableHeaderColor(context),
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: const Row(
+      child: Row(
         children: [
           Expanded(
             flex: 34,
-            child: _KqDesignerDevicesHeaderText('设备名称'),
+            child: _KqDesignerDevicesHeaderText(
+              _kqHomeText('设备名称', 'Device name'),
+            ),
           ),
           Expanded(
             flex: 24,
-            child: _KqDesignerDevicesHeaderText('识别码'),
+            child: _KqDesignerDevicesHeaderText(
+              _kqHomeText('识别码', 'ID'),
+            ),
           ),
           Expanded(
             flex: 18,
-            child: _KqDesignerDevicesHeaderText('系统'),
+            child: _KqDesignerDevicesHeaderText(
+              _kqHomeText('系统', 'System'),
+            ),
           ),
           Expanded(
             flex: 16,
-            child: _KqDesignerDevicesHeaderText('状态'),
+            child: _KqDesignerDevicesHeaderText(
+              _kqHomeText('状态', 'Status'),
+            ),
           ),
-          SizedBox(width: 74),
+          const SizedBox(width: 74),
         ],
       ),
     );
@@ -3480,8 +3594,8 @@ class _KqDesignerDevicesTableRow extends StatelessWidget {
                       _kqDesignerDeviceName(peer),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _kqDesignerTextPrimary,
+                      style: TextStyle(
+                        color: _kqDesignerPrimaryTextColor(context),
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0,
@@ -3497,8 +3611,10 @@ class _KqDesignerDevicesTableRow extends StatelessWidget {
                 _kqDesignerPeerId(peer),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF667894),
+                style: TextStyle(
+                  color: KqTheme.of(context).isDark
+                      ? _kqDesignerSecondaryTextColor(context)
+                      : const Color(0xFF667894),
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0,
@@ -3511,8 +3627,10 @@ class _KqDesignerDevicesTableRow extends StatelessWidget {
                 _kqDesignerDeviceSystem(peer),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF6E7F98),
+                style: TextStyle(
+                  color: KqTheme.of(context).isDark
+                      ? _kqDesignerSecondaryTextColor(context)
+                      : const Color(0xFF6E7F98),
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0,
@@ -3548,8 +3666,10 @@ class _KqDesignerDevicesHeaderText extends StatelessWidget {
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        color: Color(0xFF0072B8),
+      style: TextStyle(
+        color: KqTheme.of(context).isDark
+            ? KqTheme.of(context).primaryDeep
+            : const Color(0xFF0072B8),
         fontSize: 13,
         fontWeight: FontWeight.w800,
         letterSpacing: 0,
@@ -3570,17 +3690,18 @@ class _KqDesignerDevicePlatformIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = _kqDesignerDeviceIcon(peer);
+    final q = KqTheme.of(context);
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF3FF),
+        color: _kqDesignerInfoSurfaceColor(context),
         borderRadius: BorderRadius.circular(size >= 30 ? 6 : 4),
       ),
       child: Icon(
         icon,
         size: size >= 30 ? 21 : 17,
-        color: const Color(0xFF2874F0),
+        color: q.isDark ? q.primaryDeep : const Color(0xFF2874F0),
       ),
     );
   }
@@ -3600,7 +3721,9 @@ class _KqDesignerDeviceStatus extends StatelessWidget {
         : online
             ? const Color(0xFF16C784)
             : const Color(0xFFA8B2C0);
-    final label = !known ? '检测中' : (online ? '在线' : '离线');
+    final label = !known
+        ? _kqHomeText('检测中', 'Checking')
+        : (online ? _kqHomeText('在线', 'Online') : _kqHomeText('离线', 'Offline'));
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -3635,6 +3758,7 @@ class _KqDesignerDevicesConnectButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     return SizedBox(
       width: 54,
       height: 30,
@@ -3642,9 +3766,14 @@ class _KqDesignerDevicesConnectButton extends StatelessWidget {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           padding: EdgeInsets.zero,
-          foregroundColor: const Color(0xFF1E73F8),
-          backgroundColor: const Color(0xFFF2F7FF),
-          side: const BorderSide(color: Color(0xFFCFE0FF)),
+          foregroundColor: q.isDark ? q.primaryDeep : const Color(0xFF1E73F8),
+          backgroundColor: q.isDark
+              ? q.surfaceSoft.withOpacity(0.54)
+              : const Color(0xFFF2F7FF),
+          side: BorderSide(
+            color:
+                q.isDark ? q.line.withOpacity(0.86) : const Color(0xFFCFE0FF),
+          ),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
           textStyle: const TextStyle(
             fontSize: 12,
@@ -3652,7 +3781,7 @@ class _KqDesignerDevicesConnectButton extends StatelessWidget {
             letterSpacing: 0,
           ),
         ),
-        child: const Text('连接'),
+        child: Text(translate('Connect')),
       ),
     );
   }
@@ -3665,8 +3794,9 @@ class _KqDesignerDevicesRefreshButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
     return Tooltip(
-      message: '刷新设备状态',
+      message: _kqHomeText('刷新设备状态', 'Refresh device status'),
       child: SizedBox(
         width: 28,
         height: 28,
@@ -3674,9 +3804,12 @@ class _KqDesignerDevicesRefreshButton extends StatelessWidget {
           onPressed: onPressed,
           style: OutlinedButton.styleFrom(
             padding: EdgeInsets.zero,
-            foregroundColor: const Color(0xFF2F7AF6),
-            backgroundColor: Colors.white,
-            side: const BorderSide(color: Color(0xFFCFE0FF)),
+            foregroundColor: q.isDark ? q.primaryDeep : const Color(0xFF2F7AF6),
+            backgroundColor: _kqDesignerPanelColor(context),
+            side: BorderSide(
+              color:
+                  q.isDark ? q.line.withOpacity(0.86) : const Color(0xFFCFE0FF),
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(7),
             ),
@@ -3699,15 +3832,15 @@ class _KqDesignerDevicesEmptyState extends StatelessWidget {
       alignment: Alignment.center,
       decoration: compact
           ? BoxDecoration(
-              color: Colors.white,
+              color: _kqDesignerPanelColor(context),
               borderRadius: BorderRadius.circular(7),
-              border: Border.all(color: _kqDesignerCardBorder),
+              border: Border.all(color: _kqDesignerPanelBorder(context)),
             )
           : null,
       child: Text(
-        '暂无设备记录',
+        _kqHomeText('暂无设备记录', 'No device records'),
         style: TextStyle(
-          color: _kqDesignerTextSecondary.withOpacity(0.8),
+          color: _kqDesignerSecondaryTextColor(context).withOpacity(0.86),
           fontSize: compact ? 13 : 14,
           fontWeight: FontWeight.w700,
           letterSpacing: 0,
@@ -3725,7 +3858,7 @@ String _kqDesignerDeviceName(Peer peer) {
   final username = peer.username.trim();
   if (username.isNotEmpty) return username;
   final id = kqNormalizePeerId(peer.id);
-  return id.isEmpty ? '未知设备' : id;
+  return id.isEmpty ? _kqHomeText('未知设备', 'Unknown device') : id;
 }
 
 String _kqDesignerPeerId(Peer peer) {

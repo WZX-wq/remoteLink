@@ -21,6 +21,30 @@ import '../../common/widgets/autocomplete.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
+class KqLowerCaseTextInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    // kq-v226-password-input-lowercase-formatter
+    final lowerText = newValue.text.toLowerCase();
+    if (lowerText == newValue.text) {
+      return newValue;
+    }
+
+    int clampOffset(int offset) =>
+        offset < 0 ? offset : min(offset, lowerText.length);
+
+    return newValue.copyWith(
+      text: lowerText,
+      selection: newValue.selection.copyWith(
+        baseOffset: clampOffset(newValue.selection.baseOffset),
+        extentOffset: clampOffset(newValue.selection.extentOffset),
+      ),
+      composing: TextRange.empty,
+    );
+  }
+}
+
 class OnlineStatusWidget extends StatefulWidget {
   const OnlineStatusWidget({Key? key, this.onSvcStatusChanged})
       : super(key: key);
@@ -236,6 +260,7 @@ class _ConnectionPageState extends State<ConnectionPage>
 
   bool _connectAsFileTransfer = false;
   bool _passwordVisible = false;
+  bool _rememberPassword = false;
 
   bool isWindowMinimized = false;
 
@@ -341,8 +366,17 @@ class _ConnectionPageState extends State<ConnectionPage>
   }
 
   void _connectWithSelectedMode() {
+    if (!_canConnect) {
+      // kq-v226-empty-id-connect-guard
+      return;
+    }
     onConnect(isFileTransfer: _connectAsFileTransfer);
   }
+
+  bool get _canConnect =>
+      // kq-v237-password-required-to-connect
+      _idController.id.trim().isNotEmpty &&
+      _passwordController.text.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -384,12 +418,13 @@ class _ConnectionPageState extends State<ConnectionPage>
       bool isViewCamera = false,
       bool isTerminal = false}) {
     var id = _idController.id;
-    final password = _passwordController.text.trim();
+    final password = _passwordController.text.trim().toLowerCase();
     connect(context, id,
         isFileTransfer: isFileTransfer,
         isViewCamera: isViewCamera,
         isTerminal: isTerminal,
-        password: password.isEmpty ? null : password);
+        password: password.isEmpty ? null : password,
+        rememberPassword: _rememberPassword);
   }
 
   /// UI for the remote ID TextField.
@@ -397,6 +432,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   Widget _buildRemoteIDTextField(BuildContext context) {
     final q = KqTheme.of(context);
     final formOnly = !widget.showRecentPeers;
+    final canConnect = _canConnect;
     final inputHeight = formOnly ? 38.0 : 46.0;
     final inputTextStyle = TextStyle(
       // kq-v223-password-field-tight-38-height
@@ -496,17 +532,26 @@ class _ConnectionPageState extends State<ConnectionPage>
       controller: _passwordController,
       obscureText: !_passwordVisible,
       // kq-v222-password-hint-hidden-under-label
-      hintText: formOnly ? null : '验证码（可为空）',
+      hintText: formOnly ? null : translate('Verification code'),
+      inputFormatters: [KqLowerCaseTextInputFormatter()],
+      onChanged: (_) {
+        // kq-v237-password-change-refreshes-connect-state
+        setState(() {});
+      },
       trailing: IconButton(
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints.tightFor(width: 32, height: 32),
         // kq-v223-password-eye-no-extra-padding
         padding: EdgeInsets.zero,
         tooltip: _passwordVisible ? '隐藏密码' : '显示密码',
-        icon: Icon(
-          _passwordVisible ? Icons.visibility : Icons.visibility_off,
-          size: 18,
-          color: q.muted,
+        icon: Transform.translate(
+          // kq-v238-password-eye-visual-center
+          offset: const Offset(0, -2),
+          child: Icon(
+            _passwordVisible ? Icons.visibility : Icons.visibility_off,
+            size: 18,
+            color: q.muted,
+          ),
         ),
         onPressed: () {
           setState(() {
@@ -579,6 +624,48 @@ class _ConnectionPageState extends State<ConnectionPage>
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
           child: SizedBox(height: 30, child: Center(child: content)),
+        ),
+      );
+    }
+
+    Widget rememberPasswordOption() {
+      // kq-v229-connect-remember-password-choice
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            setState(() {
+              _rememberPassword = !_rememberPassword;
+            });
+          },
+          child: SizedBox(
+            height: 30,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _rememberPassword
+                      ? Icons.check_box_rounded
+                      : Icons.check_box_outline_blank_rounded,
+                  size: 18,
+                  color: _rememberPassword ? q.primary : q.line,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  translate('Remember password'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -695,7 +782,11 @@ class _ConnectionPageState extends State<ConnectionPage>
                                       : translate('Enter Remote ID'),
                                   inputFormatters: [IDTextInputFormatter()],
                                   onChanged: (v) {
+                                    final wasConnectable = _canConnect;
                                     _idController.id = v;
+                                    if (wasConnectable != _canConnect) {
+                                      setState(() {});
+                                    }
                                   },
                                   onSubmitted: (_) {
                                     _connectWithSelectedMode();
@@ -780,7 +871,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                 if (formOnly)
                   Expanded(
                     flex: 3,
-                    child: labelWrap('验证码（可为空）', passwordInput),
+                    child: labelWrap(
+                        translate('Verification code'), passwordInput),
                   )
                 else
                   SizedBox(
@@ -794,7 +886,10 @@ class _ConnectionPageState extends State<ConnectionPage>
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: q.primary,
+                      // kq-v226-connect-button-disabled-grey-blue
+                      disabledBackgroundColor: const Color(0xFFBFD2EA),
                       foregroundColor: Colors.white,
+                      disabledForegroundColor: Colors.white.withOpacity(0.88),
                       elevation: formOnly ? 8 : 0,
                       shadowColor: q.primary.withOpacity(0.24),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -802,9 +897,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                         borderRadius: BorderRadius.circular(formOnly ? 6 : 12),
                       ),
                     ),
-                    onPressed: () {
-                      _connectWithSelectedMode();
-                    },
+                    onPressed: canConnect ? _connectWithSelectedMode : null,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
@@ -848,6 +941,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                     _selectConnectionMode(fileTransfer: true);
                   },
                 ),
+                const SizedBox(width: 16),
+                Flexible(child: rememberPasswordOption()),
                 if (!formOnly) ...[
                   const SizedBox(width: 8),
                   Container(

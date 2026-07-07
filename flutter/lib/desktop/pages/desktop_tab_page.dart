@@ -59,7 +59,8 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
           setResizable(false);
         } else {
           windowManager.setSize(getIncomingOnlySettingsSize());
-          setResizable(true);
+          // kq-v228-main-window-fixed-size: tab switches must not re-enable resize.
+          setResizable(false);
         }
       };
     }

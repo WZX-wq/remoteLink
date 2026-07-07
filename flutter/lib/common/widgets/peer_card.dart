@@ -36,11 +36,11 @@ String _kqPeerCardText(String key) {
   }
   switch (key) {
     case 'Online':
-      return '在线';
+      return kqLocaleText(zhCn: '在线', en: 'Online');
     case 'Offline':
-      return '离线';
+      return kqLocaleText(zhCn: '离线', en: 'Offline');
     case 'Checking':
-      return '检测中';
+      return kqLocaleText(zhCn: '检测中', en: 'Checking');
     default:
       return translate(key);
   }
@@ -685,7 +685,9 @@ class _PeerCardState extends State<_PeerCard>
     final title = peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
     final rawSubtitle =
         peer.hostname.trim().isNotEmpty ? peer.hostname : peer.username;
-    final subtitle = rawSubtitle.trim().isEmpty ? '远程设备' : rawSubtitle.trim();
+    final subtitle = rawSubtitle.trim().isEmpty
+        ? kqLocaleText(zhCn: '远程设备', en: 'Remote device')
+        : rawSubtitle.trim();
     const cardRadius = 8.0;
     final q = KqTheme.of(context);
     final peerTabModel = Provider.of<PeerTabModel>(context);
@@ -725,7 +727,7 @@ class _PeerCardState extends State<_PeerCard>
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(cardRadius),
-              color: q.isDark ? q.panelStrong.withOpacity(0.9) : Colors.white,
+              color: q.isDark ? q.panelStrong.withOpacity(0.92) : Colors.white,
               border: Border.all(
                 color: q.isDark
                     ? q.line.withOpacity(0.84)

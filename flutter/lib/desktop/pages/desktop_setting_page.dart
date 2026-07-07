@@ -50,6 +50,41 @@ const Color _kqDesignerCardBorder = Color(0xFFE4E8EE);
 const Color _kqDesignerTextPrimary = Color(0xFF1A2332);
 const Color _kqDesignerTextSecondary = Color(0xFF6B7A8D);
 
+Color _settingsDesignerTextPrimary(BuildContext context) =>
+    _settingPalette(context).primaryText;
+
+Color _settingsDesignerTextSecondary(BuildContext context) =>
+    _settingPalette(context).mutedText;
+
+Color _settingsDesignerCardBorder(BuildContext context) =>
+    _settingPalette(context).cardBorder;
+
+Color _settingsDesignerSoftSurface(BuildContext context) {
+  final palette = _settingPalette(context);
+  return Theme.of(context).brightness == Brightness.dark
+      ? palette.fieldFill
+      : const Color(0xFFF8FAFD);
+}
+
+Color _settingsDesignerInfoSurface(BuildContext context) {
+  final palette = _settingPalette(context);
+  return Theme.of(context).brightness == Brightness.dark
+      ? palette.cardHeaderBackground
+      : const Color(0xFFF5F8FD);
+}
+
+Color _settingsDesignerBlueSurface(BuildContext context) {
+  final palette = _settingPalette(context);
+  return Theme.of(context).brightness == Brightness.dark
+      ? palette.navSelectedBackground
+      : _kqDesignerBlueSoft;
+}
+
+String _kqSettingText(String zhCn, String en) {
+  // kq-v233-desktop-account-locale-text
+  return kqLocaleText(zhCn: zhCn, en: en);
+}
+
 class _TabInfo {
   late final SettingsTabKey key;
   late final String label;
@@ -533,14 +568,15 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
 
   Widget _buildDesignerSettingsTabs({required List<_TabInfo> tabs}) {
     return Obx(() {
+      final palette = _settingPalette(context);
       return Container(
         // kq-designer-settings-tabs
         // kq-v218-settings-reference-tabs
         height: 45,
         padding: const EdgeInsets.symmetric(horizontal: 18),
-        decoration: const BoxDecoration(
-          color: Color(0xCCEAF2FF),
-          border: Border(bottom: BorderSide(color: Color(0xFFF0F2F6))),
+        decoration: BoxDecoration(
+          color: palette.cardHeaderBackground,
+          border: Border(bottom: BorderSide(color: palette.cardBorder)),
         ),
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -562,16 +598,19 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     required _TabInfo tab,
     required bool selected,
   }) {
-    final iconColor =
-        selected ? _kqDesignerBlue : _kqDesignerTextSecondary.withOpacity(0.86);
+    final palette = _settingPalette(context);
+    final iconColor = selected ? _kqDesignerBlue : palette.mutedText;
+    final selectedBackground = Theme.of(context).brightness == Brightness.dark
+        ? palette.navSelectedBackground
+        : _kqDesignerBlueSoft;
     return Padding(
       padding: const EdgeInsets.only(right: 5),
       child: Material(
-        color: selected ? _kqDesignerBlueSoft : Colors.transparent,
+        color: selected ? selectedBackground : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          hoverColor: _kqDesignerBlueSoft,
+          hoverColor: palette.navHoverBackground,
           onTap: () {
             final index = DesktopSettingPage.tabKeys.indexOf(tab.key);
             if (index == -1) {
@@ -604,8 +643,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
                 Text(
                   translate(tab.label),
                   style: TextStyle(
-                    color:
-                        selected ? _kqDesignerBlue : _kqDesignerTextSecondary,
+                    color: selected ? _kqDesignerBlue : palette.mutedText,
                     fontSize: 14,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                     height: 1,
@@ -791,15 +829,16 @@ class _SettingsReferenceCard extends StatelessWidget {
     final palette = _settingPalette(context);
     return Container(
       // kq-v218-settings-reference-card
+      // kq-v227-settings-dark-reference-card-colors
       margin: const EdgeInsets.only(bottom: 9),
       padding: padding,
       decoration: BoxDecoration(
         color: palette.cardBackground,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE6EBF2)),
+        border: Border.all(color: palette.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.035),
+            color: palette.shadow,
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -815,8 +854,8 @@ class _SettingsReferenceCard extends StatelessWidget {
               const SizedBox(width: 7),
               Text(
                 translate(title),
-                style: const TextStyle(
-                  color: _kqDesignerTextPrimary,
+                style: TextStyle(
+                  color: palette.primaryText,
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0,
@@ -940,7 +979,11 @@ class _SettingsStaticCheck extends StatelessWidget {
 }
 
 Widget _settingsReferenceDivider() {
-  return const Divider(height: 18, color: Color(0xFFE8EDF5));
+  return Builder(builder: (context) {
+    final palette = _settingPalette(context);
+    // kq-v227-settings-dark-reference-divider
+    return Divider(height: 18, color: palette.cardBorder);
+  });
 }
 
 Widget _settingsChoicePill(
@@ -952,11 +995,12 @@ Widget _settingsChoicePill(
   IconData? icon,
   bool pro = false,
 }) {
+  final palette = _settingPalette(context);
   final foreground = selected
       ? Colors.white
       : enabled
-          ? _kqDesignerTextPrimary
-          : const Color(0xFF9AA8B8);
+          ? palette.primaryText
+          : palette.disabledText;
   return Material(
     color: Colors.transparent,
     child: InkWell(
@@ -968,10 +1012,11 @@ Widget _settingsChoicePill(
         padding:
             EdgeInsets.fromLTRB(icon == null ? 15 : 12, 0, pro ? 10 : 15, 0),
         decoration: BoxDecoration(
-          color: selected ? _kqDesignerBlue : const Color(0xFFF6F8FC),
+          // kq-v227-settings-choice-pill-theme-colors
+          color: selected ? _kqDesignerBlue : palette.fieldFill,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected ? _kqDesignerBlue : const Color(0xFFDDE6F2),
+            color: selected ? _kqDesignerBlue : palette.fieldBorder,
           ),
         ),
         child: Row(
@@ -1225,9 +1270,10 @@ class _GeneralState extends State<_General> {
                       height: 31,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF5F8FD),
+                        color: _settingsDesignerInfoSurface(context),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFFE0E7F1)),
+                        border: Border.all(
+                            color: _settingPalette(context).cardBorder),
                       ),
                       child: Row(
                         children: [
@@ -1812,28 +1858,31 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Consumer<ServerModel>(builder: (context, model, child) {
+        final palette = _settingPalette(context);
         final requirePassword = model.approveMode != 'click';
         return _SettingsReferenceCard(
           icon: Icons.lock_outline_rounded,
-          title: '访问密码',
+          title: _kqSettingText('访问密码', 'Access password'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _SettingsReferenceControlRow(
-                label: '验证码类型',
+                label: _kqSettingText('验证码类型', 'Verification code type'),
                 control: Align(
                   alignment: Alignment.centerLeft,
                   child: PopupMenuButton<KqPasswordKind>(
-                    tooltip: '选择验证码类型',
+                    tooltip: _kqSettingText(
+                        '选择验证码类型', 'Choose verification code type'),
                     initialValue: model.selectedPasswordKind,
                     onSelected: model.setSelectedPasswordKind,
-                    color: Colors.white,
+                    // kq-v227-settings-access-password-dark-colors
+                    color: palette.cardBackground,
                     elevation: 8,
-                    shadowColor: _kqDesignerBlue.withOpacity(0.16),
+                    shadowColor: palette.shadow,
                     offset: const Offset(0, 4),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
-                      side: const BorderSide(color: Color(0xFFE0E7F1)),
+                      side: BorderSide(color: palette.cardBorder),
                     ),
                     itemBuilder: (context) => KqPasswordKind.values
                         .map((kind) => PopupMenuItem<KqPasswordKind>(
@@ -1843,7 +1892,12 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                                 children: [
                                   Expanded(
                                       child: Text(
-                                          _settingsPasswordKindLabel(kind))),
+                                    _settingsPasswordKindLabel(kind),
+                                    style: TextStyle(
+                                      color: palette.primaryText,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  )),
                                   if (kind == model.selectedPasswordKind)
                                     const Icon(Icons.check_rounded,
                                         size: 16, color: _kqDesignerBlue),
@@ -1856,9 +1910,9 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                       width: 220,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFD),
+                        color: palette.fieldFill,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFD7DEE8)),
+                        border: Border.all(color: palette.fieldBorder),
                       ),
                       child: Row(
                         children: [
@@ -1868,15 +1922,15 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                                   model.selectedPasswordKind),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: _kqDesignerTextPrimary,
+                              style: TextStyle(
+                                color: palette.primaryText,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                          const Icon(Icons.expand_more_rounded,
-                              size: 18, color: _kqDesignerTextSecondary),
+                          Icon(Icons.expand_more_rounded,
+                              size: 18, color: palette.mutedText),
                         ],
                       ),
                     ),
@@ -1887,9 +1941,9 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 height: 42,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFD),
+                  color: palette.fieldFill,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFD7DEE8)),
+                  border: Border.all(color: palette.fieldBorder),
                 ),
                 child: Row(
                   children: [
@@ -1897,8 +1951,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                       child: SelectableText(
                         model.selectedPasswordText,
                         maxLines: 1,
-                        style: const TextStyle(
-                          color: _kqDesignerTextPrimary,
+                        style: TextStyle(
+                          color: palette.primaryText,
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0,
@@ -1920,7 +1974,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                           : null,
                     ),
                     _settingsIconAction(
-                      tooltip: '复制并分享',
+                      tooltip: _kqSettingText('复制并分享', 'Copy and share'),
                       icon: Icons.ios_share_rounded,
                       onTap: model.selectedPasswordCanShare
                           ? () => _copyRemoteAssistShare(model)
@@ -1941,7 +1995,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 children: [
                   _settingsInlineCheckbox(
                     context,
-                    label: '连接时需要输入密码',
+                    label: _kqSettingText(
+                        '连接时需要输入密码', 'Require password when connecting'),
                     value: requirePassword,
                     enabled: !locked && !isOptionFixed(kOptionApproveMode),
                     onChanged: (value) async {
@@ -1968,7 +2023,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
       child: Consumer<ServerModel>(builder: (context, model, child) {
         return _SettingsReferenceCard(
           icon: Icons.shield_outlined,
-          title: '验证码策略',
+          title: _kqSettingText('验证码策略', 'Verification policy'),
           child: Align(
             alignment: Alignment.centerLeft,
             child: SizedBox(
@@ -1979,10 +2034,12 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                   kUseBothPasswords,
                   kUsePermanentPassword,
                 ],
-                values: const [
-                  '随机生成（每次刷新）',
-                  '一次性与长期都可用',
-                  '长期验证码',
+                values: [
+                  _kqSettingText(
+                      '随机生成（每次刷新）', 'Randomly generated on each refresh'),
+                  _kqSettingText(
+                      '一次性与长期都可用', 'One-time and permanent both available'),
+                  _kqSettingText('长期验证码', 'Permanent verification code'),
                 ],
                 initialKey: model.verificationMethod,
                 enabled: !locked && !isOptionFixed(kOptionVerificationMethod),
@@ -2002,10 +2059,12 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
   Widget _encryptionReferenceCard(BuildContext context) {
     return _SettingsReferenceCard(
       icon: Icons.enhanced_encryption_outlined,
-      title: '加密与锁定',
+      title: _kqSettingText('加密与锁定', 'Encryption and lock'),
       child: _SettingsReferenceCheckGrid(
         children: [
-          const _SettingsStaticCheck(label: '端到端加密', checked: true),
+          _SettingsStaticCheck(
+              label: _kqSettingText('端到端加密', 'End-to-end encryption'),
+              checked: true),
           if (isWindows)
             _OptionCheckBox(
               context,
@@ -2038,17 +2097,20 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
     required IconData icon,
     required VoidCallback? onTap,
   }) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        splashRadius: 16,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-        icon: Icon(icon, size: 17),
-        color: onTap == null ? const Color(0xFFB6C0CF) : _kqDesignerBlue,
-        onPressed: onTap,
-      ),
-    );
+    return Builder(builder: (context) {
+      final palette = _settingPalette(context);
+      return Tooltip(
+        message: tooltip,
+        child: IconButton(
+          splashRadius: 16,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+          icon: Icon(icon, size: 17),
+          color: onTap == null ? palette.disabledText : _kqDesignerBlue,
+          onPressed: onTap,
+        ),
+      );
+    });
   }
 
   Widget _settingsInlineCheckbox(
@@ -2099,18 +2161,21 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
     final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
     final password = model.selectedPasswordText.trim();
     if (id.isEmpty || id == '--' || !model.selectedPasswordCanShare) {
-      showToast('设备号或验证码还未就绪');
+      showToast(_kqSettingText(
+          '设备号或验证码还未就绪', 'Device ID or verification code is not ready yet'));
       return;
     }
     final link = _buildKqInviteLink(id: id, password: password);
     final text = [
-      '使用 鲲穹远程桌面 即可对我发起远程协助',
-      '设备ID：${formatID(id)}',
-      '设备验证码：$password',
-      '点击链接可直接发起远程协助：$link',
+      _kqSettingText('使用 鲲穹远程桌面 即可对我发起远程协助',
+          'Use Kunqiong Remote Desktop to start remote assistance with me'),
+      '${_kqSettingText('设备ID', 'Device ID')}: ${formatID(id)}',
+      '${_kqSettingText('设备验证码', 'Verification code')}: $password',
+      '${_kqSettingText('点击链接可直接发起远程协助', 'Open the link to start remote assistance')}: $link',
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: text));
-    showToast('已复制远程协助分享信息');
+    showToast(
+        _kqSettingText('已复制远程协助分享信息', 'Remote assistance share info copied'));
   }
 
   String _buildKqInviteLink({required String id, required String password}) {
@@ -2142,11 +2207,11 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
   String _settingsPasswordKindLabel(KqPasswordKind kind) {
     switch (kind) {
       case KqPasswordKind.oneTime:
-        return '一次性验证码';
+        return _kqSettingText('一次性验证码', 'One-time verification code');
       case KqPasswordKind.daily:
-        return '今日验证码';
+        return _kqSettingText('今日验证码', 'Today verification code');
       case KqPasswordKind.permanent:
-        return '长期验证码';
+        return _kqSettingText('长期验证码', 'Permanent verification code');
     }
   }
 
@@ -2179,7 +2244,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
         final value = controller.text.trim();
         if (value.isEmpty) {
           setState(() {
-            errMsg = '验证码不能为空';
+            errMsg =
+                _kqSettingText('验证码不能为空', 'Verification code cannot be empty');
             submitting = false;
           });
           return;
@@ -2206,7 +2272,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
           });
           return;
         }
-        showToast('已更新$title');
+        showToast('${_kqSettingText('已更新', 'Updated')} $title');
         close();
       }
 
@@ -2227,7 +2293,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
           });
           return;
         }
-        showToast('已移除$title');
+        showToast('${_kqSettingText('已移除', 'Removed')} $title');
         close();
       }
 
@@ -2236,7 +2302,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.key_rounded, color: MyTheme.accent),
-            Text('修改$title').paddingOnly(left: 10),
+            Text('${_kqSettingText('修改', 'Edit')} $title')
+                .paddingOnly(left: 10),
           ],
         ),
         content: ConstrainedBox(
@@ -2280,7 +2347,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 ).workaroundFreezeLinuxMint(),
                 const SizedBox(height: 4),
                 Text(
-                  '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                  _kqSettingText('长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                      'The permanent verification code also updates the permanent password used for remote connections and remains visible on this device.'),
                   style: TextStyle(
                     color: KqTheme.of(context).muted,
                     fontSize: 12,
@@ -2944,7 +3012,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
     }
     return _SettingsReferenceCard(
       icon: Icons.credit_card_outlined,
-      title: '代理设置',
+      title: _kqSettingText('代理设置', 'Proxy settings'),
       child: Align(
         alignment: Alignment.centerLeft,
         child: _settingsLightButton(
@@ -2959,7 +3027,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   Widget _connectionQualityReferenceCard(BuildContext context) {
     return _SettingsReferenceCard(
       icon: Icons.speed_rounded,
-      title: '连接质量',
+      title: _kqSettingText('连接质量', 'Connection quality'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2969,7 +3037,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
               width: 220,
               child: ComboBox(
                 keys: const ['auto'],
-                values: const ['自动'],
+                values: [_kqSettingText('自动', 'Auto')],
                 initialKey: 'auto',
                 enabled: false,
                 onChanged: (_) {},
@@ -2994,7 +3062,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   Widget _advancedNetworkReferenceCard(BuildContext context) {
     return _SettingsReferenceCard(
       icon: Icons.wifi_tethering_rounded,
-      title: '高级网络',
+      title: _kqSettingText('高级网络', 'Advanced network'),
       child: _SettingsReferenceCheckGrid(
         children: [
           if (!bind.isIncomingOnly())
@@ -3281,11 +3349,11 @@ class _DisplayState extends State<_Display> {
     final fps = user.remoteFpsSelection;
     return _SettingsReferenceCard(
       icon: Icons.desktop_windows_outlined,
-      title: '画质设置',
+      title: _kqSettingText('画质设置', 'Quality settings'),
       child: LayoutBuilder(builder: (context, constraints) {
         final wide = constraints.maxWidth >= 560;
         final resolutionControl = _SettingsReferenceControlRow(
-          label: '默认分辨率',
+          label: _kqSettingText('默认分辨率', 'Default resolution'),
           control: SizedBox(
             width: 220,
             child: ComboBox(
@@ -3305,10 +3373,12 @@ class _DisplayState extends State<_Display> {
               },
             ),
           ),
-          helper: isMember ? '会员已解锁' : '会员可用 1080p',
+          helper: isMember
+              ? _kqSettingText('会员已解锁', 'Membership unlocked')
+              : _kqSettingText('会员可用 1080p', '1080p for members'),
         );
         final fpsControl = _SettingsReferenceControlRow(
-          label: '默认帧率',
+          label: _kqSettingText('默认帧率', 'Default frame rate'),
           control: SizedBox(
             width: 220,
             child: ComboBox(
@@ -3326,7 +3396,9 @@ class _DisplayState extends State<_Display> {
               },
             ),
           ),
-          helper: isMember ? '会员已解锁' : '会员可用 60 FPS',
+          helper: isMember
+              ? _kqSettingText('会员已解锁', 'Membership unlocked')
+              : _kqSettingText('会员可用 60 FPS', '60 FPS for members'),
         );
         if (wide) {
           return Row(
@@ -3420,7 +3492,7 @@ class _DisplayState extends State<_Display> {
     ];
     return _SettingsReferenceCard(
       icon: Icons.bolt_rounded,
-      title: '渲染与性能',
+      title: _kqSettingText('渲染与性能', 'Rendering and performance'),
       child: _SettingsReferenceCheckGrid(children: children),
     );
   }
@@ -3444,7 +3516,7 @@ class _DisplayState extends State<_Display> {
   Widget _displayOptionsReferenceCard(BuildContext context) {
     return _SettingsReferenceCard(
       icon: Icons.visibility_outlined,
-      title: '显示选项',
+      title: _kqSettingText('显示选项', 'Display options'),
       child: _SettingsReferenceCheckGrid(
         children: [
           if (isDesktop || isWebDesktop)
@@ -3885,22 +3957,26 @@ class _AccountState extends State<_Account> {
     required Widget child,
     EdgeInsets padding = const EdgeInsets.all(16),
   }) {
-    return Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _kqDesignerCardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.055),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: child,
-    );
+    return Builder(builder: (context) {
+      final palette = _settingPalette(context);
+      return Container(
+        // kq-v227-account-reference-card-theme-colors
+        padding: padding,
+        decoration: BoxDecoration(
+          color: palette.cardBackground,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: palette.cardBorder),
+          boxShadow: [
+            BoxShadow(
+              color: palette.shadow,
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: child,
+      );
+    });
   }
 
   Widget _profileReferenceBanner(BuildContext context) {
@@ -3921,8 +3997,8 @@ class _AccountState extends State<_Account> {
                   user.displayNameOrUserName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _kqDesignerTextPrimary,
+                  style: TextStyle(
+                    color: _settingsDesignerTextPrimary(context),
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0,
@@ -3933,8 +4009,8 @@ class _AccountState extends State<_Account> {
                   '@${user.userName.value}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF8B9AAF),
+                  style: TextStyle(
+                    color: _settingsDesignerTextSecondary(context),
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0,
@@ -3954,9 +4030,9 @@ class _AccountState extends State<_Account> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF3FF),
+        color: _settingsDesignerBlueSurface(context),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD7E8FF)),
+        border: Border.all(color: _settingsDesignerCardBorder(context)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3968,7 +4044,9 @@ class _AccountState extends State<_Account> {
           ),
           const SizedBox(width: 5),
           Text(
-            isMember ? '会员版' : '基础版',
+            isMember
+                ? _kqSettingText('会员版', 'Member')
+                : _kqSettingText('基础版', 'Basic'),
             style: const TextStyle(
               color: _kqDesignerBlue,
               fontSize: 12,
@@ -3986,8 +4064,14 @@ class _AccountState extends State<_Account> {
     final isMember = user.isMember.value;
     final expireAt = user.memberExpireAt.value.trim();
     final expireLabel = _memberExpireAtLabel(expireAt);
-    final title = isMember ? '当前为会员版' : '当前为基础版';
-    final subtitle = isMember ? '$expireLabel，可使用更高分辨率与帧率' : '升级会员解锁更高分辨率与帧率';
+    final palette = _settingPalette(context);
+    final title = isMember
+        ? _kqSettingText('当前为会员版', 'Current plan: Member')
+        : _kqSettingText('当前为基础版', 'Current plan: Basic');
+    final subtitle = isMember
+        ? '$expireLabel, ${_kqSettingText('可使用更高分辨率与帧率', 'higher resolution and frame rate available')}'
+        : _kqSettingText('升级会员解锁更高分辨率与帧率',
+            'Upgrade to unlock higher resolution and frame rate');
     return _referenceCard(
       // kq-v216-account-member-card
       // kq-v219-account-member-expire-at
@@ -3997,15 +4081,15 @@ class _AccountState extends State<_Account> {
         children: [
           _referenceSectionTitle(
             icon: Icons.star_border_rounded,
-            title: '会员权益',
+            title: _kqSettingText('会员权益', 'Membership benefits'),
           ),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F8FD),
+              color: _settingsDesignerInfoSurface(context),
               borderRadius: BorderRadius.circular(7),
-              border: Border.all(color: const Color(0xFFE8EDF5)),
+              border: Border.all(color: palette.cardBorder),
             ),
             child: Row(
               children: [
@@ -4013,7 +4097,7 @@ class _AccountState extends State<_Account> {
                   width: 28,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE5F1FF),
+                    color: _settingsDesignerBlueSurface(context),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -4031,8 +4115,8 @@ class _AccountState extends State<_Account> {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: _kqDesignerTextPrimary,
+                        style: TextStyle(
+                          color: palette.primaryText,
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0,
@@ -4043,8 +4127,8 @@ class _AccountState extends State<_Account> {
                         subtitle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: _kqDesignerTextSecondary,
+                        style: TextStyle(
+                          color: palette.mutedText,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0,
@@ -4057,7 +4141,9 @@ class _AccountState extends State<_Account> {
                 FilledButton.icon(
                   onPressed: _showMemberRechargeDialog,
                   icon: const Icon(Icons.star_border_rounded, size: 17),
-                  label: Text(isMember ? '续费会员' : '开通会员'),
+                  label: Text(isMember
+                      ? _kqSettingText('续费会员', 'Renew membership')
+                      : _kqSettingText('开通会员', 'Upgrade membership')),
                   style: FilledButton.styleFrom(
                     backgroundColor: _kqDesignerBlue,
                     foregroundColor: Colors.white,
@@ -4081,11 +4167,11 @@ class _AccountState extends State<_Account> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('刷新权益'),
+                  label: Text(_kqSettingText('刷新权益', 'Refresh benefits')),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: _kqDesignerTextPrimary,
+                    foregroundColor: palette.primaryText,
                     minimumSize: const Size(128, 42),
-                    side: const BorderSide(color: Color(0xFFDDE5F0)),
+                    side: BorderSide(color: palette.cardBorder),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(7),
                     ),
@@ -4101,51 +4187,55 @@ class _AccountState extends State<_Account> {
 
   String _memberExpireAtLabel(String expireAt) {
     if (expireAt.isEmpty) {
-      return '到期时间：暂未同步';
+      return _kqSettingText('到期时间：暂未同步', 'Expiration: not synced yet');
     }
     if (expireAt.toLowerCase() == 'unlimited') {
-      return '到期时间：长期有效';
+      return _kqSettingText('到期时间：长期有效', 'Expiration: lifetime');
     }
     final normalized = expireAt
         .replaceFirst('T', ' ')
         .replaceFirst(RegExp(r'\.\d+Z?$'), '')
         .replaceFirst(RegExp(r'Z$'), '')
         .trim();
-    return '到期时间：$normalized';
+    return '${_kqSettingText('到期时间', 'Expiration')}: $normalized';
   }
 
   Widget _referenceSectionTitle({
     required IconData icon,
     required String title,
   }) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: _kqDesignerTextPrimary),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: _kqDesignerTextPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0,
+    return Builder(builder: (context) {
+      final palette = _settingPalette(context);
+      return Row(
+        children: [
+          Icon(icon, size: 20, color: palette.primaryText),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              color: palette.primaryText,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
           ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
 
   Widget _centeredLogoutButton(BuildContext context) {
+    final palette = _settingPalette(context);
     return Center(
       // kq-v216-account-logout-centered
       child: OutlinedButton.icon(
         onPressed: logOutConfirmDialog,
         icon: const Icon(Icons.logout_rounded, size: 16),
-        label: const Text('退出登录'),
+        label: Text(_kqSettingText('退出登录', 'Log out')),
         style: OutlinedButton.styleFrom(
           foregroundColor: const Color(0xFFFF4D4F),
           minimumSize: const Size(130, 36),
-          side: const BorderSide(color: Color(0xFFE3E8F0)),
+          side: BorderSide(color: palette.cardBorder),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),
@@ -4155,24 +4245,29 @@ class _AccountState extends State<_Account> {
   }
 
   Widget _qualityReferenceNote(BuildContext context) {
+    final palette = _settingPalette(context);
     return Container(
       // kq-v216-account-quality-note
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFE3F0FF),
+        color: _settingsDesignerBlueSurface(context),
         borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: const Color(0xFFBFD9FF)),
+        border: Border.all(color: palette.cardBorder),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline_rounded, color: Color(0xFF48A5FF), size: 19),
-          SizedBox(width: 12),
+          const Icon(Icons.info_outline_rounded,
+              color: Color(0xFF48A5FF), size: 19),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
-              '画质与帧率说明：基础版用户可使用 720p / 30 FPS。升级会员后可解锁 1080p 高清画质及 60 FPS 高帧率，获得更加流畅、清晰的远程桌面体验。',
+              _kqSettingText(
+                '画质与帧率说明：基础版用户可使用 720p / 30 FPS。升级会员后可解锁 1080p 高清画质及 60 FPS 高帧率，获得更加流畅、清晰的远程桌面体验。',
+                'Quality and frame rate: Basic users can use 720p / 30 FPS. Members unlock 1080p HD and 60 FPS for a smoother, clearer remote desktop experience.',
+              ),
               style: TextStyle(
-                color: Color(0xFF74849A),
+                color: palette.mutedText,
                 fontSize: 14,
                 height: 1.6,
                 fontWeight: FontWeight.w600,
@@ -4250,23 +4345,27 @@ class _AccountState extends State<_Account> {
                     ),
                   ),
                   const SizedBox(width: 18),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '登录鲲穹账号',
+                          _kqSettingText(
+                              '登录鲲穹账号', 'Log in to Kunqiong account'),
                           style: TextStyle(
-                            color: _kqDesignerTextPrimary,
+                            color: _settingsDesignerTextPrimary(context),
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
                         SizedBox(height: 7),
                         Text(
-                          '登录后可查看会员权益、同步账号设备，并解锁对应的远控画质与帧率。',
+                          _kqSettingText(
+                            '登录后可查看会员权益、同步账号设备，并解锁对应的远控画质与帧率。',
+                            'Log in to view membership benefits, sync account devices, and unlock matching remote quality and frame rates.',
+                          ),
                           style: TextStyle(
-                            color: _kqDesignerTextSecondary,
+                            color: _settingsDesignerTextSecondary(context),
                             fontSize: 13,
                             height: 1.5,
                             fontWeight: FontWeight.w500,
@@ -4282,7 +4381,7 @@ class _AccountState extends State<_Account> {
                       // kq-v217-account-signed-out-login-action
                       onPressed: loginDialog,
                       icon: const Icon(Icons.login_rounded, size: 17),
-                      label: const Text('立即登录'),
+                      label: Text(_kqSettingText('立即登录', 'Log in now')),
                       style: FilledButton.styleFrom(
                         backgroundColor: _kqDesignerBlue,
                         foregroundColor: Colors.white,
@@ -4308,8 +4407,9 @@ class _AccountState extends State<_Account> {
                   Expanded(
                     child: _guestFeatureItem(
                       icon: Icons.verified_user_outlined,
-                      title: '安全远控',
-                      subtitle: '账号体系保护远程协助流程',
+                      title: _kqSettingText('安全远控', 'Secure remote control'),
+                      subtitle: _kqSettingText('账号体系保护远程协助流程',
+                          'Account protection for remote assistance flows'),
                       color: _kqDesignerBlue,
                       background: const Color(0xFFDBEAFE),
                     ),
@@ -4318,8 +4418,9 @@ class _AccountState extends State<_Account> {
                   Expanded(
                     child: _guestFeatureItem(
                       icon: Icons.devices_rounded,
-                      title: '账号设备',
-                      subtitle: '查看登录过本账号的设备',
+                      title: _kqSettingText('账号设备', 'Account devices'),
+                      subtitle: _kqSettingText('查看登录过本账号的设备',
+                          'View devices that have used this account'),
                       color: const Color(0xFF059669),
                       background: const Color(0xFFD1FAE5),
                     ),
@@ -4328,8 +4429,9 @@ class _AccountState extends State<_Account> {
                   Expanded(
                     child: _guestFeatureItem(
                       icon: Icons.bolt_rounded,
-                      title: '会员权益',
-                      subtitle: '会员可解锁 1080p / 60 FPS',
+                      title: _kqSettingText('会员权益', 'Membership benefits'),
+                      subtitle: _kqSettingText('会员可解锁 1080p / 60 FPS',
+                          'Members can unlock 1080p / 60 FPS'),
                       color: const Color(0xFFD97706),
                       background: const Color(0xFFFEF3C7),
                     ),
@@ -4359,20 +4461,24 @@ class _AccountState extends State<_Account> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '欢迎使用\n鲲穹远程桌面',
+                  Text(
+                    _kqSettingText(
+                        '欢迎使用\n鲲穹远程桌面', 'Welcome to\nKunqiong Remote Desktop'),
                     style: TextStyle(
-                      color: _kqDesignerTextPrimary,
+                      color: _settingsDesignerTextPrimary(context),
                       fontSize: 28,
                       fontWeight: FontWeight.w800,
                       height: 1.35,
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
-                    '登录鲲穹账号，解锁完整的远程协作体验。\n跨设备管理、数据同步、会员专属权益，一切尽在掌握。',
+                  Text(
+                    _kqSettingText(
+                      '登录鲲穹账号，解锁完整的远程协作体验。\n跨设备管理、数据同步、会员专属权益，一切尽在掌握。',
+                      'Log in to unlock the complete remote collaboration experience.\nManage devices, sync data, and enjoy member benefits.',
+                    ),
                     style: TextStyle(
-                      color: _kqDesignerTextSecondary,
+                      color: _settingsDesignerTextSecondary(context),
                       fontSize: 14,
                       height: 1.75,
                     ),
@@ -4380,24 +4486,27 @@ class _AccountState extends State<_Account> {
                   const SizedBox(height: 34),
                   _guestFeatureItem(
                     icon: Icons.verified_user_outlined,
-                    title: '安全连接',
-                    subtitle: '端到端加密，数据安全有保障',
+                    title: _kqSettingText('安全连接', 'Secure connection'),
+                    subtitle: _kqSettingText('端到端加密，数据安全有保障',
+                        'End-to-end encryption keeps data protected'),
                     color: _kqDesignerBlue,
                     background: const Color(0xFFDBEAFE),
                   ),
                   const SizedBox(height: 8),
                   _guestFeatureItem(
                     icon: Icons.devices_rounded,
-                    title: '多平台支持',
-                    subtitle: '支持 Windows、Android 等设备协作',
+                    title: _kqSettingText('多平台支持', 'Multi-platform support'),
+                    subtitle: _kqSettingText('支持 Windows、Android 等设备协作',
+                        'Works across Windows, Android, and more'),
                     color: const Color(0xFF059669),
                     background: const Color(0xFFD1FAE5),
                   ),
                   const SizedBox(height: 8),
                   _guestFeatureItem(
                     icon: Icons.bolt_rounded,
-                    title: '高清流畅',
-                    subtitle: '会员可解锁 1080p / 60 FPS 远控体验',
+                    title: _kqSettingText('高清流畅', 'Clear and smooth'),
+                    subtitle: _kqSettingText('会员可解锁 1080p / 60 FPS 远控体验',
+                        'Members can unlock 1080p / 60 FPS remote control'),
                     color: const Color(0xFFD97706),
                     background: const Color(0xFFFEF3C7),
                   ),
@@ -4442,20 +4551,21 @@ class _AccountState extends State<_Account> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    const Text(
-                      '登录鲲穹账号',
+                    Text(
+                      _kqSettingText('登录鲲穹账号', 'Log in to Kunqiong account'),
                       style: TextStyle(
-                        color: _kqDesignerTextPrimary,
+                        color: _settingsDesignerTextPrimary(context),
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '同步数据、管理设备、享受会员权益',
+                    Text(
+                      _kqSettingText('同步数据、管理设备、享受会员权益',
+                          'Sync data, manage devices, and enjoy member benefits'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: _kqDesignerTextSecondary,
+                        color: _settingsDesignerTextSecondary(context),
                         fontSize: 13,
                         height: 1.6,
                       ),
@@ -4467,7 +4577,7 @@ class _AccountState extends State<_Account> {
                       child: FilledButton.icon(
                         onPressed: loginDialog,
                         icon: const Icon(Icons.login_rounded, size: 17),
-                        label: const Text('立即登录'),
+                        label: Text(_kqSettingText('立即登录', 'Log in now')),
                       ),
                     ),
                   ],
@@ -4487,59 +4597,62 @@ class _AccountState extends State<_Account> {
     required Color color,
     required Color background,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFF0F2F6)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.025),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(12),
+    return Builder(builder: (context) {
+      final palette = _settingPalette(context);
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: palette.cardBackground,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: palette.cardBorder),
+          boxShadow: [
+            BoxShadow(
+              color: palette.shadow,
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: _kqDesignerTextPrimary,
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: _kqDesignerTextSecondary,
-                    fontSize: 12.5,
-                    height: 1.5,
-                  ),
-                ),
-              ],
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 22),
             ),
-          ),
-        ],
-      ),
-    );
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: palette.primaryText,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: palette.mutedText,
+                      fontSize: 12.5,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   // ignore: unused_element
@@ -4580,7 +4693,7 @@ class _AccountState extends State<_Account> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      translate('账户概览'),
+                      _kqSettingText('账户概览', 'Account overview'),
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -4646,7 +4759,7 @@ class _AccountState extends State<_Account> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            translate('会员权益'),
+            _kqSettingText('会员权益', 'Membership benefits'),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
@@ -4654,7 +4767,8 @@ class _AccountState extends State<_Account> {
             context,
             enabled: true,
             title: '720p / 30 FPS',
-            subtitle: translate('基础远控可用'),
+            subtitle:
+                _kqSettingText('基础远控可用', 'Basic remote control available'),
           ),
           _accountBenefitItem(
             context,
@@ -4666,13 +4780,15 @@ class _AccountState extends State<_Account> {
             context,
             enabled: isMember,
             title: translate('Member acceleration route'),
-            subtitle: translate('会员畅享专属加速链路'),
+            subtitle: _kqSettingText(
+                '会员畅享专属加速链路', 'Members enjoy an exclusive acceleration route'),
           ),
           _accountBenefitItem(
             context,
             enabled: true,
-            title: translate('本机账户设置'),
-            subtitle: translate('偏好设置保存在本机'),
+            title: _kqSettingText('本机账户设置', 'Local account settings'),
+            subtitle: _kqSettingText(
+                '偏好设置保存在本机', 'Preferences are saved on this device'),
           ),
         ],
       ),
@@ -4693,7 +4809,7 @@ class _AccountState extends State<_Account> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            translate('账户快捷操作'),
+            _kqSettingText('账户快捷操作', 'Account shortcuts'),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
@@ -4723,7 +4839,7 @@ class _AccountState extends State<_Account> {
               _accountActionButton(
                 context,
                 icon: Icons.public_rounded,
-                label: translate('官网'),
+                label: _kqSettingText('官网', 'Website'),
                 onPressed: () => launchUrl(
                   Uri.parse('https://kunqiongai.com/'),
                   mode: LaunchMode.externalApplication,
@@ -4752,7 +4868,8 @@ class _AccountState extends State<_Account> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              translate('画质和帧率会在新建远控会话时生效；开通或续费会员后可点击刷新权益同步状态。'),
+              _kqSettingText('画质和帧率会在新建远控会话时生效；开通或续费会员后可点击刷新权益同步状态。',
+                  'Quality and frame-rate settings take effect in new remote sessions. After upgrading or renewing, refresh benefits to sync the status.'),
               style: TextStyle(
                 color: Theme.of(context).textTheme.bodySmall?.color,
                 height: 1.45,
@@ -4908,11 +5025,11 @@ class _AccountState extends State<_Account> {
         children: [
           _referenceSectionTitle(
             icon: Icons.desktop_windows_outlined,
-            title: '远控体验',
+            title: _kqSettingText('远控体验', 'Remote experience'),
           ),
           const SizedBox(height: 16),
           _referenceOptionRow(
-            title: '分辨率',
+            title: _kqSettingText('分辨率', 'Resolution'),
             children: [
               _referencePillOption(
                 context,
@@ -4940,7 +5057,7 @@ class _AccountState extends State<_Account> {
           ),
           const SizedBox(height: 13),
           _referenceOptionRow(
-            title: '帧率',
+            title: _kqSettingText('帧率', 'Frame rate'),
             children: [
               _referencePillOption(
                 context,
@@ -4971,26 +5088,29 @@ class _AccountState extends State<_Account> {
     required String title,
     required List<Widget> children,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFF6B7A8D),
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0,
+    return Builder(builder: (context) {
+      final palette = _settingPalette(context);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: palette.mutedText,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: children,
-        ),
-      ],
-    );
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: children,
+          ),
+        ],
+      );
+    });
   }
 
   Widget _referencePillOption(
@@ -5003,13 +5123,15 @@ class _AccountState extends State<_Account> {
     bool locked = false,
     bool pro = false,
   }) {
+    final palette = _settingPalette(context);
     final foreground = selected
         ? Colors.white
         : enabled
-            ? _kqDesignerTextPrimary
-            : const Color(0xFF9AA8B8);
+            ? palette.primaryText
+            : palette.disabledText;
     return Material(
       // kq-v216-account-pill-option
+      // kq-v227-account-remote-performance-dark-colors
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -5019,10 +5141,10 @@ class _AccountState extends State<_Account> {
           constraints: const BoxConstraints(minWidth: 84),
           padding: EdgeInsets.fromLTRB(15, 0, pro ? 10 : 15, 0),
           decoration: BoxDecoration(
-            color: selected ? _kqDesignerBlue : const Color(0xFFF4F7FB),
+            color: selected ? _kqDesignerBlue : palette.fieldFill,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: selected ? _kqDesignerBlue : const Color(0xFFE0E7F1),
+              color: selected ? _kqDesignerBlue : palette.fieldBorder,
             ),
             boxShadow: selected
                 ? [
@@ -5434,11 +5556,12 @@ class _AccountState extends State<_Account> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          ChoiceChip(
+                          _memberPaymentMethodChip(
+                            context,
                             selected: payType == 1,
-                            label: Text(translate('WeChat QR')),
-                            avatar: const Icon(Icons.qr_code_2, size: 17),
-                            onSelected: (_) => setDialogState(() {
+                            icon: Icons.qr_code_2,
+                            label: translate('WeChat QR'),
+                            onTap: () => setDialogState(() {
                               payType = 1;
                               order = null;
                               statusText = '';
@@ -5447,11 +5570,12 @@ class _AccountState extends State<_Account> {
                             }),
                           ),
                           const SizedBox(width: 8),
-                          ChoiceChip(
+                          _memberPaymentMethodChip(
+                            context,
                             selected: payType == 2,
-                            label: Text(translate('Alipay')),
-                            avatar: const Icon(Icons.open_in_browser, size: 17),
-                            onSelected: (_) => setDialogState(() {
+                            icon: Icons.open_in_browser,
+                            label: translate('Alipay'),
+                            onTap: () => setDialogState(() {
                               payType = 2;
                               order = null;
                               statusText = '';
@@ -5507,6 +5631,76 @@ class _AccountState extends State<_Account> {
       dialogAlive = false;
       pollTimer?.cancel();
     });
+  }
+
+  Widget _memberPaymentMethodChip(
+    BuildContext context, {
+    required bool selected,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final foreground = selected ? colors.primary : colors.onSurfaceVariant;
+    // kq-v232-member-payment-method-selected-contrast
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? colors.primary.withOpacity(0.14)
+                : colors.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? colors.primary : Theme.of(context).dividerColor,
+              width: selected ? 1.4 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: colors.primary.withOpacity(0.16),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? colors.primary : colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  color: foreground,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 16,
+                  color: colors.primary,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _memberPackageTile(
@@ -6111,35 +6305,40 @@ class _AboutState extends State<_About> {
           _aboutHero(version),
           _SettingsReferenceCard(
             icon: Icons.article_outlined,
-            title: '软件信息',
+            title: _kqSettingText('软件信息', 'Software information'),
             child: Column(
               children: [
-                _aboutInfoRow('软件名称', '鲲穹远程桌面 桌面端'),
+                _aboutInfoRow(
+                    _kqSettingText('软件名称', 'Software name'),
+                    _kqSettingText(
+                        '鲲穹远程桌面 桌面端', 'Kunqiong Remote Desktop for desktop')),
                 _settingsReferenceDivider(),
                 _aboutInfoRow('Version', 'v$version (Build $buildDate)'),
                 _settingsReferenceDivider(),
                 _aboutInfoRow(
-                  '运行环境',
+                  _kqSettingText('运行环境', 'Runtime environment'),
                   isWindows
                       ? 'Windows 10 / 11 (x64)'
                       : Platform.operatingSystem,
                 ),
                 _settingsReferenceDivider(),
-                _aboutInfoRow('许可证', '个人免费版'),
+                _aboutInfoRow(_kqSettingText('许可证', 'License'),
+                    _kqSettingText('个人免费版', 'Personal free edition')),
               ],
             ),
           ),
           _SettingsReferenceCard(
             icon: Icons.update_rounded,
-            title: '更新',
+            title: _kqSettingText('更新', 'Updates'),
             child: Row(
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        '当前已是最新版本',
+                      Text(
+                        _kqSettingText(
+                            '当前已是最新版本', 'You are on the latest version'),
                         style: TextStyle(
                           color: Color(0xFF16A34A),
                           fontSize: 14,
@@ -6148,9 +6347,9 @@ class _AboutState extends State<_About> {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        '上次检查：${DateTime.now().toString().substring(0, 16)}',
-                        style: const TextStyle(
-                          color: _kqDesignerTextSecondary,
+                        '${_kqSettingText('上次检查', 'Last checked')}: ${DateTime.now().toString().substring(0, 16)}',
+                        style: TextStyle(
+                          color: _settingsDesignerTextSecondary(context),
                           fontSize: 12,
                         ),
                       ),
@@ -6162,30 +6361,33 @@ class _AboutState extends State<_About> {
                     _downloadWebsite,
                     mode: LaunchMode.externalApplication,
                   ),
-                  child: const Text('检查更新'),
+                  child: Text(_kqSettingText('检查更新', 'Check for updates')),
                 ),
               ],
             ),
           ),
           _SettingsReferenceCard(
             icon: Icons.open_in_new_rounded,
-            title: '链接',
+            title: _kqSettingText('链接', 'Links'),
             child: Wrap(
               spacing: 18,
               runSpacing: 8,
               children: [
-                _aboutLink('官方网站', _companyWebsite),
-                _aboutLink('帮助文档', _companyWebsite),
-                _aboutLink('意见反馈', _companyWebsite),
-                _aboutLink('隐私政策', _companyWebsite),
+                _aboutLink(_kqSettingText('官方网站', 'Official website'),
+                    _companyWebsite),
+                _aboutLink(
+                    _kqSettingText('帮助文档', 'Help docs'), _companyWebsite),
+                _aboutLink(_kqSettingText('意见反馈', 'Feedback'), _companyWebsite),
+                _aboutLink(
+                    _kqSettingText('隐私政策', 'Privacy policy'), _companyWebsite),
               ],
             ),
           ),
           Center(
             child: Text(
-              '鲲穹远程桌面 v$version',
-              style: const TextStyle(
-                color: Color(0xFF9BA8B8),
+              '${_kqSettingText('鲲穹远程桌面', 'Kunqiong Remote Desktop')} v$version',
+              style: TextStyle(
+                color: _settingsDesignerTextSecondary(context),
                 fontSize: 12,
               ),
             ),
@@ -6196,16 +6398,18 @@ class _AboutState extends State<_About> {
   }
 
   Widget _aboutHero(String version) {
+    final palette = _settingPalette(context);
     return Container(
+      // kq-v227-about-page-dark-colors
       margin: const EdgeInsets.only(bottom: 9),
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
       decoration: BoxDecoration(
-        color: const Color(0xFFE7F1FF),
+        color: _settingsDesignerBlueSurface(context),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD8E8FF)),
+        border: Border.all(color: palette.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: _kqDesignerBlue.withOpacity(0.08),
+            color: palette.shadow,
             blurRadius: 12,
             offset: const Offset(0, 3),
           ),
@@ -6239,10 +6443,10 @@ class _AboutState extends State<_About> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '鲲穹远程桌面',
+                Text(
+                  _kqSettingText('鲲穹远程桌面', 'Kunqiong Remote Desktop'),
                   style: TextStyle(
-                    color: _kqDesignerTextPrimary,
+                    color: palette.primaryText,
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0,
@@ -6252,9 +6456,9 @@ class _AboutState extends State<_About> {
                 Row(
                   children: [
                     Text(
-                      '版本 $version',
-                      style: const TextStyle(
-                        color: _kqDesignerTextSecondary,
+                      '${_kqSettingText('版本', 'Version')} $version',
+                      style: TextStyle(
+                        color: palette.mutedText,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -6269,8 +6473,8 @@ class _AboutState extends State<_About> {
                         color: const Color(0xFFE9FFF3),
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: const Text(
-                        '最新',
+                      child: Text(
+                        _kqSettingText('最新', 'Latest'),
                         style: TextStyle(
                           color: Color(0xFF16A34A),
                           fontSize: 10,
@@ -6282,10 +6486,11 @@ class _AboutState extends State<_About> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  '安全、快速、高清的远程桌面解决方案',
+                Text(
+                  _kqSettingText('安全、快速、高清的远程桌面解决方案',
+                      'Secure, fast, and HD remote desktop solution'),
                   style: TextStyle(
-                    color: _kqDesignerTextSecondary,
+                    color: palette.mutedText,
                     fontSize: 13,
                   ),
                 ),
@@ -6298,6 +6503,7 @@ class _AboutState extends State<_About> {
   }
 
   Widget _aboutInfoRow(String label, String value) {
+    final palette = _settingPalette(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -6306,8 +6512,8 @@ class _AboutState extends State<_About> {
             width: 110,
             child: Text(
               translate(label),
-              style: const TextStyle(
-                color: _kqDesignerTextSecondary,
+              style: TextStyle(
+                color: palette.mutedText,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
@@ -6318,8 +6524,8 @@ class _AboutState extends State<_About> {
               child: Text(
                 value,
                 textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: _kqDesignerTextPrimary,
+                style: TextStyle(
+                  color: palette.primaryText,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
@@ -6609,7 +6815,8 @@ class _PostInstallPermissionActionsState
     await _runAction(() async {
       await bind.mainStartService();
       await mainSetBoolOption(kOptionStopService, false);
-      showToast('已发起后台服务安装，请在系统授权弹窗中确认。');
+      showToast(_kqSettingText('已发起后台服务安装，请在系统授权弹窗中确认。',
+          'Background service setup started. Please confirm in the system authorization prompt.'));
     }, (value) => _startingService = value);
   }
 
@@ -6633,7 +6840,8 @@ class _PostInstallPermissionActionsState
           key: kOptionEnablePermChangeInAcceptWindow, value: 'Y');
       await bind.mainSetOption(
           key: kOptionAllowRemoteConfigModification, value: 'N');
-      showToast('已应用推荐远控权限。');
+      showToast(_kqSettingText(
+          '已应用推荐远控权限。', 'Recommended remote-control permissions applied.'));
     }, (value) => _applyingRecommended = value);
   }
 
@@ -6655,7 +6863,8 @@ class _PostInstallPermissionActionsState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '安装后授权 / 连接增强',
+            _kqSettingText('安装后授权 / 连接增强',
+                'Post-install authorization / connection enhancements'),
             style: TextStyle(
               color: bodyColor,
               fontSize: _kContentFontSize,
@@ -6664,7 +6873,8 @@ class _PostInstallPermissionActionsState
           ),
           const SizedBox(height: 6),
           Text(
-            '用户主动点击后才会触发系统授权或修复；低误报安装包不会静默安装服务或改防火墙。',
+            _kqSettingText('用户主动点击后才会触发系统授权或修复；低误报安装包不会静默安装服务或改防火墙。',
+                'System authorization or repair only starts after the user clicks. Low false-positive installers do not silently install services or change firewall rules.'),
             style: TextStyle(
               color: widget.enabled ? palette.mutedText : palette.disabledText,
               fontSize: 13,
@@ -6673,7 +6883,7 @@ class _PostInstallPermissionActionsState
           ),
           const SizedBox(height: 10),
           _PostInstallActionButton(
-            label: '启用后台服务',
+            label: _kqSettingText('启用后台服务', 'Enable background service'),
             icon: Icons.admin_panel_settings_outlined,
             busy: _startingService,
             enabled: widget.enabled,
@@ -6681,7 +6891,7 @@ class _PostInstallPermissionActionsState
           ),
           const SizedBox(height: 8),
           _PostInstallActionButton(
-            label: '修复防火墙规则',
+            label: _kqSettingText('修复防火墙规则', 'Repair firewall rules'),
             icon: Icons.security_update_good_outlined,
             busy: _repairingFirewall,
             enabled: widget.enabled,
@@ -6689,7 +6899,7 @@ class _PostInstallPermissionActionsState
           ),
           const SizedBox(height: 8),
           _PostInstallActionButton(
-            label: '浏览器远控入口',
+            label: _kqSettingText('浏览器远控入口', 'Browser remote-control entry'),
             icon: Icons.link_rounded,
             busy: _registeringBrowserProtocol,
             enabled: widget.enabled,
@@ -6697,7 +6907,8 @@ class _PostInstallPermissionActionsState
           ),
           const SizedBox(height: 8),
           _PostInstallActionButton(
-            label: '应用推荐被控权限',
+            label: _kqSettingText(
+                '应用推荐被控权限', 'Apply recommended controlled-side permissions'),
             icon: Icons.verified_user_outlined,
             busy: _applyingRecommended,
             enabled: widget.enabled,

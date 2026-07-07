@@ -105,6 +105,7 @@ const KQ_REMOTE_FPS_TIER_KEY: &str = "kq_remote_fps_tier";
 const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
 const KQ_TEST_UNLIMITED_MEMBER_USER_ID: &str = "13";
 const KQ_VIEW_STYLE_MIGRATION_KEY: &str = "kq-view-style-adaptive-migrated";
+const KQ_REMEMBER_CONNECT_PASSWORD_ONCE: &str = "kq-remember-connect-password-once";
 const KQ_VIEW_STYLE_ORIGINAL: &str = "original";
 const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
 const KQ_FREE_MAX_FPS: i32 = 30;
@@ -2534,7 +2535,15 @@ impl LoginConfigHandler {
         self.conn_type = conn_type;
         let mut config = self.load_config();
         self.migrate_kq_adaptive_view_style(&mut config);
-        self.remember = !config.password.is_empty();
+        // kq-v229-connect-remember-password-choice
+        let remember_password_once = config.options.remove(KQ_REMEMBER_CONNECT_PASSWORD_ONCE);
+        if remember_password_once.is_some() {
+            config.store(&self.id);
+        }
+        self.remember = remember_password_once
+            .as_deref()
+            .map(|value| value == "Y")
+            .unwrap_or_else(|| !config.password.is_empty());
         self.config = config;
 
         let conn_token = conn_token
