@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_hbb/utils/image.dart';
+import 'package:flutter_hbb/common/widgets/kq_remote_quality_presentation.dart';
+import 'package:flutter_hbb/models/mobile_remote_layout_policy.dart';
 import 'package:flutter_hbb/models/remote_toolbar_visibility_policy.dart';
 import 'package:flutter_hbb/models/remote_video_quality_policy.dart';
 import 'package:flutter_hbb/models/user_model.dart';
@@ -87,7 +89,7 @@ void main() {
     expect(windowsPlugin, contains('MarkFrameAvailable()'));
   });
 
-  test('720p standard quality is lower than 1080p HD', () {
+  test('720p and 1080p use the same stable stream quality', () {
     expect(
       kqRemoteStreamQuality(highDefinition: false),
       kqStandardRemoteStreamQuality,
@@ -96,11 +98,11 @@ void main() {
       kqRemoteStreamQuality(highDefinition: true),
       kqHighDefinitionRemoteStreamQuality,
     );
-    expect(kqStandardRemoteStreamQuality, 80);
+    expect(kqStandardRemoteStreamQuality, 150);
     expect(kqHighDefinitionRemoteStreamQuality, 150);
     expect(
       kqStandardRemoteStreamQuality,
-      lessThan(kqHighDefinitionRemoteStreamQuality),
+      kqHighDefinitionRemoteStreamQuality,
     );
     expect(UserModel.freeMaxFps, UserModel.memberDefaultFps);
     expect(
@@ -109,6 +111,98 @@ void main() {
     );
     expect(
       kqRemoteProfileRequiresMembership(highDefinition: true),
+      isTrue,
+    );
+  });
+
+  testWidgets('Windows standard quality applies one sigma 0.6 blur',
+      (tester) async {
+    await tester.pumpWidget(const Directionality(
+      textDirection: TextDirection.ltr,
+      child: KqRemoteQualityPresentation(
+        streamQuality: kqStandardRemoteStreamQuality,
+        isStandardTier: true,
+        child: SizedBox(key: Key('standard-video'), width: 40, height: 20),
+      ),
+    ));
+
+    expect(kqStandardRemoteBlurSigma, 0.6);
+    expect(find.byType(ImageFiltered), findsOneWidget);
+    expect(find.byType(ClipRect), findsOneWidget);
+    expect(find.byType(Stack), findsNothing);
+    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byKey(const Key('standard-video')), findsOneWidget);
+  });
+
+  testWidgets('Windows HD quality keeps the video unfiltered', (tester) async {
+    await tester.pumpWidget(const Directionality(
+      textDirection: TextDirection.ltr,
+      child: KqRemoteQualityPresentation(
+        streamQuality: kqHighDefinitionRemoteStreamQuality,
+        isStandardTier: false,
+        child: SizedBox(key: Key('hd-video'), width: 40, height: 20),
+      ),
+    ));
+
+    expect(find.byType(ImageFiltered), findsNothing);
+    expect(find.byType(ClipRect), findsNothing);
+    expect(find.byKey(const Key('hd-video')), findsOneWidget);
+  });
+
+  test('KQ quality tiers never resize frames inside the encoder pipeline', () {
+    final videoQos = File('../src/server/video_qos.rs').readAsStringSync();
+    final videoService =
+        File('../src/server/video_service.rs').readAsStringSync();
+    final conversion =
+        File('../libs/scrap/src/common/convert.rs').readAsStringSync();
+    final frameApi = File('../libs/scrap/src/common/mod.rs').readAsStringSync();
+    final yuvHeader =
+        File('../libs/scrap/src/bindings/yuv_ffi.h').readAsStringSync();
+
+    expect(videoQos, isNot(contains('KqVideoTier')));
+    expect(videoService, isNot(contains('kq_encoded_dimensions')));
+    expect(videoService, isNot(contains('KQ video encoder switch')));
+    expect(conversion, isNot(contains('convert_to_yuv_with_scale')));
+    expect(conversion, isNot(contains('ARGBScale(')));
+    expect(frameApi, isNot(contains('scale_data: &mut Vec<u8>')));
+    expect(yuvHeader, isNot(contains('scale_argb.h')));
+  });
+
+  test('Windows blur stays outside the Android video widget', () {
+    final desktop =
+        File('lib/desktop/pages/remote_page.dart').readAsStringSync();
+    final desktopStart =
+        desktop.indexOf('  Widget _applyKqRemoteQualityPresentation(');
+    final desktopEnd = desktop.indexOf(
+      '  Widget _BuildPaintTextureRender(',
+      desktopStart,
+    );
+    expect(desktopStart, greaterThanOrEqualTo(0));
+    expect(desktopEnd, greaterThan(desktopStart));
+    final desktopPresentation = desktop.substring(desktopStart, desktopEnd);
+    expect(
+      desktopPresentation,
+      contains('return KqRemoteQualityPresentation('),
+    );
+    expect(desktopPresentation, contains('remoteCustomQualitySelection'));
+
+    final mobile = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final mobileStart =
+        mobile.indexOf('class ImagePaint extends StatelessWidget');
+    final mobileEnd = mobile.indexOf('class CursorPaint', mobileStart);
+    expect(mobileStart, greaterThanOrEqualTo(0));
+    expect(mobileEnd, greaterThan(mobileStart));
+    final mobileImagePaint = mobile.substring(mobileStart, mobileEnd);
+    expect(mobileImagePaint, isNot(contains('KqRemoteQualityPresentation(')));
+    expect(mobileImagePaint, isNot(contains('ImageFiltered(')));
+    expect(mobileImagePaint, isNot(contains('BackdropFilter(')));
+    expect(mobileImagePaint, contains('blurSigma:'));
+    expect(mobileImagePaint, contains('remoteResolutionSelection'));
+    expect(mobileImagePaint, contains('kqStandardRemoteBlurSigma'));
+
+    expect(
+      File('lib/common/widgets/kq_remote_quality_presentation.dart')
+          .existsSync(),
       isTrue,
     );
   });
@@ -170,6 +264,100 @@ void main() {
       toggleCount += 1;
     });
     expect(toggleCount, 1);
+  });
+
+  test('remote toolbar auto-collapse depends only on active UI state', () {
+    expect(
+      shouldAutoCollapseRemoteToolbar(
+        isExpanded: true,
+        isCursorOverImage: true,
+        isDragging: false,
+      ),
+      isTrue,
+    );
+    expect(
+      shouldAutoCollapseRemoteToolbar(
+        isExpanded: false,
+        isCursorOverImage: true,
+        isDragging: false,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldAutoCollapseRemoteToolbar(
+        isExpanded: true,
+        isCursorOverImage: false,
+        isDragging: false,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldAutoCollapseRemoteToolbar(
+        isExpanded: true,
+        isCursorOverImage: true,
+        isDragging: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('remote toolbar has no pin control or persisted pin state', () {
+    final source =
+        File('lib/desktop/widgets/remote_toolbar.dart').readAsStringSync();
+    expect(source, isNot(contains('class _PinMenu')));
+    expect(source, isNot(contains('toolbarItems.add(_PinMenu')));
+    expect(source, isNot(contains('kOptionRemoteMenubarState')));
+    expect(source, isNot(contains('switchPin')));
+  });
+
+  test('seven mobile side rail actions fit a compact landscape height', () {
+    expect(
+      mobileRemoteSideRailContentHeight(itemCount: 7),
+      lessThanOrEqualTo(320),
+    );
+  });
+
+  test('mobile keyboard does not resize or hide the side action rail', () {
+    final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    expect(source, contains('resizeToAvoidBottomInset: false'));
+
+    final railStart = source.indexOf('  Widget _remoteSideActionRail()');
+    final railEnd = source.indexOf(
+      '  Widget _remoteSideActionButton(',
+      railStart,
+    );
+    expect(railStart, greaterThanOrEqualTo(0));
+    expect(railEnd, greaterThan(railStart));
+
+    final railSource = source.substring(railStart, railEnd);
+    expect(railSource, isNot(contains('keyboardIsVisible ||')));
+    expect(railSource, isNot(contains('MediaQuery.of(context)')));
+    expect(railSource, contains('top: kMobileRemoteSideRailInset'));
+    expect(railSource, contains('bottom: kMobileRemoteSideRailInset'));
+    expect(railSource, contains('Align('));
+    expect(railSource, contains('SingleChildScrollView('));
+  });
+
+  test('mobile rail collapse and expand controls stay above the lower edge',
+      () {
+    expect(kMobileRemoteToggleButtonYOffset, -72);
+
+    final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    expect(source, contains('kMobileRemoteToggleButtonYOffset'));
+
+    final railStart = source.indexOf('  Widget _remoteSideActionRail()');
+    final railEnd = source.indexOf(
+      '  Widget _remoteSideActionButton(',
+      railStart,
+    );
+    expect(railStart, greaterThanOrEqualTo(0));
+    expect(railEnd, greaterThan(railStart));
+
+    final railSource = source.substring(railStart, railEnd);
+    final collapseIndex = railSource.indexOf("zhCn: '收起'");
+    final disconnectIndex = railSource.indexOf("zhCn: '断开'");
+    expect(collapseIndex, greaterThanOrEqualTo(0));
+    expect(disconnectIndex, greaterThan(collapseIndex));
   });
 
   test('expanded toolbar avoids a physical Material surface', () {
@@ -398,6 +586,63 @@ void main() {
     final rightPixel = (width - 1) * 4;
     expect(painted.sublist(rightPixel, rightPixel + 4),
         equals(<int>[0, 255, 0, 255]));
+
+    outputImage.dispose();
+    sourceImage.dispose();
+  });
+
+  testWidgets('Android painter blur keeps video pixels visible',
+      (tester) async {
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+
+    const width = 12;
+    const height = 8;
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      Paint()..color = const Color(0xFF32B8A6),
+    );
+    final sourceImage = (await tester
+        .runAsync(() => recorder.endRecording().toImage(width, height)))!;
+    final boundaryKey = GlobalKey();
+
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: Center(
+        child: SizedBox(
+          width: width.toDouble(),
+          height: height.toDouble(),
+          child: RepaintBoundary(
+            key: boundaryKey,
+            child: CustomPaint(
+              painter: ImagePainter(
+                image: sourceImage,
+                x: 0,
+                y: 0,
+                scale: 1,
+                blurSigma: 0.6,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final boundary = boundaryKey.currentContext!.findRenderObject()!
+        as RenderRepaintBoundary;
+    final outputImage =
+        (await tester.runAsync(() => boundary.toImage(pixelRatio: 1)))!;
+    final bytes = (await tester.runAsync(
+        () => outputImage.toByteData(format: ui.ImageByteFormat.rawRgba)))!;
+    final pixels = bytes.buffer.asUint8List();
+    expect(pixels.any((value) => value != 0), isTrue);
+    expect(
+      List<int>.generate(pixels.length ~/ 4, (index) => pixels[index * 4 + 3])
+          .any((alpha) => alpha > 0),
+      isTrue,
+    );
 
     outputImage.dispose();
     sourceImage.dispose();

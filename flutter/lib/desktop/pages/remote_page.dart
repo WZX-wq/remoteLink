@@ -13,6 +13,7 @@ import 'package:flutter_hbb/models/state_model.dart';
 
 import '../../consts.dart';
 import '../../common/widgets/overlay.dart';
+import '../../common/widgets/kq_remote_quality_presentation.dart';
 import '../../common/widgets/remote_input.dart';
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
@@ -20,6 +21,7 @@ import '../../common/widgets/toolbar.dart';
 import '../../models/model.dart';
 import '../../models/input_model.dart';
 import '../../models/platform_model.dart';
+import '../../models/user_model.dart';
 import '../../models/video_render_policy.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
@@ -972,7 +974,12 @@ class _ImagePaintState extends State<ImagePaint> {
   }
 
   Widget _applyKqRemoteQualityPresentation(Widget child) {
-    return child;
+    return KqRemoteQualityPresentation(
+      streamQuality: gFFI.userModel.remoteCustomQualitySelection,
+      isStandardTier: gFFI.userModel.remoteResolutionSelection ==
+          UserModel.remoteResolution720p,
+      child: child,
+    );
   }
 
   Widget _BuildPaintTextureRender(

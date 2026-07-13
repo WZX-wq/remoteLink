@@ -112,7 +112,7 @@ const KQ_VIEW_STYLE_ORIGINAL: &str = "original";
 const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
 const KQ_FREE_MAX_FPS: i32 = 60;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
-const KQ_STANDARD_IMAGE_QUALITY: i32 = 80;
+const KQ_STANDARD_IMAGE_QUALITY: i32 = 150;
 const KQ_HIGH_DEFINITION_IMAGE_QUALITY: i32 = 150;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
@@ -188,12 +188,12 @@ mod kq_remote_video_quality_tests {
     use super::*;
 
     #[test]
-    fn profiles_use_distinct_compression_quality() {
-        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 80);
+    fn profiles_use_same_stable_stream_quality() {
+        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 150);
         assert_eq!(kq_remote_custom_image_quality_for_tier("1080p"), 150);
-        assert!(
-            kq_remote_custom_image_quality_for_tier("720p")
-                < kq_remote_custom_image_quality_for_tier("1080p")
+        assert_eq!(
+            kq_remote_custom_image_quality_for_tier("720p"),
+            kq_remote_custom_image_quality_for_tier("1080p")
         );
         assert_eq!(KQ_FREE_MAX_FPS, KQ_MEMBER_MAX_FPS);
         assert_eq!(clamp_kq_remote_fps(30), KQ_MEMBER_MAX_FPS);

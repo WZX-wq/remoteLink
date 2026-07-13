@@ -96,6 +96,7 @@ class ImagePainter extends CustomPainter {
     required this.y,
     required this.scale,
     this.filterQuality,
+    this.blurSigma = 0,
     this.onPaint,
   });
 
@@ -104,6 +105,7 @@ class ImagePainter extends CustomPainter {
   double y;
   double scale;
   FilterQuality? filterQuality;
+  double blurSigma;
   VoidCallback? onPaint;
 
   @override
@@ -121,6 +123,13 @@ class ImagePainter extends CustomPainter {
       if (scale > 10.00000) {
         paint.filterQuality = FilterQuality.high;
       }
+    }
+    if (blurSigma > 0) {
+      paint.imageFilter = ui.ImageFilter.blur(
+        sigmaX: blurSigma,
+        sigmaY: blurSigma,
+        tileMode: ui.TileMode.clamp,
+      );
     }
     // It's strange that if (scale < 0.5 && paint.filterQuality == FilterQuality.medium)
     // The canvas.drawImage will not work on web

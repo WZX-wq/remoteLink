@@ -19,8 +19,11 @@ import '../../common/widgets/overlay.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/remote_input.dart';
 import '../../models/input_model.dart';
+import '../../models/mobile_remote_layout_policy.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/remote_video_quality_policy.dart';
+import '../../models/user_model.dart';
 import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
@@ -385,10 +388,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         return false;
       },
       child: Scaffold(
+          resizeToAvoidBottomInset: false,
           // workaround for https://github.com/rustdesk/rustdesk/issues/3131
-          floatingActionButtonLocation: keyboardIsVisible
-              ? FABLocation(FloatingActionButtonLocation.endFloat, 0, -35)
-              : null,
+          floatingActionButtonLocation: FABLocation(
+            FloatingActionButtonLocation.endFloat,
+            0,
+            kMobileRemoteToggleButtonYOffset,
+          ),
           floatingActionButton: !showActionButton
               ? null
               : FloatingActionButton(
@@ -484,15 +490,18 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Widget _remoteSideActionRail() {
     final ffiModel = Provider.of<FfiModel>(context);
-    final keyboardIsVisible = _softKeyboardActive;
-    if (!_showBar ||
-        keyboardIsVisible ||
-        _showGestureHelp ||
-        gFFI.ffiModel.pi.displays.isEmpty) {
+    if (!_showBar || _showGestureHelp || gFFI.ffiModel.pi.displays.isEmpty) {
       return const Offstage();
     }
 
     final controls = <Widget>[
+      Obx(() => _remoteSideActionButton(
+            icon: Icons.chevron_right,
+            label: kqLocaleText(zhCn: '收起', en: 'Hide'),
+            onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
+                ? null
+                : () => setState(() => _showBar = !_showBar),
+          )),
       _remoteSideActionButton(
         icon: Icons.clear,
         label: kqLocaleText(zhCn: '断开', en: 'End'),
@@ -548,27 +557,27 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           showActions(widget.id);
         },
       ),
-      Obx(() => _remoteSideActionButton(
-            icon: Icons.chevron_right,
-            label: kqLocaleText(zhCn: '收起', en: 'Hide'),
-            onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
-                ? null
-                : () => setState(() => _showBar = !_showBar),
-          )),
     ];
 
     return Positioned(
       right: 12,
-      top: MediaQuery.of(context).padding.top + 24,
-      child: Material(
-        color: const Color(0xCC202124),
-        borderRadius: BorderRadius.circular(24),
-        elevation: 6,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: controls,
+      top: kMobileRemoteSideRailInset,
+      bottom: kMobileRemoteSideRailInset,
+      child: Align(
+        alignment: Alignment.topRight,
+        child: Material(
+          color: const Color(0xCC202124),
+          borderRadius: BorderRadius.circular(24),
+          clipBehavior: Clip.antiAlias,
+          elevation: 6,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              vertical: kMobileRemoteSideRailContentVerticalPadding,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: controls,
+            ),
           ),
         ),
       ),
@@ -584,7 +593,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }) {
     final effectiveColor = onPressed == null ? Colors.white38 : color;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 4,
+        vertical: kMobileRemoteSideRailItemVerticalPadding,
+      ),
       child: Material(
         color: backgroundColor ?? Colors.transparent,
         borderRadius: BorderRadius.circular(18),
@@ -593,7 +605,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           onTap: onPressed,
           child: SizedBox(
             width: 54,
-            height: 46,
+            height: kMobileRemoteSideRailItemHeight,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
@@ -1164,6 +1176,10 @@ class ImagePaint extends StatelessWidget {
       }
     }
     final adjust = c.getAdjustY();
+    final blurSigma = gFFI.userModel.remoteResolutionSelection ==
+            UserModel.remoteResolution720p
+        ? kqStandardRemoteBlurSigma
+        : 0.0;
     return CustomPaint(
       painter: ImagePainter(
         image: m.image,
@@ -1171,6 +1187,7 @@ class ImagePaint extends StatelessWidget {
         y: (c.y + adjust) / s,
         scale: s,
         filterQuality: _remoteImageFilterQuality(s),
+        blurSigma: blurSigma,
       ),
     );
   }

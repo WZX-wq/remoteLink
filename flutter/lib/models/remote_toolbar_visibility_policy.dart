@@ -3,3 +3,11 @@ Future<void> toggleRemoteToolbarVisibility(
 ) async {
   await toggleToolbar();
 }
+
+bool shouldAutoCollapseRemoteToolbar({
+  required bool isExpanded,
+  required bool isCursorOverImage,
+  required bool isDragging,
+}) {
+  return isExpanded && isCursorOverImage && !isDragging;
+}

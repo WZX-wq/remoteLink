@@ -33,33 +33,12 @@ import 'package:flutter_hbb/utils/scale.dart';
 import 'package:flutter_hbb/common/widgets/custom_scale_base.dart';
 
 class ToolbarState {
-  late RxBool _pin;
-
   RxBool collapse = false.obs;
   RxBool hide = false.obs;
 
   // Track initialization state to prevent flickering
   final RxBool initialized = false.obs;
   bool _isInitializing = false;
-
-  ToolbarState() {
-    _pin = RxBool(false);
-    final s = bind.getLocalFlutterOption(k: kOptionRemoteMenubarState);
-    if (s.isEmpty) {
-      return;
-    }
-
-    try {
-      final m = jsonDecode(s);
-      if (m != null) {
-        _pin = RxBool(m['pin'] ?? false);
-      }
-    } catch (e) {
-      debugPrint('Failed to decode toolbar state ${e.toString()}');
-    }
-  }
-
-  bool get pin => _pin.value;
 
   /// Initialize all toolbar states from session options.
   /// This should be called once when the toolbar is first created.
@@ -94,25 +73,6 @@ class ToolbarState {
   switchHide(SessionID sessionId) async {
     bind.sessionToggleOption(sessionId: sessionId, value: kOptionHideToolbar);
     hide.value = !hide.value;
-  }
-
-  switchPin() async {
-    _pin.value = !_pin.value;
-    // Save everytime changed, as this func will not be called frequently
-    await _savePin();
-  }
-
-  setPin(bool v) async {
-    if (_pin.value != v) {
-      _pin.value = v;
-      // Save everytime changed, as this func will not be called frequently
-      await _savePin();
-    }
-  }
-
-  _savePin() async {
-    bind.setLocalFlutterOption(
-        k: kOptionRemoteMenubarState, v: jsonEncode({'pin': _pin.value}));
   }
 }
 
@@ -274,8 +234,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
   RxBool get collapse => widget.state.collapse;
   RxBool get hide => widget.state.hide;
-  bool get pin => widget.state.pin;
-
   PeerInfo get pi => widget.ffi.ffiModel.pi;
   FfiModel get ffiModel => widget.ffi.ffiModel;
 
@@ -314,8 +272,12 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     });
   }
 
-  _debouncerHideProc(int v) {
-    if (!pin && collapse.isFalse && _isCursorOverImage && _dragging.isFalse) {
+  void _debouncerHideProc(int value) {
+    if (shouldAutoCollapseRemoteToolbar(
+      isExpanded: collapse.isFalse,
+      isCursorOverImage: _isCursorOverImage,
+      isDragging: _dragging.isTrue,
+    )) {
       collapse.value = true;
     }
   }
@@ -379,7 +341,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
   Widget _buildToolbar(BuildContext context) {
     final List<Widget> toolbarItems = [];
-    toolbarItems.add(_PinMenu(state: widget.state));
     if (!isWebDesktop) {
       toolbarItems.add(_MobileActionMenu(ffi: widget.ffi));
     }
@@ -489,28 +450,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       ).copyWith(
               backgroundColor:
                   Theme.of(context).menuBarTheme.style?.backgroundColor)),
-    );
-  }
-}
-
-class _PinMenu extends StatelessWidget {
-  final ToolbarState state;
-  const _PinMenu({Key? key, required this.state}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Obx(
-      () => _IconMenuButton(
-        assetName: state.pin ? "assets/pinned.svg" : "assets/unpinned.svg",
-        tooltip: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
-        label: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
-        onPressed: state.switchPin,
-        color:
-            state.pin ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
-        hoverColor: state.pin
-            ? _ToolbarTheme.hoverBlueColor
-            : _ToolbarTheme.hoverInactiveColor,
-      ),
     );
   }
 }
