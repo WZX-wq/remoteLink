@@ -26,17 +26,37 @@ class _PixelbufferTexture {
     _display = d;
     _textureKey = bind.getNextTextureKey();
     _sessionId = sessionId;
+    final textureKey = _textureKey;
 
-    textureRenderer.createTexture(_textureKey).then((id) async {
+    textureRenderer.createTexture(textureKey).then((id) async {
       _id = id;
       if (id != -1) {
         ffi.textureModel.setRgbaTextureId(display: d, id: id);
-        final ptr = await textureRenderer.getTexturePtr(_textureKey);
+
+        // Let Flutter attach the Texture widget before native frames can arrive.
+        // Otherwise an early keyframe notification can be lost permanently when
+        // the remote desktop is static, leaving the initial connection gray.
+        await WidgetsBinding.instance.endOfFrame;
+        if (_destroying ||
+            _textureKey != textureKey ||
+            _sessionId != sessionId) {
+          return;
+        }
+
+        final ptr = await textureRenderer.getTexturePtr(textureKey);
         platformFFI.registerPixelbufferTexture(sessionId, display, ptr);
         debugPrint(
             "create pixelbuffer texture: peerId: ${ffi.id} display:$_display, textureId:$id, texturePtr:$ptr");
+
+        // Request a fresh keyframe only after the renderer is ready.
+        await sessionRefreshVideo(sessionId, ffi.ffiModel.pi);
       }
     });
+  }
+
+  Future<bool> replayFrame() async {
+    if (_destroying || _textureKey == -1) return false;
+    return textureRenderer.markFrameAvailable(_textureKey);
   }
 
   destroy(bool unregisterTexture, FFI ffi) async {
@@ -178,6 +198,12 @@ class TextureModel {
   RxInt getTextureId(int display) {
     ensureControl(display);
     return _control[display]!.textureID;
+  }
+
+  Future<bool> replayPixelbufferFrame(int display) async {
+    final texture = _pixelbufferRenderTextures[display];
+    if (texture == null) return false;
+    return texture.replayFrame();
   }
 
   updateCurrentDisplay(int curDisplay) {

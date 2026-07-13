@@ -6,14 +6,14 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-    <key>CFBundleDisplayName</key>
-    <string>鲲穹远程桌面</string>
+	<key>CFBundleDisplayName</key>
+	<string>鲲穹远程桌面</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
+	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>鲲穹远程桌面</string>
 	<key>CFBundlePackageType</key>
@@ -49,6 +49,14 @@
 		<string>weixin</string>
 		<string>wechat</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描设备二维码和支付二维码。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于在局域网中发现和连接远程设备。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于远程协助过程中的语音通话和屏幕共享音频。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于从相册选择二维码图片。</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>
@@ -75,16 +83,8 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
-  <false/>
-  <key>io.flutter.embedded_views_preview</key>
-  <true/>
-  <key>NSCameraUsageDescription</key>
-  <string>This app needs camera access to scan QR codes</string>
-  <key>NSPhotoLibraryUsageDescription</key>
-  <string>This app needs photo library access to get QR codes from image</string>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<false/>
+	<key>io.flutter.embedded_views_preview</key>
 	<true/>
 </dict>
 </plist>

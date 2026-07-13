@@ -177,6 +177,20 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
 }
 
 #[inline]
+#[cfg(target_os = "windows")]
+fn windows_texture_render_enabled(
+    default_texture: bool,
+    option: &str,
+    _is_kq_app: bool,
+) -> bool {
+    if default_texture {
+        option != "N"
+    } else {
+        option == "Y"
+    }
+}
+
+#[inline]
 pub fn use_texture_render() -> bool {
     #[cfg(target_os = "android")]
     return false;
@@ -201,11 +215,37 @@ pub fn use_texture_render() -> bool {
         let default_texture = true;
         #[cfg(not(debug_assertions))]
         let default_texture = crate::platform::is_win_10_or_greater();
-        if default_texture {
-            LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) != "N"
-        } else {
-            return LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) == "Y";
-        }
+        let option = LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER);
+        windows_texture_render_enabled(
+            default_texture,
+            &option,
+            crate::get_app_name() == crate::common::KQ_APP_NAME,
+        )
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod texture_render_policy_tests {
+    use super::windows_texture_render_enabled;
+
+    #[test]
+    fn windows_native_texture_is_enabled_by_default() {
+        assert!(windows_texture_render_enabled(true, "", false));
+        assert!(windows_texture_render_enabled(true, "Y", false));
+    }
+
+    #[test]
+    fn windows_native_texture_respects_explicit_disable() {
+        assert!(!windows_texture_render_enabled(true, "N", false));
+        assert!(!windows_texture_render_enabled(false, "", false));
+        assert!(windows_texture_render_enabled(false, "Y", false));
+    }
+
+    #[test]
+    fn kq_windows_uses_the_same_native_texture_policy() {
+        assert!(windows_texture_render_enabled(true, "", true));
+        assert!(windows_texture_render_enabled(true, "Y", true));
+        assert!(!windows_texture_render_enabled(true, "N", true));
     }
 }
 

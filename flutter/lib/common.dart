@@ -78,6 +78,10 @@ bool _ignoreDevicePixelRatio = true;
 int windowsBuildNumber = 0;
 DesktopType? desktopType;
 bool _kqNetworkRiskToastShown = false;
+const String _kqMobileLastSuccessfulConnectIdKey =
+    'kq-mobile-last-successful-connect-id';
+const String _kqMobileRememberedPasswordPrefix =
+    'kq-mobile-remembered-password:';
 
 // Tolerance used for floating-point position comparisons to avoid precision errors.
 const double _kPositionEpsilon = 1e-6;
@@ -115,6 +119,36 @@ enum DesktopType {
 
 bool isDoubleEqual(double a, double b) {
   return (a - b).abs() < _kPositionEpsilon;
+}
+
+String _kqMobileRememberedPasswordKey(String id) =>
+    '$_kqMobileRememberedPasswordPrefix${trimID(id).trim()}';
+
+String kqLastSuccessfulMobileConnectId() =>
+    bind.mainGetLocalOption(key: _kqMobileLastSuccessfulConnectIdKey).trim();
+
+String kqRememberedMobileConnectPassword(String id) {
+  final normalized = trimID(id).trim();
+  if (normalized.isEmpty) return '';
+  return bind
+      .mainGetLocalOption(
+        key: _kqMobileRememberedPasswordKey(normalized),
+      )
+      .trim();
+}
+
+Future<void> kqSaveRememberedMobileConnectPassword({
+  required String id,
+  required String? password,
+}) async {
+  if (!isMobile) return;
+  final normalized = trimID(id).trim();
+  final value = (password ?? '').trim();
+  if (normalized.isEmpty || value.isEmpty) return;
+  await bind.mainSetLocalOption(
+      key: _kqMobileLastSuccessfulConnectIdKey, value: normalized);
+  await bind.mainSetLocalOption(
+      key: _kqMobileRememberedPasswordKey(normalized), value: value);
 }
 
 class IconFont {
@@ -716,19 +750,39 @@ closeConnection({String? id}) {
       Navigator.popUntil(globalKey.currentContext!, ModalRoute.withName("/"));
       stateGlobal.isInMainPage = true;
     } else {
-      final controller = Get.find<DesktopTabController>();
-      if (controller.tabType == DesktopTabType.terminal &&
-          controller.onCloseWindow != null) {
+      final controller = Get.isRegistered<DesktopTabController>()
+          ? Get.find<DesktopTabController>()
+          : null;
+      final canCloseDesktopConnection = controller != null &&
+          const {
+            DesktopTabType.remoteScreen,
+            DesktopTabType.fileTransfer,
+            DesktopTabType.viewCamera,
+            DesktopTabType.portForward,
+            DesktopTabType.terminal,
+          }.contains(controller.tabType);
+      if (!canCloseDesktopConnection) {
+        debugPrint(
+            '[closeConnection] No desktop connection controller found; restoring main window.');
+        unawaited(windowOnTop(null));
+        return;
+      }
+      if (controller!.tabType == DesktopTabType.terminal &&
+          controller!.onCloseWindow != null) {
         // Terminal windows are scoped to one peer. The optional id passed to
         // closeConnection() is that peer id, not a terminal tab key
         // (${peerId}_${terminalId}). Closing from terminal dialogs should close
         // the peer's whole terminal window, including all terminal tabs.
-        unawaited(controller.onCloseWindow!().catchError((e, _) {
+        unawaited(controller!.onCloseWindow!().catchError((e, _) {
           debugPrint('[closeConnection] Failed to close terminal window: $e');
         }));
+        unawaited(windowOnTop(null));
         return;
       }
-      controller.closeBy(id);
+      controller!.closeBy(id);
+      unawaited(Future<void>.delayed(const Duration(milliseconds: 250), () {
+        return windowOnTop(null);
+      }));
     }
   }
 }
@@ -747,10 +801,17 @@ Future<void> windowOnTop(int? id) async {
     await windowManager.focus();
     await rustDeskWinManager.registerActiveWindow(kWindowMainId);
   } else {
-    WindowController.fromWindowId(id)
-      ..focus()
-      ..show();
-    rustDeskWinManager.call(WindowType.Main, kWindowEventShow, {"id": id});
+    final controller = WindowController.fromWindowId(id);
+    // A minimized Windows subwindow remains at the system's off-screen
+    // minimized coordinates when only show() is called. Explicitly restore it
+    // before bringing the remote session to the foreground.
+    if (await controller.isMinimized()) {
+      await controller.unmaximize();
+    }
+    await controller.show();
+    await controller.focus();
+    await rustDeskWinManager
+        .call(WindowType.Main, kWindowEventShow, {"id": id});
   }
 }
 
@@ -2773,6 +2834,10 @@ connect(BuildContext context, String id,
   if (isViewCamera && !isViewCameraFeatureEnabled()) {
     return;
   }
+  if (isMobile && !gFFI.userModel.isLogin) {
+    showToast(translate('Please login before remote connection'));
+    return;
+  }
   if (!isDesktop || desktopType == DesktopType.main) {
     try {
       if (Get.isRegistered<IDTextEditingController>()) {
@@ -2789,7 +2854,7 @@ connect(BuildContext context, String id,
   final oldId = id;
   id = await bind.mainHandleRelayId(id: id);
   forceRelay = id != oldId || forceRelay;
-  if (isDesktop && password != null && password.isNotEmpty) {
+  if ((isDesktop || isMobile) && password != null && password.isNotEmpty) {
     // kq-v229-connect-remember-password-choice
     bind.mainSetPeerOptionSync(
       id: id,
@@ -3904,6 +3969,71 @@ ColorFilter? svgColor(Color? color) {
   } else {
     return ColorFilter.mode(color, BlendMode.srcIn);
   }
+}
+
+const Map<String, String> _kqLanguageChineseHints = {
+  'en': '英语 / 美国、英国',
+  'it': '意大利语 / 意大利',
+  'fr': '法语 / 法国',
+  'de': '德语 / 德国',
+  'nl': '荷兰语 / 荷兰',
+  'nb': '挪威语 / 挪威',
+  'zh-cn': '简体中文 / 中国大陆',
+  'zh-tw': '繁体中文 / 中国台湾',
+  'pt': '葡萄牙语 / 葡萄牙',
+  'pt-pt': '葡萄牙语 / 葡萄牙',
+  'pt_pt': '葡萄牙语 / 葡萄牙',
+  'ptbr': '葡萄牙语 / 巴西',
+  'pt-br': '葡萄牙语 / 巴西',
+  'es': '西班牙语 / 西班牙',
+  'et': '爱沙尼亚语 / 爱沙尼亚',
+  'eu': '巴斯克语 / 巴斯克地区',
+  'hu': '匈牙利语 / 匈牙利',
+  'bg': '保加利亚语 / 保加利亚',
+  'be': '白俄罗斯语 / 白俄罗斯',
+  'ru': '俄语 / 俄罗斯',
+  'sk': '斯洛伐克语 / 斯洛伐克',
+  'id': '印尼语 / 印度尼西亚',
+  'cs': '捷克语 / 捷克',
+  'da': '丹麦语 / 丹麦',
+  'eo': '世界语 / 国际',
+  'tr': '土耳其语 / 土耳其',
+  'vi': '越南语 / 越南',
+  'pl': '波兰语 / 波兰',
+  'ja': '日语 / 日本',
+  'ko': '韩语 / 韩国',
+  'kz': '哈萨克语 / 哈萨克斯坦',
+  'uk': '乌克兰语 / 乌克兰',
+  'fa': '波斯语 / 伊朗',
+  'ca': '加泰罗尼亚语 / 加泰罗尼亚',
+  'el': '希腊语 / 希腊',
+  'sv': '瑞典语 / 瑞典',
+  'sq': '阿尔巴尼亚语 / 阿尔巴尼亚',
+  'sr': '塞尔维亚语 / 塞尔维亚',
+  'th': '泰语 / 泰国',
+  'sl': '斯洛文尼亚语 / 斯洛文尼亚',
+  'ro': '罗马尼亚语 / 罗马尼亚',
+  'lt': '立陶宛语 / 立陶宛',
+  'lv': '拉脱维亚语 / 拉脱维亚',
+  'ar': '阿拉伯语 / 阿拉伯地区',
+  'he': '希伯来语 / 以色列',
+  'hr': '克罗地亚语 / 克罗地亚',
+  'sc': '撒丁语 / 意大利撒丁岛',
+  'ta': '泰米尔语 / 印度、斯里兰卡',
+  'ge': '格鲁吉亚语 / 格鲁吉亚',
+  'ka': '格鲁吉亚语 / 格鲁吉亚',
+  'fi': '芬兰语 / 芬兰',
+  'ml': '马拉雅拉姆语 / 印度',
+  'hi': '印地语 / 印度',
+  'gu': '古吉拉特语 / 印度',
+};
+
+String kqLanguageDisplayName(String key, String nativeName) {
+  final hint = _kqLanguageChineseHints[key.trim().toLowerCase()];
+  if (hint == null || nativeName.contains(hint)) {
+    return nativeName;
+  }
+  return '$nativeName（$hint）';
 }
 
 // ignore: must_be_immutable

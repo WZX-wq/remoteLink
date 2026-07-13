@@ -163,7 +163,12 @@ class MainActivity : FlutterActivity() {
                 }
                 "check_permission" -> {
                     if (call.arguments is String) {
-                        result.success(XXPermissions.isGranted(context, call.arguments as String))
+                        val permission = call.arguments as String
+                        if (permission == "android.settings.ACCESSIBILITY_SETTINGS") {
+                            result.success(InputService.isOpen)
+                        } else {
+                            result.success(XXPermissions.isGranted(context, permission))
+                        }
                     } else {
                         result.success(false)
                     }
@@ -308,9 +313,11 @@ class MainActivity : FlutterActivity() {
                 }
                 "on_voice_call_started" -> {
                     onVoiceCallStarted()
+                    result.success(true)
                 }
                 "on_voice_call_closed" -> {
                     onVoiceCallClosed()
+                    result.success(true)
                 }
                 else -> {
                     result.error("-1", "No such method", null)
@@ -398,7 +405,39 @@ class MainActivity : FlutterActivity() {
         FFI.setCodecInfo(result.toString())
     }
 
+    private fun showVoiceCallError(text: String) {
+        flutterMethodChannel?.invokeMethod("msgbox", mapOf(
+            "type" to "custom-nook-nocancel-hasclose-error",
+            "title" to "Voice call",
+            "text" to text))
+    }
+
+    private fun ensureRecordAudioPermission(onGranted: () -> Unit) {
+        if (XXPermissions.isGranted(this, android.Manifest.permission.RECORD_AUDIO)) {
+            onGranted()
+            return
+        }
+        XXPermissions.with(this)
+            .permission(android.Manifest.permission.RECORD_AUDIO)
+            .request { _, all ->
+                runOnUiThread {
+                    if (all) {
+                        onGranted()
+                    } else {
+                        Log.e(logTag, "voice call failed, no RECORD_AUDIO permission")
+                        showVoiceCallError("config_microphone")
+                    }
+                }
+            }
+    }
+
     private fun onVoiceCallStarted() {
+        ensureRecordAudioPermission {
+            startVoiceCallAudio()
+        }
+    }
+
+    private fun startVoiceCallAudio() {
         var ok = false
         mainService?.let {
             ok = it.onVoiceCallStarted()
@@ -408,11 +447,9 @@ class MainActivity : FlutterActivity() {
         }
         if (!ok) {
             // Rarely happens, So we just add log and msgbox here.
+            isAudioStart = false
             Log.e(logTag, "onVoiceCallStarted fail")
-            flutterMethodChannel?.invokeMethod("msgbox", mapOf(
-                "type" to "custom-nook-nocancel-hasclose-error",
-                "title" to "Voice call",
-                "text" to "Failed to start voice call."))
+            showVoiceCallError("no_audio_input_device_tip")
         } else {
             Log.d(logTag, "onVoiceCallStarted success")
         }
@@ -429,10 +466,7 @@ class MainActivity : FlutterActivity() {
         if (!ok) {
             // Rarely happens, So we just add log and msgbox here.
             Log.e(logTag, "onVoiceCallClosed fail")
-            flutterMethodChannel?.invokeMethod("msgbox", mapOf(
-                "type" to "custom-nook-nocancel-hasclose-error",
-                "title" to "Voice call",
-                "text" to "Failed to stop voice call."))
+            showVoiceCallError("Failed")
         } else {
             Log.d(logTag, "onVoiceCallClosed success")
         }

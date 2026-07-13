@@ -158,8 +158,208 @@ fn generate_bindings(
         b = b.clang_arg(format!("-I{}", dir.display()));
     }
 
-    b.generate().unwrap().write_to_file(ffi_rs).unwrap();
+    let mut generated = b.generate().unwrap().to_string();
+    patch_opaque_codec_cfgs(ffi_rs, &mut generated);
+    fs::write(ffi_rs, generated).unwrap();
     fs::copy(ffi_rs, exact_file).ok(); // ignore failure
+}
+
+fn replace_generated_struct(
+    bindings: &mut String,
+    struct_name: &str,
+    alias_name: &str,
+    replacement: &str,
+) {
+    let struct_marker = format!("pub struct {struct_name} {{");
+    let Some(struct_pos) = bindings.find(&struct_marker) else {
+        return;
+    };
+    let Some(start) = bindings[..struct_pos].rfind("#[repr(C)]") else {
+        return;
+    };
+    let end_marker = format!("pub type {alias_name} = {struct_name};");
+    let Some(end_rel) = bindings[struct_pos..].find(&end_marker) else {
+        return;
+    };
+    let end = struct_pos + end_rel + end_marker.len();
+    bindings.replace_range(start..end, replacement);
+}
+
+// bindgen 0.65 can keep libvpx/libaom encoder/decoder config structs opaque on
+// Android because vpx_codec.h/aom_codec.h forward-declare those structs before
+// vpx_encoder.h/aom_encoder.h provide the real definitions. The Rust encoders
+// set public config fields directly, so patch only these four generated structs
+// back to the ABI layout from the installed headers.
+fn patch_opaque_codec_cfgs(ffi_rs: &Path, bindings: &mut String) {
+    match ffi_rs.file_name().and_then(|s| s.to_str()) {
+        Some("vpx_ffi.rs") => {
+            replace_generated_struct(
+                bindings,
+                "vpx_codec_enc_cfg",
+                "vpx_codec_enc_cfg_t",
+                r#"#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct vpx_codec_enc_cfg {
+    pub g_usage: ::std::os::raw::c_uint,
+    pub g_threads: ::std::os::raw::c_uint,
+    pub g_profile: ::std::os::raw::c_uint,
+    pub g_w: ::std::os::raw::c_uint,
+    pub g_h: ::std::os::raw::c_uint,
+    pub g_bit_depth: vpx_bit_depth_t,
+    pub g_input_bit_depth: ::std::os::raw::c_uint,
+    pub g_timebase: vpx_rational,
+    pub g_error_resilient: vpx_codec_er_flags_t,
+    pub g_pass: vpx_enc_pass,
+    pub g_lag_in_frames: ::std::os::raw::c_uint,
+    pub rc_dropframe_thresh: ::std::os::raw::c_uint,
+    pub rc_resize_allowed: ::std::os::raw::c_uint,
+    pub rc_scaled_width: ::std::os::raw::c_uint,
+    pub rc_scaled_height: ::std::os::raw::c_uint,
+    pub rc_resize_up_thresh: ::std::os::raw::c_uint,
+    pub rc_resize_down_thresh: ::std::os::raw::c_uint,
+    pub rc_end_usage: vpx_rc_mode,
+    pub rc_twopass_stats_in: vpx_fixed_buf_t,
+    pub rc_firstpass_mb_stats_in: vpx_fixed_buf_t,
+    pub rc_target_bitrate: ::std::os::raw::c_uint,
+    pub rc_min_quantizer: ::std::os::raw::c_uint,
+    pub rc_max_quantizer: ::std::os::raw::c_uint,
+    pub rc_undershoot_pct: ::std::os::raw::c_uint,
+    pub rc_overshoot_pct: ::std::os::raw::c_uint,
+    pub rc_buf_sz: ::std::os::raw::c_uint,
+    pub rc_buf_initial_sz: ::std::os::raw::c_uint,
+    pub rc_buf_optimal_sz: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_bias_pct: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_minsection_pct: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_maxsection_pct: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_corpus_complexity: ::std::os::raw::c_uint,
+    pub kf_mode: vpx_kf_mode,
+    pub kf_min_dist: ::std::os::raw::c_uint,
+    pub kf_max_dist: ::std::os::raw::c_uint,
+    pub ss_number_layers: ::std::os::raw::c_uint,
+    pub ss_enable_auto_alt_ref: [::std::os::raw::c_int; 5usize],
+    pub ss_target_bitrate: [::std::os::raw::c_uint; 5usize],
+    pub ts_number_layers: ::std::os::raw::c_uint,
+    pub ts_target_bitrate: [::std::os::raw::c_uint; 5usize],
+    pub ts_rate_decimator: [::std::os::raw::c_uint; 5usize],
+    pub ts_periodicity: ::std::os::raw::c_uint,
+    pub ts_layer_id: [::std::os::raw::c_uint; 16usize],
+    pub layer_target_bitrate: [::std::os::raw::c_uint; 12usize],
+    pub temporal_layering_mode: ::std::os::raw::c_int,
+    pub use_vizier_rc_params: ::std::os::raw::c_int,
+    pub active_wq_factor: vpx_rational_t,
+    pub err_per_mb_factor: vpx_rational_t,
+    pub sr_default_decay_limit: vpx_rational_t,
+    pub sr_diff_factor: vpx_rational_t,
+    pub kf_err_per_mb_factor: vpx_rational_t,
+    pub kf_frame_min_boost_factor: vpx_rational_t,
+    pub kf_frame_max_boost_first_factor: vpx_rational_t,
+    pub kf_frame_max_boost_subs_factor: vpx_rational_t,
+    pub kf_max_total_boost_factor: vpx_rational_t,
+    pub gf_max_total_boost_factor: vpx_rational_t,
+    pub gf_frame_max_boost_factor: vpx_rational_t,
+    pub zm_factor: vpx_rational_t,
+    pub rd_mult_inter_qp_fac: vpx_rational_t,
+    pub rd_mult_arf_qp_fac: vpx_rational_t,
+    pub rd_mult_key_qp_fac: vpx_rational_t,
+}
+pub type vpx_codec_enc_cfg_t = vpx_codec_enc_cfg;"#,
+            );
+            replace_generated_struct(
+                bindings,
+                "vpx_codec_dec_cfg",
+                "vpx_codec_dec_cfg_t",
+                r#"#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct vpx_codec_dec_cfg {
+    pub threads: ::std::os::raw::c_uint,
+    pub w: ::std::os::raw::c_uint,
+    pub h: ::std::os::raw::c_uint,
+}
+pub type vpx_codec_dec_cfg_t = vpx_codec_dec_cfg;"#,
+            );
+        }
+        Some("aom_ffi.rs") => {
+            replace_generated_struct(
+                bindings,
+                "aom_codec_enc_cfg",
+                "aom_codec_enc_cfg_t",
+                r#"#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct aom_codec_enc_cfg {
+    pub g_usage: ::std::os::raw::c_uint,
+    pub g_threads: ::std::os::raw::c_uint,
+    pub g_profile: ::std::os::raw::c_uint,
+    pub g_w: ::std::os::raw::c_uint,
+    pub g_h: ::std::os::raw::c_uint,
+    pub g_limit: ::std::os::raw::c_uint,
+    pub g_forced_max_frame_width: ::std::os::raw::c_uint,
+    pub g_forced_max_frame_height: ::std::os::raw::c_uint,
+    pub g_bit_depth: aom_bit_depth_t,
+    pub g_input_bit_depth: ::std::os::raw::c_uint,
+    pub g_timebase: aom_rational,
+    pub g_error_resilient: aom_codec_er_flags_t,
+    pub g_pass: aom_enc_pass,
+    pub g_lag_in_frames: ::std::os::raw::c_uint,
+    pub rc_dropframe_thresh: ::std::os::raw::c_uint,
+    pub rc_resize_mode: ::std::os::raw::c_uint,
+    pub rc_resize_denominator: ::std::os::raw::c_uint,
+    pub rc_resize_kf_denominator: ::std::os::raw::c_uint,
+    pub rc_superres_mode: aom_superres_mode,
+    pub rc_superres_denominator: ::std::os::raw::c_uint,
+    pub rc_superres_kf_denominator: ::std::os::raw::c_uint,
+    pub rc_superres_qthresh: ::std::os::raw::c_uint,
+    pub rc_superres_kf_qthresh: ::std::os::raw::c_uint,
+    pub rc_end_usage: aom_rc_mode,
+    pub rc_twopass_stats_in: aom_fixed_buf_t,
+    pub rc_firstpass_mb_stats_in: aom_fixed_buf_t,
+    pub rc_target_bitrate: ::std::os::raw::c_uint,
+    pub rc_min_quantizer: ::std::os::raw::c_uint,
+    pub rc_max_quantizer: ::std::os::raw::c_uint,
+    pub rc_undershoot_pct: ::std::os::raw::c_uint,
+    pub rc_overshoot_pct: ::std::os::raw::c_uint,
+    pub rc_buf_sz: ::std::os::raw::c_uint,
+    pub rc_buf_initial_sz: ::std::os::raw::c_uint,
+    pub rc_buf_optimal_sz: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_bias_pct: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_minsection_pct: ::std::os::raw::c_uint,
+    pub rc_2pass_vbr_maxsection_pct: ::std::os::raw::c_uint,
+    pub fwd_kf_enabled: ::std::os::raw::c_int,
+    pub kf_mode: aom_kf_mode,
+    pub kf_min_dist: ::std::os::raw::c_uint,
+    pub kf_max_dist: ::std::os::raw::c_uint,
+    pub sframe_dist: ::std::os::raw::c_uint,
+    pub sframe_mode: ::std::os::raw::c_uint,
+    pub large_scale_tile: ::std::os::raw::c_uint,
+    pub monochrome: ::std::os::raw::c_uint,
+    pub full_still_picture_hdr: ::std::os::raw::c_uint,
+    pub save_as_annexb: ::std::os::raw::c_uint,
+    pub tile_width_count: ::std::os::raw::c_int,
+    pub tile_height_count: ::std::os::raw::c_int,
+    pub tile_widths: [::std::os::raw::c_int; 64usize],
+    pub tile_heights: [::std::os::raw::c_int; 64usize],
+    pub use_fixed_qp_offsets: ::std::os::raw::c_uint,
+    pub fixed_qp_offsets: [::std::os::raw::c_int; 5usize],
+    pub encoder_cfg: cfg_options_t,
+}
+pub type aom_codec_enc_cfg_t = aom_codec_enc_cfg;"#,
+            );
+            replace_generated_struct(
+                bindings,
+                "aom_codec_dec_cfg",
+                "aom_codec_dec_cfg_t",
+                r#"#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct aom_codec_dec_cfg {
+    pub threads: ::std::os::raw::c_uint,
+    pub w: ::std::os::raw::c_uint,
+    pub h: ::std::os::raw::c_uint,
+    pub allow_lowbitdepth: ::std::os::raw::c_uint,
+}
+pub type aom_codec_dec_cfg_t = aom_codec_dec_cfg;"#,
+            );
+        }
+        _ => {}
+    }
 }
 
 fn gen_vcpkg_package(package: &str, ffi_header: &str, generated: &str, regex: &str) {
@@ -170,9 +370,9 @@ fn gen_vcpkg_package(package: &str, ffi_header: &str, generated: &str, regex: &s
     let out_dir = Path::new(&out_dir);
 
     let ffi_header = src_dir.join("src").join("bindings").join(ffi_header);
-    println!("rerun-if-changed={}", ffi_header.display());
+    println!("cargo:rerun-if-changed={}", ffi_header.display());
     for dir in &includes {
-        println!("rerun-if-changed={}", dir.display());
+        println!("cargo:rerun-if-changed={}", dir.display());
     }
 
     let ffi_rs = out_dir.join(generated);
@@ -248,7 +448,14 @@ fn main() {
     gen_vcpkg_package("libvpx", "vpx_ffi.h", "vpx_ffi.rs", "^[vV].*");
     // kq-ios-no-aom-linkage: Codemagic linked a host-built aom_codec.c.o into iOS.
     if target_os != "ios" {
-        gen_vcpkg_package("aom", "aom_ffi.h", "aom_ffi.rs", "^(aom|AOM|OBU|AV1).*");
+        // aom 3.x exposes cfg_options_t inside aom_codec_enc_cfg; include it
+        // without broadening the allowlist enough to trip forward declarations.
+        gen_vcpkg_package(
+            "aom",
+            "aom_ffi.h",
+            "aom_ffi.rs",
+            "^(aom|AOM|OBU|AV1|cfg_options).*",
+        );
     }
     gen_vcpkg_package("libyuv", "yuv_ffi.h", "yuv_ffi.rs", ".*");
     // ffmpeg();

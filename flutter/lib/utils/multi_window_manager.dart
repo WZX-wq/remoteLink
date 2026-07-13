@@ -151,33 +151,62 @@ class RustDeskMultiWindowManager {
     List<int> windows,
     bool withScreenRect,
   ) async {
-    final windowController = await DesktopMultiWindow.createWindow(msg);
+    var bootstrapMessage = msg;
+    if (type == WindowType.RemoteDesktop) {
+      final bootstrapParams = Map<String, dynamic>.from(jsonDecode(msg) as Map);
+      bootstrapParams['defer_remote_session'] = true;
+      bootstrapMessage = jsonEncode(bootstrapParams);
+    }
+    final windowController =
+        await DesktopMultiWindow.createWindow(bootstrapMessage);
     if (isWindows) {
-      windowController.setInitBackgroundColor(Colors.black);
+      await windowController.setInitBackgroundColor(Colors.black);
     }
     final windowId = windowController.windowId;
-    if (!withScreenRect) {
-      windowController
-        ..setFrame(const Offset(0, 0) &
-            Size(1280 + windowId * 20, 720 + windowId * 20))
-        ..center()
-        ..setTitle(getWindowNameWithId(
-          remoteId,
-          overrideType: type,
-        ));
+    final windowTitle = getWindowNameWithId(
+      remoteId,
+      overrideType: type,
+    );
+    if (type == WindowType.RemoteDesktop) {
+      // runMultiWindow owns the final remote geometry so the first visible
+      // scene is laid out at the restored size only once.
+      await windowController.setTitle(windowTitle);
     } else {
-      windowController.setTitle(getWindowNameWithId(
-        remoteId,
-        overrideType: type,
-      ));
+      if (!withScreenRect) {
+        await windowController.setFrame(const Offset(0, 0) &
+            Size(1280 + windowId * 20, 720 + windowId * 20));
+        await windowController.center();
+      }
+      await windowController.setTitle(windowTitle);
     }
-    Future.microtask(() async {
-      await windowController.show();
-      await windowController.focus();
-    });
+    await windowController.show();
+    await windowController.focus();
+    if (type == WindowType.RemoteDesktop) {
+      await _waitForRemoteWindowReady(windowId);
+      await DesktopMultiWindow.invokeMethod(
+          windowId, kWindowEventNewRemoteDesktop, msg);
+    }
     registerActiveWindow(windowId);
     windows.add(windowId);
     return windowId;
+  }
+
+  Future<void> _waitForRemoteWindowReady(int windowId) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 200; attempt++) {
+      try {
+        final ready = await DesktopMultiWindow.invokeMethod(
+            windowId, kWindowEventRemoteReady, null);
+        if (ready == true) {
+          return;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+      await Future.delayed(const Duration(milliseconds: 25));
+    }
+    throw StateError(
+        'Remote window $windowId did not present its first frame: $lastError');
   }
 
   Future<MultiWindowCallResult> _newSession(
@@ -190,13 +219,15 @@ class RustDeskMultiWindowManager {
     Rect? screenRect,
   }) async {
     if (openInTabs) {
-      if (windows.isEmpty) {
-        final windowId = await newSessionWindow(
-            type, remoteId, msg, windows, screenRect != null);
-        return MultiWindowCallResult(windowId, null);
-      } else {
-        return call(type, methodName, msg, activate: true);
+      if (windows.isNotEmpty) {
+        final result = await call(type, methodName, msg, activate: true);
+        if (result.windowId != kInvalidWindowId) {
+          return result;
+        }
       }
+      final windowId = await newSessionWindow(
+          type, remoteId, msg, windows, screenRect != null);
+      return MultiWindowCallResult(windowId, null);
     } else {
       if (_inactiveWindows.isNotEmpty) {
         for (final windowId in windows) {
@@ -249,16 +280,27 @@ class RustDeskMultiWindowManager {
     }
     final msg = jsonEncode(params);
 
+    // A force-closed Flutter subwindow does not always send the normal hide
+    // event, so its id can remain in the in-memory registry. Remove ids that no
+    // longer exist before attempting to activate or reuse a window.
+    await _pruneClosedWindows(type, windows);
+
     // separate window for file transfer is not supported
     bool openInTabs = type != WindowType.RemoteDesktop ||
         mainGetLocalBoolOptionSync(kOptionOpenNewConnInTabs);
 
     if (windows.length > 1 || !openInTabs) {
-      for (final windowId in windows) {
-        if (await DesktopMultiWindow.invokeMethod(
-            windowId, kWindowEventActiveSession, remoteId)) {
-          await _activateSessionWindow(windowId);
-          return MultiWindowCallResult(windowId, null);
+      for (final windowId in List<int>.of(windows)) {
+        try {
+          if (await DesktopMultiWindow.invokeMethod(
+              windowId, kWindowEventActiveSession, remoteId)) {
+            await _activateSessionWindow(windowId);
+            return MultiWindowCallResult(windowId, null);
+          }
+        } catch (e) {
+          debugPrint(
+              '[multiWindow] Dropping unavailable $type window $windowId while activating session: $e');
+          await _forgetWindow(type, windowId);
         }
       }
     }
@@ -389,29 +431,82 @@ class RustDeskMultiWindowManager {
       WindowType type, String methodName, dynamic args,
       {bool activate = false}) async {
     final wnds = _findWindowsByType(type);
+    await _pruneClosedWindows(type, wnds);
     if (wnds.isEmpty) {
       return MultiWindowCallResult(kInvalidWindowId, null);
     }
-    for (final windowId in wnds) {
-      if (_activeWindows.contains(windowId)) {
+
+    final candidates = <int>[
+      ...wnds.where(_activeWindows.contains),
+      ...wnds.where((id) => !_activeWindows.contains(id)),
+    ];
+    for (final windowId in candidates) {
+      try {
         final res =
             await DesktopMultiWindow.invokeMethod(windowId, methodName, args);
         if (activate) {
           await _activateSessionWindow(windowId);
         }
         return MultiWindowCallResult(windowId, res);
+      } catch (e) {
+        if (type == WindowType.Main) {
+          rethrow;
+        }
+        debugPrint(
+            '[multiWindow] Dropping unavailable $type window $windowId while calling $methodName: $e');
+        await _forgetWindow(type, windowId);
       }
     }
-    final res =
-        await DesktopMultiWindow.invokeMethod(wnds[0], methodName, args);
-    if (activate) {
-      await _activateSessionWindow(wnds[0]);
+    return MultiWindowCallResult(kInvalidWindowId, null);
+  }
+
+  Future<void> _pruneClosedWindows(
+      WindowType type, List<int> registeredWindows) async {
+    if (type == WindowType.Main || registeredWindows.isEmpty) {
+      return;
     }
-    return MultiWindowCallResult(wnds[0], res);
+    try {
+      final liveWindows =
+          (await DesktopMultiWindow.getAllSubWindowIds()).toSet();
+      final staleWindows = registeredWindows
+          .where((windowId) => !liveWindows.contains(windowId))
+          .toList(growable: false);
+      if (staleWindows.isEmpty) {
+        return;
+      }
+      for (final windowId in staleWindows) {
+        registeredWindows.remove(windowId);
+        _activeWindows.remove(windowId);
+        _inactiveWindows.remove(windowId);
+      }
+      debugPrint('[multiWindow] Removed stale $type window ids: $staleWindows');
+      await _notifyActiveWindow();
+    } catch (e) {
+      // Registry cleanup is defensive. A transient platform-channel failure
+      // must not discard a window that may still be alive.
+      debugPrint('[multiWindow] Failed to verify $type windows: $e');
+    }
+  }
+
+  Future<void> _forgetWindow(WindowType type, int windowId) async {
+    final registeredWindows = _findWindowsByType(type);
+    final changed = registeredWindows.remove(windowId) |
+        _activeWindows.remove(windowId) |
+        _inactiveWindows.remove(windowId);
+    if (changed) {
+      await _notifyActiveWindow();
+    }
   }
 
   Future<void> _activateSessionWindow(int windowId) async {
     final controller = WindowController.fromWindowId(windowId);
+    // show() does not restore a minimized native window on Windows. A remote
+    // session can therefore reconnect and receive video normally while its
+    // reusable subwindow remains parked at the system's minimized coordinates
+    // (-32000, -32000). Restore it before focusing so the picture is visible.
+    if (await controller.isMinimized()) {
+      await controller.unmaximize();
+    }
     await controller.show();
     await controller.focus();
     await registerActiveWindow(windowId);

@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/common/kq_project_api.dart';
@@ -335,7 +336,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                   ],
                 ),
-                child: Image.asset('assets/icon.png', fit: BoxFit.contain),
+                child: SvgPicture.asset('assets/icon.svg', fit: BoxFit.contain),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -407,7 +408,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 ),
               ],
             ),
-            child: Image.asset('assets/icon.png', fit: BoxFit.contain),
+            child: SvgPicture.asset('assets/icon.svg', fit: BoxFit.contain),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -525,8 +526,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                             color: Colors.white.withOpacity(0.2),
                           ),
                         ),
-                        child: Image.asset(
-                          'assets/icon.png',
+                        child: SvgPicture.asset(
+                          'assets/icon.svg',
                           fit: BoxFit.contain,
                         ),
                       ),
@@ -650,7 +651,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: q.iconBorder),
                     ),
-                    child: Image.asset('assets/icon.png', fit: BoxFit.contain),
+                    child: SvgPicture.asset('assets/icon.svg',
+                        fit: BoxFit.contain),
                   ),
                   const SizedBox(width: 9),
                   Expanded(
@@ -2606,7 +2608,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
       }
       if (call.method == kWindowMainWindowOnTop) {
-        windowOnTop(null);
+        await windowOnTop(null);
       } else if (call.method == kWindowRefreshCurrentUser) {
         gFFI.userModel.refreshCurrentUser();
       } else if (call.method == kWindowGetWindowInfo) {
@@ -2623,6 +2625,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         reloadCurrentWindow();
       } else if (call.method == kWindowEventShow) {
         await rustDeskWinManager.registerActiveWindow(call.arguments["id"]);
+      } else if (call.method == kWindowShowToast) {
+        final text = (call.arguments is Map ? call.arguments['text'] : null)
+                ?.toString() ??
+            '';
+        if (text.trim().isNotEmpty) {
+          showToast(text, timeout: const Duration(seconds: 6));
+        }
       } else if (call.method == kWindowEventHide) {
         await rustDeskWinManager.unregisterActiveWindow(call.arguments['id']);
       } else if (call.method == kWindowConnect) {
@@ -2978,6 +2987,7 @@ class _KqSmallIcon extends StatelessWidget {
 
 const Duration _kqDesignerDevicesOnlineRefresh = Duration(seconds: 5);
 const String _kqDesignerDevicesQueryOnlinesEvent = 'callback_query_onlines';
+const String _kqDesignerManualDevicesOptionKey = 'kq_designer_manual_devices';
 
 class _KqDesignerDevicesPane extends StatefulWidget {
   const _KqDesignerDevicesPane();
@@ -2990,6 +3000,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
   Timer? _onlineRefreshTimer;
   Timer? _accountDeviceRetryTimer;
   List<Peer> _accountDevicePeers = [];
+  List<Peer> _manualDevicePeers = [];
   bool _accountDevicesLoading = false;
   DateTime? _accountDevicesLoadedAt;
   DateTime? _accountDevicesLastFailedAt;
@@ -3011,6 +3022,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _restoreManualDevices();
       _restoreCachedAccountDevices();
       _refreshDevices(forceAccountDevices: true);
     });
@@ -3044,6 +3056,33 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
     return peers;
   }
 
+  List<Peer> _allDevicePeers(
+    List<Peer> recentPeers,
+    List<Peer> accountDevicePeers,
+    List<Peer> manualDevicePeers,
+  ) {
+    final seen = <String>{};
+    final peers = <Peer>[];
+
+    void addPeer(Peer peer) {
+      final id = kqNormalizePeerId(peer.id);
+      final key = id.isNotEmpty ? 'id:$id' : _accountDeviceDisplayKey(peer);
+      if (key.isEmpty || !seen.add(key)) return;
+      peers.add(peer);
+    }
+
+    for (final peer in accountDevicePeers) {
+      addPeer(peer);
+    }
+    for (final peer in manualDevicePeers) {
+      addPeer(peer);
+    }
+    for (final peer in recentPeers) {
+      addPeer(peer);
+    }
+    return peers;
+  }
+
   void _refreshDevices({bool forceAccountDevices = false}) {
     bind.mainLoadRecentPeers();
     _ensureAccountDevicesLoaded(force: forceAccountDevices);
@@ -3052,7 +3091,11 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
 
   void _queryDeviceOnlineStates() {
     final ids = <String>{};
-    for (final peer in [..._recentPeers(), ..._accountDevicePeers]) {
+    for (final peer in [
+      ..._recentPeers(),
+      ..._accountDevicePeers,
+      ..._manualDevicePeers
+    ]) {
       final id = kqNormalizePeerId(peer.id);
       if (id.isNotEmpty) {
         ids.add(id);
@@ -3133,6 +3176,38 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
     }();
   }
 
+  void _restoreManualDevices() {
+    try {
+      final raw =
+          bind.getLocalFlutterOption(k: _kqDesignerManualDevicesOptionKey);
+      final decoded = raw.isEmpty ? null : jsonDecode(raw);
+      if (decoded is! List) return;
+      final peers = decoded
+          .whereType<Map>()
+          .map((item) => Peer.fromJson(Map<String, dynamic>.from(item)))
+          .where((peer) => kqNormalizePeerId(peer.id).isNotEmpty)
+          .toList();
+      if (peers.isEmpty) return;
+      setState(() {
+        _manualDevicePeers = peers;
+      });
+      _queryDeviceOnlines(peers);
+    } catch (e) {
+      debugPrint('KQ designer manual devices restore failed: $e');
+    }
+  }
+
+  void _cacheManualDevices() {
+    try {
+      bind.setLocalFlutterOption(
+        k: _kqDesignerManualDevicesOptionKey,
+        v: jsonEncode(_manualDevicePeers.map((peer) => peer.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('KQ designer manual devices cache failed: $e');
+    }
+  }
+
   Future<void> _applyLocalAliasesToAccountDevices(List<Peer> peers) async {
     for (final peer in peers) {
       final alias =
@@ -3203,6 +3278,10 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
   }
 
   void _queryAccountDeviceOnlines(List<Peer> peers) {
+    _queryDeviceOnlines(peers);
+  }
+
+  void _queryDeviceOnlines(List<Peer> peers) {
     final ids = <String>[];
     for (final peer in peers) {
       final id = kqNormalizePeerId(peer.id);
@@ -3227,18 +3306,17 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
         .map(kqNormalizePeerId)
         .where((id) => id.isNotEmpty)
         .toSet();
-    if (_applyOnlineStateToAccountDevicePeers(onlineSet, offlineSet) &&
-        mounted) {
+    if (_applyOnlineStateToDevicePeers(onlineSet, offlineSet) && mounted) {
       setState(() {});
     }
   }
 
-  bool _applyOnlineStateToAccountDevicePeers(
+  bool _applyOnlineStateToDevicePeers(
     Set<String> onlineSet,
     Set<String> offlineSet,
   ) {
     var changed = false;
-    for (final peer in _accountDevicePeers) {
+    for (final peer in [..._accountDevicePeers, ..._manualDevicePeers]) {
       final id = kqNormalizePeerId(peer.id);
       if (onlineSet.contains(id)) {
         if (!peer.onlineStateKnown || !peer.online) {
@@ -3275,13 +3353,160 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
     return kqNormalizePeerId(peerDeviceKey) == kqNormalizePeerId(peer.id);
   }
 
+  void _showAddDeviceDialog() {
+    final idController = TextEditingController();
+    final nameController = TextEditingController();
+    var platform = kPeerPlatformWindows;
+    var errorText = '';
+    var submitting = false;
+
+    gFFI.dialogManager.show((setState, close, context) {
+      Future<void> submit() async {
+        if (submitting) return;
+        final id = kqNormalizePeerId(idController.text);
+        final alias = nameController.text.trim();
+        if (id.isEmpty) {
+          setState(() {
+            errorText = _kqHomeText('请输入设备识别码', 'Enter the device ID');
+          });
+          return;
+        }
+        setState(() {
+          errorText = '';
+          submitting = true;
+        });
+        final peer = Peer.fromJson({
+          'id': id,
+          'alias': alias,
+          'hostname': alias,
+          'platform': platform,
+          'onlineStateKnown': false,
+        });
+        KqProjectApi.clearRecentPeerDeleted(id);
+        if (alias.isNotEmpty) {
+          await bind.mainSetPeerOption(id: id, key: 'alias', value: alias);
+        }
+        unawaited(KqProjectApi.recordPeer(peer));
+        if (!mounted || _disposed) return;
+        this.setState(() {
+          final index = _manualDevicePeers
+              .indexWhere((item) => kqNormalizePeerId(item.id) == id);
+          if (index >= 0) {
+            _manualDevicePeers[index] = peer;
+          } else {
+            _manualDevicePeers.insert(0, peer);
+          }
+          _cacheManualDevices();
+        });
+        _queryDeviceOnlines([peer]);
+        bind.mainLoadRecentPeers();
+        showToast(_kqHomeText('已添加设备', 'Device added'));
+        close();
+      }
+
+      return CustomAlertDialog(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.add_to_queue_rounded, color: MyTheme.accent),
+            Text(_kqHomeText('添加远控设备', 'Add remote device'))
+                .paddingOnly(left: 10),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: idController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: _kqHomeText('设备识别码', 'Device ID'),
+                  hintText: '123 456 789',
+                  errorText: errorText.isEmpty ? null : errorText,
+                ),
+                enabled: !submitting,
+                onChanged: (_) {
+                  if (errorText.isNotEmpty) {
+                    setState(() => errorText = '');
+                  }
+                },
+                onSubmitted: (_) => submit(),
+              ).workaroundFreezeLinuxMint(),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  labelText: _kqHomeText('设备名称（可选）', 'Device name (optional)'),
+                ),
+                enabled: !submitting,
+                onSubmitted: (_) => submit(),
+              ).workaroundFreezeLinuxMint(),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: platform,
+                decoration: InputDecoration(
+                  labelText: _kqHomeText('设备类型', 'Device type'),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: kPeerPlatformWindows,
+                    child: Text('Windows'),
+                  ),
+                  DropdownMenuItem(
+                    value: kPeerPlatformMacOS,
+                    child: Text('macOS'),
+                  ),
+                  DropdownMenuItem(
+                    value: kPeerPlatformLinux,
+                    child: Text('Linux'),
+                  ),
+                  DropdownMenuItem(
+                    value: kPeerPlatformAndroid,
+                    child: Text('Android'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'iOS',
+                    child: Text('iOS'),
+                  ),
+                ],
+                onChanged: submitting
+                    ? null
+                    : (value) {
+                        if (value != null) {
+                          setState(() => platform = value);
+                        }
+                      },
+              ),
+              if (submitting)
+                const LinearProgressIndicator().marginOnly(top: 12),
+            ],
+          ),
+        ),
+        actions: [
+          dialogButton('Cancel', onPressed: close, isOutline: true),
+          dialogButton(
+            'Add',
+            icon: const Icon(Icons.add_rounded),
+            onPressed: submitting ? null : submit,
+          ),
+        ],
+      );
+    }, backDismiss: true, clickMaskDismiss: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: gFFI.recentPeersModel,
       builder: (context, _) {
-        final recentPeers = _recentPeers().take(4).toList(growable: false);
+        final allRecentPeers = _recentPeers();
+        final recentPeers = allRecentPeers.take(4).toList(growable: false);
         final accountDevicePeers = _accountDevicePeers.toList(growable: false);
+        final manualDevicePeers = _manualDevicePeers.toList(growable: false);
+        final allDevicePeers = _allDevicePeers(
+            allRecentPeers, accountDevicePeers, manualDevicePeers);
         return Container(
           // kq-designer-devices-page
           // kq-v214-devices-reference-page
@@ -3316,9 +3541,9 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
               _KqDesignerDevicesSectionHeader(
                 icon: Icons.desktop_windows_outlined,
                 title: _kqHomeText('全部设备', 'All devices'),
-                count: accountDevicePeers.length,
-                trailing: _KqDesignerDevicesRefreshButton(
-                  onPressed: () => _refreshDevices(forceAccountDevices: true),
+                count: allDevicePeers.length,
+                trailing: _KqDesignerDevicesAddButton(
+                  onPressed: _showAddDeviceDialog,
                 ),
               ),
               const SizedBox(height: 10),
@@ -3326,7 +3551,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
                 // kq-v214-devices-table
                 // kq-v215-devices-account-source
                 child: _KqDesignerDevicesTable(
-                  peers: accountDevicePeers,
+                  peers: allDevicePeers,
                   onConnect: _connectToPeer,
                 ),
               ),
@@ -3381,6 +3606,42 @@ class _KqDesignerDevicesSectionHeader extends StatelessWidget {
           const Spacer(),
           if (trailing != null) trailing!,
         ],
+      ),
+    );
+  }
+}
+
+class _KqDesignerDevicesAddButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _KqDesignerDevicesAddButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return SizedBox(
+      height: 28,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.add_rounded, size: 16),
+        label: Text(_kqHomeText('添加设备', 'Add device')),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          foregroundColor: q.isDark ? q.primaryDeep : const Color(0xFF1E73F8),
+          backgroundColor: q.isDark
+              ? q.surfaceSoft.withOpacity(0.54)
+              : const Color(0xFFF2F7FF),
+          side: BorderSide(
+            color:
+                q.isDark ? q.line.withOpacity(0.86) : const Color(0xFFCFE0FF),
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+          textStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+        ),
       ),
     );
   }
@@ -3782,40 +4043,6 @@ class _KqDesignerDevicesConnectButton extends StatelessWidget {
           ),
         ),
         child: Text(translate('Connect')),
-      ),
-    );
-  }
-}
-
-class _KqDesignerDevicesRefreshButton extends StatelessWidget {
-  final VoidCallback onPressed;
-
-  const _KqDesignerDevicesRefreshButton({required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    return Tooltip(
-      message: _kqHomeText('刷新设备状态', 'Refresh device status'),
-      child: SizedBox(
-        width: 28,
-        height: 28,
-        child: OutlinedButton(
-          onPressed: onPressed,
-          style: OutlinedButton.styleFrom(
-            padding: EdgeInsets.zero,
-            foregroundColor: q.isDark ? q.primaryDeep : const Color(0xFF2F7AF6),
-            backgroundColor: _kqDesignerPanelColor(context),
-            side: BorderSide(
-              color:
-                  q.isDark ? q.line.withOpacity(0.86) : const Color(0xFFCFE0FF),
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(7),
-            ),
-          ),
-          child: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
-        ),
       ),
     );
   }

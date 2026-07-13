@@ -517,7 +517,7 @@ class _AccountPageState extends State<AccountPage> {
                       const SizedBox(height: 10),
                       Text(
                         translate(
-                            'Membership unlocks 1080p / 60 FPS. Free users keep 720p / 30 FPS.'),
+                            'Both profiles use 60 FPS. Membership unlocks 1080p HD; basic uses 720p standard quality.'),
                         style: TextStyle(
                           color: q.muted,
                           fontSize: 13,
@@ -720,7 +720,6 @@ class _AccountPageState extends State<AccountPage> {
           const SizedBox(height: 16),
           _MembershipBanner(
             isMember: user.isMember.value,
-            qualityLabel: user.remoteQualityLabel,
             expireAt: user.memberExpireAt.value,
             loading: user.isRefreshingMembership.value,
             onPrimaryTap: _openMembershipSheet,
@@ -923,7 +922,6 @@ class _ProfileHeader extends StatelessWidget {
 class _MembershipBanner extends StatelessWidget {
   const _MembershipBanner({
     required this.isMember,
-    required this.qualityLabel,
     required this.expireAt,
     required this.loading,
     required this.onPrimaryTap,
@@ -931,7 +929,6 @@ class _MembershipBanner extends StatelessWidget {
   });
 
   final bool isMember;
-  final String qualityLabel;
   final String expireAt;
   final bool loading;
   final VoidCallback onPrimaryTap;
@@ -942,10 +939,11 @@ class _MembershipBanner extends StatelessWidget {
     final title = isMember
         ? translate('Membership benefits unlocked')
         : translate('Upgrade Kunqiong Membership');
-    final subtitle = isMember && expireAt.trim().isNotEmpty
-        ? '${translate('Membership valid until')} $expireAt'
+    final formattedExpireAt = _formatMembershipExpireAt(expireAt);
+    final subtitle = isMember && formattedExpireAt.isNotEmpty
+        ? '${translate('Membership valid until')} $formattedExpireAt'
         : translate(
-            'Membership unlocks 1080p / 60 FPS. Free users keep 720p / 30 FPS.');
+            'Both profiles use 60 FPS. Membership unlocks 1080p HD; basic uses 720p standard quality.');
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -1055,43 +1053,27 @@ class _MembershipBanner extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.verified_rounded,
-                        color: Color(0xFFFFD24D), size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${translate('Remote quality')}: $qualityLabel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFFFFE7A4),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                        ),
+                if (onRefreshTap != null) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: loading ? null : onRefreshTap,
+                      icon: loading
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded, size: 16),
+                      label: Text(translate('Refresh membership')),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFFFFE7A4),
+                        visualDensity: VisualDensity.compact,
                       ),
                     ),
-                    if (onRefreshTap != null)
-                      TextButton.icon(
-                        onPressed: loading ? null : onRefreshTap,
-                        icon: loading
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.refresh_rounded, size: 16),
-                        label: Text(translate('Refresh membership')),
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFFFE7A4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1601,9 +1583,10 @@ class _RemoteExperiencePageState extends State<_RemoteExperiencePage> {
                       const SizedBox(height: 14),
                       _RemoteExperienceControl(
                         saving: _saving,
-                        onResolutionTap: (resolutionTier) =>
-                            _apply(resolutionTier: resolutionTier),
-                        onFpsTap: (fps) => _apply(fps: fps),
+                        onProfileTap: (resolutionTier, fps) => _apply(
+                          resolutionTier: resolutionTier,
+                          fps: fps,
+                        ),
                       ),
                       const SizedBox(height: 14),
                       _RemoteExperienceNote(isMember: user.isMember.value),
@@ -1809,13 +1792,11 @@ class _RemoteExperienceNote extends StatelessWidget {
 
 class _RemoteExperienceControl extends StatelessWidget {
   const _RemoteExperienceControl({
-    required this.onResolutionTap,
-    required this.onFpsTap,
+    required this.onProfileTap,
     this.saving = false,
   });
 
-  final ValueChanged<String> onResolutionTap;
-  final ValueChanged<int> onFpsTap;
+  final void Function(String resolutionTier, int fps) onProfileTap;
   final bool saving;
 
   @override
@@ -1823,23 +1804,25 @@ class _RemoteExperienceControl extends StatelessWidget {
     final user = gFFI.userModel;
     final isMember = user.isMember.value;
     final resolution = user.remoteResolutionSelection;
-    final fps = user.remoteFpsSelection;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _OptionGroup(
-          title: translate('Clarity'),
+          title: translate('Remote quality and FPS'),
           icon: Icons.high_quality_rounded,
           children: [
             _QualityOption(
-              label: '720p',
-              caption: _mineText('Balanced quality'),
+              label: '720p / 60 FPS',
+              caption: _mineText('Basic plan available'),
               selected: resolution == UserModel.remoteResolution720p,
               enabled: !saving,
-              onTap: () => onResolutionTap(UserModel.remoteResolution720p),
+              onTap: () => onProfileTap(
+                UserModel.remoteResolution720p,
+                UserModel.freeMaxFps,
+              ),
             ),
             _QualityOption(
-              label: '1080p',
+              label: '1080p / 60 FPS',
               caption: isMember
                   ? _mineText('HD quality')
                   : _mineText('Members only'),
@@ -1847,33 +1830,10 @@ class _RemoteExperienceControl extends StatelessWidget {
               locked: !isMember,
               enabled: !saving,
               onTap: isMember
-                  ? () => onResolutionTap(UserModel.remoteResolution1080p)
-                  : () =>
-                      showToast(translate('Members can use 1080p / 60 FPS')),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _OptionGroup(
-          title: translate('Frame rate'),
-          icon: Icons.speed_rounded,
-          children: [
-            _QualityOption(
-              label: '30 FPS',
-              caption: _mineText('Stable'),
-              selected: fps == UserModel.freeMaxFps,
-              enabled: !saving,
-              onTap: () => onFpsTap(UserModel.freeMaxFps),
-            ),
-            _QualityOption(
-              label: '${UserModel.memberMaxFps} FPS',
-              caption:
-                  isMember ? _mineText('Smooth') : _mineText('Members only'),
-              selected: fps == UserModel.memberMaxFps,
-              locked: !isMember,
-              enabled: !saving,
-              onTap: isMember
-                  ? () => onFpsTap(UserModel.memberMaxFps)
+                  ? () => onProfileTap(
+                        UserModel.remoteResolution1080p,
+                        UserModel.memberDefaultFps,
+                      )
                   : () =>
                       showToast(translate('Members can use 1080p / 60 FPS')),
             ),
@@ -1995,15 +1955,18 @@ class _QualityOption extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: labelColor,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                        height: 1.1,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: labelColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          height: 1.1,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -2259,6 +2222,18 @@ String _priceLabel(double price) {
   return '¥${price.toStringAsFixed(2)}';
 }
 
+String _formatMembershipExpireAt(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  if (raw.toLowerCase() == 'unlimited') return _mineText('Unlimited');
+  final dateMatch = RegExp(r'^\d{4}-\d{2}-\d{2}').firstMatch(raw);
+  if (dateMatch != null) return dateMatch.group(0)!;
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${parsed.year}-${two(parsed.month)}-${two(parsed.day)}';
+}
+
 String _mineText(String key) {
   if (kqUiPrefersSimplifiedChinese()) return _mineZh[key] ?? translate(key);
   if (kqUiPrefersChinese()) return _mineTw[key] ?? translate(key);
@@ -2274,6 +2249,7 @@ const _mineZh = {
   'Notifications': '通知',
   'No notifications': '暂无通知',
   'Free plan': '免费版',
+  'Unlimited': '永久有效',
   'Remote quality and FPS': '画质与帧率',
   'General settings': '通用设置',
   'Security settings': '安全设置',
@@ -2296,7 +2272,7 @@ const _mineZh = {
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
   'Membership quality unlocked': '会员画质已解锁，可使用 1080p 和 60 FPS。',
   'Upgrade to unlock 1080p and 60 FPS':
-      '当前账号最多可用 720p / 30 FPS，开通会员后可使用 1080p / 60 FPS。',
+      '当前账号可使用 720p 标清画质与稳定 60 FPS，开通会员后可使用 1080p 高清画质。',
 };
 
 const _mineTw = {
@@ -2304,6 +2280,7 @@ const _mineTw = {
   'Username': '使用者名稱',
   'Phone number': '手機號',
   'Not set': '未設定',
+  'Unlimited': '永久有效',
   'Pay now': '立即支付',
   'Opening payment app...': '正在拉起支付...',
   'WeChat Pay': '微信支付',

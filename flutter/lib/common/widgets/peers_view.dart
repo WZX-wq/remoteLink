@@ -123,11 +123,6 @@ class _PeersViewState extends State<_PeersView>
   bool _accountDeviceCacheRestored = false;
   int _lastAccountDeviceLoadGeneration = -1;
   bool _lastAccountDeviceLoadWasManualRefresh = false;
-  final Map<_KqRecentDeviceSection, bool> _recentExpandedSections = {
-    _KqRecentDeviceSection.recent: false,
-    _KqRecentDeviceSection.mobile: false,
-    _KqRecentDeviceSection.desktop: false,
-  };
   late final String _accountDeviceOnlineHandlerName;
 
   final _scrollController = ScrollController();
@@ -429,12 +424,7 @@ class _PeersViewState extends State<_PeersView>
       if (children.isNotEmpty) {
         children.add(const SizedBox(height: 18));
       }
-      final isExpanded = _recentExpandedSections[section] ?? true;
-      children.add(
-          _buildRecentGroupHeader(section, sectionPeers.length, isExpanded));
-      if (!isExpanded) {
-        continue;
-      }
+      children.add(_buildRecentGroupHeader(section, sectionPeers.length));
       for (var i = 0; i < sectionPeers.length; i++) {
         children.add(
           buildOnePeer(sectionPeers[i], true)
@@ -668,35 +658,80 @@ class _PeersViewState extends State<_PeersView>
   Map<_KqRecentDeviceSection, List<Peer>> _groupRecentPeersByDeviceType(
     List<Peer> peers,
   ) {
+    final devicePeers = _recentDeviceSectionSourcePeers(peers);
     final groupedPeers = {
       _KqRecentDeviceSection.recent: peers,
       _KqRecentDeviceSection.mobile:
-          _accountDevicePeers.where(_isKqMobilePeer).toList(),
+          devicePeers.where(_isKqMobilePeer).toList(),
       _KqRecentDeviceSection.desktop:
-          _accountDevicePeers.where(_isKqDesktopPeer).toList(),
+          devicePeers.where(_isKqDesktopPeer).toList(),
     };
     return groupedPeers;
   }
 
+  List<Peer> _recentDeviceSectionSourcePeers(List<Peer> recentPeers) {
+    final peersByKey = <String, Peer>{};
+    for (final peer in [...recentPeers, ..._accountDevicePeers]) {
+      final key = _recentDeviceSectionPeerKey(peer);
+      if (key.isEmpty) continue;
+      final existing = peersByKey[key];
+      if (existing == null ||
+          (!_hasRecognizedKqDevicePlatform(existing) &&
+              _hasRecognizedKqDevicePlatform(peer))) {
+        peersByKey[key] = peer;
+      }
+    }
+    return peersByKey.values.toList(growable: false);
+  }
+
+  String _recentDeviceSectionPeerKey(Peer peer) {
+    final id = kqNormalizePeerId(peer.id);
+    if (id.isNotEmpty) return id;
+    return _accountDeviceDisplayKey(peer);
+  }
+
+  bool _hasRecognizedKqDevicePlatform(Peer peer) {
+    if (_normalizedKqPeerPlatform(peer).isEmpty) return false;
+    return _isKqMobilePeer(peer) || _isKqDesktopPeer(peer);
+  }
+
   bool _isKqMobilePeer(Peer peer) {
-    final platform = peer.platform.trim().toLowerCase();
-    return peer.platform == kPeerPlatformAndroid ||
+    final platform = _normalizedKqPeerPlatform(peer);
+    return platform == _normalizedKqPlatform(kPeerPlatformAndroid) ||
+        platform.contains('android') ||
         platform == 'ios' ||
         platform == 'iphone' ||
         platform == 'ipad';
   }
 
   bool _isKqDesktopPeer(Peer peer) {
-    final platform = peer.platform.trim();
+    final platform = _normalizedKqPeerPlatform(peer);
     return platform.isEmpty ||
-        platform == kPeerPlatformWindows ||
-        platform == kPeerPlatformMacOS ||
-        platform == kPeerPlatformLinux ||
-        platform == kPeerPlatformWebDesktop;
+        platform == _normalizedKqPlatform(kPeerPlatformWindows) ||
+        platform == 'windows' ||
+        platform == 'win' ||
+        platform == 'win32' ||
+        platform == 'win64' ||
+        platform == _normalizedKqPlatform(kPeerPlatformMacOS) ||
+        platform == 'mac' ||
+        platform == 'macos' ||
+        platform == 'osx' ||
+        platform == 'darwin' ||
+        platform == _normalizedKqPlatform(kPeerPlatformLinux) ||
+        platform == 'linux' ||
+        platform == _normalizedKqPlatform(kPeerPlatformWebDesktop) ||
+        platform == 'webdesktop' ||
+        platform == 'web';
   }
 
-  Widget _buildRecentGroupHeader(
-      _KqRecentDeviceSection section, int count, bool isExpanded) {
+  String _normalizedKqPeerPlatform(Peer peer) =>
+      _normalizedKqPlatform(peer.platform);
+
+  String _normalizedKqPlatform(String platform) {
+    return platform.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');
+  }
+
+  Widget _buildRecentGroupHeader(_KqRecentDeviceSection section, int count) {
     final q = KqTheme.of(context);
     final title = _kqPeersText(_kqRecentDeviceSectionTitle(section));
     final countLabel = _recentSectionCountLabel(section, count);
@@ -716,21 +751,6 @@ class _PeersViewState extends State<_PeersView>
               height: 1.1,
             ),
           ),
-        ),
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-          icon: Icon(
-            isExpanded
-                ? Icons.keyboard_arrow_down_rounded
-                : Icons.keyboard_arrow_right_rounded,
-            color: q.muted,
-            size: 24,
-          ),
-          onPressed: () {
-            setState(() => _recentExpandedSections[section] = !isExpanded);
-          },
         ),
       ],
     ).marginOnly(left: 4);

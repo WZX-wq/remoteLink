@@ -466,8 +466,8 @@ impl VideoRenderer {
                 rgba.w,
                 rgba.h
             );
-            // Peer info's handling is async and may be late than video frame's handling
-            // Allow peer info not set, but not allow wrong width/height for correct local cursor position
+            // Peer info's handling is async and may be late than video frame's handling.
+            // Once peer info is set, the decoded frame must keep the captured display size.
             if info.size != (0, 0) {
                 return false;
             }
@@ -485,11 +485,57 @@ impl VideoRenderer {
             };
         }
         if info.notify_render_type != Some(RenderType::PixelBuffer) {
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                let pixel_at = |offset: usize| -> u32 {
+                    rgba.raw
+                        .get(offset..offset.saturating_add(4))
+                        .and_then(|pixel| pixel.try_into().ok())
+                        .map(u32::from_le_bytes)
+                        .unwrap_or_default()
+                };
+                let center_offset = rgba
+                    .h
+                    .saturating_div(2)
+                    .saturating_mul(rgba.w)
+                    .saturating_add(rgba.w.saturating_div(2))
+                    .saturating_mul(4);
+                let last_offset = rgba.raw.len().saturating_sub(4);
+                let sample_step = (rgba.raw.len() / 4096).max(1);
+                let mut sample_hash = 0xcbf29ce484222325u64;
+                let mut sample_min = u8::MAX;
+                let mut sample_max = u8::MIN;
+                for value in rgba.raw.iter().step_by(sample_step) {
+                    sample_hash ^= *value as u64;
+                    sample_hash = sample_hash.wrapping_mul(0x100000001b3);
+                    sample_min = sample_min.min(*value);
+                    sample_max = sample_max.max(*value);
+                }
+                log::info!(
+                    "KQ native texture renderer accepted first RGBA frame: display={}, size={}x{}, bytes={}, align={}",
+                    display,
+                    rgba.w,
+                    rgba.h,
+                    rgba.raw.len(),
+                    rgba.align()
+                );
+                log::info!(
+                    "KQ first decoded RGBA diagnostics: display={}, first=0x{:08X}, center=0x{:08X}, last=0x{:08X}, sampled_min={}, sampled_max={}, sampled_hash=0x{:016X}",
+                    display,
+                    pixel_at(0),
+                    pixel_at(center_offset),
+                    pixel_at(last_offset),
+                    sample_min,
+                    sample_max,
+                    sample_hash
+                );
+            }
             info.notify_render_type = Some(RenderType::PixelBuffer);
-            true
-        } else {
-            false
         }
+        // The Flutter subwindow can attach its event listener after the native
+        // texture has already accepted a frame. Keep the lightweight texture
+        // event retryable so one startup race cannot suppress every later UI
+        // notification and leave waitForFirstImage stuck forever.
+        true
     }
 
     #[cfg(feature = "vram")]
@@ -523,6 +569,42 @@ impl VideoRenderer {
             .values_mut()
             .map(|v| v.notify_render_type = None)
             .count();
+    }
+}
+
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+mod video_renderer_notification_tests {
+    use super::*;
+
+    #[test]
+    fn pixelbuffer_frames_keep_notifying_flutter_after_the_first_frame() {
+        let renderer = VideoRenderer {
+            is_support_multi_ui_session: true,
+            map_display_sessions: Default::default(),
+            on_rgba_func: None,
+            #[cfg(feature = "vram")]
+            on_texture_func: None,
+        };
+        renderer.map_display_sessions.write().unwrap().insert(
+            0,
+            DisplaySessionInfo {
+                texture_rgba_ptr: 1,
+                size: (1, 1),
+                #[cfg(feature = "vram")]
+                gpu_output_ptr: 0,
+                notify_render_type: None,
+            },
+        );
+        let rgba = scrap::ImageRgb {
+            raw: vec![0, 0, 0, 255],
+            w: 1,
+            h: 1,
+            fmt: scrap::ImageFormat::ABGR,
+            align: 1,
+        };
+
+        assert!(renderer.on_rgba(0, &rgba));
+        assert!(renderer.on_rgba(0, &rgba));
     }
 }
 
@@ -694,7 +776,8 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     /// unused in flutter, use switch_display or set_peer_info
-    fn set_display(&self, _x: i32, _y: i32, _w: i32, _h: i32, _cursor_embedded: bool, _scale: f64) {}
+    fn set_display(&self, _x: i32, _y: i32, _w: i32, _h: i32, _cursor_embedded: bool, _scale: f64) {
+    }
 
     fn update_privacy_mode(&self) {
         self.push_event::<&str>("update_privacy_mode", &[], &[]);
@@ -1212,6 +1295,28 @@ impl FlutterHandler {
             let mut rgba_data = RgbaData::default();
             std::mem::swap::<Vec<u8>>(&mut rgba.raw, &mut rgba_data.data);
             rgba_data.valid = true;
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                let first_pixel = rgba_data.data.get(0..4).unwrap_or_default();
+                let (alpha_min, alpha_max) = rgba_data
+                    .data
+                    .chunks_exact(4)
+                    .map(|pixel| pixel[3])
+                    .fold((u8::MAX, u8::MIN), |(min, max), alpha| {
+                        (min.min(alpha), max.max(alpha))
+                    });
+                log::info!(
+                    "KQ software video renderer queued first RGBA frame: display={}, size={}x{}, bytes={}, fmt={:?}, align={}, first_pixel={:?}, alpha={}..{}",
+                    display,
+                    rgba.w,
+                    rgba.h,
+                    rgba_data.data.len(),
+                    rgba.fmt(),
+                    rgba.align(),
+                    first_pixel,
+                    alpha_min,
+                    alpha_max
+                );
+            }
             rgba_write_lock.insert(display, rgba_data);
         }
         drop(rgba_write_lock);
@@ -1703,6 +1808,29 @@ fn char_to_session_id(c: *const char) -> ResultType<SessionID> {
     SessionID::from_str(str).map_err(|e| anyhow!("{:?}", e))
 }
 
+#[no_mangle]
+pub extern "C" fn session_log_rgba_stage(
+    session_uuid_str: *const c_char,
+    stage: *const c_char,
+    display: usize,
+    value1: usize,
+    value2: usize,
+) {
+    if session_uuid_str.is_null() || stage.is_null() {
+        return;
+    }
+    let session = unsafe { std::ffi::CStr::from_ptr(session_uuid_str) }.to_string_lossy();
+    let stage = unsafe { std::ffi::CStr::from_ptr(stage) }.to_string_lossy();
+    log::info!(
+        "KQ Flutter video stage: session={}, stage={}, display={}, value1={}, value2={}",
+        session,
+        stage,
+        display,
+        value1,
+        value2
+    );
+}
+
 pub fn session_get_rgba_size(session_id: SessionID, display: usize) -> usize {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         return session
@@ -1755,6 +1883,14 @@ pub fn session_set_size(session_id: SessionID, display: usize, width: usize, hei
 
 #[inline]
 pub fn session_register_pixelbuffer_texture(session_id: SessionID, display: usize, ptr: usize) {
+    if crate::get_app_name() == crate::common::KQ_APP_NAME {
+        log::info!(
+            "KQ native texture registration: session={}, display={}, registered={}",
+            session_id,
+            display,
+            ptr != 0
+        );
+    }
     for s in sessions::get_sessions() {
         if let Some(h) = s
             .ui_handler

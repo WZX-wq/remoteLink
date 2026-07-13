@@ -66,14 +66,14 @@ Future<void> main(List<String> args) async {
     switch (kWindowType) {
       case WindowType.RemoteDesktop:
         desktopType = DesktopType.remote;
-        runMultiWindow(
+        await runMultiWindow(
           argument,
           kAppTypeDesktopRemote,
         );
         break;
       case WindowType.FileTransfer:
         desktopType = DesktopType.fileTransfer;
-        runMultiWindow(
+        await runMultiWindow(
           argument,
           kAppTypeDesktopFileTransfer,
         );
@@ -81,28 +81,28 @@ Future<void> main(List<String> args) async {
       case WindowType.ViewCamera:
         if (!isViewCameraFeatureEnabled()) {
           desktopType = DesktopType.main;
-          runMultiWindow(
+          await runMultiWindow(
             argument,
             kAppTypeMain,
           );
           break;
         }
         desktopType = DesktopType.viewCamera;
-        runMultiWindow(
+        await runMultiWindow(
           argument,
           kAppTypeDesktopViewCamera,
         );
         break;
       case WindowType.PortForward:
         desktopType = DesktopType.portForward;
-        runMultiWindow(
+        await runMultiWindow(
           argument,
           kAppTypeDesktopPortForward,
         );
         break;
       case WindowType.Terminal:
         desktopType = DesktopType.terminal;
-        runMultiWindow(
+        await runMultiWindow(
           argument,
           kAppTypeDesktopTerminal,
         );
@@ -147,7 +147,9 @@ void runMainApp(bool startService) async {
   // trigger connection status updater
   await bind.mainCheckConnectStatus();
   if (startService) {
-    gFFI.serverModel.startService();
+    if (!isWindows) {
+      gFFI.serverModel.startService();
+    }
     bind.pluginSyncUi(syncTo: kAppTypeMain);
     bind.pluginListReload();
   }
@@ -201,14 +203,15 @@ void runMobileApp() async {
   await initUniLinks();
 }
 
-void runMultiWindow(
+Future<void> runMultiWindow(
   Map<String, dynamic> argument,
   String appType,
 ) async {
   await initEnv(appType);
   final title = getWindowName();
+  final controller = WindowController.fromWindowId(kWindowId!);
   // set prevent close to true, we handle close event manually
-  WindowController.fromWindowId(kWindowId!).setPreventClose(true);
+  controller.setPreventClose(true);
   if (isMacOS) {
     disableWindowMovable(kWindowId);
   }
@@ -249,6 +252,29 @@ void runMultiWindow(
       // no such appType
       exit(0);
   }
+  if (appType == kAppTypeDesktopRemote) {
+    try {
+      final screenRect = parseParamScreenRect(argument);
+      if (screenRect == null) {
+        final useDefaultFrame = await restoreWindowPosition(
+          WindowType.RemoteDesktop,
+          windowId: kWindowId!,
+          peerId: argument['id'] as String?,
+          display: argument['display'] as int?,
+        );
+        if (useDefaultFrame) {
+          await controller.setFrame(Offset.zero &
+              Size(1280 + kWindowId! * 20, 720 + kWindowId! * 20));
+          await controller.center();
+        }
+      } else {
+        await tryMoveToScreenAndSetFullscreen(screenRect);
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Failed to prepare remote window geometry: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
   _runApp(
     title,
     widget,
@@ -260,17 +286,12 @@ void runMultiWindow(
   }
   switch (appType) {
     case kAppTypeDesktopRemote:
-      // If screen rect is set, the window will be moved to the target screen and then set fullscreen.
-      if (argument['screen_rect'] == null) {
-        // display can be used to control the offset of the window.
-        await restoreWindowPosition(
-          WindowType.RemoteDesktop,
-          windowId: kWindowId!,
-          peerId: argument['id'] as String?,
-          display: argument['display'] as int?,
-        );
-      }
-      break;
+      // newSessionWindow already makes the HWND visible before software video
+      // painting starts. Reinforce activation after Flutter installs the
+      // remote widget tree, without waiting for a hidden-surface frame.
+      await controller.show();
+      await controller.focus();
+      return;
     case kAppTypeDesktopFileTransfer:
       await restoreWindowPosition(WindowType.FileTransfer,
           windowId: kWindowId!);

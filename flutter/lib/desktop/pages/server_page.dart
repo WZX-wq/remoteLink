@@ -600,13 +600,38 @@ class _PrivilegeBoard extends StatefulWidget {
 }
 
 class _PrivilegeBoardState extends State<_PrivilegeBoard> {
+  String _permissionTooltip(
+    String label,
+    bool enabled, {
+    required bool canModify,
+  }) {
+    final status = enabled
+        ? kqLocaleText(zhCn: '已开启', en: 'Enabled')
+        : kqLocaleText(zhCn: '已关闭', en: 'Disabled');
+    final action = canModify
+        ? (enabled
+            ? kqLocaleText(zhCn: '点击可关闭', en: 'Click to disable')
+            : kqLocaleText(zhCn: '点击可开启', en: 'Click to enable'))
+        : kqLocaleText(
+            zhCn: '当前不允许在此窗口修改',
+            en: 'Cannot be changed in this window',
+          );
+    return '$label: $status, $action';
+  }
+
   late final client = widget.client;
   Widget buildPermissionIcon(bool enabled, IconData iconData,
       Function(bool)? onTap, String tooltipText,
       {required bool canModify}) {
     return Tooltip(
-      message: "$tooltipText: ${enabled ? "ON" : "OFF"}",
+      message: _permissionTooltip(
+        tooltipText,
+        enabled,
+        canModify: canModify,
+      ),
       waitDuration: Duration.zero,
+      showDuration: const Duration(seconds: 8),
+      preferBelow: false,
       child: Container(
         decoration: BoxDecoration(
           color: enabled
@@ -685,7 +710,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                       client.keyboard = enabled;
                     });
                   },
-                  translate('Enable keyboard/mouse'),
+                  kqLocaleText(zhCn: '键盘/鼠标控制', en: 'Keyboard/mouse control'),
                   canModify: canModifyPermission,
                 ),
                 buildPermissionIcon(
@@ -698,7 +723,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                       client.clipboard = enabled;
                     });
                   },
-                  translate('Enable clipboard'),
+                  kqLocaleText(zhCn: '剪贴板同步', en: 'Clipboard sync'),
                   canModify: canModifyPermission,
                 ),
                 buildPermissionIcon(
@@ -711,7 +736,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                       client.audio = enabled;
                     });
                   },
-                  translate('Enable audio'),
+                  kqLocaleText(zhCn: '远程声音', en: 'Remote audio'),
                   canModify: canModifyPermission,
                 ),
                 buildPermissionIcon(
@@ -724,7 +749,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                       client.file = enabled;
                     });
                   },
-                  translate('Enable file copy and paste'),
+                  kqLocaleText(zhCn: '文件传输', en: 'File transfer'),
                   canModify: canModifyPermission,
                 ),
                 buildPermissionIcon(
@@ -737,7 +762,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                       client.restart = enabled;
                     });
                   },
-                  translate('Enable remote restart'),
+                  kqLocaleText(zhCn: '远程重启', en: 'Remote restart'),
                   canModify: canModifyPermission,
                 ),
                 buildPermissionIcon(
@@ -750,7 +775,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                       client.recording = enabled;
                     });
                   },
-                  translate('Enable recording session'),
+                  kqLocaleText(zhCn: '会话录制', en: 'Session recording'),
                   canModify: canModifyPermission,
                 ),
                 // only windows support block input
@@ -767,7 +792,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                         client.blockInput = enabled;
                       });
                     },
-                    translate('Enable blocking user input'),
+                    kqLocaleText(zhCn: '阻止对方本机输入', en: 'Block remote input'),
                     canModify: canModifyPermission,
                   ),
                 if (bind.mainSupportedPrivacyModeImpls() != '[]')
@@ -783,7 +808,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
                         client.privacyMode = enabled;
                       });
                     },
-                    translate('Enable privacy mode'),
+                    kqLocaleText(zhCn: '隐私模式', en: 'Privacy mode'),
                     canModify: canModifyPermission,
                   )
               ],
@@ -886,13 +911,15 @@ class _CmControlPanel extends StatelessWidget {
                       color: Colors.white,
                       size: 14,
                     ),
-                    text: "Audio input",
+                    text: kqLocaleText(zhCn: '音频输入', en: 'Audio input'),
+                    translateLabel: false,
                     textColor: Colors.white),
               ),
               Expanded(
                 child: buildButton(
                   context,
                   color: Colors.red,
+                  allowRemoteClick: true,
                   onClick: () => closeVoiceCall(),
                   icon: Icon(
                     Icons.call_end_rounded,
@@ -913,6 +940,7 @@ class _CmControlPanel extends StatelessWidget {
               Expanded(
                 child: buildButton(context,
                     color: MyTheme.accent,
+                    allowRemoteClick: true,
                     onClick: () => handleVoiceCall(true),
                     icon: Icon(
                       Icons.call_rounded,
@@ -926,6 +954,7 @@ class _CmControlPanel extends StatelessWidget {
                 child: buildButton(
                   context,
                   color: Colors.red,
+                  allowRemoteClick: true,
                   onClick: () => handleVoiceCall(false),
                   icon: Icon(
                     Icons.phone_disabled_rounded,
@@ -1070,19 +1099,22 @@ class _CmControlPanel extends StatelessWidget {
       required String text,
       required Color? textColor,
       String? tooltip,
-      GestureTapDownCallback? onTapDown}) {
+      GestureTapDownCallback? onTapDown,
+      bool allowRemoteClick = false,
+      bool translateLabel = true}) {
     assert(!(onClick == null && onTapDown == null));
+    final label = translateLabel ? translate(text) : text;
     Widget textWidget;
     if (icon != null) {
       textWidget = Text(
-        translate(text),
+        label,
         style: TextStyle(color: textColor),
         textAlign: TextAlign.center,
       );
     } else {
       textWidget = Expanded(
         child: Text(
-          translate(text),
+          label,
           style: TextStyle(color: textColor),
           textAlign: TextAlign.center,
         ),
@@ -1097,13 +1129,21 @@ class _CmControlPanel extends StatelessWidget {
         borderRadius: borderRadius,
         onTap: () {
           if (onClick == null) return;
-          checkClickTime(client.id, onClick);
+          if (allowRemoteClick) {
+            onClick();
+          } else {
+            checkClickTime(client.id, onClick);
+          }
         },
         onTapDown: (details) {
           if (onTapDown == null) return;
-          checkClickTime(client.id, () {
+          if (allowRemoteClick) {
             onTapDown.call(details);
-          });
+          } else {
+            checkClickTime(client.id, () {
+              onTapDown.call(details);
+            });
+          }
         },
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

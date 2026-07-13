@@ -12,12 +12,15 @@ customImageQualityWidget(
     required Function(double)? setQuality,
     required Function(double)? setFps,
     required bool showFps,
-    required bool showMoreQuality,
     double maxFps = kMaxFps,
+    double maxQuality = kMaxQuality,
     String? fpsCaption}) {
-  if (initQuality < kMinQuality ||
-      initQuality > (showMoreQuality ? kMaxMoreQuality : kMaxQuality)) {
-    initQuality = kDefaultQuality;
+  final effectiveMaxQuality =
+      maxQuality.clamp(kMinQuality, kMaxMoreQuality).toDouble();
+  final defaultQuality =
+      kDefaultQuality.clamp(kMinQuality, effectiveMaxQuality).toDouble();
+  if (initQuality < kMinQuality || initQuality > effectiveMaxQuality) {
+    initQuality = defaultQuality;
   }
   final effectiveMaxFps = maxFps.clamp(kMinFps, kMaxFps).toDouble();
   if (initFps < kMinFps || initFps > effectiveMaxFps) {
@@ -26,48 +29,40 @@ customImageQualityWidget(
   final qualityValue = initQuality.obs;
   final fpsValue = initFps.obs;
 
-  final RxBool moreQualityChecked = RxBool(qualityValue.value > kMaxQuality);
-  final debouncerQuality = Debouncer<double>(
-    Duration(milliseconds: 1000),
-    onChanged: setQuality,
-    initialValue: qualityValue.value,
-  );
-  final debouncerFps = Debouncer<double>(
-    Duration(milliseconds: 1000),
-    onChanged: setFps,
-    initialValue: fpsValue.value,
-  );
-
-  onMoreChanged(bool? value) {
-    if (value == null) return;
-    moreQualityChecked.value = value;
-    if (!value && qualityValue.value > 100) {
-      qualityValue.value = 100;
-    }
-    debouncerQuality.value = qualityValue.value;
-  }
-
   return Column(
     children: [
-      Obx(() => Row(
+        Obx(() => Row(
             children: [
-              Expanded(
-                flex: 3,
-                child: Slider(
-                  value: qualityValue.value,
-                  min: kMinQuality,
-                  max: moreQualityChecked.value ? kMaxMoreQuality : kMaxQuality,
-                  divisions: moreQualityChecked.value
-                      ? ((kMaxMoreQuality - kMinQuality) / 10).round()
-                      : ((kMaxQuality - kMinQuality) / 5).round(),
-                  onChanged: setQuality == null
-                      ? null
-                      : (double value) async {
-                          qualityValue.value = value;
-                          debouncerQuality.value = value;
-                        },
-                ),
-              ),
+              Builder(builder: (context) {
+                final sliderMax = effectiveMaxQuality;
+                final sliderDivisions =
+                    (((sliderMax - kMinQuality) / 5)
+                            .round()
+                            .clamp(1, 1000))
+                        .toInt();
+                return Expanded(
+                  flex: 3,
+                  child: Slider(
+                    value: qualityValue.value
+                        .clamp(kMinQuality, sliderMax)
+                        .toDouble(),
+                    min: kMinQuality,
+                    max: sliderMax,
+                    divisions: sliderDivisions,
+                    onChanged: setQuality == null
+                        ? null
+                        : (double value) async {
+                            qualityValue.value = value;
+                          },
+                    onChangeEnd: setQuality == null
+                        ? null
+                        : (double value) {
+                            qualityValue.value = value;
+                            setQuality(value);
+                          },
+                  ),
+                );
+              }),
               Expanded(
                   flex: 1,
                   child: Text(
@@ -80,40 +75,8 @@ customImageQualityWidget(
                     translate('Bitrate'),
                     style: const TextStyle(fontSize: 15),
                   )),
-              // mobile doesn't have enough space
-              if (showMoreQuality && !isMobile)
-                Expanded(
-                    flex: 1,
-                    child: Row(
-                      children: [
-                        Checkbox(
-                          value: moreQualityChecked.value,
-                          onChanged: onMoreChanged,
-                        ),
-                        Expanded(
-                          child: Text(translate('More')),
-                        )
-                      ],
-                    ))
             ],
           )),
-      if (showMoreQuality && isMobile)
-        Obx(() => Row(
-              children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Checkbox(
-                      value: moreQualityChecked.value,
-                      onChanged: onMoreChanged,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(translate('More')),
-                )
-              ],
-            )),
       if (showFps)
         Obx(() => Row(
               children: [
@@ -128,7 +91,12 @@ customImageQualityWidget(
                         ? null
                         : (double value) async {
                             fpsValue.value = value;
-                            debouncerFps.value = value;
+                          },
+                    onChangeEnd: setFps == null
+                        ? null
+                        : (double value) {
+                            fpsValue.value = value;
+                            setFps(value);
                           },
                   ),
                 ),
@@ -164,6 +132,7 @@ customImageQualityWidget(
 customImageQualitySetting() {
   final qualityKey = 'custom_image_quality';
   final fpsKey = 'custom-fps';
+  final isKqApp = appName == '鲲穹远程桌面';
 
   final initQuality =
       (double.tryParse(bind.mainGetUserDefaultOption(key: qualityKey)) ??
@@ -191,8 +160,10 @@ customImageQualitySetting() {
                   value: gFFI.userModel.clampRemoteFps(v).toString());
             },
       showFps: true,
-      showMoreQuality: true,
       maxFps: gFFI.userModel.remoteMaxFps.toDouble(),
+      maxQuality: isKqApp
+          ? gFFI.userModel.remoteCustomQualitySelection.toDouble()
+          : kMaxQuality,
       fpsCaption: gFFI.userModel.remoteEntitlementHint);
 }
 

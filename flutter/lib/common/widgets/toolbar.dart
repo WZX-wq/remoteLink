@@ -417,7 +417,7 @@ Future<List<TRadioMenu<String>>> toolbarImageQuality(
       value: kRemoteImageQualityCustom,
       groupValue: groupValue,
       onChanged: (value) {
-        onChanged(value);
+        if (value == null) return;
         customImageQualityDialog(ffi.sessionId, id, ffi);
       },
     ),

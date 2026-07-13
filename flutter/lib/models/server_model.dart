@@ -125,7 +125,10 @@ class ServerModel with ChangeNotifier {
   TextEditingController get permanentPasswd => _permanentPasswd;
 
   bool get isSelectedPasswordVisible {
-    return !_passwordServiceStopped;
+    if (_selectedPasswordKind == KqPasswordKind.oneTime) {
+      return !_passwordServiceStopped;
+    }
+    return true;
   }
 
   String get selectedPasswordLabel {
@@ -169,10 +172,21 @@ class ServerModel with ChangeNotifier {
         text != '--';
   }
 
-  bool get selectedPasswordCanRefresh => isSelectedPasswordVisible;
+  bool get selectedPasswordCanRefresh {
+    if (!isSelectedPasswordVisible) {
+      return false;
+    }
+    if (_selectedPasswordKind == KqPasswordKind.permanent) {
+      return !isChangePermanentPasswordDisabled();
+    }
+    return true;
+  }
 
   bool get selectedPasswordCanShare {
     if (!selectedPasswordCanCopy) {
+      return false;
+    }
+    if (_passwordServiceStopped) {
       return false;
     }
     switch (_selectedPasswordKind) {
@@ -247,8 +261,7 @@ class ServerModel with ChangeNotifier {
 
   Future<void> _ensurePermanentPasswordPreviewOnSelect() async {
     // kq-v234-permanent-password-autofill-on-select
-    if (_passwordServiceStopped ||
-        isChangePermanentPasswordDisabled() ||
+    if (isChangePermanentPasswordDisabled() ||
         _permanentPasswd.text.trim().isNotEmpty ||
         _localPermanentPasswordSet ||
         _permanentPasswordSet) {
@@ -478,6 +491,16 @@ class ServerModel with ChangeNotifier {
       _fileOk = fileOption != 'N';
     }
 
+    // input control / accessibility service
+    if (isAndroid) {
+      final inputGranted =
+          await AndroidPermissionManager.check(kActionAccessibilitySettings);
+      _inputOk = inputGranted;
+      bind.mainSetOption(
+          key: kOptionEnableKeyboard,
+          value: inputGranted ? defaultOptionYes : 'N');
+    }
+
     // clipboard
     final clipOption = await bind.mainGetOption(key: kOptionEnableClipboard);
     _clipboardOk = clipOption != 'N';
@@ -515,10 +538,10 @@ class ServerModel with ChangeNotifier {
         await bind.mainGetOption(key: kOptionKqPermanentPasswordPreview);
     var permanentPasswordPreview =
         _normalizeVerificationCode(rawPermanentPasswordPreview);
-    final localPermanentPasswordSet =
+    var localPermanentPasswordSet =
         (await bind.mainGetCommon(key: "local-permanent-password-set")) ==
             "true";
-    final permanentPasswordSet =
+    var permanentPasswordSet =
         (await bind.mainGetCommon(key: "permanent-password-set")) == "true";
     final stopped = await mainGetBoolOption(kOptionStopService);
     if (permanentPasswordPreview != rawPermanentPasswordPreview.trim()) {
@@ -531,8 +554,8 @@ class ServerModel with ChangeNotifier {
             password: permanentPasswordPreview);
       }
     }
-    if (!stopped &&
-        permanentPasswordSet &&
+    if ((permanentPasswordSet ||
+            _selectedPasswordKind == KqPasswordKind.permanent) &&
         permanentPasswordPreview.isEmpty &&
         !_permanentPreviewAutofillAttempted &&
         !isChangePermanentPasswordDisabled()) {
@@ -545,13 +568,17 @@ class ServerModel with ChangeNotifier {
           await bind.mainSetPermanentPasswordWithResult(password: generated);
       if (ok) {
         permanentPasswordPreview = generated;
+        localPermanentPasswordSet = true;
+        permanentPasswordSet = true;
         await bind.mainSetOption(
           key: kOptionKqPermanentPasswordPreview,
           value: generated,
         );
       }
     }
-    if (!permanentPasswordSet || permanentPasswordPreview.isNotEmpty) {
+    if (permanentPasswordPreview.isNotEmpty ||
+        (!permanentPasswordSet &&
+            _selectedPasswordKind != KqPasswordKind.permanent)) {
       _permanentPreviewAutofillAttempted = false;
     }
     /*
@@ -685,13 +712,15 @@ class ServerModel with ChangeNotifier {
     }
     if (_inputOk) {
       parent.target?.invokeMethod("stop_input");
+      _inputOk = false;
       bind.mainSetOption(key: kOptionEnableKeyboard, value: 'N');
+      notifyListeners();
     } else {
-      if (parent.target != null) {
-        /// the result of toggle-on depends on user actions in the settings page.
-        /// handle result, see [ServerModel.changeStatue]
-        showInputWarnAlert(parent.target!);
-      }
+      final ffi = parent.target ?? gFFI;
+
+      /// the result of toggle-on depends on user actions in the settings page.
+      /// handle result, see [ServerModel.changeStatue]
+      showInputWarnAlert(ffi);
     }
   }
 

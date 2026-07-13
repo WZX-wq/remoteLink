@@ -461,6 +461,8 @@ pub struct Connection {
     kq_keyboard_auto_paused: bool,
     #[cfg(target_os = "windows")]
     kq_last_controlled_side_local_input_at: Option<Instant>,
+    #[cfg(target_os = "windows")]
+    kq_ignore_local_input_until: Instant,
 }
 
 impl ConnInner {
@@ -646,6 +648,8 @@ impl Connection {
             kq_keyboard_auto_paused: false,
             #[cfg(target_os = "windows")]
             kq_last_controlled_side_local_input_at: None,
+            #[cfg(target_os = "windows")]
+            kq_ignore_local_input_until: Instant::now() + Duration::from_millis(2_000),
         };
         let addr = hbb_common::try_into_v4(addr);
         if !conn.on_open(addr).await {
@@ -1455,6 +1459,9 @@ impl Connection {
         let current_tick = kq_controlled_side_local_input_tick();
         if current_tick != 0 && current_tick != self.kq_controlled_side_local_input_tick {
             self.kq_controlled_side_local_input_tick = current_tick;
+            if Instant::now() < self.kq_ignore_local_input_until {
+                return false;
+            }
             self.kq_last_controlled_side_local_input_at = Some(Instant::now());
             if !self.peer_keyboard_enabled() {
                 return false;
@@ -4479,6 +4486,10 @@ impl Connection {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn change_resolution(&mut self, d: Option<usize>, r: &Resolution) {
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            log::info!("KQ ignores remote display resolution change request");
+            return;
+        }
         if self.keyboard {
             if let Ok(displays) = display_service::try_get_displays() {
                 let display_idx = d.unwrap_or(self.display_idx);

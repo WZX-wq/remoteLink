@@ -358,7 +358,15 @@ class FloatingWindowService : Service(), View.OnTouchListener {
     }
 
     private fun stopMainService() {
-        MainActivity.flutterMethodChannel?.invokeMethod("stop_service", null)
+        val intent = Intent(this, MainService::class.java).apply {
+            action = ACT_STOP_MAIN_SERVICE
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        stopSelf()
     }
 
     enum class KeepScreenOn {

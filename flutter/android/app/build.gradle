@@ -66,6 +66,11 @@ String findRustlsPlatformVerifierMavenDir() {
 
 
 repositories {
+        // android-packaging-mirrors
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
     maven {
         url = findRustlsPlatformVerifierMavenDir()
         metadataSources.artifact()
@@ -143,3 +148,5 @@ dependencies {
     implementation 'com.caverock:androidsvg-aar:1.4'
     implementation "rustls:rustls-platform-verifier:0.1.1"
 }
+
+

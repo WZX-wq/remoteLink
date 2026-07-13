@@ -8,7 +8,7 @@ class RecentConnectionsPage extends StatelessWidget implements PageShape {
   RecentConnectionsPage({super.key});
 
   @override
-  final title = translate('Recent devices');
+  final title = kqLocaleText(zhCn: '最近连接', en: 'Recent connections');
 
   @override
   final icon = const Icon(Icons.history_rounded);

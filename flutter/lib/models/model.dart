@@ -25,12 +25,14 @@ import 'package:flutter_hbb/models/user_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/models/desktop_render_texture.dart';
 import 'package:flutter_hbb/models/terminal_model.dart';
+import 'package:flutter_hbb/models/video_render_policy.dart';
 import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/plugin/event.dart';
 import 'package:flutter_hbb/plugin/manager.dart';
 import 'package:flutter_hbb/plugin/widgets/desc_ui.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:flutter_hbb/utils/remote_frame_diagnostic.dart';
 import 'package:flutter_hbb/utils/http_service.dart' as http;
 import 'package:tuple/tuple.dart';
 import 'package:image/image.dart' as img2;
@@ -124,11 +126,13 @@ class FfiModel with ChangeNotifier {
   DateTime? _offlineReconnectStartTime;
   bool _viewOnly = false;
   bool _showMyCursor = false;
+  bool _connectionFailureCloseStarted = false;
   WeakReference<FFI> parent;
   late final SessionID sessionId;
 
   RxBool waitForImageDialogShow = true.obs;
   Timer? waitForImageTimer;
+  Timer? waitForImageTimeoutTimer;
   RxBool waitForFirstImage = true.obs;
   bool isRefreshing = false;
 
@@ -253,6 +257,7 @@ class FfiModel with ChangeNotifier {
     _timer = null;
     clearPermissions();
     waitForImageTimer?.cancel();
+    waitForImageTimeoutTimer?.cancel();
     timerScreenshot?.cancel();
   }
 
@@ -904,6 +909,11 @@ class FfiModel with ChangeNotifier {
       parent.target?.inputModel.setRelativeMouseMode(false);
     }
 
+    if (_shouldAbortKqConnectionStart(type, title, text)) {
+      _notifyConnectionFailureAndClose(type, title, text);
+      return;
+    }
+
     if (type == 're-input-password') {
       wrongPasswordDialog(sessionId, dialogManager, type, title, text);
     } else if (type == 'input-2fa') {
@@ -1012,7 +1022,6 @@ class FfiModel with ChangeNotifier {
   }
 
   handleToast(Map<String, dynamic> evt, SessionID sessionId, String peerId) {
-    final type = evt['type'] ?? 'info';
     final text = evt['text'] ?? '';
     final durMsc = evt['dur_msec'] ?? 2000;
     final duration = Duration(milliseconds: durMsc);
@@ -1023,23 +1032,148 @@ class FfiModel with ChangeNotifier {
         allowClick: true,
       );
     } else {
-      if (type.contains('error')) {
-        BotToast.showText(
-          contentColor: Colors.red,
-          text: translate(text),
-          duration: duration,
-          clickClose: true,
-          onlyOne: true,
-        );
-      } else {
-        BotToast.showText(
-          text: translate(text),
-          duration: duration,
-          clickClose: true,
-          onlyOne: true,
-        );
-      }
+      BotToast.showText(
+        text: translate(text),
+        duration: duration,
+        clickClose: true,
+        onlyOne: true,
+      );
     }
+  }
+
+  bool _shouldAbortKqConnectionStart(String type, String title, String text) {
+    if (appName != '鲲穹远程桌面' ||
+        !isDesktop ||
+        isWeb ||
+        type != 'error' ||
+        title != 'Connection Error') {
+      return false;
+    }
+    return text.contains('KQ_VPN_ROUTE_BLOCKED') ||
+        text.contains('KQ_CONNECTION_START_TIMEOUT');
+  }
+
+  String _connectionFailureReason(String title, String text) {
+    final raw = text.trim();
+    final lower = raw.toLowerCase();
+    if (lower.contains('kq_vpn_route_blocked')) {
+      return kqLocaleText(
+        zhCn: '检测到 VPN 正在影响远程连接，本次连接已自动停止。请关闭 VPN，或允许鲲穹远程桌面绕过 VPN 后重试。',
+        en: 'A VPN is interfering with the remote connection, so this attempt was stopped. Turn off the VPN or allow KQ RemoteLink to bypass it, then try again.',
+      );
+    }
+    if (lower.contains('kq_connection_start_timeout')) {
+      return kqLocaleText(
+        zhCn: '连接超过 30 秒仍未建立，本次连接已自动停止。请确认对方设备在线，并检查 VPN、防火墙或当前网络后重试。',
+        en: 'The connection was not established within 30 seconds and was stopped. Check that the peer is online and review the VPN, firewall, and network before trying again.',
+      );
+    }
+    if (lower.contains('kq_video_first_frame_timeout')) {
+      return kqLocaleText(
+        zhCn: '连接已建立，但控制端未能完成视频首帧的解码或绘制，本次连接已自动停止。请重试或重启客户端后再连接。',
+        en: 'The connection was established, but the controller could not decode or draw the first video frame, so this attempt was stopped. Retry or restart the client before connecting again.',
+      );
+    }
+    if (raw == 'Timeout' ||
+        raw == 'Remote desktop is offline' ||
+        lower.contains('timed out')) {
+      return kqLocaleText(
+        zhCn: '对方设备暂时连不上，请确认对方在线并且网络正常。',
+        en: 'The peer device cannot be reached. Check that it is online and the network is working.',
+      );
+    }
+    if (lower.contains('rendezvous') || lower.contains('relay')) {
+      return kqLocaleText(
+        zhCn: '连接服务器暂时不可用，请稍后重试，或检查本机网络。',
+        en: 'The connection service is temporarily unavailable. Try again later or check your network.',
+      );
+    }
+    if (raw.contains('10054') ||
+        lower.contains('reset') ||
+        lower.contains('refused')) {
+      return kqLocaleText(
+        zhCn: '连接被中断，请检查对方设备和网络后重试。',
+        en: 'The connection was interrupted. Check the peer device and network, then try again.',
+      );
+    }
+    if (lower.contains('password')) {
+      return kqLocaleText(
+        zhCn: '验证码或密码不正确，请重新输入。',
+        en: 'The verification code or password is incorrect. Please try again.',
+      );
+    }
+    return kqLocaleText(
+      zhCn: '连接失败，请确认对方设备在线，并检查网络是否正常。',
+      en: 'Connection failed. Check that the peer device is online and the network is working.',
+    );
+  }
+
+  void _notifyConnectionFailureAndClose(
+      String type, String title, String text) {
+    final reason = _connectionFailureReason(title, text);
+    final isKqDesktop = appName == '鲲穹远程桌面' && isDesktop && !isWeb;
+    if (isKqDesktop) {
+      if (_connectionFailureCloseStarted) {
+        debugPrint(
+            '[connectionFailure] Failure cleanup already started for session $sessionId.');
+        return;
+      }
+      _connectionFailureCloseStarted = true;
+
+      final windowId = parent.target?.desktopWindowId;
+      final failedSessionId = sessionId;
+      final canCloseRemoteWindow =
+          windowId != null && windowId != kMainWindowId && windowId >= 0;
+      final message = canCloseRemoteWindow
+          ? reason
+          : '$reason ${kqLocaleText(zhCn: '请手动关闭右侧连接窗口。', en: 'Please close the connection window manually.')}';
+      debugPrint(
+          '[connectionFailure] notify called type=$type title=$title text=$text sessionId=$failedSessionId remoteWindowId=$windowId main=$kMainWindowId');
+
+      unawaited(() async {
+        try {
+          await rustDeskWinManager.call(
+              WindowType.Main, kWindowMainWindowOnTop, '');
+          await rustDeskWinManager
+              .call(WindowType.Main, kWindowShowToast, {'text': message});
+        } catch (e) {
+          debugPrint('[connectionFailure] Failed to notify main window: $e');
+        }
+
+        // Closing a desktop-multi-window window destroys its Flutter engine
+        // immediately when preventClose is disabled. RemotePage.dispose() is
+        // async, so its later sessionClose call can be cancelled and leave the
+        // Rust session registered. Close it explicitly before touching the
+        // window so the same peer can be connected again right away.
+        try {
+          await bind.sessionClose(sessionId: failedSessionId);
+          debugPrint(
+              '[connectionFailure] Native session $failedSessionId was closed before window cleanup.');
+        } catch (e) {
+          debugPrint(
+              '[connectionFailure] Failed to close native session $failedSessionId: $e');
+        }
+
+        final remoteWindowId = windowId;
+        if (remoteWindowId == null || remoteWindowId <= kMainWindowId) {
+          debugPrint(
+              '[connectionFailure] No valid remote window id; keeping the main window open.');
+          return;
+        }
+        try {
+          final controller = WindowController.fromWindowId(remoteWindowId);
+          // Keep preventClose enabled. The normal subwindow close handler clears
+          // the failed tab, hides only this remote window, and marks it inactive
+          // in the main-window registry so it can be reused by the next click.
+          await controller.close();
+        } catch (e) {
+          debugPrint(
+              '[connectionFailure] Failed to close remote window $remoteWindowId: $e');
+        }
+      }());
+      return;
+    }
+    closeConnection();
   }
 
   /// Show a message box with [type], [title] and [text].
@@ -1053,7 +1187,7 @@ class FfiModel with ChangeNotifier {
     if (showNoteEdit) {
       await showConnEndAuditDialogCloseCanceled(
           ffi: parent.target!, type: type, title: title, text: text);
-      closeConnection();
+      _notifyConnectionFailureAndClose(type, title, text);
     } else {
       VoidCallback? onSubmit;
       if (noteAllowed && hasRetry) {
@@ -1063,7 +1197,7 @@ class FfiModel with ChangeNotifier {
           _timer = null;
           await showConnEndAuditDialogCloseCanceled(
               ffi: ffi, type: type, title: title, text: text);
-          closeConnection();
+          _notifyConnectionFailureAndClose(type, title, text);
         };
       }
       msgBox(sessionId, type, title, text, link, dialogManager,
@@ -1102,11 +1236,10 @@ class FfiModel with ChangeNotifier {
       String text,
       OverlayDialogManager dialogManager,
       String peerId) async {
-    var hint = "\n\n${translate('relay_hint_tip')}";
-    if (text.contains("10054") || text.contains("104")) {
-      hint = "";
-    }
-    final text2 = "${translate(text)}$hint";
+    final text2 = kqLocaleText(
+      zhCn: '当前直连不稳定。你可以先重试；如果仍然失败，可以换一种连接方式。',
+      en: 'The direct connection is unstable. Try again first; if it still fails, use another connection method.',
+    );
 
     if (parent.target != null &&
         allowAskForNoteAtEndOfConnection(parent.target, false) &&
@@ -1115,14 +1248,13 @@ class FfiModel with ChangeNotifier {
           ffi: parent.target!, type: type, title: title, text: text2)) {
         return;
       }
-      closeConnection();
+      _notifyConnectionFailureAndClose(type, title, text2);
       return;
     }
 
     dialogManager.show(tag: '$sessionId-$type', (setState, close, context) {
       onClose() {
-        closeConnection();
-        close();
+        _notifyConnectionFailureAndClose(type, title, text2);
       }
 
       final style =
@@ -1132,16 +1264,16 @@ class FfiModel with ChangeNotifier {
         title: null,
         content: msgboxContent(type, title, text2),
         actions: [
-          dialogButton('Close', onPressed: onClose, isOutline: true),
+          dialogButton('关闭', onPressed: onClose, isOutline: true),
           if (type == 'relay-hint')
-            dialogButton('Connect via relay',
+            dialogButton('换一种连接方式',
                 onPressed: () => reconnect(dialogManager, sessionId, true),
                 buttonStyle: style,
                 isOutline: true),
-          dialogButton('Retry',
+          dialogButton('重试',
               onPressed: () => reconnect(dialogManager, sessionId, false)),
           if (type == 'relay-hint2')
-            dialogButton('Connect via relay',
+            dialogButton('换一种连接方式',
                 onPressed: () => reconnect(dialogManager, sessionId, true),
                 buttonStyle: style),
         ],
@@ -1166,8 +1298,7 @@ class FfiModel with ChangeNotifier {
     var repairMessage = '';
     dialogManager.show(tag: '$sessionId-$type', (setState, close, context) {
       onClose() {
-        closeConnection();
-        close();
+        _notifyConnectionFailureAndClose(type, title, text);
       }
 
       retryDirect() {
@@ -1217,23 +1348,104 @@ class FfiModel with ChangeNotifier {
     }
 
     if (waitForFirstImage.isFalse) return;
-    dialogManager.show(
-      (setState, close, context) => CustomAlertDialog(
-          title: null,
-          content: SelectionArea(child: msgboxContent(type, title, text)),
-          actions: [
-            dialogButton("Cancel", onPressed: onClose, isOutline: true)
-          ],
-          onCancel: onClose),
-      tag: '$sessionId-waiting-for-image',
+    final showConnectionOverlay = shouldShowRemoteConnectionOverlay(
+      isWindowsPlatform: isWindows,
+      isDesktopPlatform: isDesktop,
+      isWebPlatform: isWeb,
     );
-    waitForImageDialogShow.value = true;
-    waitForImageTimer = Timer(Duration(milliseconds: 1500), () {
-      if (waitForFirstImage.isTrue && !isRefreshing) {
-        bind.sessionInputOsPassword(sessionId: sessionId, value: '');
+    final isKqDesktop = appName == '鲲穹远程桌面' && isDesktop && !isWeb;
+    final waitingType = isKqDesktop ? 'info' : type;
+    final waitingTitle = isKqDesktop
+        ? kqLocaleText(zhCn: '正在接收画面', en: 'Receiving video')
+        : title;
+    final waitingText = isKqDesktop
+        ? kqLocaleText(
+            zhCn: '安全连接已建立，正在等待视频首帧，请稍候。',
+            en: 'The secure connection is established. Waiting for the first video frame.',
+          )
+        : text;
+    if (showConnectionOverlay) {
+      dialogManager.show(
+        (setState, close, context) => CustomAlertDialog(
+            title: null,
+            content: SelectionArea(
+                child: msgboxContent(waitingType, waitingTitle, waitingText)),
+            actions: [
+              dialogButton("Cancel", onPressed: onClose, isOutline: true)
+            ],
+            onCancel: onClose),
+        tag: '$sessionId-waiting-for-image',
+      );
+      waitForImageDialogShow.value = true;
+    } else {
+      waitForImageDialogShow.value = false;
+    }
+    waitForImageTimer?.cancel();
+    waitForImageTimer = null;
+    if (!isKqDesktop) {
+      waitForImageTimer = Timer(Duration(milliseconds: 1500), () {
+        if (waitForFirstImage.isTrue && !isRefreshing) {
+          bind.sessionInputOsPassword(sessionId: sessionId, value: '');
+        }
+      });
+    }
+    waitForImageTimeoutTimer?.cancel();
+    waitForImageTimeoutTimer = Timer(const Duration(seconds: 15), () {
+      if (waitForFirstImage.isTrue &&
+          !isRefreshing &&
+          parent.target?.closed != true) {
+        if (appName == '鲲穹远程桌面' && isDesktop && !isWeb) {
+          _notifyConnectionFailureAndClose(
+              'error', 'Connection Error', 'KQ_VIDEO_FIRST_FRAME_TIMEOUT');
+        } else {
+          _showWaitingForImageTimeout(dialogManager, sessionId);
+        }
       }
     });
     bind.sessionOnWaitingForImageDialogShow(sessionId: sessionId);
+  }
+
+  void _showWaitingForImageTimeout(
+      OverlayDialogManager dialogManager, SessionID sessionId) {
+    waitForImageDialogShow.value = false;
+    waitForImageTimer?.cancel();
+    waitForImageTimeoutTimer?.cancel();
+    dialogManager.dismissAll();
+    dialogManager.show(
+      (setState, close, context) {
+        onClose() {
+          _notifyConnectionFailureAndClose(
+              'error', 'Connection Error', 'Timeout');
+        }
+
+        onRetry() {
+          reconnect(dialogManager, sessionId, false);
+          close();
+        }
+
+        return CustomAlertDialog(
+          title: null,
+          content: SelectionArea(
+            child: msgboxContent(
+              'error',
+              kqLocaleText(zhCn: '连接超时', en: 'Connection timeout'),
+              kqLocaleText(
+                zhCn: '长时间未收到远程画面。请确认对方设备在线并且网络正常，或点击重试。',
+                en: 'No remote image was received for a long time. Check that the peer is online and the network is working, or retry.',
+              ),
+            ),
+          ),
+          actions: [
+            dialogButton(kqLocaleText(zhCn: '关闭', en: 'Close'),
+                onPressed: onClose, isOutline: true),
+            dialogButton(kqLocaleText(zhCn: '重试直连', en: 'Retry'),
+                onPressed: onRetry),
+          ],
+          onCancel: onClose,
+        );
+      },
+      tag: '$sessionId-waiting-for-image-timeout',
+    );
   }
 
   void showPrivacyFailedDialog(
@@ -1891,7 +2103,7 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
       _KqDiagnosticsItem(
         title: '本机防火墙',
         detail: risk.firewallRulesMissing
-            ? '未检测到完整的 TCP/UDP 入站/出站放行规则，可点击下方按钮自动修复。'
+            ? '检测到系统网络放行规则不完整，可点击下方按钮自动修复。'
             : '已检查本机规则；如果安全软件另有拦截，请在安全软件中放行鲲穹远程桌面。',
         state: risk.firewallRulesMissing
             ? _KqDiagnosticsState.warning
@@ -1900,25 +2112,25 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
       _KqDiagnosticsItem(
         title: '代理 / VPN',
         detail: risk.hasProxy || risk.hasVpn
-            ? '检测到代理或 VPN，可能导致连接绕路、延迟升高或打洞失败。建议关闭后重试。'
+            ? '检测到代理或 VPN，可能导致连接不稳定或变慢。建议关闭后重试。'
             : '未发现明显代理或 VPN 风险。',
         state: risk.hasProxy || risk.hasVpn
             ? _KqDiagnosticsState.warning
             : _KqDiagnosticsState.ok,
       ),
       const _KqDiagnosticsItem(
-        title: 'UDP 打洞',
-        detail: '两端网络需要允许 UDP 通信。若 UDP 被企业防火墙、路由器或运营商拦截，会转入中继并明显变慢。',
+        title: '网络通信',
+        detail: '两端网络需要允许远程桌面通信。如果被公司网络、路由器或运营商限制，连接可能失败或明显变慢。',
         state: _KqDiagnosticsState.info,
       ),
       const _KqDiagnosticsItem(
-        title: 'NAT / 路由器',
-        detail: '对称 NAT、企业网、校园网、运营商 CGNAT 可能无法自动直连，需要网络管理员放行或调整端口映射。',
+        title: '路由器/运营商网络',
+        detail: '公司网、校园网或部分运营商网络可能限制远程连接。可尝试换网络，或让网络管理员放行。',
         state: _KqDiagnosticsState.info,
       ),
       const _KqDiagnosticsItem(
-        title: '中继质量',
-        detail: '如果无法直连，只能走中继。当前中继带宽不足时会出现高延迟、低 FPS、画面卡顿。',
+        title: '转接服务器状态',
+        detail: '如果无法直接连接，会通过服务器转接。服务器拥挤时可能出现延迟高、画面卡顿。',
         state: _KqDiagnosticsState.info,
       ),
     ];
@@ -1967,7 +2179,7 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
                       Text(
                         isOffline
                             ? '对方当前不在线或无法被服务器确认在线。请先检查对方设备状态，再按清单排查网络。'
-                            : '连接失败可能来自防火墙、NAT、UDP 打洞或中继链路。请按清单处理后重试。',
+                            : '连接失败可能是本机网络、防火墙或对方网络异常。请按清单处理后重试。',
                         style: TextStyle(color: bodyColor, height: 1.35),
                       ),
                     ],
@@ -2194,8 +2406,12 @@ class VirtualMouseMode with ChangeNotifier {
 
 class ImageModel with ChangeNotifier {
   ui.Image? _image;
+  int _firstFrameRetryCount = 0;
+  bool _firstFramePainted = false;
 
   ui.Image? get image => _image;
+  bool get hasImage => _image != null;
+  bool get hasPaintedFrame => _firstFramePainted;
 
   String id = '';
 
@@ -2238,28 +2454,111 @@ class ImageModel with ChangeNotifier {
     _webDecodingRgba = false;
   }
 
-  onRgba(int display, Uint8List rgba) async {
+  Future<bool> onRgba(int display, Uint8List rgba) async {
+    final firstFrame = _image == null;
+    final pixels = firstFrame ? Uint8List.fromList(rgba) : rgba;
+    platformFFI.logRgbaStage(sessionId, 'dart-frame-received', display,
+        pixels.length, firstFrame ? 1 : 0);
+    var rendered = false;
     try {
-      await decodeAndUpdate(display, rgba);
+      if (firstFrame) {
+        for (var attempt = 0; attempt < 40; attempt++) {
+          final ffi = parent.target;
+          final rect = ffi?.ffiModel.pi.getDisplayRect(display);
+          if (ffi != null &&
+              ffi.ffiModel.pi.isSet.isTrue &&
+              rect != null &&
+              rect.width > 0 &&
+              rect.height > 0) {
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 25));
+        }
+        final rect = parent.target?.ffiModel.pi.getDisplayRect(display);
+        if (isWindows && rect != null) {
+          unawaited(saveRemoteRgbaDiagnostic(
+            rgba: pixels,
+            width: rect.width.toInt(),
+            height: rect.height.toInt(),
+            sessionId: sessionId.toString(),
+          ).then((path) {
+            platformFFI.logRgbaStage(sessionId,
+                path == null ? 'raw-frame-save-skipped' : 'raw-frame-saved',
+                display, rect.width.toInt(), rect.height.toInt());
+          }).catchError((_) {
+            platformFFI.logRgbaStage(
+                sessionId, 'raw-frame-save-error', display);
+          }));
+        }
+      }
+      rendered = await decodeAndUpdate(display, pixels);
     } catch (e) {
       debugPrint('onRgba error: $e');
+      platformFFI.logRgbaStage(sessionId, 'dart-decode-exception', display);
+    } finally {
+      platformFFI.nextRgba(sessionId, display);
     }
-    platformFFI.nextRgba(sessionId, display);
+    if (rendered) {
+      _firstFrameRetryCount = 0;
+    } else if (firstFrame && _firstFrameRetryCount < 3) {
+      _firstFrameRetryCount += 1;
+      final retry = _firstFrameRetryCount;
+      platformFFI.logRgbaStage(
+          sessionId, 'first-frame-refresh-retry', display, retry);
+      unawaited(Future.delayed(Duration(milliseconds: 120 * retry), () async {
+        final ffi = parent.target;
+        if (ffi == null || ffi.closed || _image != null) return;
+        await sessionRefreshVideo(sessionId, ffi.ffiModel.pi);
+      }));
+    }
+    return rendered;
   }
 
-  decodeAndUpdate(int display, Uint8List rgba) async {
+  Future<bool> decodeAndUpdate(int display, Uint8List rgba) async {
     final pid = parent.target?.id;
     final rect = parent.target?.ffiModel.pi.getDisplayRect(display);
+    final width = rect?.width.toInt() ?? 0;
+    final height = rect?.height.toInt() ?? 0;
+    if (width <= 0 || height <= 0) {
+      debugPrint(
+          'Ignore RGBA frame with invalid display size: display=$display, size=${width}x$height');
+      platformFFI.logRgbaStage(
+          sessionId, 'dart-invalid-display-size', display, width, height);
+      return false;
+    }
+    final minimumBytes = width * height * 4;
+    if (rgba.length < minimumBytes) {
+      debugPrint(
+          'Ignore incomplete RGBA frame: display=$display, size=${width}x$height, bytes=${rgba.length}, expected>=$minimumBytes');
+      platformFFI.logRgbaStage(sessionId, 'dart-incomplete-frame', display,
+          rgba.length, minimumBytes);
+      return false;
+    }
+    final candidateRowBytes =
+        rgba.length % height == 0 ? rgba.length ~/ height : 0;
+    final rowBytes = candidateRowBytes >= width * 4 ? candidateRowBytes : null;
     final image = await img.decodeImageFromPixels(
       rgba,
-      rect?.width.toInt() ?? 0,
-      rect?.height.toInt() ?? 0,
+      width,
+      height,
       isWeb | isWindows | isLinux
           ? ui.PixelFormat.rgba8888
           : ui.PixelFormat.bgra8888,
+      rowBytes: rowBytes,
     );
-    if (parent.target?.id != pid) return;
+    if (image == null) {
+      platformFFI.logRgbaStage(
+          sessionId, 'dart-image-decode-null', display, width, height);
+      return false;
+    }
+    if (parent.target?.id != pid) {
+      image.dispose();
+      return false;
+    }
     await update(image);
+    platformFFI.logRgbaStage(
+        sessionId, 'dart-image-updated', display, image.width, image.height);
+    return true;
   }
 
   update(ui.Image? image) async {
@@ -2273,9 +2572,33 @@ class ImageModel with ChangeNotifier {
         await initializeCursorAndCanvas(parent.target!);
       }
     }
-    _image?.dispose();
+    final previousImage = _image;
     _image = image;
     if (image != null) notifyListeners();
+    if (previousImage != null && !identical(previousImage, image)) {
+      if (image == null) {
+        previousImage.dispose();
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          previousImage.dispose();
+        });
+      }
+    }
+  }
+
+  void requestRepaint() {
+    if (_image != null) {
+      notifyListeners();
+    }
+  }
+
+  bool markFramePainted(int display) {
+    final image = _image;
+    if (_firstFramePainted || image == null) return false;
+    _firstFramePainted = true;
+    platformFFI.logRgbaStage(
+        sessionId, 'canvas-draw-image', display, image.width, image.height);
+    return true;
   }
 
   // mobile only
@@ -2298,20 +2621,30 @@ class ImageModel with ChangeNotifier {
 
   updateUserTextureRender() {
     final preValue = _useTextureRender;
-    _useTextureRender = isDesktop && bind.mainGetUseTextureRender();
+    _useTextureRender = shouldUseNativeVideoTexture(
+      isDesktopPlatform: isDesktop,
+      nativeTextureAvailable: bind.mainGetUseTextureRender(),
+    );
     if (preValue != _useTextureRender) {
       notifyListeners();
     }
   }
 
   setUseTextureRender(bool value) {
-    _useTextureRender = value;
+    final nextValue = shouldUseNativeVideoTexture(
+      isDesktopPlatform: isDesktop,
+      nativeTextureAvailable: value,
+    );
+    if (_useTextureRender == nextValue) return;
+    _useTextureRender = nextValue;
     notifyListeners();
   }
 
   void disposeImage() {
     _image?.dispose();
     _image = null;
+    _firstFramePainted = false;
+    _firstFrameRetryCount = 0;
   }
 }
 
@@ -2503,6 +2836,7 @@ class CanvasModel with ChangeNotifier {
   double _scale = 1.0;
   double _devicePixelRatio = 1.0;
   Size _size = Size.zero;
+  Size _viewportSize = Size.zero;
   // the tabbar over the image
   // double tabBarHeight = 0.0;
   // the window border's width
@@ -2586,7 +2920,23 @@ class CanvasModel with ChangeNotifier {
   static double get bottomToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;
 
+  bool setViewportSize(Size value) {
+    if (!value.width.isFinite ||
+        !value.height.isFinite ||
+        value.width <= 1.0 ||
+        value.height <= 1.0) {
+      return false;
+    }
+    if (_viewportSize == value) return false;
+    _viewportSize = value;
+    _size = value;
+    return true;
+  }
+
   Size getSize() {
+    if (_viewportSize.width > 1.0 && _viewportSize.height > 1.0) {
+      return _viewportSize;
+    }
     final mediaData = MediaQueryData.fromView(ui.window);
     final size = mediaData.size;
     // If minimized, w or h may be negative here.
@@ -2630,7 +2980,15 @@ class CanvasModel with ChangeNotifier {
     return max(bottom - MediaQueryData.fromView(ui.window).padding.top, 0);
   }
 
-  updateSize() => _size = getSize();
+  bool updateSize({bool keepLastValidSize = false}) {
+    final nextSize = getSize();
+    if (keepLastValidSize &&
+        (nextSize.width <= 1.0 || nextSize.height <= 1.0)) {
+      return false;
+    }
+    _size = nextSize;
+    return true;
+  }
 
   updateViewStyle({refreshMousePos = true, notify = true}) async {
     final style = await bind.sessionGetViewStyle(sessionId: sessionId);
@@ -2638,7 +2996,9 @@ class CanvasModel with ChangeNotifier {
       return;
     }
 
-    updateSize();
+    if (!updateSize(keepLastValidSize: true)) {
+      return;
+    }
     final displayWidth = getDisplayWidth();
     final displayHeight = getDisplayHeight();
     final viewStyle = ViewStyle(
@@ -3975,6 +4335,7 @@ class FFI {
   var version = '';
   var connType = ConnType.defaultConn;
   var closed = false;
+  int? desktopWindowId;
 
   /// dialogManager use late to ensure init after main page binding [globalKey]
   late final dialogManager = OverlayDialogManager();
@@ -4065,6 +4426,11 @@ class FFI {
     List<int>? displays,
   }) {
     closed = false;
+    // `tabWindowId` is the source window when moving an existing tab. It is
+    // null for a new connection, so always retain this engine's real window id.
+    desktopWindowId = isDesktop && stateGlobal.windowId > kMainWindowId
+        ? stateGlobal.windowId
+        : null;
     if (isMobile) mobileReset();
     assert(
         (!(isPortForward && isViewCamera)) &&
@@ -4156,7 +4522,7 @@ class FFI {
     if (isWeb) {
       platformFFI.setRgbaCallback((int display, Uint8List data) {
         onEvent2UIRgba();
-        imageModel.onRgba(display, data);
+        imageModel.webOnRgba(display, data);
       });
       this.id = id;
       return;
@@ -4222,14 +4588,36 @@ class FFI {
           }
           final rgba = platformFFI.getRgba(sessionId, display, sz);
           if (rgba != null) {
-            onEvent2UIRgba();
-            await imageModel.onRgba(display, rgba);
+            platformFFI.logRgbaStage(
+                sessionId, 'dart-buffer-read', display, sz);
+            final rendered = await imageModel.onRgba(display, rgba);
+            if (rendered) {
+              final waitForCanvasPaint = isWindows &&
+                  connType == ConnType.defaultConn &&
+                  ffiModel.waitForFirstImage.isTrue &&
+                  !imageModel.hasPaintedFrame;
+              if (waitForCanvasPaint) {
+                platformFFI.logRgbaStage(
+                    sessionId, 'first-frame-ui-deferred-until-paint', display);
+              } else {
+                onEvent2UIRgba();
+              }
+            }
           } else {
             platformFFI.nextRgba(sessionId, display);
           }
         } else if (message is EventToUI_Texture) {
           final display = message.field0;
           final gpuTexture = message.field1;
+          final firstTextureEvent = ffiModel.waitForFirstImage.isTrue;
+          if (firstTextureEvent) {
+            platformFFI.logRgbaStage(
+                sessionId,
+                'texture-event-before-bind',
+                display,
+                textureModel.getTextureId(display).value,
+                gpuTexture ? 1 : 0);
+          }
           debugPrint(
               "EventToUI_Texture display:$display, gpuTexture:$gpuTexture");
           if (gpuTexture && !hasGpuTextureRender) {
@@ -4237,7 +4625,34 @@ class FFI {
             return;
           }
           textureModel.setTextureType(display: display, gpuTexture: gpuTexture);
-          onEvent2UIRgba();
+          if (firstTextureEvent) {
+            platformFFI.logRgbaStage(
+                sessionId,
+                'texture-event-after-bind',
+                display,
+                textureModel.getTextureId(display).value,
+                gpuTexture ? 1 : 0);
+          }
+          await onEvent2UIRgba();
+          if (firstTextureEvent) {
+            platformFFI.logRgbaStage(
+                sessionId,
+                'texture-event-finalized',
+                display,
+                textureModel.getTextureId(display).value,
+                ffiModel.waitForFirstImage.isTrue ? 1 : 0);
+            await WidgetsBinding.instance.endOfFrame;
+            if (!closed) {
+              final replayed =
+                  await textureModel.replayPixelbufferFrame(display);
+              platformFFI.logRgbaStage(
+                  sessionId,
+                  'texture-frame-replayed-after-layout',
+                  display,
+                  textureModel.getTextureId(display).value,
+                  replayed ? 1 : 0);
+            }
+          }
         }
       }();
     });
@@ -4245,18 +4660,27 @@ class FFI {
     this.id = id;
   }
 
-  void onEvent2UIRgba() async {
+  Future<void> onEvent2UIRgba({bool updateCanvasLayout = true}) async {
+    ffiModel.isRefreshing = false;
     if (ffiModel.waitForImageDialogShow.isTrue) {
       ffiModel.waitForImageDialogShow.value = false;
       ffiModel.waitForImageTimer?.cancel();
+      ffiModel.waitForImageTimeoutTimer?.cancel();
       clearWaitingForImage(dialogManager, sessionId);
     }
     if (ffiModel.waitForFirstImage.value == true) {
       ffiModel.waitForFirstImage.value = false;
+      ffiModel.waitForImageTimer?.cancel();
+      ffiModel.waitForImageTimeoutTimer?.cancel();
+      // Login, connecting, and waiting-for-image dialogs may each own an
+      // anonymous full-window barrier. Once a frame is ready, clearing only
+      // the tagged waiting dialog can leave the decoded video covered.
       dialogManager.dismissAll();
-      await canvasModel.updateViewStyle();
-      await canvasModel.updateScrollStyle();
-      await canvasModel.initializeEdgeScrollEdgeThickness();
+      if (updateCanvasLayout) {
+        await canvasModel.updateViewStyle();
+        await canvasModel.updateScrollStyle();
+        await canvasModel.initializeEdgeScrollEdgeThickness();
+      }
       for (final cb in imageModel.callbacksOnFirstImage) {
         cb(id);
       }

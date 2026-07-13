@@ -47,8 +47,6 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
   static const IconData unselectedIcon = Icons.desktop_windows_outlined;
 
   String? peerId;
-  bool _isScreenRectSet = false;
-  int? _display;
 
   var connectionMap = RxList<Widget>.empty(growable: true);
 
@@ -59,12 +57,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
     final tabWindowId = params['tab_window_id'];
     final display = params['display'];
     final displays = params['displays'];
-    final screenRect = parseParamScreenRect(params);
-    _isScreenRectSet = screenRect != null;
-    _display = display as int?;
-    tryMoveToScreenAndSetFullscreen(screenRect);
     if (peerId != null) {
-      ConnectionTypeState.init(peerId!);
       tabController.onSelected = (id) {
         final remotePage = tabController.widget(id);
         if (remotePage is RemotePage) {
@@ -75,57 +68,42 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
             .setTitle(getWindowNameWithId(id));
         UnreadChatCountState.find(id).value = 0;
       };
-      tabController.add(TabInfo(
-        key: peerId!,
-        label: peerId!,
-        selectedIcon: selectedIcon,
-        unselectedIcon: unselectedIcon,
-        onTabCloseButton: () async {
-          if (await desktopTryShowTabAuditDialogCloseCancelled(
+      if (params['defer_remote_session'] != true) {
+        ConnectionTypeState.init(peerId!);
+        tabController.add(TabInfo(
+          key: peerId!,
+          label: peerId!,
+          selectedIcon: selectedIcon,
+          unselectedIcon: unselectedIcon,
+          onTabCloseButton: () async {
+            if (await desktopTryShowTabAuditDialogCloseCancelled(
+              id: peerId!,
+              tabController: tabController,
+            )) {
+              return;
+            }
+            tabController.closeBy(peerId!);
+          },
+          page: RemotePage(
+            key: ValueKey(peerId),
             id: peerId!,
+            sessionId: sessionId == null ? null : SessionID(sessionId),
+            tabWindowId: tabWindowId,
+            display: display,
+            displays: displays?.cast<int>(),
+            password: params['password'],
+            toolbarState: ToolbarState(),
             tabController: tabController,
-          )) {
-            return;
-          }
-          tabController.closeBy(peerId!);
-        },
-        page: RemotePage(
-          key: ValueKey(peerId),
-          id: peerId!,
-          sessionId: sessionId == null ? null : SessionID(sessionId),
-          tabWindowId: tabWindowId,
-          display: display,
-          displays: displays?.cast<int>(),
-          password: params['password'],
-          toolbarState: ToolbarState(),
-          tabController: tabController,
-          switchUuid: params['switch_uuid'],
-          forceRelay: params['forceRelay'],
-          isSharedPassword: params['isSharedPassword'],
-        ),
-      ));
-      _update_remote_count();
+            switchUuid: params['switch_uuid'],
+            forceRelay: params['forceRelay'],
+            isSharedPassword: params['isSharedPassword'],
+          ),
+        ));
+        _update_remote_count();
+      }
     }
     tabController.onRemoved = (_, id) => onRemoveId(id);
     rustDeskWinManager.setMethodHandler(_remoteMethodHandler);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-
-    if (!_isScreenRectSet) {
-      Future.delayed(Duration.zero, () {
-        restoreWindowPosition(
-          WindowType.RemoteDesktop,
-          windowId: windowId(),
-          peerId: tabController.state.value.tabs.isEmpty
-              ? null
-              : tabController.state.value.tabs[0].key,
-          display: _display,
-        );
-      });
-    }
   }
 
   @override
@@ -421,7 +399,10 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
 
     dynamic returnValue;
     // for simplify, just replace connectionId
-    if (call.method == kWindowEventNewRemoteDesktop) {
+    if (call.method == kWindowEventRemoteReady) {
+      await WidgetsBinding.instance.endOfFrame;
+      return true;
+    } else if (call.method == kWindowEventNewRemoteDesktop) {
       final args = jsonDecode(call.arguments);
       final id = args['id'];
       final switchUuid = args['switch_uuid'];

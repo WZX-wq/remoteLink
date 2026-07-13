@@ -22,7 +22,10 @@ import 'package:window_size/window_size.dart' as window_size;
 import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/remote_toolbar_visibility_policy.dart';
+import '../../models/remote_video_quality_policy.dart';
 import '../../models/user_model.dart';
+import '../../models/video_render_policy.dart';
 import '../../common/shared_state.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
@@ -81,8 +84,8 @@ class ToolbarState {
     }
   }
 
-  switchCollapse(SessionID sessionId) async {
-    bind.sessionToggleOption(
+  Future<void> switchCollapse(SessionID sessionId) async {
+    await bind.sessionToggleOption(
         sessionId: sessionId, value: kOptionCollapseToolbar);
     collapse.value = !collapse.value;
   }
@@ -126,6 +129,8 @@ class _ToolbarTheme {
   static const double dividerHeight = 12.0;
 
   static const double buttonSize = 32;
+  static const double toolbarIconSize = 16;
+  static const double labeledButtonMaxWidth = 118;
   static const double buttonHMargin = 2;
   static const double buttonVMargin = 6;
   static const double iconRadius = 8;
@@ -144,6 +149,11 @@ class _ToolbarTheme {
 
   static Color? dividerColor(BuildContext context) =>
       MyTheme.color(context).divider;
+
+  static double labeledButtonWidth(String label) {
+    final raw = 48 + label.runes.length * 7.0;
+    return raw.clamp(68.0, labeledButtonMaxWidth).toDouble();
+  }
 
   static MenuStyle defaultMenuStyle(BuildContext context) => MenuStyle(
         side: MaterialStateProperty.all(BorderSide(
@@ -330,9 +340,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       }
       return Align(
         alignment: Alignment.topCenter,
-        child: collapse.isFalse
-            ? _buildToolbar(context)
-            : _buildDraggableCollapse(context),
+        child: _buildToolbar(context),
       );
     });
   }
@@ -355,7 +363,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
             borderRadius: borderRadius,
             child: _DraggableShowHide(
               id: widget.id,
-              sessionId: widget.ffi.sessionId,
+              ffi: widget.ffi,
               dragging: _dragging,
               fractionX: _fractionX,
               toolbarState: widget.state,
@@ -399,7 +407,13 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     ));
     // Do not show keyboard for camera connection type.
     if (widget.ffi.connType == ConnType.defaultConn) {
-      toolbarItems.add(_PerformanceMenu(id: widget.id, ffi: widget.ffi));
+      if (shouldBuildRemoteToolbarPerformanceMenu(
+          isWindowsPlatform: isWindows)) {
+        toolbarItems.add(_PerformanceMenu(
+          id: widget.id,
+          ffi: widget.ffi,
+        ));
+      }
       toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
     }
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
@@ -409,35 +423,42 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     if (!isWeb) toolbarItems.add(_RecordMenu());
     toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
     final toolbarBorderRadius = BorderRadius.all(Radius.circular(4.0));
+    final toolbarBackgroundColor = Theme.of(context)
+            .menuBarTheme
+            .style
+            ?.backgroundColor
+            ?.resolve(WidgetState.values.toSet()) ??
+        Theme.of(context).colorScheme.surface;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Material(
-          elevation: _ToolbarTheme.elevation,
-          shadowColor: MyTheme.color(context).shadow,
-          borderRadius: toolbarBorderRadius,
-          color: Theme.of(context)
-              .menuBarTheme
-              .style
-              ?.backgroundColor
-              ?.resolve(MaterialState.values.toSet()),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Theme(
-              data: themeData(),
-              child: _ToolbarTheme.borderWrapper(
-                  context,
-                  Row(
-                    children: [
-                      SizedBox(width: _ToolbarTheme.buttonHMargin * 2),
-                      ...toolbarItems,
-                      SizedBox(width: _ToolbarTheme.buttonHMargin * 2)
-                    ],
+        Obx(() => Offstage(
+              offstage: collapse.isTrue,
+              // Avoid a large physical layer above the continuously painted
+              // remote video surface on Windows.
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: toolbarBackgroundColor,
+                  borderRadius: toolbarBorderRadius,
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Theme(
+                    data: themeData(),
+                    child: _ToolbarTheme.borderWrapper(
+                        context,
+                        Row(
+                          children: [
+                            SizedBox(width: _ToolbarTheme.buttonHMargin * 2),
+                            ...toolbarItems,
+                            SizedBox(width: _ToolbarTheme.buttonHMargin * 2)
+                          ],
+                        ),
+                        toolbarBorderRadius),
                   ),
-                  toolbarBorderRadius),
-            ),
-          ),
-        ),
+                ),
+              ),
+            )),
         _buildDraggableCollapse(context),
       ],
     );
@@ -482,6 +503,7 @@ class _PinMenu extends StatelessWidget {
       () => _IconMenuButton(
         assetName: state.pin ? "assets/pinned.svg" : "assets/unpinned.svg",
         tooltip: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
+        label: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
         onPressed: state.switchPin,
         color:
             state.pin ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
@@ -503,6 +525,7 @@ class _MobileActionMenu extends StatelessWidget {
     return Obx(() => _IconMenuButton(
           assetName: 'assets/actions_mobile.svg',
           tooltip: 'Mobile Actions',
+          label: 'Mobile Actions',
           onPressed: () => ffi.dialogManager.setMobileActionsOverlayVisible(
               !ffi.dialogManager.mobileActionsOverlayVisible.value),
           color: ffi.dialogManager.mobileActionsOverlayVisible.isTrue
@@ -543,6 +566,7 @@ class _MonitorMenu extends StatelessWidget {
         globalMonitorsWidget(width, Colors.white, Colors.black38);
     return _IconSubmenuButton(
         tooltip: 'Select Monitor',
+        label: 'Select Monitor',
         icon: monitorsIcon,
         ffi: ffi,
         width: width.value,
@@ -758,6 +782,7 @@ class _ControlMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _IconSubmenuButton(
         tooltip: 'Control Actions',
+        label: 'Control Actions',
         svg: "assets/actions.svg",
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -942,6 +967,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
   @override
   void initState() {
     super.initState();
+    // Session startup already reads the profile; refresh entitlement once.
     unawaited(_syncEntitlementFromDisk(force: true));
   }
 
@@ -974,8 +1000,9 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
     await _syncEntitlementFromDisk(force: true);
     final targetResolution = resolutionTier ?? user.remoteResolutionSelection;
     final targetFps = fps ?? user.remoteFpsSelection;
-    final memberOnly = (targetResolution == UserModel.remoteResolution1080p ||
-            targetFps >= 60) &&
+    final memberOnly = kqRemoteProfileRequiresMembership(
+          highDefinition: targetResolution == UserModel.remoteResolution1080p,
+        ) &&
         !user.canUseMemberRemoteQuality;
     if (memberOnly) {
       showToast(translate('Members can use 1080p / 60 FPS'));
@@ -987,27 +1014,6 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
       await user.setRemotePerformanceProfile(
         resolutionTier: targetResolution,
         fps: targetFps,
-      );
-      final normalizedResolution = user.remoteResolutionSelection;
-      final normalizedFps = user.remoteFpsSelection;
-      final quality = int.tryParse(
-            normalizedResolution == UserModel.remoteResolution1080p
-                ? UserModel.memberRemoteQuality
-                : UserModel.freeRemoteQuality,
-          ) ??
-          80;
-
-      await bind.sessionSetImageQuality(
-        sessionId: widget.ffi.sessionId,
-        value: kRemoteImageQualityCustom,
-      );
-      await bind.sessionSetCustomImageQuality(
-        sessionId: widget.ffi.sessionId,
-        value: quality,
-      );
-      await bind.sessionSetCustomFps(
-        sessionId: widget.ffi.sessionId,
-        fps: normalizedFps,
       );
       showToast(
           '${translate('Remote experience updated')}: ${user.remoteQualityLabel}');
@@ -1210,50 +1216,33 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
     unawaited(_syncEntitlementFromDisk(force: true));
     final isMember = user.canUseMemberRemoteQuality;
     final resolution = user.remoteResolutionSelection;
-    final fps = user.remoteFpsSelection;
     return [
       _menuHeader(context),
       Divider(),
-      _sectionLabel(context, translate('Clarity'), Icons.high_quality_outlined),
+      _sectionLabel(context, translate('Remote quality and FPS'),
+          Icons.high_quality_outlined),
       _optionButton(
         context,
-        label: '720p',
+        label: '720p / 60 FPS',
         caption: translate('Basic plan available'),
         selected: resolution == UserModel.remoteResolution720p,
         enabled: !_saving,
         onPressed: () => _applyProfile(
           resolutionTier: UserModel.remoteResolution720p,
+          fps: UserModel.freeMaxFps,
         ),
       ),
       _optionButton(
         context,
-        label: '1080p',
+        label: '1080p / 60 FPS',
         caption: isMember ? translate('Member HD') : translate('Members only'),
         selected: resolution == UserModel.remoteResolution1080p,
         enabled: !_saving && isMember,
         locked: !isMember,
         onPressed: () => _applyProfile(
           resolutionTier: UserModel.remoteResolution1080p,
+          fps: UserModel.memberDefaultFps,
         ),
-      ),
-      Divider(),
-      _sectionLabel(context, translate('Frame rate'), Icons.speed_outlined),
-      _optionButton(
-        context,
-        label: '30 FPS',
-        caption: translate('Prioritize stability'),
-        selected: fps == 30,
-        enabled: !_saving,
-        onPressed: () => _applyProfile(fps: 30),
-      ),
-      _optionButton(
-        context,
-        label: '60 FPS',
-        caption: isMember ? translate('Smoother') : translate('Members only'),
-        selected: fps == 60,
-        enabled: !_saving && isMember,
-        locked: !isMember,
-        onPressed: () => _applyProfile(fps: 60),
       ),
       Divider(),
       MenuButton(
@@ -1261,10 +1250,6 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
         onPressed: _saving
             ? null
             : () async {
-                await bind.sessionSetImageQuality(
-                  sessionId: widget.ffi.sessionId,
-                  value: kRemoteImageQualityCustom,
-                );
                 customImageQualityDialog(
                   widget.ffi.sessionId,
                   widget.id,
@@ -1305,6 +1290,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
         icon: _toolbarChip(context),
         ffi: widget.ffi,
         width: 92,
+        showLabel: false,
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
         menuChildrenGetter: (_) => _menuChildren(context),
@@ -1377,7 +1363,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
         scrollStyle(state, colorScheme),
         imageQuality(),
         codec(),
-        if (ffi.connType == ConnType.defaultConn)
+        if (ffi.connType == ConnType.defaultConn && appName != '鲲穹远程桌面')
           _ResolutionsMenu(
             id: widget.id,
             ffi: widget.ffi,
@@ -1430,6 +1416,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
 
     return _IconSubmenuButton(
       tooltip: 'Display Settings',
+      label: 'Display',
       svg: "assets/display.svg",
       ffi: widget.ffi,
       color: _ToolbarTheme.blueColor,
@@ -1863,9 +1850,6 @@ const _kCustomResolutionValue = 'custom';
 class _ResolutionsMenuState extends State<_ResolutionsMenu> {
   String _groupValue = '';
   Resolution? _localResolution;
-  bool _syncingEntitlement = false;
-  DateTime? _lastEntitlementSyncAt;
-
   late final TextEditingController _customWidth =
       TextEditingController(text: rect?.width.toInt().toString() ?? '');
   late final TextEditingController _customHeight =
@@ -1883,32 +1867,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _getLocalResolutionWayland();
-      unawaited(_syncEntitlementBeforeBuildingResolutions(force: true));
     });
-  }
-
-  Future<void> _syncEntitlementBeforeBuildingResolutions({
-    bool force = false,
-  }) async {
-    if (_syncingEntitlement) {
-      return;
-    }
-    final now = DateTime.now();
-    if (!force &&
-        _lastEntitlementSyncAt != null &&
-        now.difference(_lastEntitlementSyncAt!) < const Duration(seconds: 2)) {
-      return;
-    }
-    _lastEntitlementSyncAt = now;
-    _syncingEntitlement = true;
-    try {
-      final changed = await gFFI.userModel.syncMemberEntitlementFromDisk();
-      if (changed && mounted) {
-        setState(() {});
-      }
-    } finally {
-      _syncingEntitlement = false;
-    }
   }
 
   Rect? scaledRect() {
@@ -1927,7 +1886,6 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
 
   @override
   Widget build(BuildContext context) {
-    unawaited(_syncEntitlementBeforeBuildingResolutions());
     final isVirtualDisplay = ffiModel.isVirtualDisplayResolution;
     final visible = ffiModel.keyboard &&
         (isVirtualDisplay || resolutions.length > 1) &&
@@ -2042,10 +2000,8 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     if (pi.currentDisplay == kAllDisplayValue) {
       return;
     }
-    await _syncEntitlementBeforeBuildingResolutions(force: true);
-    final requested = gFFI.userModel.clampRemoteResolution(w, h);
-    final targetW = requested.width;
-    final targetH = requested.height;
+    final targetW = w;
+    final targetH = h;
     await bind.sessionChangeResolution(
       sessionId: ffi.sessionId,
       display: pi.currentDisplay,
@@ -2071,8 +2027,6 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     if (display == null) {
       return Offstage();
     }
-    final allowed = gFFI.userModel.isRemoteResolutionAllowed(
-        display.originalWidth, display.originalHeight);
     if (!resolutions.any((e) =>
         e.width == display.originalWidth &&
         e.height == display.originalHeight)) {
@@ -2081,14 +2035,11 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     return Offstage(
       offstage: !showOriginalBtn,
       child: MenuButton(
-        onPressed: allowed
-            ? () =>
-                _changeResolution(display.originalWidth, display.originalHeight)
-            : null,
+        onPressed: () =>
+            _changeResolution(display.originalWidth, display.originalHeight),
         ffi: widget.ffi,
-        child: Text(allowed
-            ? '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight}'
-            : '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight} (${gFFI.userModel.remoteResolutionLabel} ${translate('limit')})'),
+        child: Text(
+            '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight}'),
       ),
     );
   }
@@ -2154,20 +2105,15 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     ).workaroundFreezeLinuxMint();
   }
 
-  List<Widget> _supportedResolutionMenuButtons() => resolutions.map((e) {
-        final allowed =
-            gFFI.userModel.isRemoteResolutionAllowed(e.width, e.height);
-        final label = allowed
-            ? '${e.width}x${e.height}'
-            : '${e.width}x${e.height} (${gFFI.userModel.remoteResolutionLabel} ${translate('limit')})';
-        return RdoMenuButton(
-          value: '${e.width}x${e.height}',
-          groupValue: _groupValue,
-          onChanged: allowed ? (String? value) => _onChanged(value) : null,
-          ffi: widget.ffi,
-          child: Text(label),
-        );
-      }).toList();
+  List<Widget> _supportedResolutionMenuButtons() => resolutions
+      .map((e) => RdoMenuButton(
+            value: '${e.width}x${e.height}',
+            groupValue: _groupValue,
+            onChanged: (String? value) => _onChanged(value),
+            ffi: widget.ffi,
+            child: Text('${e.width}x${e.height}'),
+          ))
+      .toList();
 
   Resolution? _getBestFitResolution() {
     if (_localResolution == null) {
@@ -2175,15 +2121,12 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     }
 
     if (ffiModel.isVirtualDisplayResolution) {
-      final clamped = gFFI.userModel.clampRemoteResolution(
-          _localResolution!.width, _localResolution!.height);
-      return Resolution(clamped.width, clamped.height);
+      return _localResolution;
     }
 
     for (final r in resolutions) {
       if (r.width == _localResolution!.width &&
-          r.height == _localResolution!.height &&
-          gFFI.userModel.isRemoteResolutionAllowed(r.width, r.height)) {
+          r.height == _localResolution!.height) {
         return r;
       }
     }
@@ -2235,6 +2178,7 @@ class _KeyboardMenu extends StatelessWidget {
 
     return _IconSubmenuButton(
         tooltip: 'Keyboard Settings',
+        label: 'Keyboard Settings',
         svg: "assets/keyboard_mouse.svg",
         ffi: ffi,
         color: _ToolbarTheme.blueColor,
@@ -2509,6 +2453,7 @@ class _ChatMenuState extends State<_ChatMenu> {
     } else {
       return _IconSubmenuButton(
           tooltip: 'Chat',
+          label: 'Chat',
           key: chatButtonKey,
           svg: 'assets/chat.svg',
           ffi: widget.ffi,
@@ -2522,6 +2467,7 @@ class _ChatMenuState extends State<_ChatMenu> {
     return _IconMenuButton(
       assetName: 'assets/message_24dp_5F6368.svg',
       tooltip: 'Text chat',
+      label: 'Text chat',
       key: chatButtonKey,
       onPressed: _textChatOnPressed,
       color: _ToolbarTheme.blueColor,
@@ -2600,7 +2546,7 @@ class _VoiceCallMenu extends StatelessWidget {
         audioInput,
         Divider(),
         MenuButton(
-          child: Text(translate('End call')),
+          child: Text(kqLocaleText(zhCn: '结束语音通话', en: 'End voice call')),
           onPressed: () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId),
           ffi: ffi,
         ),
@@ -2615,6 +2561,7 @@ class _VoiceCallMenu extends StatelessWidget {
           case VoiceCallStatus.connected:
             return _IconSubmenuButton(
               tooltip: 'Voice call',
+              label: 'Voice call',
               svg: 'assets/voice_call.svg',
               color: _ToolbarTheme.blueColor,
               hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -2632,6 +2579,7 @@ class _VoiceCallMenu extends StatelessWidget {
     return _IconMenuButton(
       assetName: "assets/call_wait.svg",
       tooltip: "Waiting",
+      label: "Waiting",
       onPressed: () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId),
       color: _ToolbarTheme.redColor,
       hoverColor: _ToolbarTheme.hoverRedColor,
@@ -2654,6 +2602,7 @@ class _RecordMenu extends StatelessWidget {
       tooltip: recordingModel.start
           ? 'Stop session recording'
           : 'Start session recording',
+      label: 'Recording',
       onPressed: () => recordingModel.toggle(),
       color: recordingModel.start
           ? _ToolbarTheme.redColor
@@ -2676,6 +2625,7 @@ class _CloseMenu extends StatelessWidget {
     return _IconMenuButton(
       assetName: 'assets/close.svg',
       tooltip: 'Close',
+      label: 'Close',
       onPressed: () async {
         if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
           return;
@@ -2692,6 +2642,7 @@ class _IconMenuButton extends StatefulWidget {
   final String? assetName;
   final Widget? icon;
   final String tooltip;
+  final String? label;
   final Color color;
   final Color hoverColor;
   final VoidCallback? onPressed;
@@ -2704,6 +2655,7 @@ class _IconMenuButton extends StatefulWidget {
     this.assetName,
     this.icon,
     required this.tooltip,
+    this.label,
     required this.color,
     required this.hoverColor,
     required this.onPressed,
@@ -2723,15 +2675,61 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
   @override
   Widget build(BuildContext context) {
     assert(widget.assetName != null || widget.icon != null);
+    final showLabel = widget.topLevel;
+    final tooltip = translate(widget.tooltip);
+    final label = translate(widget.label ?? widget.tooltip);
+    final iconSize =
+        showLabel ? _ToolbarTheme.toolbarIconSize : _ToolbarTheme.buttonSize;
     final icon = widget.icon ??
         SvgPicture.asset(
           widget.assetName!,
           colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-          width: _ToolbarTheme.buttonSize,
-          height: _ToolbarTheme.buttonSize,
+          width: iconSize,
+          height: iconSize,
         );
+    final child = Material(
+      type: MaterialType.transparency,
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+          color: hover ? widget.hoverColor : widget.color,
+        ),
+        child: Center(
+          child: showLabel
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(width: iconSize, height: iconSize, child: icon),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : icon,
+        ),
+      ),
+    );
+    final buttonWidth = widget.width ??
+        (showLabel
+            ? _ToolbarTheme.labeledButtonWidth(label)
+            : _ToolbarTheme.buttonSize);
     var button = SizedBox(
-      width: widget.width ?? _ToolbarTheme.buttonSize,
+      width: buttonWidth,
       height: _ToolbarTheme.buttonSize,
       child: MenuItemButton(
           style: ButtonStyle(
@@ -2743,22 +2741,14 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
               }),
           onPressed: widget.onPressed,
           child: Tooltip(
-            message: translate(widget.tooltip),
-            child: Material(
-                type: MaterialType.transparency,
-                child: Ink(
-                    decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(_ToolbarTheme.iconRadius),
-                      color: hover ? widget.hoverColor : widget.color,
-                    ),
-                    child: icon)),
+            message: tooltip,
+            child: child,
           )),
     ).marginSymmetric(
         horizontal: widget.hMargin ?? _ToolbarTheme.buttonHMargin,
         vertical: widget.vMargin ?? _ToolbarTheme.buttonVMargin);
     button = Tooltip(
-      message: widget.tooltip,
+      message: tooltip,
       child: button,
     );
     if (widget.topLevel) {
@@ -2771,6 +2761,7 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
 
 class _IconSubmenuButton extends StatefulWidget {
   final String tooltip;
+  final String? label;
   final String? svg;
   final Widget? icon;
   final Color color;
@@ -2778,6 +2769,7 @@ class _IconSubmenuButton extends StatefulWidget {
   final List<Widget> Function(_IconSubmenuButtonState state) menuChildrenGetter;
   final MenuStyle? menuStyle;
   final FFI? ffi;
+  final bool showLabel;
   final double? width;
 
   _IconSubmenuButton({
@@ -2785,11 +2777,13 @@ class _IconSubmenuButton extends StatefulWidget {
     this.svg,
     this.icon,
     required this.tooltip,
+    this.label,
     required this.color,
     required this.hoverColor,
     required this.menuChildrenGetter,
     this.ffi,
     this.menuStyle,
+    this.showLabel = true,
     this.width,
   }) : super(key: key);
 
@@ -2808,15 +2802,63 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
   @override
   Widget build(BuildContext context) {
     assert(widget.svg != null || widget.icon != null);
+    final tooltip = translate(widget.tooltip);
+    final label = translate(widget.label ?? widget.tooltip);
+    final iconSize = widget.showLabel
+        ? _ToolbarTheme.toolbarIconSize
+        : _ToolbarTheme.buttonSize;
     final icon = widget.icon ??
         SvgPicture.asset(
           widget.svg!,
           colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-          width: _ToolbarTheme.buttonSize,
-          height: _ToolbarTheme.buttonSize,
+          width: iconSize,
+          height: iconSize,
         );
+    final child = Material(
+      type: MaterialType.transparency,
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+          color: hover ? widget.hoverColor : widget.color,
+        ),
+        child: Center(
+          child: widget.showLabel
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(width: iconSize, height: iconSize, child: icon),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : icon,
+        ),
+      ),
+    );
+    final buttonWidth = widget.width != null
+        ? widget.width! +
+            (widget.showLabel ? _ToolbarTheme.labeledButtonWidth(label) : 0)
+        : (widget.showLabel
+            ? _ToolbarTheme.labeledButtonWidth(label)
+            : _ToolbarTheme.buttonSize);
     final button = SizedBox(
-        width: widget.width ?? _ToolbarTheme.buttonSize,
+        width: buttonWidth,
         height: _ToolbarTheme.buttonSize,
         child: SubmenuButton(
             menuStyle:
@@ -2825,17 +2867,7 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
             onHover: (value) => setState(() {
                   hover = value;
                 }),
-            child: Tooltip(
-                message: translate(widget.tooltip),
-                child: Material(
-                    type: MaterialType.transparency,
-                    child: Ink(
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(_ToolbarTheme.iconRadius),
-                          color: hover ? widget.hoverColor : widget.color,
-                        ),
-                        child: icon))),
+            child: Tooltip(message: tooltip, child: child),
             menuChildren: widget
                 .menuChildrenGetter(this)
                 .map((e) => _buildPointerTrackWidget(e, widget.ffi))
@@ -2995,7 +3027,7 @@ class _CustomImageQualityMenuButton extends StatelessWidget {
 
 class _DraggableShowHide extends StatefulWidget {
   final String id;
-  final SessionID sessionId;
+  final FFI ffi;
   final RxDouble fractionX;
   final RxBool dragging;
   final ToolbarState toolbarState;
@@ -3007,7 +3039,7 @@ class _DraggableShowHide extends StatefulWidget {
   const _DraggableShowHide({
     Key? key,
     required this.id,
-    required this.sessionId,
+    required this.ffi,
     required this.fractionX,
     required this.dragging,
     required this.toolbarState,
@@ -3079,7 +3111,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
           widget.fractionX.value = right;
         }
         bind.sessionPeerOption(
-          sessionId: widget.sessionId,
+          sessionId: widget.ffi.sessionId,
           name: 'remote-menubar-drag-x',
           value: widget.fractionX.value.toString(),
         );
@@ -3148,9 +3180,9 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
                 ),
               )),
         buttonWrapper(
-          () => setState(() {
-            widget.toolbarState.switchCollapse(widget.sessionId);
-          }),
+          () => toggleRemoteToolbarVisibility(
+            () => widget.toolbarState.switchCollapse(widget.ffi.sessionId),
+          ),
           Obx((() => Tooltip(
                 message: translate(
                     collapse.isFalse ? 'Hide Toolbar' : 'Show Toolbar'),

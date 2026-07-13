@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/mobile/pages/account_page.dart';
 import 'package:flutter_hbb/mobile/pages/recent_connections_page.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
 import 'package:get/get.dart';
 import '../../common.dart';
+import '../../common/widgets/login.dart';
 import '../../consts.dart';
 import '../../common/kq_theme.dart';
 import '../../models/platform_model.dart';
@@ -166,6 +169,7 @@ String _mobileNavigationLabel(String title) {
     'Connection',
     'Remote connection',
     'Recent devices',
+    'Recent connections',
     'Share screen',
     'Me',
     '我的',
@@ -183,7 +187,7 @@ String _mobileNavigationLabel(String title) {
       case '远程连接':
         return translate('Connection');
       case '最近连接':
-        return translate('Recent devices');
+        return translate('Recent connections');
       case '共享屏幕':
         return translate('Share screen');
       default:
@@ -195,6 +199,7 @@ String _mobileNavigationLabel(String title) {
     case 'Remote connection':
       return '连接';
     case 'Recent devices':
+    case 'Recent connections':
       return '最近连接';
     case 'Share screen':
       return '共享屏幕';
@@ -212,7 +217,7 @@ class WebHomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     stateGlobal.isInMainPage = true;
-    handleUnilink(context);
+    unawaited(handleUnilink(context));
     return Scaffold(
       // backgroundColor: MyTheme.grayBg,
       appBar: AppBar(
@@ -224,7 +229,7 @@ class WebHomePage extends StatelessWidget {
     );
   }
 
-  handleUnilink(BuildContext context) {
+  Future<void> handleUnilink(BuildContext context) async {
     if (webInitialLink.isEmpty) {
       return;
     }
@@ -300,6 +305,14 @@ class WebHomePage extends StatelessWidget {
       }
     }
     if (id != null) {
+      if (!gFFI.userModel.isLogin) {
+        showToast(translate('Please login before remote connection'));
+        final loggedIn = await loginDialog();
+        if (loggedIn != true || !gFFI.userModel.isLogin) {
+          showToast(translate('Not logged in, remote connection unavailable'));
+          return;
+        }
+      }
       connect(context, id,
           isFileTransfer: isFileTransfer,
           isViewCamera: isViewCamera,

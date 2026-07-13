@@ -1834,45 +1834,37 @@ void showConfirmSwitchSidesDialog(
 customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
   double initQuality = kDefaultQuality;
   double initFps = kDefaultFps;
-  bool qualitySet = false;
-  bool fpsSet = false;
+  final isKqApp = appName == '鲲穹远程桌面';
 
   bool? direct;
   try {
     direct =
         ConnectionTypeState.find(id).direct.value == ConnectionType.strDirect;
   } catch (_) {}
-  bool hideFps = (await bind.mainIsUsingPublicServer() && direct != true) ||
+  final publicServer = await bind.mainIsUsingPublicServer();
+  bool hideFps = (publicServer && direct != true) ||
       versionCmp(ffi.ffiModel.pi.version, '1.2.0') < 0;
-  bool hideMoreQuality =
-      (await bind.mainIsUsingPublicServer() && direct != true) ||
-          versionCmp(ffi.ffiModel.pi.version, '1.2.2') < 0;
+  final maxQuality = isKqApp
+      ? gFFI.userModel.remoteCustomQualitySelection.toDouble()
+      : kMaxQuality;
+  final maxCustomQuality = maxQuality;
 
   setCustomValues({double? quality, double? fps}) async {
     debugPrint("setCustomValues quality:$quality, fps:$fps");
     if (quality != null) {
-      qualitySet = true;
+      final safeQuality =
+          quality.clamp(kMinQuality, maxCustomQuality).toDouble();
+      await bind.sessionSetImageQuality(
+          sessionId: sessionId, value: kRemoteImageQualityCustom);
       await bind.sessionSetCustomImageQuality(
-          sessionId: sessionId, value: quality.toInt());
+          sessionId: sessionId, value: safeQuality.toInt());
     }
     if (fps != null) {
-      fpsSet = true;
       await bind.sessionSetCustomFps(sessionId: sessionId, fps: fps.toInt());
-    }
-    if (!qualitySet) {
-      qualitySet = true;
-      await bind.sessionSetCustomImageQuality(
-          sessionId: sessionId, value: initQuality.toInt());
-    }
-    if (!hideFps && !fpsSet) {
-      fpsSet = true;
-      await bind.sessionSetCustomFps(
-          sessionId: sessionId, fps: initFps.toInt());
     }
   }
 
   final btnClose = dialogButton('Close', onPressed: () async {
-    await setCustomValues();
     ffi.dialogManager.dismissAll();
   });
 
@@ -1881,12 +1873,13 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
   initQuality = quality != null && quality.isNotEmpty
       ? quality[0].toDouble()
       : kDefaultQuality;
-  if (initQuality < kMinQuality ||
-      initQuality > (!hideMoreQuality ? kMaxMoreQuality : kMaxQuality)) {
-    initQuality = kDefaultQuality;
+  if (initQuality < kMinQuality || initQuality > maxCustomQuality) {
+    initQuality = isKqApp
+        ? maxQuality
+        : kDefaultQuality.clamp(kMinQuality, maxCustomQuality).toDouble();
   }
   // fps
-  if (appName == '鲲穹远程桌面') {
+  if (isKqApp) {
     initFps = gFFI.userModel.remoteFpsSelection.toDouble();
   } else {
     final fpsOption =
@@ -1907,8 +1900,8 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
       setFps: (v) =>
           setCustomValues(fps: gFFI.userModel.clampRemoteFps(v).toDouble()),
       showFps: !hideFps,
-      showMoreQuality: !hideMoreQuality,
       maxFps: maxFps,
+      maxQuality: maxQuality,
       fpsCaption: gFFI.userModel.remoteEntitlementHint);
   msgBoxCommon(ffi.dialogManager, 'Custom Image Quality', content, [btnClose]);
 }

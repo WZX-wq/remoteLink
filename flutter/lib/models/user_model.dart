@@ -19,6 +19,7 @@ import '../common.dart';
 import '../utils/http_service.dart' as http;
 import 'model.dart';
 import 'platform_model.dart';
+import 'remote_video_quality_policy.dart';
 
 bool refreshingUser = false;
 
@@ -38,11 +39,9 @@ class UserModel {
   static const remoteFpsTierKey = 'kq_remote_fps_tier';
   static const remoteResolution720p = '720p';
   static const remoteResolution1080p = '1080p';
-  static const freeMaxFps = 30;
+  static const freeMaxFps = 60;
   static const memberDefaultFps = 60;
   static const memberMaxFps = 60;
-  static const freeRemoteQuality = '50';
-  static const memberRemoteQuality = '50';
 
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
@@ -69,36 +68,23 @@ class UserModel {
   }
 
   int get remoteFpsSelection {
-    final saved = int.tryParse(bind.mainGetLocalOption(key: remoteFpsTierKey));
-    final fallback =
-        int.tryParse(bind.mainGetUserDefaultOption(key: remoteFpsKey));
-    final fps = saved ??
-        fallback ??
-        (canUseMemberRemoteQuality ? memberDefaultFps : freeMaxFps);
-    if (canUseMemberRemoteQuality) {
-      if (fps >= memberMaxFps) return memberMaxFps;
-      if (fps >= memberDefaultFps) return memberDefaultFps;
-      return freeMaxFps;
-    }
-    return freeMaxFps;
+    return memberDefaultFps;
   }
 
-  int get remoteMaxLongEdge =>
-      remoteResolutionSelection == remoteResolution1080p ? 1920 : 1280;
-  int get remoteMaxShortEdge =>
-      remoteResolutionSelection == remoteResolution1080p ? 1080 : 720;
+  int get remoteCustomQualitySelection =>
+      customQualityForResolution(remoteResolutionSelection);
   int get remoteEntitlementMaxFps =>
       canUseMemberRemoteQuality ? memberMaxFps : freeMaxFps;
-  int get remoteMaxFps => remoteEntitlementMaxFps;
+  int get remoteMaxFps => remoteFpsSelection;
   String get remoteResolutionLabel => remoteResolutionSelection;
   String get remoteQualityLabel =>
       '$remoteResolutionLabel / $remoteFpsSelection FPS';
   String get membershipName =>
       translate(isMember.value ? 'Member plan' : 'Basic plan');
   String get remoteEntitlementHint => isMember.value
-      ? translate('Members can switch between 720p / 1080p and 30 / 60 FPS.')
+      ? translate('Members can use 720p / 60 FPS or 1080p / 60 FPS.')
       : translate(
-          'Basic plan supports up to 720p / 30 FPS. Members can use 1080p / 60 FPS.');
+          'Basic plan uses 720p / 60 FPS. Members can use 1080p / 60 FPS.');
   String get displayNameOrUserName =>
       displayName.value.trim().isEmpty ? userName.value : displayName.value;
   String get accountLabelWithHandle {
@@ -111,6 +97,12 @@ class UserModel {
       return username;
     }
     return '$preferred (@$username)';
+  }
+
+  static int customQualityForResolution(String resolutionTier) {
+    return kqRemoteStreamQuality(
+      highDefinition: resolutionTier == remoteResolution1080p,
+    );
   }
 
   WeakReference<FFI> parent;
@@ -387,25 +379,24 @@ class UserModel {
     required String resolutionTier,
     required int fps,
   }) async {
-    final normalizedResolution =
-        resolutionTier == remoteResolution1080p && canUseMemberRemoteQuality
-            ? remoteResolution1080p
-            : remoteResolution720p;
-    final normalizedFps = canUseMemberRemoteQuality
-        ? (fps >= memberMaxFps
-            ? memberMaxFps
-            : (fps >= memberDefaultFps ? memberDefaultFps : freeMaxFps))
-        : freeMaxFps;
-    final quality = normalizedResolution == remoteResolution1080p
-        ? memberRemoteQuality
-        : freeRemoteQuality;
+    final wantsMemberProfile = kqRemoteProfileRequiresMembership(
+      highDefinition: resolutionTier == remoteResolution1080p,
+    );
+    final normalizedResolution = wantsMemberProfile && canUseMemberRemoteQuality
+        ? remoteResolution1080p
+        : remoteResolution720p;
+    // Resolution tier is only a product-facing compression quality choice.
+    // Both profiles use the exact same connection and 60 FPS video pipeline.
+    final normalizedFps = memberDefaultFps;
+    final customQuality = customQualityForResolution(normalizedResolution);
     await bind.mainSetLocalOption(
         key: remoteResolutionTierKey, value: normalizedResolution);
     await bind.mainSetLocalOption(
         key: remoteFpsTierKey, value: normalizedFps.toString());
     await bind.mainSetUserDefaultOption(
         key: kOptionImageQuality, value: kRemoteImageQualityCustom);
-    await bind.mainSetUserDefaultOption(key: remoteQualityKey, value: quality);
+    await bind.mainSetUserDefaultOption(
+        key: remoteQualityKey, value: customQuality.toString());
     await bind.mainSetUserDefaultOption(
         key: remoteFpsKey, value: normalizedFps.toString());
     await bind.mainSetUserDefaultOption(key: remoteCodecKey, value: 'auto');
@@ -453,35 +444,9 @@ class UserModel {
     return ['1', 'true', 'yes', 'y', 'on'].contains(s);
   }
 
-  bool isRemoteResolutionAllowed(int width, int height) {
-    if (width <= 0 || height <= 0) return true;
-    final longEdge = math.max(width, height);
-    final shortEdge = math.min(width, height);
-    return longEdge <= remoteMaxLongEdge && shortEdge <= remoteMaxShortEdge;
-  }
-
-  ({int width, int height}) clampRemoteResolution(int width, int height) {
-    if (isRemoteResolutionAllowed(width, height)) {
-      return (width: width, height: height);
-    }
-    final longEdge = math.max(width, height).toDouble();
-    final shortEdge = math.min(width, height).toDouble();
-    if (longEdge <= 0 || shortEdge <= 0) {
-      return (width: width, height: height);
-    }
-    final scale = math.min(
-      remoteMaxLongEdge / longEdge,
-      remoteMaxShortEdge / shortEdge,
-    );
-    return (
-      width: math.max(1, (width * scale).round()),
-      height: math.max(1, (height * scale).round()),
-    );
-  }
-
   int clampRemoteFps(num fps) {
     final value = fps.round();
-    return math.max(5, math.min(remoteEntitlementMaxFps, value));
+    return math.max(5, math.min(remoteMaxFps, value));
   }
 
   Iterable<String> _memberTokenCandidates() sync* {
@@ -1390,6 +1355,27 @@ String? kqWechatPaymentLaunchUrlFromText(String value) {
   return _kqFirstPaymentUrl(value, _kqIsWeixinUrl);
 }
 
+String? kqAlipayPaymentLaunchUrlFromText(String value) {
+  return _kqFirstPaymentUrl(value, _kqIsAlipayUrl);
+}
+
+String? kqAlipayPaymentQrPayload(KqMemberOrder order) {
+  final direct = kqAlipayPaymentLaunchUrlFromText(order.alipayAppUrl) ??
+      kqAlipayPaymentLaunchUrlFromText(order.paymentAppUrl) ??
+      kqAlipayPaymentLaunchUrlFromText(order.alipaySubmitHtml);
+  if (direct != null) return direct;
+  final gatewayUrl = _kqAlipayGatewayUrlFromHtml(order.alipaySubmitHtml);
+  if (gatewayUrl != null) return gatewayUrl;
+  for (final value in [order.alipayAppUrl, order.paymentAppUrl]) {
+    final text = value.trim();
+    final lower = text.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      return text;
+    }
+  }
+  return null;
+}
+
 String? kqPaymentQrPayloadFromImageBytes(List<int> bytes) {
   try {
     final image = img.decodeImage(Uint8List.fromList(bytes));
@@ -1409,6 +1395,9 @@ String? kqPaymentQrPayloadFromImageBytes(List<int> bytes) {
 
 bool _kqIsWeixinUrl(String lower) => lower.startsWith('weixin://');
 
+bool _kqIsAlipayUrl(String lower) =>
+    lower.startsWith('alipays://') || lower.startsWith('alipayqr://');
+
 String? _kqFirstPaymentUrl(
   Object? value,
   bool Function(String lower) matcher,
@@ -1419,18 +1408,57 @@ String? _kqFirstPaymentUrl(
       if (direct.isNotEmpty && matcher(direct.toLowerCase())) {
         return direct;
       }
-      final match = RegExp(
-        r'''weixin://[^\s"'<>\\]+''',
+      for (final match in RegExp(
+        r'''(?:weixin|alipays|alipayqr)://[^\s"'<>\\]+''',
         caseSensitive: false,
-      ).firstMatch(variant);
-      if (match == null) continue;
-      final candidate = _kqHtmlUnescape(match.group(0) ?? '').trim();
-      if (candidate.isNotEmpty && matcher(candidate.toLowerCase())) {
-        return candidate;
+      ).allMatches(variant)) {
+        final candidate = _kqHtmlUnescape(match.group(0) ?? '').trim();
+        if (candidate.isNotEmpty && matcher(candidate.toLowerCase())) {
+          return candidate;
+        }
       }
     }
   }
   return null;
+}
+
+String? _kqAlipayGatewayUrlFromHtml(String html) {
+  final text = html.trim();
+  if (text.isEmpty) return null;
+  final formMatch = RegExp(
+    r'''<form\b[^>]*\baction\s*=\s*["']([^"']+)["'][^>]*>''',
+    caseSensitive: false,
+    dotAll: true,
+  ).firstMatch(text);
+  if (formMatch == null) return null;
+  final action = _kqHtmlUnescape(formMatch.group(1) ?? '').trim();
+  if (!action.toLowerCase().startsWith('http')) return null;
+  final inputs = <String, String>{};
+  for (final match in RegExp(
+    r'''<input\b[^>]*>''',
+    caseSensitive: false,
+    dotAll: true,
+  ).allMatches(text)) {
+    final tag = match.group(0) ?? '';
+    final name = _kqHtmlAttribute(tag, 'name');
+    if (name.isEmpty) continue;
+    inputs[name] = _kqHtmlAttribute(tag, 'value');
+  }
+  if (inputs.isEmpty) return action;
+  final uri = Uri.tryParse(action);
+  if (uri == null) return null;
+  final params = Map<String, String>.from(uri.queryParameters)..addAll(inputs);
+  return uri.replace(queryParameters: params).toString();
+}
+
+String _kqHtmlAttribute(String tag, String name) {
+  final escapedName = RegExp.escape(name);
+  final match = RegExp(
+    "$escapedName\\s*=\\s*(['\"])(.*?)\\1",
+    caseSensitive: false,
+    dotAll: true,
+  ).firstMatch(tag);
+  return _kqHtmlUnescape(match?.group(2) ?? '').trim();
 }
 
 List<String> _kqCollectStringValues(Object? value, [List<String>? out]) {

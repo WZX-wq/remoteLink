@@ -58,11 +58,16 @@ $issPath = Join-Path $buildRoot "installer.iss"
 $iconPath = Join-Path $repo "flutter\windows\runner\resources\app_icon.ico"
 $wizardSmallImagePath = Join-Path $repo "res\installer-small.bmp"
 $wizardImagePath = Join-Path $repo "res\installer-side.bmp"
-$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+$isccCandidates = @(
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+    "D:\Program Files\Inno Setup 6\ISCC.exe"
+)
+$iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 $chineseMessagesSourcePath = Join-Path $repo "scripts\installer\ChineseSimplified.isl"
 
-if (-not (Test-Path $iscc)) {
-    throw "Inno Setup compiler not found: $iscc"
+if (-not $iscc) {
+    throw "Inno Setup compiler not found. Tried: $($isccCandidates -join '; ')"
 }
 if (-not (Test-Path $iconPath)) {
     throw "Installer icon not found: $iconPath"
@@ -314,7 +319,7 @@ $required = @(
     "flutter_windows.dll",
     "data\flutter_assets\AssetManifest.bin",
     "data\flutter_assets\assets\icon.png",
-    "data\flutter_assets\assets\kq_toolbox_icon.svg",
+    "data\flutter_assets\assets\icon.svg",
     "drivers\RustDeskPrinterDriver\RustDeskPrinterDriver.inf",
     "printer_driver_adapter.dll"
 )

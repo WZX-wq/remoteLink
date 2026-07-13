@@ -9,6 +9,10 @@ class TextureRgbaRenderer {
     return Future(() => true);
   }
 
+  Future<bool> markFrameAvailable(int key) {
+    return Future(() => false);
+  }
+
   Future<bool> onRgba(
       int key, Uint8List data, int height, int width, int strideAlign) {
     throw UnimplementedError();

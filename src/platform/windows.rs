@@ -3266,16 +3266,21 @@ fn install_service_(launch_runtime: bool) -> bool {
     let _installing = crate::platform::InstallingService::new();
     let (_, _, _, exe) = get_install_info();
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
+    let taskkill_app = if launch_runtime {
+        format!("taskkill /F /IM {}.exe{}", crate::get_app_name(), filter)
+    } else {
+        "".to_owned()
+    };
     Config::set_option("stop-service".into(), "".into());
     crate::ipc::EXIT_RECV_CLOSE.store(false, Ordering::Relaxed);
     let cmds = format!(
         "
 chcp 65001
-taskkill /F /IM {app_name}.exe{filter}
+{taskkill_app}
 {import_config}
 {create_service}
     ",
-        app_name = crate::get_app_name(),
+        taskkill_app = taskkill_app,
         import_config = get_import_config(&exe),
         create_service = get_create_service(&exe),
     );

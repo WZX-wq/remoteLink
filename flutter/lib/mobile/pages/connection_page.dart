@@ -13,6 +13,7 @@ import 'package:flutter_hbb/models/peer_model.dart';
 
 import '../../common.dart';
 import '../../common/widgets/autocomplete.dart';
+import '../../common/widgets/login.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'page_shape.dart';
@@ -67,6 +68,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     _allPeersLoader.init(setState);
     _idFocusNode.addListener(onFocusChanged);
     Get.put<TextEditingController>(_idEditingController);
+    unawaited(_restoreLastConnection());
   }
 
   @override
@@ -112,9 +114,57 @@ class _ConnectionPageState extends State<ConnectionPage> {
     return false;
   }
 
-  void onConnect() {
+  Future<bool> _ensureLoggedIn() async {
+    if (gFFI.userModel.isLogin) {
+      return true;
+    }
+    showToast(translate('Please login before remote connection'));
+    final loggedIn = await loginDialog();
+    if (loggedIn == true && gFFI.userModel.isLogin) {
+      return true;
+    }
+    showToast(translate('Not logged in, remote connection unavailable'));
+    return false;
+  }
+
+  void onConnect() async {
+    if (!await _ensureLoggedIn()) return;
     if (!_ensureRemoteId()) return;
-    connect(context, _idController.id, password: _remotePassword);
+    connect(
+      context,
+      _idController.id,
+      password: _remotePassword,
+      rememberPassword: _remotePassword.isNotEmpty,
+    );
+  }
+
+  Future<void> _restoreLastConnection() async {
+    if (!isMobile) return;
+    var lastRemoteId = kqLastSuccessfulMobileConnectId();
+    lastRemoteId = lastRemoteId.isEmpty
+        ? (await bind.mainGetLastRemoteId()).trim()
+        : lastRemoteId;
+    if (!mounted || lastRemoteId.isEmpty || _idController.id.isNotEmpty) {
+      return;
+    }
+    _setRemoteId(lastRemoteId, fillRememberedPassword: true);
+  }
+
+  void _setRemoteId(String id, {bool fillRememberedPassword = true}) {
+    final normalized = trimID(id).trim();
+    setState(() {
+      _idController.id = normalized;
+      _idEditingController.text = formatID(normalized);
+      if (fillRememberedPassword) {
+        _passwordController.text = _rememberedPasswordFor(normalized);
+      }
+    });
+  }
+
+  String _rememberedPasswordFor(String id) {
+    final normalized = trimID(id).trim();
+    if (normalized.isEmpty) return '';
+    return kqRememberedMobileConnectPassword(normalized);
   }
 
   void onFocusChanged() {
@@ -339,13 +389,15 @@ class _ConnectionPageState extends State<ConnectionPage> {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () {
+            onPressed: () async {
+              if (!await _ensureLoggedIn()) return;
               if (!_ensureRemoteId()) return;
               connect(
                 context,
                 _idController.id,
                 isFileTransfer: true,
                 password: _remotePassword,
+                rememberPassword: _remotePassword.isNotEmpty,
               );
             },
             icon: const Icon(Icons.folder_copy_outlined),
@@ -503,6 +555,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         // keyboardType: TextInputType.number,
                         onChanged: (String text) {
                           _idController.id = text;
+                          _passwordController.text =
+                              _rememberedPasswordFor(_idController.id);
                         },
                         style: const TextStyle(
                           fontFamily: 'WorkSans',
@@ -526,10 +580,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       );
                     },
                     onSelected: (option) {
-                      setState(() {
-                        _idController.id = option.id;
-                        FocusScope.of(context).unfocus();
-                      });
+                      _setRemoteId(option.id, fillRememberedPassword: true);
+                      FocusScope.of(context).unfocus();
                     },
                     optionsViewBuilder: (BuildContext context,
                         AutocompleteOnSelected<Peer> onSelected,
@@ -597,6 +649,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         onPressed: () {
                           setState(() {
                             _idController.clear();
+                            _idEditingController.clear();
+                            _passwordController.clear();
                           });
                         },
                         icon: Icon(Icons.clear, color: MyTheme.darkGray)),

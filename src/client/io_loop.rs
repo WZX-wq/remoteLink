@@ -48,7 +48,7 @@ use std::{
     num::NonZeroI64,
     path::PathBuf,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, RwLock,
     },
 };
@@ -68,6 +68,7 @@ pub struct Remote<T: InvokeUiSession> {
     last_update_jobs_status: (Instant, HashMap<i32, u64>),
     is_connected: bool,
     first_frame: bool,
+    first_decoded_frame: Arc<AtomicBool>,
     #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
     client_conn_id: i32, // used for file clipboard
     data_count: Arc<AtomicUsize>,
@@ -115,6 +116,7 @@ impl<T: InvokeUiSession> Remote<T> {
             last_update_jobs_status: (Instant::now(), Default::default()),
             is_connected: false,
             first_frame: false,
+            first_decoded_frame: Arc::new(AtomicBool::new(false)),
             #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
             client_conn_id: 0,
             data_count: Arc::new(AtomicUsize::new(0)),
@@ -1330,8 +1332,12 @@ impl<T: InvokeUiSession> Remote<T> {
                 Some(message::Union::VideoFrame(vf)) => {
                     if !self.first_frame {
                         self.first_frame = true;
-                        self.handler.close_success();
-                        self.handler.adapt_size();
+                        log::info!(
+                            "Received first encoded video frame: display={}, format={:?}, key_frame={}",
+                            vf.display,
+                            CodecFormat::from(&vf),
+                            Self::contains_key_frame(&vf)
+                        );
                         self.send_toggle_virtual_display_msg(peer).await;
                         self.send_toggle_privacy_mode_msg(peer).await;
                     }
@@ -2436,6 +2442,7 @@ impl<T: InvokeUiSession> Remote<T> {
             discard_queue: discard_queue.clone(),
         };
         let handler = self.handler.ui_handler.clone();
+        let first_decoded_frame = self.first_decoded_frame.clone();
         crate::client::start_video_thread(
             self.handler.clone(),
             display,
@@ -2454,6 +2461,17 @@ impl<T: InvokeUiSession> Remote<T> {
                 } else {
                     #[cfg(all(feature = "vram", feature = "flutter"))]
                     handler.on_texture(display, _texture);
+                }
+                if !first_decoded_frame.swap(true, Ordering::SeqCst) {
+                    log::info!(
+                        "First video frame decoded and submitted to renderer: display={}, size={}x{}, pixelbuffer={}",
+                        display,
+                        data.w,
+                        data.h,
+                        pixelbuffer
+                    );
+                    handler.close_success();
+                    handler.adapt_size();
                 }
             },
         );

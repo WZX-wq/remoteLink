@@ -103,6 +103,10 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     _ffi = FFI(widget.sessionId);
     Get.put<FFI>(_ffi, tag: widget.id);
     _ffi.imageModel.addCallbackOnFirstImage((String peerId) {
+      if (DateTime.now().difference(togglePrivacyModeTime) >
+          const Duration(milliseconds: 3000)) {
+        _ffi.dialogManager.dismissAll();
+      }
       showKBLayoutTypeChooserIfNeeded(
           _ffi.ffiModel.pi.platform, _ffi.dialogManager);
       _ffi.recordingModel
@@ -244,15 +248,6 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     removeSharedStates(widget.id);
   }
 
-  Widget emptyOverlay() => BlockableOverlay(
-        /// the Overlay key will be set with _blockableOverlayState in BlockableOverlay
-        /// see override build() in [BlockableOverlay]
-        state: _blockableOverlayState,
-        underlying: Container(
-          color: Colors.transparent,
-        ),
-      );
-
   Widget buildBody(BuildContext context) {
     remoteToolbar(BuildContext context) => RemoteToolbar(
           id: widget.id,
@@ -282,32 +277,21 @@ class _ViewCameraPageState extends State<ViewCameraPage>
           ),
           Stack(
             children: [
-              _ffi.ffiModel.pi.isSet.isTrue &&
-                      _ffi.ffiModel.waitForFirstImage.isTrue
-                  ? emptyOverlay()
-                  : () {
-                      if (!_ffi.ffiModel.isPeerAndroid) {
-                        return Offstage();
-                      } else {
-                        return Obx(() => Offstage(
-                              offstage: _ffi.dialogManager
-                                  .mobileActionsOverlayVisible.isFalse,
-                              child: Overlay(initialEntries: [
-                                makeMobileActionsOverlayEntry(
-                                  () => _ffi.dialogManager
-                                      .setMobileActionsOverlayVisible(false),
-                                  ffi: _ffi,
-                                )
-                              ]),
-                            ));
-                      }
-                    }(),
-              // Use Overlay to enable rebuild every time on menu button click.
-              _ffi.ffiModel.pi.isSet.isTrue
-                  ? Overlay(
-                      initialEntries: [OverlayEntry(builder: remoteToolbar)])
-                  : remoteToolbar(context),
-              _ffi.ffiModel.pi.isSet.isFalse ? emptyOverlay() : Offstage(),
+              if (_ffi.ffiModel.pi.isSet.isTrue &&
+                  _ffi.ffiModel.waitForFirstImage.isFalse &&
+                  _ffi.ffiModel.isPeerAndroid)
+                Obx(() => Offstage(
+                      offstage: _ffi
+                          .dialogManager.mobileActionsOverlayVisible.isFalse,
+                      child: Overlay(initialEntries: [
+                        makeMobileActionsOverlayEntry(
+                          () => _ffi.dialogManager
+                              .setMobileActionsOverlayVisible(false),
+                          ffi: _ffi,
+                        )
+                      ]),
+                    )),
+              remoteToolbar(context),
             ],
           ),
         ],
@@ -316,32 +300,10 @@ class _ViewCameraPageState extends State<ViewCameraPage>
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
-      body: Obx(() {
-        final imageReady = _ffi.ffiModel.pi.isSet.isTrue &&
-            _ffi.ffiModel.waitForFirstImage.isFalse;
-        if (imageReady) {
-          // If the privacy mode(disable physical displays) is switched,
-          // we should not dismiss the dialog immediately.
-          if (DateTime.now().difference(togglePrivacyModeTime) >
-              const Duration(milliseconds: 3000)) {
-            // `dismissAll()` is to ensure that the state is clean.
-            // It's ok to call dismissAll() here.
-            _ffi.dialogManager.dismissAll();
-            // Recreate the block state to refresh the state.
-            _blockableOverlayState = BlockableOverlayState();
-            _blockableOverlayState.applyFfi(_ffi);
-          }
-          // Block the whole `bodyWidget()` when dialog shows.
-          return BlockableOverlay(
-            underlying: bodyWidget(),
-            state: _blockableOverlayState,
-          );
-        } else {
-          // `_blockableOverlayState` is not recreated here.
-          // The toolbar's block state won't work properly when reconnecting, but that's okay.
-          return bodyWidget();
-        }
-      }),
+      body: BlockableOverlay(
+        underlying: Obx(() => bodyWidget()),
+        state: _blockableOverlayState,
+      ),
     );
   }
 
@@ -565,7 +527,12 @@ class _ImagePaintState extends State<ImagePaint> {
       ImageModel m, Size imageSize, double s) {
     return CustomPaint(
       size: imageSize,
-      painter: ImagePainter(image: m.image, x: 0, y: 0, scale: s),
+      painter: ImagePainter(
+        image: m.image,
+        x: 0,
+        y: 0,
+        scale: s,
+      ),
     );
   }
 
@@ -573,7 +540,12 @@ class _ImagePaintState extends State<ImagePaint> {
       ImageModel m, CanvasModel c, double s) {
     return CustomPaint(
       size: Size(c.size.width, c.size.height),
-      painter: ImagePainter(image: m.image, x: c.x / s, y: c.y / s, scale: s),
+      painter: ImagePainter(
+        image: m.image,
+        x: c.x / s,
+        y: c.y / s,
+        scale: s,
+      ),
     );
   }
 

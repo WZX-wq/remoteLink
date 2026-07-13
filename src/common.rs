@@ -59,6 +59,7 @@ pub type NotifyMessageBox = fn(String, String, String, String) -> dyn Future<Out
 // the executable name of the portable version
 pub const PORTABLE_APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
 pub const KQ_APP_NAME: &str = "鲲穹远程桌面";
+pub const KQ_VPN_ROUTE_BLOCKED_ERROR: &str = "KQ_VPN_ROUTE_BLOCKED";
 
 pub const PLATFORM_WINDOWS: &str = "Windows";
 pub const PLATFORM_LINUX: &str = "Linux";
@@ -73,6 +74,7 @@ const KQ_OUTGOING_DESKTOP_GUARD_DIR: &str = "KQRemoteLink";
 const KQ_OUTGOING_DESKTOP_GUARD_FILE_PREFIX: &str = "outgoing-desktop-peer-";
 const KQ_OUTGOING_DESKTOP_GUARD_FILE_SUFFIX: &str = ".json";
 const KQ_OUTGOING_DESKTOP_GUARD_TTL_SECS: u64 = 24 * 60 * 60;
+const KQ_LAN_REBIND_TIMEOUT_MS: u64 = 3_000;
 
 fn kq_is_benchmark_tunnel_ipv4(ip: Ipv4Addr) -> bool {
     let octets = ip.octets();
@@ -90,6 +92,21 @@ fn kq_is_usable_lan_ipv4(ip: Ipv4Addr) -> bool {
         && !ip.is_link_local()
         && !ip.is_unspecified()
         && !ip.is_multicast()
+}
+
+#[cfg(test)]
+mod kq_vpn_route_tests {
+    use super::*;
+
+    #[test]
+    fn benchmark_tunnel_range_is_treated_as_vpn_source() {
+        assert!(kq_is_benchmark_tunnel_ipv4(Ipv4Addr::new(198, 18, 0, 1)));
+        assert!(kq_is_benchmark_tunnel_ipv4(Ipv4Addr::new(
+            198, 19, 255, 254
+        )));
+        assert!(!kq_is_benchmark_tunnel_ipv4(Ipv4Addr::new(198, 20, 0, 1)));
+        assert!(!kq_is_benchmark_tunnel_ipv4(Ipv4Addr::new(192, 168, 1, 49)));
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -163,6 +180,25 @@ pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
     target: T,
     ms_timeout: u64,
 ) -> ResultType<Stream> {
+    kq_connect_tcp_prefer_lan_impl(target, ms_timeout, false).await
+}
+
+/// Connect a client session through a physical LAN source when a VPN/TUN adapter
+/// has captured the default route. If the service is reachable only through the
+/// tunnel and every physical source probe fails, stop instead of letting the
+/// direct-session negotiation continue until several independent timeouts fire.
+pub async fn kq_connect_tcp_prefer_lan_for_session<T: ToString>(
+    target: T,
+    ms_timeout: u64,
+) -> ResultType<Stream> {
+    kq_connect_tcp_prefer_lan_impl(target, ms_timeout, true).await
+}
+
+async fn kq_connect_tcp_prefer_lan_impl<T: ToString>(
+    target: T,
+    ms_timeout: u64,
+    abort_on_blocked_vpn_route: bool,
+) -> ResultType<Stream> {
     let target = target.to_string();
     #[cfg(target_os = "android")]
     let ws_fallback_target = if get_app_name() == KQ_APP_NAME && !Config::is_proxy() && !use_ws() {
@@ -215,9 +251,12 @@ pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
     }
 
     let local_addr = conn.local_addr();
-    let should_rebind = match local_addr.ip() {
-        std::net::IpAddr::V4(ip) => kq_is_bad_tcp_source_ipv4(ip),
-        std::net::IpAddr::V6(_) => false,
+    let (should_rebind, is_vpn_tunnel_source) = match local_addr.ip() {
+        std::net::IpAddr::V4(ip) => (
+            kq_is_bad_tcp_source_ipv4(ip),
+            kq_is_benchmark_tunnel_ipv4(ip),
+        ),
+        std::net::IpAddr::V6(_) => (false, false),
     };
     if !should_rebind {
         return Ok(conn);
@@ -225,22 +264,37 @@ pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        for (label, ip) in kq_lan_tcp_source_candidates() {
-            let bind_addr = SocketAddr::new(std::net::IpAddr::V4(ip), 0);
-            log::warn!(
-                "KQ TCP source {} for {} is not suitable for direct sessions; trying LAN source {} ({})",
-                local_addr,
-                target,
-                bind_addr,
-                label
-            );
-            match socket_client::connect_tcp_local(target.as_str(), Some(bind_addr), ms_timeout)
-                .await
-            {
+        let probe_timeout = ms_timeout.min(KQ_LAN_REBIND_TIMEOUT_MS).max(1);
+        let attempts = kq_lan_tcp_source_candidates()
+            .into_iter()
+            .map(|(label, ip)| {
+                let target = target.clone();
+                async move {
+                    let bind_addr = SocketAddr::new(std::net::IpAddr::V4(ip), 0);
+                    log::warn!(
+                        "KQ TCP source {} for {} is not suitable for direct sessions; trying LAN source {} ({}) with {} ms timeout",
+                        local_addr,
+                        target,
+                        bind_addr,
+                        label,
+                        probe_timeout
+                    );
+                    let result = socket_client::connect_tcp_local(
+                        target.as_str(),
+                        Some(bind_addr),
+                        probe_timeout,
+                    )
+                    .await;
+                    (label, bind_addr, target, result)
+                }
+            });
+
+        for (label, bind_addr, attempt_target, result) in join_all(attempts).await {
+            match result {
                 Ok(rebound) => {
                     log::info!(
                         "KQ TCP source rebound for {}: {} -> {}",
-                        target,
+                        attempt_target,
                         local_addr,
                         rebound.local_addr()
                     );
@@ -251,19 +305,28 @@ pub async fn kq_connect_tcp_prefer_lan<T: ToString>(
                         "KQ LAN source {} ({}) failed for {}: {}",
                         bind_addr,
                         label,
-                        target,
+                        attempt_target,
                         err
                     );
                 }
             }
         }
-        log::warn!(
-            "KQ could not find a working LAN TCP source for {}; continuing with {}",
-            target,
-            local_addr
-        );
     }
 
+    if abort_on_blocked_vpn_route && is_vpn_tunnel_source {
+        log::error!(
+            "KQ VPN/TUN source {} captured {}; no physical LAN source reached the service, aborting this client session",
+            local_addr,
+            target
+        );
+        bail!(KQ_VPN_ROUTE_BLOCKED_ERROR);
+    }
+
+    log::warn!(
+        "KQ could not find a working LAN TCP source for {}; continuing with {}",
+        target,
+        local_addr
+    );
     Ok(conn)
 }
 

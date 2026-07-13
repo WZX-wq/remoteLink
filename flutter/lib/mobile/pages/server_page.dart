@@ -181,12 +181,13 @@ class _DropDownAction extends StatelessWidget {
   }
 }
 
-class _ServerPageState extends State<ServerPage> {
+class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
   Timer? _updateTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
     });
@@ -197,8 +198,18 @@ class _ServerPageState extends State<ServerPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && isAndroid) {
+      checkService();
+      unawaited(gFFI.serverModel.checkAndroidPermission());
+    }
   }
 
   @override
@@ -1531,6 +1542,13 @@ class _PermissionCheckerState extends State<PermissionChecker> {
   bool _isCheckingAll = false;
   bool _showAllPermissions = false;
 
+  Future<void> _toggleInputControl(ServerModel serverModel) async {
+    await serverModel.toggleInput();
+    if (isAndroid) {
+      Future.delayed(const Duration(milliseconds: 800), checkService);
+    }
+  }
+
   Future<void> _runAllPermissionSteps({
     required ServerModel serverModel,
     required bool hasAudioPermission,
@@ -1550,7 +1568,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         await serverModel.toggleService();
       }
       if (!serverModel.inputOk) {
-        await serverModel.toggleInput();
+        await _toggleInputControl(serverModel);
       }
       if (!permissionChangeLocked && !serverModel.fileOk) {
         await serverModel.toggleFile();
@@ -1596,6 +1614,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         actionLabel: serverModel.mediaOk
             ? translate('Stop service')
             : translate('Enable'),
+        enabledActionLabel: translate('Turn off this permission'),
         onPressed: !serverModel.mediaOk &&
                 gFFI.userModel.userName.value.isEmpty &&
                 bind.mainGetLocalOption(key: "show-scam-warning") != "N"
@@ -1609,7 +1628,8 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         color: q.warning,
         isOk: serverModel.inputOk,
         actionLabel: translate('Enable'),
-        onPressed: serverModel.toggleInput,
+        enabledActionLabel: translate('Disable this permission'),
+        onPressed: () => unawaited(_toggleInputControl(serverModel)),
       ),
       _PermissionGuideData(
         title: translate("Transfer file"),
@@ -1619,6 +1639,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         isOk: serverModel.fileOk,
         enabled: !permissionChangeLocked,
         actionLabel: translate('Enable'),
+        enabledActionLabel: translate('Disable this permission'),
         onPressed: serverModel.toggleFile,
       ),
       _PermissionGuideData(
@@ -1631,6 +1652,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         isOk: hasAudioPermission ? serverModel.audioOk : false,
         enabled: hasAudioPermission && !permissionChangeLocked,
         actionLabel: translate('Enable'),
+        enabledActionLabel: translate('Disable this permission'),
         onPressed: serverModel.toggleAudio,
       ),
       _PermissionGuideData(
@@ -1640,6 +1662,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         color: q.primaryDeep,
         isOk: serverModel.clipboardOk,
         actionLabel: translate('Enable'),
+        enabledActionLabel: translate('Disable this permission'),
         onPressed: serverModel.toggleClipboard,
       ),
     ];
@@ -1707,6 +1730,7 @@ class _PermissionGuideData {
     required this.isOk,
     required this.actionLabel,
     required this.onPressed,
+    this.enabledActionLabel,
     this.enabled = true,
   });
 
@@ -1716,6 +1740,7 @@ class _PermissionGuideData {
   final Color color;
   final bool isOk;
   final String actionLabel;
+  final String? enabledActionLabel;
   final VoidCallback onPressed;
   final bool enabled;
 }
@@ -1999,8 +2024,9 @@ class _PermissionGuideItem extends StatelessWidget {
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         onPressed: item.enabled ? item.onPressed : null,
-                        icon: const Icon(Icons.tune_rounded, size: 18),
-                        label: Text(translate('Manage')),
+                        icon: const Icon(Icons.block_rounded, size: 18),
+                        label: Text(item.enabledActionLabel ??
+                            translate('Disable this permission')),
                       )
                     : OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(

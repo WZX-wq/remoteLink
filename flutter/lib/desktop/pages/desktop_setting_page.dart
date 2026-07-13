@@ -1144,7 +1144,7 @@ class _GeneralState extends State<_General> {
       title: 'Language',
       child: Align(
         alignment: Alignment.centerLeft,
-        child: SizedBox(width: 220, child: _languageControl()),
+        child: SizedBox(width: 330, child: _languageControl()),
       ),
     );
   }
@@ -1158,7 +1158,9 @@ class _GeneralState extends State<_General> {
       List<dynamic> langsList = jsonDecode(data['langs']!);
       Map<String, String> langsMap = {for (var v in langsList) v[0]: v[1]};
       List<String> keys = langsMap.keys.toList();
-      List<String> values = langsMap.values.toList();
+      List<String> values = keys
+          .map((key) => kqLanguageDisplayName(key, langsMap[key] ?? key))
+          .toList();
       keys.insert(0, defaultOptionLang);
       values.insert(0, translate('Default'));
       String currentKey = bind.mainGetLocalOption(key: kCommConfKeyLang);
@@ -1747,7 +1749,9 @@ class _GeneralState extends State<_General> {
       List<dynamic> langsList = jsonDecode(data['langs']!);
       Map<String, String> langsMap = {for (var v in langsList) v[0]: v[1]};
       List<String> keys = langsMap.keys.toList();
-      List<String> values = langsMap.values.toList();
+      List<String> values = keys
+          .map((key) => kqLanguageDisplayName(key, langsMap[key] ?? key))
+          .toList();
       keys.insert(0, defaultOptionLang);
       values.insert(0, translate('Default'));
       String currentKey = bind.mainGetLocalOption(key: kCommConfKeyLang);
@@ -3342,74 +3346,138 @@ class _DisplayState extends State<_Display> {
         '${translate('Remote experience updated')}: ${user.remoteQualityLabel}');
   }
 
+  Widget _settingsProfileButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+    bool locked = false,
+    bool pro = false,
+  }) {
+    final palette = _settingPalette(context);
+    final foreground = selected
+        ? Colors.white
+        : enabled
+            ? palette.primaryText
+            : palette.disabledText;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          height: 36,
+          padding: EdgeInsets.fromLTRB(14, 0, pro ? 10 : 14, 0),
+          decoration: BoxDecoration(
+            color: selected ? _kqDesignerBlue : palette.fieldFill,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected ? _kqDesignerBlue : palette.fieldBorder,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(locked && !enabled ? Icons.lock_outline_rounded : icon,
+                  size: 14, color: foreground),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+              if (pro) ...[
+                const SizedBox(width: 8),
+                const Text(
+                  'PRO',
+                  style: TextStyle(
+                    color: Color(0xFFF59E0B),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _qualityReferenceCard(BuildContext context) {
     final user = gFFI.userModel;
     final isMember = user.isMember.value;
     final resolution = user.remoteResolutionSelection;
-    final fps = user.remoteFpsSelection;
     return _SettingsReferenceCard(
       icon: Icons.desktop_windows_outlined,
       title: _kqSettingText('画质设置', 'Quality settings'),
       child: LayoutBuilder(builder: (context, constraints) {
         final wide = constraints.maxWidth >= 560;
-        final resolutionControl = _SettingsReferenceControlRow(
-          label: _kqSettingText('默认分辨率', 'Default resolution'),
+        final basicControl = _SettingsReferenceControlRow(
+          label: _kqSettingText('基础套餐', 'Basic profile'),
           control: SizedBox(
             width: 220,
-            child: ComboBox(
-              keys: const [
-                UserModel.remoteResolution720p,
-                UserModel.remoteResolution1080p,
-              ],
-              values: const ['720p', '1080p'],
-              initialKey: resolution,
-              onChanged: (value) {
-                if (value == UserModel.remoteResolution1080p && !isMember) {
-                  showToast(translate('Members can use 1080p / 60 FPS'));
-                  setState(() {});
-                  return;
-                }
-                _saveRemotePerformance(resolutionTier: value);
-              },
+            child: _settingsProfileButton(
+              context,
+              icon: Icons.desktop_windows_outlined,
+              label: '720p / 60 FPS',
+              selected: resolution == UserModel.remoteResolution720p,
+              enabled: true,
+              onTap: () => _saveRemotePerformance(
+                resolutionTier: UserModel.remoteResolution720p,
+                fps: UserModel.freeMaxFps,
+              ),
             ),
           ),
-          helper: isMember
-              ? _kqSettingText('会员已解锁', 'Membership unlocked')
-              : _kqSettingText('会员可用 1080p', '1080p for members'),
+          helper: _kqSettingText('基础远控可用', 'Basic remote control available'),
         );
-        final fpsControl = _SettingsReferenceControlRow(
-          label: _kqSettingText('默认帧率', 'Default frame rate'),
+        final memberControl = _SettingsReferenceControlRow(
+          label: _kqSettingText('会员套餐', 'Member profile'),
           control: SizedBox(
             width: 220,
-            child: ComboBox(
-              keys: const ['30', '60'],
-              values: const ['30 FPS', '60 FPS'],
-              initialKey: fps >= 60 ? '60' : '30',
-              onChanged: (value) {
-                final nextFps = int.tryParse(value) ?? 30;
-                if (nextFps >= 60 && !isMember) {
-                  showToast(translate('Members can use 1080p / 60 FPS'));
-                  setState(() {});
-                  return;
-                }
-                _saveRemotePerformance(fps: nextFps);
-              },
+            child: _settingsProfileButton(
+              context,
+              icon: Icons.high_quality_rounded,
+              label: '1080p / 60 FPS',
+              selected: resolution == UserModel.remoteResolution1080p,
+              enabled: isMember,
+              locked: !isMember,
+              pro: !isMember,
+              onTap: isMember
+                  ? () => _saveRemotePerformance(
+                        resolutionTier: UserModel.remoteResolution1080p,
+                        fps: UserModel.memberDefaultFps,
+                      )
+                  : () => showToast(
+                        translate('Members can use 1080p / 60 FPS'),
+                      ),
             ),
           ),
           helper: isMember
               ? _kqSettingText('会员已解锁', 'Membership unlocked')
-              : _kqSettingText('会员可用 60 FPS', '60 FPS for members'),
+              : _kqSettingText(
+                  '会员可用 1080p / 60 FPS', '1080p / 60 FPS for members'),
         );
         if (wide) {
           return Row(
             children: [
-              Expanded(child: resolutionControl),
+              Expanded(child: basicControl),
               const SizedBox(width: 14),
-              Expanded(child: fpsControl),
+              Expanded(child: memberControl),
             ],
           );
         }
-        return Column(children: [resolutionControl, fpsControl]);
+        return Column(children: [basicControl, memberControl]);
       }),
     );
   }
@@ -4263,8 +4331,8 @@ class _AccountState extends State<_Account> {
           Expanded(
             child: Text(
               _kqSettingText(
-                '画质与帧率说明：基础版用户可使用 720p / 30 FPS。升级会员后可解锁 1080p 高清画质及 60 FPS 高帧率，获得更加流畅、清晰的远程桌面体验。',
-                'Quality and frame rate: Basic users can use 720p / 30 FPS. Members unlock 1080p HD and 60 FPS for a smoother, clearer remote desktop experience.',
+                '画质说明：两档均使用稳定的 60 FPS 视频链路。基础版使用较低压缩质量的 720p 标清画质，会员可解锁 1080p 高清画质。',
+                'Quality: Both tiers use the stable 60 FPS video pipeline. Basic uses lower compression quality for 720p standard quality, while members unlock 1080p HD.',
               ),
               style: TextStyle(
                 color: palette.mutedText,
@@ -4766,7 +4834,7 @@ class _AccountState extends State<_Account> {
           _accountBenefitItem(
             context,
             enabled: true,
-            title: '720p / 30 FPS',
+            title: '720p / 60 FPS',
             subtitle:
                 _kqSettingText('基础远控可用', 'Basic remote control available'),
           ),
@@ -5015,7 +5083,6 @@ class _AccountState extends State<_Account> {
     final user = gFFI.userModel;
     final isMember = user.isMember.value;
     final resolution = user.remoteResolutionSelection;
-    final fps = user.remoteFpsSelection;
     return _referenceCard(
       // kq-v216-account-remote-experience-card
       // kq-designer-account-performance-right
@@ -5029,53 +5096,35 @@ class _AccountState extends State<_Account> {
           ),
           const SizedBox(height: 16),
           _referenceOptionRow(
-            title: _kqSettingText('分辨率', 'Resolution'),
+            title: translate('Remote quality and FPS'),
             children: [
               _referencePillOption(
                 context,
                 icon: Icons.desktop_windows_outlined,
-                label: '720p',
+                label: '720p / 60 FPS',
                 selected: resolution == UserModel.remoteResolution720p,
                 enabled: true,
                 onTap: () => _saveRemotePerformance(
                   resolutionTier: UserModel.remoteResolution720p,
+                  fps: UserModel.freeMaxFps,
                 ),
               ),
               _referencePillOption(
                 context,
-                icon: Icons.desktop_windows_outlined,
-                label: '1080p',
+                icon: Icons.high_quality_rounded,
+                label: '1080p / 60 FPS',
                 selected: resolution == UserModel.remoteResolution1080p,
                 enabled: isMember,
                 locked: !isMember,
                 pro: !isMember,
-                onTap: () => _saveRemotePerformance(
-                  resolutionTier: UserModel.remoteResolution1080p,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 13),
-          _referenceOptionRow(
-            title: _kqSettingText('帧率', 'Frame rate'),
-            children: [
-              _referencePillOption(
-                context,
-                icon: Icons.speed_rounded,
-                label: '30 FPS',
-                selected: fps == 30,
-                enabled: true,
-                onTap: () => _saveRemotePerformance(fps: 30),
-              ),
-              _referencePillOption(
-                context,
-                icon: Icons.speed_rounded,
-                label: '60 FPS',
-                selected: fps == 60,
-                enabled: isMember,
-                locked: !isMember,
-                pro: !isMember,
-                onTap: () => _saveRemotePerformance(fps: 60),
+                onTap: isMember
+                    ? () => _saveRemotePerformance(
+                          resolutionTier: UserModel.remoteResolution1080p,
+                          fps: UserModel.memberDefaultFps,
+                        )
+                    : () => showToast(
+                          translate('Members can use 1080p / 60 FPS'),
+                        ),
               ),
             ],
           ),
@@ -5375,16 +5424,9 @@ class _AccountState extends State<_Account> {
     String statusText = '';
     bool statusIsError = false;
     Timer? pollTimer;
-
-    Future<void> openAlipayCheckout(KqMemberOrder order) async {
-      if (order.alipaySubmitHtml.trim().isEmpty) {
-        return;
-      }
-      final file = File(
-          '${Directory.systemTemp.path}${Platform.pathSeparator}kq_member_${order.orderNo}.html');
-      await file.writeAsString(order.alipaySubmitHtml, encoding: utf8);
-      await launchUrl(file.uri, mode: LaunchMode.externalApplication);
-    }
+    int orderRequestSerial = 0;
+    String? generatedOrderKey;
+    bool initialOrderScheduled = false;
 
     await showDialog<void>(
       context: context,
@@ -5445,6 +5487,12 @@ class _AccountState extends State<_Account> {
 
             Future<void> createOrder() async {
               if (creatingOrder) return;
+              final packageForOrder = selectedPackage;
+              final payTypeForOrder = payType;
+              final orderKey = '${packageForOrder.id}:$payTypeForOrder';
+              if (generatedOrderKey == orderKey && order != null) return;
+              final requestSerial = ++orderRequestSerial;
+              pollTimer?.cancel();
               setDialogState(() {
                 creatingOrder = true;
                 order = null;
@@ -5453,33 +5501,64 @@ class _AccountState extends State<_Account> {
               });
               try {
                 final nextOrder = await user.createMemberOrder(
-                  packageId: selectedPackage.id,
-                  payType: payType,
+                  packageId: packageForOrder.id,
+                  payType: payTypeForOrder,
                 );
-                if (!dialogAlive) return;
+                if (!dialogAlive || requestSerial != orderRequestSerial) {
+                  return;
+                }
                 setDialogState(() {
                   order = nextOrder;
-                  statusText = payType == 1
+                  generatedOrderKey = orderKey;
+                  statusText = payTypeForOrder == 1
                       ? translate('Scan with WeChat to pay')
-                      : translate('Alipay cashier opened');
+                      : _kqSettingText(
+                          '请使用支付宝扫码支付',
+                          'Scan with Alipay to pay',
+                        );
                   statusIsError = false;
                 });
-                if (payType == 2) {
-                  await openAlipayCheckout(nextOrder);
-                }
                 startPolling(nextOrder);
               } catch (e) {
-                if (!dialogAlive) return;
+                if (!dialogAlive || requestSerial != orderRequestSerial) {
+                  return;
+                }
                 setDialogState(() {
                   statusText = e.toString();
                   statusIsError = true;
                 });
                 showToast(e.toString());
               } finally {
-                if (dialogAlive) {
+                if (dialogAlive && requestSerial == orderRequestSerial) {
                   setDialogState(() => creatingOrder = false);
                 }
               }
+            }
+
+            void resetOrderAndCreate() {
+              orderRequestSerial++;
+              generatedOrderKey = null;
+              pollTimer?.cancel();
+              setDialogState(() {
+                creatingOrder = false;
+                order = null;
+                statusText = translate('Creating order...');
+                statusIsError = false;
+              });
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (dialogAlive) {
+                  unawaited(createOrder());
+                }
+              });
+            }
+
+            if (!initialOrderScheduled) {
+              initialOrderScheduled = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (dialogAlive) {
+                  unawaited(createOrder());
+                }
+              });
             }
 
             final colors = Theme.of(context).colorScheme;
@@ -5518,7 +5597,7 @@ class _AccountState extends State<_Account> {
                     children: [
                       Text(
                         translate(
-                            'Membership unlocks 1080p / 60 FPS. Free users keep 720p / 30 FPS.'),
+                            'Both profiles use 60 FPS. Membership unlocks 1080p HD; basic uses 720p standard quality.'),
                         style: TextStyle(
                           color: Theme.of(context).textTheme.bodySmall?.color,
                         ),
@@ -5533,13 +5612,11 @@ class _AccountState extends State<_Account> {
                                 context,
                                 package: item,
                                 selected: item.id == selectedPackage.id,
-                                onTap: () => setDialogState(() {
+                                onTap: () {
+                                  if (item.id == selectedPackage.id) return;
                                   selectedPackage = item;
-                                  order = null;
-                                  statusText = '';
-                                  statusIsError = false;
-                                  pollTimer?.cancel();
-                                }),
+                                  resetOrderAndCreate();
+                                },
                               ),
                             )
                             .toList(),
@@ -5561,13 +5638,11 @@ class _AccountState extends State<_Account> {
                             selected: payType == 1,
                             icon: Icons.qr_code_2,
                             label: translate('WeChat QR'),
-                            onTap: () => setDialogState(() {
+                            onTap: () {
+                              if (payType == 1) return;
                               payType = 1;
-                              order = null;
-                              statusText = '';
-                              statusIsError = false;
-                              pollTimer?.cancel();
-                            }),
+                              resetOrderAndCreate();
+                            },
                           ),
                           const SizedBox(width: 8),
                           _memberPaymentMethodChip(
@@ -5575,13 +5650,11 @@ class _AccountState extends State<_Account> {
                             selected: payType == 2,
                             icon: Icons.open_in_browser,
                             label: translate('Alipay'),
-                            onTap: () => setDialogState(() {
+                            onTap: () {
+                              if (payType == 2) return;
                               payType = 2;
-                              order = null;
-                              statusText = '';
-                              statusIsError = false;
-                              pollTimer?.cancel();
-                            }),
+                              resetOrderAndCreate();
+                            },
                           ),
                         ],
                       ),
@@ -5608,19 +5681,6 @@ class _AccountState extends State<_Account> {
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
                   child: Text(translate('Close')),
-                ),
-                FilledButton.icon(
-                  onPressed: creatingOrder ? null : createOrder,
-                  icon: creatingOrder
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.payment, size: 16),
-                  label: Text(creatingOrder
-                      ? translate('Creating')
-                      : translate('Create payment order')),
                 ),
               ],
             );
@@ -5782,6 +5842,7 @@ class _AccountState extends State<_Account> {
 
   Widget _memberOrderPanel(BuildContext context, KqMemberOrder order) {
     final colors = Theme.of(context).colorScheme;
+    const qrBoxSize = 220.0;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -5792,8 +5853,8 @@ class _AccountState extends State<_Account> {
       child: Row(
         children: [
           Container(
-            width: 150,
-            height: 150,
+            width: qrBoxSize,
+            height: qrBoxSize,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: colors.surfaceContainerHighest,
@@ -5838,8 +5899,10 @@ class _AccountState extends State<_Account> {
                   order.payType == 1
                       ? translate(
                           'Benefits will be confirmed automatically after WeChat payment')
-                      : translate(
-                          'Please complete the payment on the opened Alipay page'),
+                      : _kqSettingText(
+                          '请使用支付宝扫描左侧二维码完成支付',
+                          'Scan the QR code with Alipay to complete the payment',
+                        ),
                   style: TextStyle(
                     color: Theme.of(context).textTheme.bodySmall?.color,
                   ),
@@ -5853,6 +5916,7 @@ class _AccountState extends State<_Account> {
   }
 
   Widget _memberOrderPayCode(KqMemberOrder order) {
+    const qrSize = 196.0;
     final image = order.qrcodeImgUrl.trim();
     if (image.startsWith('data:image')) {
       final comma = image.indexOf(',');
@@ -5860,8 +5924,9 @@ class _AccountState extends State<_Account> {
         try {
           return Image.memory(
             base64Decode(image.substring(comma + 1)),
-            width: 132,
-            height: 132,
+            width: qrSize,
+            height: qrSize,
+            filterQuality: FilterQuality.none,
             fit: BoxFit.contain,
           );
         } catch (_) {
@@ -5872,8 +5937,9 @@ class _AccountState extends State<_Account> {
     if (image.startsWith('http://') || image.startsWith('https://')) {
       return Image.network(
         image,
-        width: 132,
-        height: 132,
+        width: qrSize,
+        height: qrSize,
+        filterQuality: FilterQuality.none,
         fit: BoxFit.contain,
       );
     }
@@ -5881,10 +5947,39 @@ class _AccountState extends State<_Account> {
       return QrImageView(
         data: order.codeUrl.trim(),
         version: QrVersions.auto,
-        size: 132,
+        size: qrSize,
+        padding: const EdgeInsets.all(4),
+        backgroundColor: Colors.white,
+        eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Colors.black,
+        ),
+        dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Colors.black,
+        ),
       );
     }
-    return const Icon(Icons.open_in_browser, size: 46);
+    final alipayQrPayload =
+        order.payType == 2 ? kqAlipayPaymentQrPayload(order) : null;
+    if (alipayQrPayload != null) {
+      return QrImageView(
+        data: alipayQrPayload,
+        version: QrVersions.auto,
+        size: qrSize,
+        padding: const EdgeInsets.all(4),
+        backgroundColor: Colors.white,
+        eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Colors.black,
+        ),
+        dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Colors.black,
+        ),
+      );
+    }
+    return const Icon(Icons.qr_code_2_rounded, size: 46);
   }
 
   Widget _buildUserAvatar(BuildContext context) {
@@ -6284,6 +6379,8 @@ class _About extends StatefulWidget {
 
 class _AboutState extends State<_About> {
   static final Uri _companyWebsite = Uri.parse('https://kunqiongai.com/');
+  static final Uri _feedbackWebsite =
+      Uri.parse('https://www.kunqiongai.com/feedback/');
   static final Uri _downloadWebsite =
       Uri.parse('https://remotelink.kunqiongai.com/kq-api/download');
 
@@ -6321,9 +6418,6 @@ class _AboutState extends State<_About> {
                       ? 'Windows 10 / 11 (x64)'
                       : Platform.operatingSystem,
                 ),
-                _settingsReferenceDivider(),
-                _aboutInfoRow(_kqSettingText('许可证', 'License'),
-                    _kqSettingText('个人免费版', 'Personal free edition')),
               ],
             ),
           ),
@@ -6376,10 +6470,7 @@ class _AboutState extends State<_About> {
                 _aboutLink(_kqSettingText('官方网站', 'Official website'),
                     _companyWebsite),
                 _aboutLink(
-                    _kqSettingText('帮助文档', 'Help docs'), _companyWebsite),
-                _aboutLink(_kqSettingText('意见反馈', 'Feedback'), _companyWebsite),
-                _aboutLink(
-                    _kqSettingText('隐私政策', 'Privacy policy'), _companyWebsite),
+                    _kqSettingText('意见反馈', 'Feedback'), _feedbackWebsite),
               ],
             ),
           ),
@@ -6420,9 +6511,7 @@ class _AboutState extends State<_About> {
           Container(
             width: 48,
             height: 48,
-            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: _kqDesignerBlue,
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
@@ -6432,10 +6521,21 @@ class _AboutState extends State<_About> {
                 ),
               ],
             ),
-            child: Image.asset(
-              'assets/kq_about_logo.png',
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                'assets/icon.png',
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: _kqDesignerBlue,
+                  child: const Icon(
+                    Icons.desktop_windows_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 16),

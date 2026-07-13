@@ -1523,8 +1523,8 @@ void showLanguageSettings(OverlayDialogManager dialogManager) async {
               langs.map((e) {
                 final key = e[0] as String;
                 final name = e[1] as String;
-                return getRadio(Text(_settingsText(name)), key, lang,
-                    isOptFixed ? null : setLang);
+                return getRadio(Text(kqLanguageDisplayName(key, name)), key,
+                    lang, isOptFixed ? null : setLang);
               }).toList(),
         ),
       );

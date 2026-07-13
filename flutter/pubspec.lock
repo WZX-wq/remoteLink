@@ -389,10 +389,10 @@ packages:
     dependency: transitive
     description:
       name: equatable
-      sha256: "3e0141505477fd8ad55d6eb4e7776d3fe8430be8e497ccb1521370c3f21a3e2b"
+      sha256: "3bce007a596ff8b3119c45d68aaef631272537c03d30e5d4534dd24bf4c5eaa2"
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.8"
+    version: "2.1.0"
   extended_text:
     dependency: "direct main"
     description:
@@ -1334,11 +1334,9 @@ packages:
   texture_rgba_renderer:
     dependency: "direct main"
     description:
-      path: "."
-      ref: "42797e0f03141dc2b585f76c64a13974508058b4"
-      resolved-ref: "42797e0f03141dc2b585f76c64a13974508058b4"
-      url: "https://github.com/rustdesk-org/flutter_texture_rgba_renderer"
-    source: git
+      path: "plugins/texture_rgba_renderer"
+      relative: true
+    source: path
     version: "0.0.16"
   timing:
     dependency: transitive

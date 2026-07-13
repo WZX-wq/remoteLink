@@ -43,6 +43,26 @@ const HISTORY_DELAY_LEN: usize = 2;
 const ADJUST_RATIO_INTERVAL: usize = 3; // Adjust quality ratio every 3 seconds
 const DYNAMIC_SCREEN_THRESHOLD: usize = 2; // Allow increase quality ratio if encode more than 2 times in one second
 const DELAY_THRESHOLD_150MS: u32 = 150; // 150ms is the threshold for good network condition
+#[inline]
+fn custom_quality_value(image_quality: i32) -> Option<i32> {
+    let packed_quality = image_quality >> 8 & 0xFFF;
+    if packed_quality > 0 {
+        return Some(kq_clamp_custom_quality(packed_quality));
+    }
+    if image_quality > ImageQuality::Best.value() {
+        return Some(kq_clamp_custom_quality(image_quality));
+    }
+    None
+}
+
+#[inline]
+fn kq_clamp_custom_quality(quality: i32) -> i32 {
+    if crate::get_app_name() == crate::common::KQ_APP_NAME {
+        quality.clamp(1, 150)
+    } else {
+        quality
+    }
+}
 
 #[inline]
 fn kq_uses_selected_fps() -> bool {
@@ -160,6 +180,7 @@ impl VideoQoS {
         self.bitrate_store
     }
 
+    /// The user's selected quality before adaptive bitrate adjustments.
     // Get current bitrate ratio with bounds checking
     pub fn ratio(&mut self) -> f32 {
         if self.ratio < BR_MIN_HIGH_RESOLUTION || self.ratio > BR_MAX {
@@ -213,6 +234,9 @@ impl VideoQoS {
         }
         if updated {
             self.adjust_fps();
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                log::info!("KQ video FPS updated: conn_id={id}, selected_fps={fps}");
+            }
         }
     }
 
@@ -239,7 +263,8 @@ impl VideoQoS {
             } else if q == ImageQuality::Best.value() {
                 Quality::Best
             } else {
-                let b = ((q >> 8 & 0xFFF) * 2) as f32 / 100.0;
+                let custom_quality = custom_quality_value(q).unwrap_or(50);
+                let b = (custom_quality * 2) as f32 / 100.0;
                 Quality::Custom(b.clamp(BR_MIN, BR_MAX))
             }
         };
@@ -249,6 +274,13 @@ impl VideoQoS {
             user.quality = quality;
             // update ratio directly
             self.ratio = self.latest_quality().ratio();
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                let custom_quality = custom_quality_value(image_quality).unwrap_or_default();
+                log::info!(
+                    "KQ video quality updated: conn_id={id}, custom_quality={custom_quality}, ratio={:.2}",
+                    self.ratio
+                );
+            }
         }
     }
 
@@ -533,6 +565,9 @@ impl VideoQoS {
     fn adjust_fps(&mut self) {
         let highest_fps = self.highest_fps();
         if kq_uses_selected_fps() {
+            if self.fps != highest_fps {
+                log::info!("KQ video FPS target applied: {highest_fps}");
+            }
             self.fps = highest_fps;
             return;
         }

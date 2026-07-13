@@ -141,7 +141,7 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     // `on_voice_call_closed` should be called when the connection is ended.
     // The inner logic of `on_voice_call_closed` will check if the voice call is active.
     // Only one client is considered here for now.
-    gFFI.chatModel.onVoiceCallClosed("End connetion");
+    gFFI.chatModel.onVoiceCallClosed("End connection");
   }
 
   @override
@@ -560,7 +560,11 @@ class ImagePaint extends StatelessWidget {
     final adjust = c.getAdjustY();
     return CustomPaint(
       painter: ImagePainter(
-          image: m.image, x: c.x / s, y: (c.y + adjust) / s, scale: s),
+        image: m.image,
+        x: c.x / s,
+        y: (c.y + adjust) / s,
+        scale: s,
+      ),
     );
   }
 }

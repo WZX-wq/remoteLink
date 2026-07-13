@@ -651,24 +651,36 @@ class BlockableOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initialEntries = [
-      OverlayEntry(builder: (_) => underlying),
-
-      /// middle layer
       OverlayEntry(
-          builder: (context) => Obx(() => Listener(
-              onPointerDown: (_) {
-                state.onMiddleBlockedClick?.call();
-              },
-              child: Container(
-                  color:
-                      state.middleBlocked.value ? Colors.transparent : null)))),
+        builder: (context) => Positioned.fill(
+          child: Obx(
+            () => IgnorePointer(
+              ignoring: !state.middleBlocked.value,
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: (_) {
+                  state.onMiddleBlockedClick?.call();
+                },
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+        ),
+      ),
     ];
 
     if (upperLayer != null) {
       initialEntries.addAll(upperLayer!);
     }
 
-    /// set key
-    return Overlay(key: state.key, initialEntries: initialEntries);
+    // Keep platform textures out of Overlay. Moving a Windows texture into an
+    // Overlay after its first frame can leave only the canvas background.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        underlying,
+        Overlay(key: state.key, initialEntries: initialEntries),
+      ],
+    );
   }
 }

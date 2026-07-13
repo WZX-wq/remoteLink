@@ -24,10 +24,11 @@ use hbb_common::{
 };
 use std::{
     collections::HashMap,
+    io::Write,
     path::PathBuf,
     sync::{
         atomic::{AtomicI32, Ordering},
-        Arc,
+        Arc, Once,
     },
     time::{Duration, SystemTime},
 };
@@ -36,6 +37,48 @@ pub type SessionID = uuid::Uuid;
 
 lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn install_kq_panic_hook() {
+    static INSTALL: Once = Once::new();
+    let panic_log = config::Config::log_path().join("rust-panic.log");
+    INSTALL.call_once(move || {
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let location = info
+                .location()
+                .map(|location| {
+                    format!(
+                        "{}:{}:{}",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    )
+                })
+                .unwrap_or_else(|| "unknown".to_owned());
+            let thread = std::thread::current();
+            let thread_name = thread.name().unwrap_or("unnamed");
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            let report = format!(
+                "\n===== KQ Rust panic =====\nthread: {thread_name}\nlocation: {location}\npanic: {info}\nbacktrace:\n{backtrace}\n===== end panic =====\n"
+            );
+
+            log::error!("{report}");
+            if let Some(parent) = panic_log.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&panic_log)
+            {
+                let _ = file.write_all(report.as_bytes());
+                let _ = file.flush();
+            }
+            previous_hook(info);
+        }));
+    });
 }
 
 fn initialize(app_dir: &str, custom_client_config: &str) {
@@ -81,6 +124,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     {
         // core_main's init_log does not work for flutter since it is only applied to its load_library in main.c
         hbb_common::init_log(false, "flutter_ffi");
+        install_kq_panic_hook();
     }
 }
 

@@ -77,6 +77,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   InputModel get inputModel => gFFI.inputModel;
   SessionID get sessionId => gFFI.sessionId;
+  bool get _softKeyboardActive =>
+      keyboardVisibilityController.isVisible && _showEdit;
 
   final TextEditingController _textController =
       TextEditingController(text: initText);
@@ -134,6 +136,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         .changeCurrentKey(MessageKey(widget.id, ChatModel.clientModeID));
     _blockableOverlayState.applyFfi(gFFI);
     gFFI.imageModel.addCallbackOnFirstImage((String peerId) async {
+      await kqSaveRememberedMobileConnectPassword(
+        id: widget.id,
+        password: widget.password,
+      );
       await _applyDesktopPeerLandscapeFullscreen();
       gFFI.recordingModel
           .updateStatus(bind.sessionGetIsRecording(sessionId: gFFI.sessionId));
@@ -171,7 +177,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     // `on_voice_call_closed` should be called when the connection is ended.
     // The inner logic of `on_voice_call_closed` will check if the voice call is active.
     // Only one client is considered here for now.
-    gFFI.chatModel.onVoiceCallClosed("End connetion");
+    gFFI.chatModel.onVoiceCallClosed("End connection");
   }
 
   @override
@@ -370,8 +376,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final keyboardIsVisible =
-        keyboardVisibilityController.isVisible && _showEdit;
+    final keyboardIsVisible = _softKeyboardActive;
     final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
 
     return WillPopScope(
@@ -479,8 +484,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Widget _remoteSideActionRail() {
     final ffiModel = Provider.of<FfiModel>(context);
-    final keyboardIsVisible =
-        keyboardVisibilityController.isVisible && _showEdit;
+    final keyboardIsVisible = _softKeyboardActive;
     if (!_showBar ||
         keyboardIsVisible ||
         _showGestureHelp ||
@@ -491,10 +495,12 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     final controls = <Widget>[
       _remoteSideActionButton(
         icon: Icons.clear,
+        label: kqLocaleText(zhCn: '断开', en: 'End'),
         onPressed: () => clientClose(sessionId, gFFI),
       ),
       _remoteSideActionButton(
         icon: Icons.tv,
+        label: kqLocaleText(zhCn: '屏幕', en: 'View'),
         onPressed: () {
           setState(() => _showEdit = false);
           showOptions(context, widget.id, gFFI.dialogManager);
@@ -503,17 +509,22 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       if (!isWebDesktop && !ffiModel.viewOnly && ffiModel.keyboard) ...[
         _remoteSideActionButton(
           icon: Icons.keyboard,
+          label: kqLocaleText(zhCn: '键盘', en: 'Keys'),
           onPressed: openKeyboard,
         ),
         if (gFFI.ffiModel.isPeerAndroid)
           _remoteSideActionButton(
             icon: Icons.build,
+            label: kqLocaleText(zhCn: '操作', en: 'Tools'),
             onPressed: () =>
                 gFFI.dialogManager.toggleMobileActionsOverlay(ffi: gFFI),
           )
         else
           _remoteSideActionButton(
             icon: gFFI.ffiModel.touchMode ? Icons.touch_app : Icons.mouse,
+            label: gFFI.ffiModel.touchMode
+                ? kqLocaleText(zhCn: '手势', en: 'Touch')
+                : kqLocaleText(zhCn: '鼠标', en: 'Mouse'),
             onPressed: () =>
                 setState(() => _showGestureHelp = !_showGestureHelp),
           ),
@@ -526,14 +537,12 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
             if (!showVoiceCall) {
               return const SizedBox.shrink();
             }
-            return _remoteSideActionButton(
-              icon: Icons.call_rounded,
-              onPressed: () => showChatOptions(widget.id),
-            );
+            return _remoteVoiceCallButton();
           },
         ),
       _remoteSideActionButton(
         icon: Icons.more_vert,
+        label: kqLocaleText(zhCn: '更多', en: 'More'),
         onPressed: () {
           setState(() => _showEdit = false);
           showActions(widget.id);
@@ -541,6 +550,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       ),
       Obx(() => _remoteSideActionButton(
             icon: Icons.chevron_right,
+            label: kqLocaleText(zhCn: '收起', en: 'Hide'),
             onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
                 ? null
                 : () => setState(() => _showBar = !_showBar),
@@ -567,14 +577,88 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Widget _remoteSideActionButton({
     required IconData icon,
+    required String label,
     required VoidCallback? onPressed,
+    Color color = Colors.white,
+    Color? backgroundColor,
   }) {
-    return IconButton(
-      color: Colors.white,
-      disabledColor: Colors.white38,
-      icon: Icon(icon),
-      onPressed: onPressed,
+    final effectiveColor = onPressed == null ? Colors.white38 : color;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Material(
+        color: backgroundColor ?? Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 54,
+            height: 46,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: effectiveColor, size: 20),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: effectiveColor,
+                    fontSize: 10,
+                    height: 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
+  }
+
+  Widget _remoteVoiceCallButton() {
+    return Obx(() {
+      final status = gFFI.chatModel.voiceCallStatus.value;
+      final isWaiting = status == VoiceCallStatus.waitingForResponse;
+      final isConnected = status == VoiceCallStatus.connected;
+      final isIncoming = status == VoiceCallStatus.incoming;
+      final isInVoice = isWaiting || isConnected || isIncoming;
+      return _remoteSideActionButton(
+        icon: isConnected ? Icons.call_end_rounded : Icons.call_rounded,
+        label: isConnected
+            ? kqLocaleText(zhCn: '结束', en: 'End')
+            : isWaiting
+                ? kqLocaleText(zhCn: '等待', en: 'Wait')
+                : isIncoming
+                    ? kqLocaleText(zhCn: '来电', en: 'Call')
+                    : kqLocaleText(zhCn: '语音', en: 'Voice'),
+        color: isConnected
+            ? Colors.redAccent
+            : isWaiting
+                ? Colors.amberAccent
+                : Colors.white,
+        backgroundColor: isInVoice ? Colors.white.withOpacity(0.12) : null,
+        onPressed: isInVoice ? _endMobileVoiceCall : _requestMobileVoiceCall,
+      );
+    });
+  }
+
+  void _requestMobileVoiceCall() {
+    setState(() {
+      _showBar = false;
+      _showEdit = false;
+    });
+    bind.sessionRequestVoiceCall(sessionId: sessionId);
+    showToast('已发起语音通话，等待对方接听');
+  }
+
+  void _endMobileVoiceCall() {
+    bind.sessionCloseVoiceCall(sessionId: sessionId);
+    showToast(translate('End voice call'));
   }
 
   bool get showCursorPaint =>
@@ -583,7 +667,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       !gFFI.inputModel.relativeMouseMode.value;
 
   Widget getBodyForMobile() {
-    final keyboardIsVisible = keyboardVisibilityController.isVisible;
+    final keyboardIsVisible = _softKeyboardActive;
     return Container(
         color: MyTheme.canvasColor,
         child: Stack(children: () {
@@ -735,9 +819,6 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   showChatOptions(String id) async {
-    onPressVoiceCall() => bind.sessionRequestVoiceCall(sessionId: sessionId);
-    onPressEndVoiceCall() => bind.sessionCloseVoiceCall(sessionId: sessionId);
-
     makeTextMenu(String label, Widget icon, VoidCallback onPressed,
             {TextStyle? labelStyle}) =>
         TTextMenu(
@@ -767,7 +848,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                 colorFilter:
                     ColorFilter.mode(Colors.redAccent, BlendMode.srcIn),
               ),
-              onPressEndVoiceCall,
+              _endMobileVoiceCall,
               labelStyle: TextStyle(color: Colors.redAccent))
           : makeTextMenu(
               'Voice call',
@@ -775,7 +856,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                 'assets/call_wait.svg',
                 colorFilter: ColorFilter.mode(MyTheme.accent, BlendMode.srcIn),
               ),
-              onPressVoiceCall),
+              _requestMobileVoiceCall),
     ];
 
     final menuItems = menus
@@ -1064,6 +1145,13 @@ class ImagePaint extends StatelessWidget {
   final FfiModel ffiModel;
   ImagePaint({Key? key, required this.ffiModel}) : super(key: key);
 
+  FilterQuality _remoteImageFilterQuality(double scale) {
+    if (scale < 1.0) {
+      return FilterQuality.high;
+    }
+    return FilterQuality.medium;
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = Provider.of<ImageModel>(context);
@@ -1078,7 +1166,12 @@ class ImagePaint extends StatelessWidget {
     final adjust = c.getAdjustY();
     return CustomPaint(
       painter: ImagePainter(
-          image: m.image, x: c.x / s, y: (c.y + adjust) / s, scale: s),
+        image: m.image,
+        x: c.x / s,
+        y: (c.y + adjust) / s,
+        scale: s,
+        filterQuality: _remoteImageFilterQuality(s),
+      ),
     );
   }
 }
@@ -1096,17 +1189,11 @@ class CursorPaint extends StatelessWidget {
     double hotx = m.hotx;
     double hoty = m.hoty;
     var image = m.image;
-    if (image == null) {
-      if (preDefaultCursor.image != null) {
-        image = preDefaultCursor.image;
-        hotx = preDefaultCursor.image!.width / 2;
-        hoty = preDefaultCursor.image!.height / 2;
-      }
-    }
-    if (preForbiddenCursor.image != null &&
+    final showForbiddenCursor = preForbiddenCursor.image != null &&
         !ffiModel.viewOnly &&
         !ffiModel.keyboard &&
-        !ShowRemoteCursorState.find(id).value) {
+        !ShowRemoteCursorState.find(id).value;
+    if (image == null && showForbiddenCursor) {
       image = preForbiddenCursor.image;
       hotx = preForbiddenCursor.image!.width / 2;
       hoty = preForbiddenCursor.image!.height / 2;
@@ -1381,6 +1468,9 @@ TTextMenu? getVirtualDisplayMenu(FFI ffi, String id) {
 }
 
 TTextMenu? getResolutionMenu(FFI ffi, String id) {
+  if (appName == '鲲穹远程桌面') {
+    return null;
+  }
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
   final resolutions = pi.resolutions;
@@ -1394,22 +1484,22 @@ TTextMenu? getResolutionMenu(FFI ffi, String id) {
     child: Text(translate("Resolution")),
     onPressed: () {
       ffi.dialogManager.show((setState, close, context) {
-        final children = resolutions
-            .map((e) => getRadio<String>(
-                  Text('${e.width}x${e.height}'),
-                  '${e.width}x${e.height}',
-                  '${display.width}x${display.height}',
-                  (value) {
-                    close();
-                    bind.sessionChangeResolution(
-                      sessionId: ffi.sessionId,
-                      display: pi.currentDisplay,
-                      width: e.width,
-                      height: e.height,
-                    );
-                  },
-                ))
-            .toList();
+        final children = resolutions.map((e) {
+          return getRadio<String>(
+            Text('${e.width}x${e.height}'),
+            '${e.width}x${e.height}',
+            '${display.width}x${display.height}',
+            (value) {
+              close();
+              bind.sessionChangeResolution(
+                sessionId: ffi.sessionId,
+                display: pi.currentDisplay,
+                width: e.width,
+                height: e.height,
+              );
+            },
+          );
+        }).toList();
         return CustomAlertDialog(
           title: Text(translate('Resolution')),
           content: Column(

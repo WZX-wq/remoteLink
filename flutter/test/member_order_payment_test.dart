@@ -65,6 +65,46 @@ void main() {
       expect(kqPaymentQrPayloadFromImageBytes(_qrPngBytes(payload)), payload);
     });
   });
+
+  group('KqMemberOrder Alipay QR payload', () {
+    test('builds a scannable gateway URL from Alipay submit HTML', () {
+      final order = KqMemberOrder.fromJson({
+        'order_no': 'order-alipay-html',
+        'pay_type': 2,
+        'alipaysubmit_html': '''
+          <form method="post" action="https://openapi.alipay.com/gateway.do?charset=utf-8">
+            <input type="hidden" name="app_id" value="2021000000000000">
+            <input type="hidden" name="method" value="alipay.trade.page.pay">
+            <input type="hidden" name="biz_content" value="{&quot;out_trade_no&quot;:&quot;A123&quot;}">
+            <input type="submit" value="pay">
+          </form>
+        ''',
+      });
+
+      final payload = kqAlipayPaymentQrPayload(order);
+      final uri = Uri.parse(payload!);
+
+      expect(uri.host, 'openapi.alipay.com');
+      expect(uri.queryParameters['charset'], 'utf-8');
+      expect(uri.queryParameters['app_id'], '2021000000000000');
+      expect(uri.queryParameters['method'], 'alipay.trade.page.pay');
+      expect(uri.queryParameters['biz_content'], '{"out_trade_no":"A123"}');
+    });
+
+    test('extracts encoded Alipay app links before HTML fallback', () {
+      final order = KqMemberOrder.fromJson({
+        'order_no': 'order-alipay-link',
+        'pay_type': 2,
+        'alipay_app_url':
+            'https://cashier.example.test/?url=alipays%3A%2F%2Fplatformapi%2Fstartapp%3FappId%3D20000067',
+      });
+
+      expect(
+        kqAlipayPaymentQrPayload(order),
+        'alipays://platformapi/startapp?appId=20000067',
+      );
+    });
+  });
 }
 
 List<int> _qrPngBytes(String text) {

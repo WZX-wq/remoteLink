@@ -52,79 +52,6 @@ use crate::keyboard;
 use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
-const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
-const KQ_MEMBER_USER_ID_KEY: &str = "kq_member_user_id";
-const KQ_REMOTE_RESOLUTION_TIER_KEY: &str = "kq_remote_resolution_tier";
-const KQ_TEST_UNLIMITED_MEMBER_USER_ID: &str = "13";
-const KQ_FREE_MAX_LONG_EDGE: i32 = 1280;
-const KQ_FREE_MAX_SHORT_EDGE: i32 = 720;
-const KQ_MEMBER_MAX_LONG_EDGE: i32 = 1920;
-const KQ_MEMBER_MAX_SHORT_EDGE: i32 = 1080;
-
-fn kq_json_id(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.trim().to_owned(),
-        serde_json::Value::Number(n) => n.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn kq_local_user_primary_id() -> String {
-    let user_info = LocalConfig::get_option("user_info");
-    if user_info.trim().is_empty() {
-        return String::new();
-    }
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&user_info) else {
-        return String::new();
-    };
-    let direct = value.get("id").map(kq_json_id).unwrap_or_default();
-    if !direct.is_empty() {
-        return direct;
-    }
-    value
-        .get("external_auth_raw")
-        .and_then(|raw| raw.get("user"))
-        .and_then(|user| user.get("id"))
-        .map(kq_json_id)
-        .unwrap_or_default()
-}
-
-fn kq_member_active() -> bool {
-    let user_id = kq_local_user_primary_id();
-    if user_id == KQ_TEST_UNLIMITED_MEMBER_USER_ID {
-        return true;
-    }
-    !user_id.is_empty()
-        && LocalConfig::get_option(KQ_MEMBER_ACTIVE_KEY) == "Y"
-        && LocalConfig::get_option(KQ_MEMBER_USER_ID_KEY) == user_id
-}
-
-#[inline]
-fn kq_remote_resolution_cap() -> (i32, i32) {
-    if kq_member_active() && LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY) == "1080p" {
-        (KQ_MEMBER_MAX_LONG_EDGE, KQ_MEMBER_MAX_SHORT_EDGE)
-    } else {
-        (KQ_FREE_MAX_LONG_EDGE, KQ_FREE_MAX_SHORT_EDGE)
-    }
-}
-
-#[inline]
-fn clamp_kq_remote_resolution(width: i32, height: i32) -> (i32, i32) {
-    if width <= 0 || height <= 0 {
-        return (width, height);
-    }
-    let (max_long, max_short) = kq_remote_resolution_cap();
-    let long = width.max(height);
-    let short = width.min(height);
-    if long <= max_long && short <= max_short {
-        return (width, height);
-    }
-    let scale = (max_long as f64 / long as f64).min(max_short as f64 / short as f64);
-    (
-        ((width as f64 * scale).round() as i32).max(1),
-        ((height as f64 * scale).round() as i32).max(1),
-    )
-}
 
 #[derive(Clone, Default)]
 pub struct Session<T: InvokeUiSession> {
@@ -938,9 +865,17 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn switch_display(&self, display: i32) {
-        let (w, h) = match self.lc.read().unwrap().get_custom_resolution(display) {
-            Some((w, h)) => (w, h),
-            None => (0, 0),
+        let (w, h) = if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            self.lc
+                .write()
+                .unwrap()
+                .set_custom_resolution(display, None);
+            (0, 0)
+        } else {
+            match self.lc.read().unwrap().get_custom_resolution(display) {
+                Some((w, h)) => (w, h),
+                None => (0, 0),
+            }
         };
 
         let mut misc = Misc::new();
@@ -1595,6 +1530,9 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     fn set_custom_resolution(&self, display: &SwitchDisplay) {
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            return;
+        }
         if display.width == display.original_resolution.width
             && display.height == display.original_resolution.height
         {
@@ -1631,7 +1569,10 @@ impl<T: InvokeUiSession> Session<T> {
 
     #[inline]
     pub fn change_resolution(&self, display: i32, width: i32, height: i32) {
-        let (width, height) = clamp_kq_remote_resolution(width, height);
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            log::info!("KQ skips remote display resolution change request");
+            return;
+        }
         *self.last_change_display.lock().unwrap() =
             ChangeDisplayRecord::new(display, width, height);
         self.do_change_resolution(display, width, height);
@@ -1639,6 +1580,13 @@ impl<T: InvokeUiSession> Session<T> {
 
     #[inline]
     fn try_change_init_resolution(&self, display: i32) {
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            self.lc
+                .write()
+                .unwrap()
+                .set_custom_resolution(display, None);
+            return;
+        }
         let Some((w, h)) = self.lc.read().unwrap().get_custom_resolution(display) else {
             return;
         };

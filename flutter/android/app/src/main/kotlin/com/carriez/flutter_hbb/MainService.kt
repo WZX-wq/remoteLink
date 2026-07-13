@@ -155,7 +155,7 @@ class MainService : Service() {
                                 MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                                     "type" to "custom-nook-nocancel-hasclose-error",
                                     "title" to "Voice call",
-                                    "text" to "Failed to switch out voice call."))
+                                    "text" to "Failed"))
                             }
                         }
                     } else {
@@ -164,7 +164,7 @@ class MainService : Service() {
                             MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                                 "type" to "custom-nook-nocancel-hasclose-error",
                                 "title" to "Voice call",
-                                "text" to "Failed to switch to voice call."))
+                                "text" to "no_audio_input_device_tip"))
                         }
                     }
                 } catch (e: JSONException) {
@@ -326,24 +326,30 @@ class MainService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("whichService", "this service: ${Thread.currentThread()}")
         super.onStartCommand(intent, flags, startId)
-        if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
-            createForegroundNotification()
-
-            if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
-                FFI.startService()
+        when (intent?.action) {
+            ACT_STOP_MAIN_SERVICE -> {
+                Log.d(logTag, "service stopping from floating window")
+                destroy()
             }
-            Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
-            val mediaProjectionManager =
-                getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            ACT_INIT_MEDIA_PROJECTION_AND_SERVICE -> {
+                createForegroundNotification()
 
-            intent.getParcelableExtra<Intent>(EXT_MEDIA_PROJECTION_RES_INTENT)?.let {
-                mediaProjection =
-                    mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
-                checkMediaPermission()
-                _isReady = true
-            } ?: let {
-                Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
-                requestMediaProjection()
+                if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
+                    FFI.startService()
+                }
+                Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
+                val mediaProjectionManager =
+                    getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+
+                intent.getParcelableExtra<Intent>(EXT_MEDIA_PROJECTION_RES_INTENT)?.let {
+                    mediaProjection =
+                        mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
+                    checkMediaPermission()
+                    _isReady = true
+                } ?: let {
+                    Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
+                    requestMediaProjection()
+                }
             }
         }
         return START_NOT_STICKY // don't use sticky (auto restart), the new service (from auto restart) will lose control
@@ -476,6 +482,11 @@ class MainService : Service() {
 
     fun destroy() {
         Log.d(logTag, "destroy service")
+        if (!isReady && !isStart && !isAudioStart && mediaProjection == null) {
+            stopService(Intent(this, FloatingWindowService::class.java))
+            stopSelf()
+            return
+        }
         _isReady = false
         _isAudioStart = false
 

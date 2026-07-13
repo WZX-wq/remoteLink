@@ -650,8 +650,8 @@ fn run(vs: VideoService) -> ResultType<()> {
     let repeat_encode_max = 10;
     let mut encode_fail_counter = 0;
     let mut first_frame = true;
-    let capture_width = c.width;
-    let capture_height = c.height;
+    let encoded_width = encoder.yuvfmt().w;
+    let encoded_height = encoder.yuvfmt().h;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
 
     while sp.ok() {
@@ -776,8 +776,8 @@ fn run(vs: VideoService) -> ResultType<()> {
                         recorder.clone(),
                         &mut encode_fail_counter,
                         &mut first_frame,
-                        capture_width,
-                        capture_height,
+                        encoded_width,
+                        encoded_height,
                     )?;
                     frame_controller.set_send(now, send_conn_ids);
                     send_counter += 1;
@@ -835,8 +835,8 @@ fn run(vs: VideoService) -> ResultType<()> {
                             recorder.clone(),
                             &mut encode_fail_counter,
                             &mut first_frame,
-                            capture_width,
-                            capture_height,
+                            encoded_width,
+                            encoded_height,
                         )?;
                         frame_controller.set_send(now, send_conn_ids);
                         send_counter += 1;
@@ -1328,7 +1328,14 @@ fn check_qos(
     name: &str,
 ) -> ResultType<()> {
     let mut video_qos = VIDEO_QOS.lock().unwrap();
-    *spf = video_qos.spf();
+    let next_spf = video_qos.spf();
+    if *spf != next_spf {
+        *spf = next_spf;
+        let fps = video_qos.fps();
+        if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            log::info!("KQ video FPS in service: {fps}");
+        }
+    }
     if *ratio != video_qos.ratio() {
         *ratio = video_qos.ratio();
         if encoder.support_changing_quality() {

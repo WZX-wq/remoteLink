@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
@@ -17,6 +20,7 @@ import '../../common/widgets/toolbar.dart';
 import '../../models/model.dart';
 import '../../models/input_model.dart';
 import '../../models/platform_model.dart';
+import '../../models/video_render_policy.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
 import '../widgets/remote_toolbar.dart';
@@ -101,8 +105,16 @@ class _RemotePageState extends State<RemotePage>
   Function(bool)? _onEnterOrLeaveImage4Toolbar;
 
   late FFI _ffi;
+  final GlobalKey _remoteSceneDiagnosticKey = GlobalKey();
+  bool _remoteSceneDiagnosticStarted = false;
 
   SessionID get sessionId => _ffi.sessionId;
+
+  bool get _shouldShowConnectionOverlay => shouldShowRemoteConnectionOverlay(
+        isWindowsPlatform: isWindows,
+        isDesktopPlatform: isDesktop,
+        isWebPlatform: isWeb,
+      );
 
   _RemotePageState(String id) {
     _initStates(id);
@@ -121,11 +133,23 @@ class _RemotePageState extends State<RemotePage>
     _ffi = FFI(widget.sessionId);
     Get.put<FFI>(_ffi, tag: widget.id);
     _ffi.imageModel.addCallbackOnFirstImage((String peerId) {
+      if (DateTime.now().difference(togglePrivacyModeTime) >
+          const Duration(milliseconds: 3000)) {
+        _ffi.dialogManager.dismissAll();
+      }
       _ffi.canvasModel.activateLocalCursor();
-      showKBLayoutTypeChooserIfNeeded(
-          _ffi.ffiModel.pi.platform, _ffi.dialogManager);
+      // The chooser is implemented with OverlayDialogManager. RemotePage on
+      // KQ Windows intentionally has no page-local Overlay, so auto-opening it
+      // during the first-frame callback can leave only a full-window modal
+      // barrier visible above an otherwise healthy video scene. The chooser
+      // remains available from the toolbar when the user needs it.
+      if (_shouldShowConnectionOverlay) {
+        showKBLayoutTypeChooserIfNeeded(
+            _ffi.ffiModel.pi.platform, _ffi.dialogManager);
+      }
       _ffi.recordingModel
           .updateStatus(bind.sessionGetIsRecording(sessionId: _ffi.sessionId));
+      _scheduleRemoteSceneDiagnosticCapture();
     });
     _ffi.canvasModel.initializeEdgeScrollFallback(this);
     _ffi.start(
@@ -140,8 +164,10 @@ class _RemotePageState extends State<RemotePage>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
-      _ffi.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      if (_shouldShowConnectionOverlay) {
+        _ffi.dialogManager
+            .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      }
     });
     WakelockManager.enable(_uniqueKey);
 
@@ -343,15 +369,6 @@ class _RemotePageState extends State<RemotePage>
     removeSharedStates(widget.id);
   }
 
-  Widget emptyOverlay() => BlockableOverlay(
-        /// the Overlay key will be set with _blockableOverlayState in BlockableOverlay
-        /// see override build() in [BlockableOverlay]
-        state: _blockableOverlayState,
-        underlying: Container(
-          color: Colors.transparent,
-        ),
-      );
-
   Widget buildBody(BuildContext context) {
     remoteToolbar(BuildContext context) => RemoteToolbar(
           id: widget.id,
@@ -401,72 +418,111 @@ class _RemotePageState extends State<RemotePage>
                   child: getBodyForDesktop(context))),
           Stack(
             children: [
-              _ffi.ffiModel.pi.isSet.isTrue &&
-                      _ffi.ffiModel.waitForFirstImage.isTrue
-                  ? emptyOverlay()
-                  : () {
-                      if (!_ffi.ffiModel.isPeerAndroid) {
-                        return Offstage();
-                      } else {
-                        return Obx(() => Offstage(
-                              offstage: _ffi.dialogManager
-                                  .mobileActionsOverlayVisible.isFalse,
-                              child: Overlay(initialEntries: [
-                                makeMobileActionsOverlayEntry(
-                                  () => _ffi.dialogManager
-                                      .setMobileActionsOverlayVisible(false),
-                                  ffi: _ffi,
-                                )
-                              ]),
-                            ));
-                      }
-                    }(),
-              // Use Overlay to enable rebuild every time on menu button click.
+              if (_ffi.ffiModel.pi.isSet.isTrue &&
+                  _ffi.ffiModel.waitForFirstImage.isFalse &&
+                  _ffi.ffiModel.isPeerAndroid)
+                Obx(() => Offstage(
+                      offstage: _ffi
+                          .dialogManager.mobileActionsOverlayVisible.isFalse,
+                      child: Overlay(initialEntries: [
+                        makeMobileActionsOverlayEntry(
+                          () => _ffi.dialogManager
+                              .setMobileActionsOverlayVisible(false),
+                          ffi: _ffi,
+                        )
+                      ]),
+                    )),
               // Hide toolbar when relative mouse mode is active to prevent
               // cursor from escaping to toolbar area.
               Obx(() => _ffi.inputModel.relativeMouseMode.value
                   ? const Offstage()
-                  : _ffi.ffiModel.pi.isSet.isTrue
-                      ? Overlay(initialEntries: [
-                          OverlayEntry(builder: remoteToolbar)
-                        ])
-                      : remoteToolbar(context)),
-              _ffi.ffiModel.pi.isSet.isFalse ? emptyOverlay() : Offstage(),
+                  : remoteToolbar(context)),
             ],
           ),
+          if (isWindows)
+            Positioned.fill(
+              child: Obx(() => IgnorePointer(
+                    ignoring: !_blockableOverlayState.middleBlocked.value,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) {
+                        _blockableOverlayState.onMiddleBlockedClick?.call();
+                      },
+                      child: const SizedBox.expand(),
+                    ),
+                  )),
+            ),
         ],
       );
     }
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
-      body: Obx(() {
-        final imageReady = _ffi.ffiModel.pi.isSet.isTrue &&
-            _ffi.ffiModel.waitForFirstImage.isFalse;
-        if (imageReady) {
-          // If the privacy mode(disable physical displays) is switched,
-          // we should not dismiss the dialog immediately.
-          if (DateTime.now().difference(togglePrivacyModeTime) >
-              const Duration(milliseconds: 3000)) {
-            // `dismissAll()` is to ensure that the state is clean.
-            // It's ok to call dismissAll() here.
-            _ffi.dialogManager.dismissAll();
-            // Recreate the block state to refresh the state.
-            _blockableOverlayState = BlockableOverlayState();
-            _blockableOverlayState.applyFfi(_ffi);
-          }
-          // Block the whole `bodyWidget()` when dialog shows.
-          return BlockableOverlay(
-            underlying: bodyWidget(),
-            state: _blockableOverlayState,
-          );
-        } else {
-          // `_blockableOverlayState` is not recreated here.
-          // The toolbar's block state won't work properly when reconnecting, but that's okay.
-          return bodyWidget();
-        }
-      }),
+    final underlying = Obx(() => bodyWidget());
+    return RepaintBoundary(
+      key: _remoteSceneDiagnosticKey,
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        // A second full-window Overlay can hide a valid software-video scene on
+        // Windows. Dialogs fall back to the window-level overlay instead.
+        body: isWindows
+            ? underlying
+            : BlockableOverlay(
+                underlying: underlying,
+                state: _blockableOverlayState,
+              ),
+      ),
     );
+  }
+
+  void _scheduleRemoteSceneDiagnosticCapture() {
+    if (!isWindows || _remoteSceneDiagnosticStarted) return;
+    _remoteSceneDiagnosticStarted = true;
+    Future<void>.delayed(const Duration(milliseconds: 500), () async {
+      if (!mounted || _ffi.closed) return;
+      final display = _ffi.ffiModel.pi.currentDisplay;
+      try {
+        await WidgetsBinding.instance.endOfFrame;
+        final decoded = _ffi.imageModel.image;
+        final boundary = _remoteSceneDiagnosticKey.currentContext
+            ?.findRenderObject() as RenderRepaintBoundary?;
+        if (decoded == null || boundary == null || boundary.debugNeedsPaint) {
+          platformFFI.logRgbaStage(
+              _ffi.sessionId, 'scene-capture-not-ready', display);
+          return;
+        }
+
+        final outputDir = Directory.systemTemp.path;
+        final suffix = _ffi.sessionId.toString();
+        final decodedBytes =
+            await decoded.toByteData(format: ui.ImageByteFormat.png);
+        if (decodedBytes != null) {
+          final decodedPath = '$outputDir${Platform.pathSeparator}'
+              'kq-decoded-frame-$suffix.png';
+          await File(decodedPath)
+              .writeAsBytes(decodedBytes.buffer.asUint8List(), flush: true);
+        }
+
+        final scene = await boundary.toImage(pixelRatio: 1);
+        try {
+          final sceneBytes =
+              await scene.toByteData(format: ui.ImageByteFormat.png);
+          if (sceneBytes != null) {
+            final scenePath = '$outputDir${Platform.pathSeparator}'
+                'kq-composited-scene-$suffix.png';
+            await File(scenePath)
+                .writeAsBytes(sceneBytes.buffer.asUint8List(), flush: true);
+          }
+          platformFFI.logRgbaStage(_ffi.sessionId, 'scene-capture-saved',
+              display, scene.width, scene.height);
+        } finally {
+          scene.dispose();
+        }
+      } catch (error, stackTrace) {
+        platformFFI.logRgbaStage(
+            _ffi.sessionId, 'scene-capture-error', display);
+        debugPrint('Failed to capture remote scene diagnostic: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    });
   }
 
   @override
@@ -669,6 +725,7 @@ class _ViewStyleUpdaterState extends State<_ViewStyleUpdater> {
         final newSize = Size(maxWidth, maxHeight);
         if (_lastSize != newSize) {
           _lastSize = newSize;
+          widget.canvasModel.setViewportSize(newSize);
           // Schedule the update for after the current frame to avoid setState during build.
           // Use _callbackScheduled flag to prevent accumulating multiple callbacks
           // when size changes rapidly before any callback executes.
@@ -716,6 +773,8 @@ class ImagePaint extends StatefulWidget {
 
 class _ImagePaintState extends State<ImagePaint> {
   bool _lastRemoteCursorMoved = false;
+  bool _loggedFirstTextureLayout = false;
+  bool _loggedFirstValidTextureLayout = false;
 
   String get id => widget.id;
   RxBool get zoomCursor => widget.zoomCursor;
@@ -780,11 +839,12 @@ class _ImagePaintState extends State<ImagePaint> {
       final paintWidth = c.getDisplayWidth() * s;
       final paintHeight = c.getDisplayHeight() * s;
       final paintSize = Size(paintWidth, paintHeight);
-      final paintWidget =
-          m.useTextureRender || widget.ffi.ffiModel.pi.forceTextureRender
-              ? _BuildPaintTextureRender(
-                  c, s, Offset.zero, paintSize, isViewOriginal())
-              : _buildScrollbarNonTextureRender(m, paintSize, s);
+      final paintWidget = _applyKqRemoteQualityPresentation(
+        m.useTextureRender || widget.ffi.ffiModel.pi.forceTextureRender
+            ? _BuildPaintTextureRender(
+                c, s, Offset.zero, paintSize, isViewOriginal())
+            : _buildScrollbarNonTextureRender(m, paintSize, s),
+      );
       return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             c.updateScrollPercent();
@@ -802,18 +862,19 @@ class _ImagePaintState extends State<ImagePaint> {
           ));
     } else {
       if (c.size.width > 0 && c.size.height > 0) {
-        final paintWidget =
-            m.useTextureRender || widget.ffi.ffiModel.pi.forceTextureRender
-                ? _BuildPaintTextureRender(
-                    c,
-                    s,
-                    Offset(
-                      isLinux ? c.x.toInt().toDouble() : c.x,
-                      isLinux ? c.y.toInt().toDouble() : c.y,
-                    ),
-                    c.size,
-                    isViewOriginal())
-                : _buildScrollAutoNonTextureRender(m, c, s);
+        final paintWidget = _applyKqRemoteQualityPresentation(
+          m.useTextureRender || widget.ffi.ffiModel.pi.forceTextureRender
+              ? _BuildPaintTextureRender(
+                  c,
+                  s,
+                  Offset(
+                    isLinux ? c.x.toInt().toDouble() : c.x,
+                    isLinux ? c.y.toInt().toDouble() : c.y,
+                  ),
+                  c.size,
+                  isViewOriginal())
+              : _buildScrollAutoNonTextureRender(m, c, s),
+        );
         return mouseRegion(child: _buildListener(paintWidget));
       } else {
         return Container();
@@ -823,16 +884,7 @@ class _ImagePaintState extends State<ImagePaint> {
 
   Widget _buildScrollbarNonTextureRender(
       ImageModel m, Size imageSize, double s) {
-    return CustomPaint(
-      size: imageSize,
-      painter: ImagePainter(
-        image: m.image,
-        x: 0,
-        y: 0,
-        scale: s,
-        filterQuality: _remoteImageFilterQuality(s),
-      ),
-    );
+    return _buildRawSoftwareImage(m, imageSize, 0, 0, s);
   }
 
   Widget _buildScrollAutoNonTextureRender(
@@ -844,16 +896,72 @@ class _ImagePaintState extends State<ImagePaint> {
         sizeScale = s / displays[0].scale;
       }
     }
-    return CustomPaint(
-      size: Size(c.size.width, c.size.height),
-      painter: ImagePainter(
-        image: m.image,
-        x: c.x / sizeScale,
-        y: c.y / sizeScale,
-        scale: sizeScale,
-        filterQuality: _remoteImageFilterQuality(sizeScale),
+    return _buildRawSoftwareImage(
+      m,
+      c.size,
+      c.x / sizeScale,
+      c.y / sizeScale,
+      sizeScale,
+    );
+  }
+
+  Widget _buildRawSoftwareImage(
+      ImageModel model, Size viewport, double x, double y, double scale) {
+    final image = model.image;
+    if (image == null || !x.isFinite || !y.isFinite || !scale.isFinite) {
+      return SizedBox(width: viewport.width, height: viewport.height);
+    }
+    _handleSoftwarePaint(model, viewport, scale);
+    return SizedBox(
+      width: viewport.width,
+      height: viewport.height,
+      child: ClipRect(
+        child: Stack(
+          children: [
+            Positioned(
+              left: x * scale,
+              top: y * scale,
+              width: image.width * scale,
+              height: image.height * scale,
+              child: RawImage(
+                image: image,
+                fit: BoxFit.fill,
+                filterQuality: _remoteImageFilterQuality(scale),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  void _handleSoftwarePaint(
+      ImageModel model, Size paintSize, double paintScale) {
+    final display = widget.ffi.ffiModel.pi.currentDisplay;
+    final firstPaint = model.markFramePainted(display);
+    if (firstPaint) {
+      platformFFI.logRgbaStage(widget.ffi.sessionId, 'canvas-paint-size',
+          display, paintSize.width.round(), paintSize.height.round());
+      platformFFI.logRgbaStage(widget.ffi.sessionId, 'canvas-paint-scale',
+          display, paintScale.isFinite ? (paintScale * 10000).round() : 0);
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted || widget.ffi.closed) return;
+        platformFFI.logRgbaStage(
+            widget.ffi.sessionId,
+            'first-frame-ui-after-paint',
+            display,
+            model.image?.width ?? 0,
+            model.image?.height ?? 0);
+        try {
+          await widget.ffi.onEvent2UIRgba(updateCanvasLayout: false);
+        } catch (error, stackTrace) {
+          platformFFI.logRgbaStage(
+              widget.ffi.sessionId, 'first-frame-ui-finalize-error', display);
+          debugPrint('Failed to finalize the first remote frame UI: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }
+      });
+    }
   }
 
   FilterQuality _remoteImageFilterQuality(double scale) {
@@ -861,6 +969,10 @@ class _ImagePaintState extends State<ImagePaint> {
       return FilterQuality.high;
     }
     return FilterQuality.medium;
+  }
+
+  Widget _applyKqRemoteQualityPresentation(Widget child) {
+    return child;
   }
 
   Widget _BuildPaintTextureRender(
@@ -874,9 +986,25 @@ class _ImagePaintState extends State<ImagePaint> {
     }
     final isPeerLinux = ffiModel.isPeerLinux;
     final curDisplay = ffiModel.pi.currentDisplay;
+    if (!_loggedFirstTextureLayout) {
+      _loggedFirstTextureLayout = true;
+      platformFFI.logRgbaStage(widget.ffi.sessionId, 'texture-layout-size',
+          curDisplay, size.width.round(), size.height.round());
+      platformFFI.logRgbaStage(widget.ffi.sessionId, 'texture-layout-state',
+          curDisplay, displays.length, rect.width.round());
+    }
     for (var i = 0; i < displays.length; i++) {
       final textureId = widget.ffi.textureModel
           .getTextureId(curDisplay == kAllDisplayValue ? i : curDisplay);
+      if (!_loggedFirstValidTextureLayout && textureId.value >= 0) {
+        _loggedFirstValidTextureLayout = true;
+        platformFFI.logRgbaStage(
+            widget.ffi.sessionId,
+            'texture-layout-valid-id',
+            curDisplay,
+            textureId.value,
+            (s * 10000).round());
+      }
       if (true) {
         // both "textureId.value != -1" and "true" seems ok
         final sizeScale = isPeerLinux ? s / displays[i].scale : s;
@@ -889,9 +1017,7 @@ class _ImagePaintState extends State<ImagePaint> {
                 textureId: textureId.value,
                 filterQuality: isViewOriginal
                     ? FilterQuality.none
-                    : (sizeScale < 1.0
-                        ? FilterQuality.high
-                        : FilterQuality.low),
+                    : _remoteImageFilterQuality(sizeScale),
               )),
         ));
       }

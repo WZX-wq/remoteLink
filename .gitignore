@@ -18,7 +18,11 @@ src/version.rs
 *tgz
 cert.pfx
 *.bak
+*.bak-*
+/dist/
+/logs/
 *png
+!flutter/assets/icon.png
 !server/public/assets/kq-icon.png
 *svg
 *jpg

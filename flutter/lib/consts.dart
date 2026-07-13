@@ -65,8 +65,10 @@ const String kWindowEventHide = "hide";
 const String kWindowEventShow = "show";
 const String kWindowConnect = "connect";
 const String kWindowBumpMouse = "bump_mouse";
+const String kWindowShowToast = "show_toast";
 
 const String kWindowEventNewRemoteDesktop = "new_remote_desktop";
+const String kWindowEventRemoteReady = "remote_ready";
 const String kWindowEventNewFileTransfer = "new_file_transfer";
 const String kWindowEventNewViewCamera = "new_view_camera";
 const String kWindowEventNewPortForward = "new_port_forward";
@@ -132,6 +134,8 @@ const String kOptionKqPermanentPasswordPreview =
 const String kOptionKqSelectedPasswordKind = "kq-selected-password-kind";
 const String kOptionKqRememberConnectPasswordOnce =
     "kq-remember-connect-password-once";
+const String kOptionKqRememberConnectPasswordPreference =
+    "kq-remember-connect-password-preference";
 const String kOptionApproveMode = "approve-mode";
 const String kOptionAllowNumericOneTimePassword =
     "allow-numeric-one-time-password";

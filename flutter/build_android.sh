@@ -85,6 +85,12 @@ fi
 
 ./flutter/build_android_deps.sh "${ANDROID_ABI}"
 
+SODIUM_LIB_DIR="${VCPKG_ROOT}/installed/arm64-android/lib"
+if [[ -f "${SODIUM_LIB_DIR}/libsodium.a" && ! -f "${SODIUM_LIB_DIR}/liblibsodium.a" ]]; then
+  cp "${SODIUM_LIB_DIR}/libsodium.a" "${SODIUM_LIB_DIR}/liblibsodium.a"
+fi
+export SODIUM_LIB_DIR
+
 rustup target add "${RUST_TARGET}"
 bash "${NDK_SCRIPT}"
 

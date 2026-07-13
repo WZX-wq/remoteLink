@@ -261,6 +261,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   bool _connectAsFileTransfer = false;
   bool _passwordVisible = false;
   bool _rememberPassword = false;
+  int _rememberPasswordLoadSerial = 0;
 
   bool isWindowMinimized = false;
 
@@ -284,6 +285,7 @@ class _ConnectionPageState extends State<ConnectionPage>
             _idController.id = lastRemoteId;
           });
         }
+        unawaited(_syncRememberPasswordForPeer(_idController.id));
       });
     }
     Get.put<TextEditingController>(_idEditingController);
@@ -357,6 +359,59 @@ class _ConnectionPageState extends State<ConnectionPage>
     }
   }
 
+  Future<void> _syncRememberPasswordForPeer(String id) async {
+    final peerId = trimID(id).trim();
+    final serial = ++_rememberPasswordLoadSerial;
+    if (peerId.isEmpty) {
+      if (_rememberPassword && mounted) {
+        setState(() => _rememberPassword = false);
+      }
+      return;
+    }
+
+    try {
+      final savedPreference = bind.mainGetPeerOptionSync(
+        id: peerId,
+        key: kOptionKqRememberConnectPasswordPreference,
+      );
+      final remember = savedPreference == 'Y'
+          ? true
+          : savedPreference == 'N'
+              ? false
+              : await bind.mainPeerHasPassword(id: peerId);
+      if (!mounted || serial != _rememberPasswordLoadSerial) {
+        return;
+      }
+      if (_rememberPassword != remember) {
+        setState(() => _rememberPassword = remember);
+      }
+    } catch (e) {
+      debugPrint('Failed to sync remember verification code preference: $e');
+    }
+  }
+
+  void _setRememberPassword(bool remember) {
+    final peerId = _idController.id.trim();
+    setState(() => _rememberPassword = remember);
+    if (peerId.isEmpty) {
+      return;
+    }
+    bind.mainSetPeerOptionSync(
+      id: peerId,
+      key: kOptionKqRememberConnectPasswordPreference,
+      value: remember ? 'Y' : 'N',
+    );
+  }
+
+  void _setRemoteIdAndSyncRemember(String id) {
+    final previousConnectable = _canConnect;
+    _idController.id = id;
+    unawaited(_syncRememberPasswordForPeer(_idController.id));
+    if (previousConnectable != _canConnect) {
+      setState(() {});
+    }
+  }
+
   void _selectConnectionMode({required bool fileTransfer}) {
     // kq-v224-file-transfer-mode-selection
     if (_connectAsFileTransfer == fileTransfer) return;
@@ -424,7 +479,7 @@ class _ConnectionPageState extends State<ConnectionPage>
         isViewCamera: isViewCamera,
         isTerminal: isTerminal,
         password: password.isEmpty ? null : password,
-        rememberPassword: _rememberPassword);
+        rememberPassword: password.isNotEmpty && _rememberPassword);
   }
 
   /// UI for the remote ID TextField.
@@ -630,40 +685,48 @@ class _ConnectionPageState extends State<ConnectionPage>
 
     Widget rememberPasswordOption() {
       // kq-v229-connect-remember-password-choice
+      final label = kqLocaleText(
+        zhCn: '记住今日/长期验证码',
+        en: 'Remember today/permanent code',
+      );
+      final tooltip = kqLocaleText(
+        zhCn: '仅适用于今日验证码和长期验证码；一次性验证码无需记住。',
+        en: 'Only for today and permanent codes. One-time codes are not useful to remember.',
+      );
       return MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () {
-            setState(() {
-              _rememberPassword = !_rememberPassword;
-            });
-          },
+          onTap: () => _setRememberPassword(!_rememberPassword),
           child: SizedBox(
             height: 30,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _rememberPassword
-                      ? Icons.check_box_rounded
-                      : Icons.check_box_outline_blank_rounded,
-                  size: 18,
-                  color: _rememberPassword ? q.primary : q.line,
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  translate('Remember password'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: q.muted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    height: 1,
+            child: Tooltip(
+              message: tooltip,
+              waitDuration: const Duration(milliseconds: 200),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _rememberPassword
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    size: 18,
+                    color: _rememberPassword ? q.primary : q.line,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 7),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: q.muted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      height: 1,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -781,23 +844,15 @@ class _ConnectionPageState extends State<ConnectionPage>
                                       ? null
                                       : translate('Enter Remote ID'),
                                   inputFormatters: [IDTextInputFormatter()],
-                                  onChanged: (v) {
-                                    final wasConnectable = _canConnect;
-                                    _idController.id = v;
-                                    if (wasConnectable != _canConnect) {
-                                      setState(() {});
-                                    }
-                                  },
+                                  onChanged: _setRemoteIdAndSyncRemember,
                                   onSubmitted: (_) {
                                     _connectWithSelectedMode();
                                   },
                                 ));
                           },
                           onSelected: (option) {
-                            setState(() {
-                              _idController.id = option.id;
-                              FocusScope.of(context).unfocus();
-                            });
+                            _setRemoteIdAndSyncRemember(option.id);
+                            FocusScope.of(context).unfocus();
                           },
                           optionsViewBuilder: (BuildContext context,
                               AutocompleteOnSelected<Peer> onSelected,

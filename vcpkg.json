@@ -25,6 +25,10 @@
       "platform": "android"
     },
     {
+      "name": "libsodium",
+      "platform": "android"
+    },
+    {
       "name": "opus",
       "host": true
     },

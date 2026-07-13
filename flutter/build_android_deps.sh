@@ -20,6 +20,22 @@ if [ -z "$VCPKG_ROOT" ]; then
   exit 1
 fi
 
+# FFmpeg builds a few helper tools for the Windows host even while it is
+# cross-compiling the Android libraries. On Windows, the Android NDK clang is
+# also named clang.exe, and using it as FFmpeg's host compiler fails because it
+# cannot find the host C runtime headers. Prefer vcpkg's desktop clang for the
+# host side when available; the target compiler still comes from the NDK triplet.
+if [ -z "${FFMPEG_HOST_CC:-}" ]; then
+  for host_cc in \
+    "$VCPKG_ROOT/downloads/tools/clang/clang-15.0.6/bin/clang.exe" \
+    "$VCPKG_ROOT/downloads/tools/clang/clang-15.0.6/bin/clang"; do
+    if [ -x "$host_cc" ]; then
+      export FFMPEG_HOST_CC="$host_cc"
+      break
+    fi
+  done
+fi
+
 API_LEVEL="21"
 
 # Get directory of this script

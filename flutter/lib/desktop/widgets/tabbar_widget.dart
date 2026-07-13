@@ -529,7 +529,11 @@ class _DesktopTabState extends State<DesktopTab>
                 SizedBox(
                   height:
                       showBottomDivider ? _kTabBarHeight - 1 : _kTabBarHeight,
-                  child: _buildBar(),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onPanStart: (_) => startDragging(isMainWindow),
+                    child: _buildBar(),
+                  ),
                 ),
                 if (showBottomDivider)
                   const Divider(

@@ -98,6 +98,8 @@ pub const MILLI1: Duration = Duration::from_millis(1);
 pub const SEC30: Duration = Duration::from_secs(30);
 pub const VIDEO_QUEUE_SIZE: usize = 120;
 const MAX_DECODE_FAIL_COUNTER: usize = 3;
+const KQ_CONNECTION_START_TIMEOUT_MS: u64 = 30_000;
+const KQ_CONNECTION_START_TIMEOUT_ERROR: &str = "KQ_CONNECTION_START_TIMEOUT";
 
 const KQ_MEMBER_ACTIVE_KEY: &str = "kq_member_active";
 const KQ_MEMBER_USER_ID_KEY: &str = "kq_member_user_id";
@@ -108,11 +110,10 @@ const KQ_VIEW_STYLE_MIGRATION_KEY: &str = "kq-view-style-adaptive-migrated";
 const KQ_REMEMBER_CONNECT_PASSWORD_ONCE: &str = "kq-remember-connect-password-once";
 const KQ_VIEW_STYLE_ORIGINAL: &str = "original";
 const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
-const KQ_FREE_MAX_FPS: i32 = 30;
-const KQ_MEMBER_DEFAULT_FPS: i32 = 60;
+const KQ_FREE_MAX_FPS: i32 = 60;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
-const KQ_FREE_IMAGE_QUALITY: i32 = 80;
-const KQ_MEMBER_IMAGE_QUALITY: i32 = 80;
+const KQ_STANDARD_IMAGE_QUALITY: i32 = 80;
+const KQ_HIGH_DEFINITION_IMAGE_QUALITY: i32 = 150;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
     match value {
@@ -155,32 +156,48 @@ fn kq_member_active() -> bool {
 
 #[inline]
 fn kq_max_remote_fps() -> i32 {
-    if !kq_member_active() {
-        return KQ_FREE_MAX_FPS;
-    }
-    let fps = LocalConfig::get_option(KQ_REMOTE_FPS_TIER_KEY)
-        .parse::<i32>()
-        .unwrap_or(KQ_MEMBER_DEFAULT_FPS);
-    if fps >= KQ_MEMBER_MAX_FPS {
-        KQ_MEMBER_MAX_FPS
-    } else if fps >= KQ_MEMBER_DEFAULT_FPS {
-        KQ_MEMBER_DEFAULT_FPS
-    } else {
-        KQ_FREE_MAX_FPS
-    }
+    KQ_MEMBER_MAX_FPS
 }
 
 #[inline]
-fn clamp_kq_remote_fps(fps: i32) -> i32 {
-    fps.clamp(5, kq_max_remote_fps())
+fn clamp_kq_remote_fps(_fps: i32) -> i32 {
+    kq_max_remote_fps()
+}
+
+#[inline]
+fn kq_remote_custom_image_quality_for_tier(tier: &str) -> i32 {
+    if tier == "1080p" {
+        KQ_HIGH_DEFINITION_IMAGE_QUALITY
+    } else {
+        KQ_STANDARD_IMAGE_QUALITY
+    }
 }
 
 #[inline]
 fn kq_remote_custom_image_quality() -> i32 {
-    if kq_member_active() && LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY) == "1080p" {
-        KQ_MEMBER_IMAGE_QUALITY
+    let tier = if kq_member_active() {
+        LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY)
     } else {
-        KQ_FREE_IMAGE_QUALITY
+        String::new()
+    };
+    kq_remote_custom_image_quality_for_tier(&tier)
+}
+
+#[cfg(test)]
+mod kq_remote_video_quality_tests {
+    use super::*;
+
+    #[test]
+    fn profiles_use_distinct_compression_quality() {
+        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 80);
+        assert_eq!(kq_remote_custom_image_quality_for_tier("1080p"), 150);
+        assert!(
+            kq_remote_custom_image_quality_for_tier("720p")
+                < kq_remote_custom_image_quality_for_tier("1080p")
+        );
+        assert_eq!(KQ_FREE_MAX_FPS, KQ_MEMBER_MAX_FPS);
+        assert_eq!(clamp_kq_remote_fps(30), KQ_MEMBER_MAX_FPS);
+        assert_eq!(clamp_kq_remote_fps(60), KQ_MEMBER_MAX_FPS);
     }
 }
 
@@ -267,6 +284,23 @@ fn is_retryable_direct_connection_error(err: &str) -> bool {
 
 fn kq_should_retry_punch_request_before_relay() -> bool {
     crate::get_app_name() == crate::common::KQ_APP_NAME
+}
+
+fn kq_is_terminal_connection_start_error(err: &str) -> bool {
+    err.contains(KQ_CONNECTION_START_TIMEOUT_ERROR)
+        || err.contains(crate::common::KQ_VPN_ROUTE_BLOCKED_ERROR)
+}
+
+async fn kq_connect_rendezvous_for_client_session(
+    target: &str,
+    ms_timeout: u64,
+    force_relay: bool,
+) -> ResultType<Stream> {
+    if force_relay {
+        crate::common::kq_connect_tcp_prefer_lan(target, ms_timeout).await
+    } else {
+        crate::common::kq_connect_tcp_prefer_lan_for_session(target, ms_timeout).await
+    }
 }
 
 fn kq_punch_response_timeout_ms(attempt: u64) -> u64 {
@@ -392,7 +426,27 @@ impl Client {
         debug_assert!(peer == interface.get_id());
         interface.update_direct(None);
         interface.update_received(false);
-        match Self::_start(peer, key, token, conn_type, interface.clone()).await {
+        let start_result = if crate::get_app_name() == crate::common::KQ_APP_NAME {
+            match timeout(
+                KQ_CONNECTION_START_TIMEOUT_MS,
+                Self::_start(peer, key, token, conn_type, interface.clone()),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    log::error!(
+                        "KQ connection establishment for peer {} exceeded {} ms; cancelling all pending attempts",
+                        peer,
+                        KQ_CONNECTION_START_TIMEOUT_MS
+                    );
+                    Err(anyhow!(KQ_CONNECTION_START_TIMEOUT_ERROR))
+                }
+            }
+        } else {
+            Self::_start(peer, key, token, conn_type, interface.clone()).await
+        };
+        match start_result {
             Err(err) => {
                 let err_str = err.to_string();
                 if err_str.starts_with("Failed") {
@@ -597,8 +651,24 @@ impl Client {
         bool,
     )> {
         let mut start = Instant::now();
-        let mut socket =
-            crate::common::kq_connect_tcp_prefer_lan(&rendezvous_server, CONNECT_TIMEOUT).await;
+        let initially_force_relay = interface.is_force_relay();
+        let mut socket = kq_connect_rendezvous_for_client_session(
+            &rendezvous_server,
+            CONNECT_TIMEOUT,
+            initially_force_relay,
+        )
+        .await;
+        let vpn_route_blocked = socket
+            .as_ref()
+            .err()
+            .map(|err| kq_is_terminal_connection_start_error(&err.to_string()))
+            .unwrap_or(false);
+        if vpn_route_blocked {
+            return match socket {
+                Err(err) => Err(err),
+                Ok(_) => unreachable!(),
+            };
+        }
         debug_assert!(!servers.contains(&rendezvous_server));
         let rtt = start.elapsed();
         log::debug!("TCP connection establishment time used: {:?}", rtt);
@@ -606,10 +676,26 @@ impl Client {
             log::info!("try the other servers: {:?}", servers);
             for server in servers {
                 let server = check_port(server, RENDEZVOUS_PORT);
-                socket = crate::common::kq_connect_tcp_prefer_lan(&server, CONNECT_TIMEOUT).await;
+                socket = kq_connect_rendezvous_for_client_session(
+                    &server,
+                    CONNECT_TIMEOUT,
+                    initially_force_relay,
+                )
+                .await;
                 if socket.is_ok() {
                     rendezvous_server = server;
                     break;
+                }
+                if socket
+                    .as_ref()
+                    .err()
+                    .map(|err| kq_is_terminal_connection_start_error(&err.to_string()))
+                    .unwrap_or(false)
+                {
+                    return match socket {
+                        Err(err) => Err(err),
+                        Ok(_) => unreachable!(),
+                    };
                 }
             }
             crate::refresh_rendezvous_server();
@@ -627,7 +713,7 @@ impl Client {
         let mut is_local = false;
         let mut feedback = 0;
         use hbb_common::protobuf::Enum;
-        let mut force_relay = interface.is_force_relay();
+        let mut force_relay = initially_force_relay;
         if crate::get_app_name() == crate::common::KQ_APP_NAME {
             let my_nat = NatType::from_i32(my_nat_type).unwrap_or(NatType::UNKNOWN_NAT);
             if force_relay {
@@ -760,9 +846,10 @@ impl Client {
                             peer,
                             err_text
                         );
-                        match crate::common::kq_connect_tcp_prefer_lan(
+                        match kq_connect_rendezvous_for_client_session(
                             &rendezvous_server,
                             CONNECT_TIMEOUT,
+                            force_relay,
                         )
                         .await
                         {
@@ -4740,6 +4827,7 @@ lazy_static::lazy_static! {
 pub fn check_if_retry(msgtype: &str, title: &str, text: &str, retry_for_relay: bool) -> bool {
     msgtype == "error"
         && title == "Connection Error"
+        && !kq_is_terminal_connection_start_error(text)
         && ((text.contains("10054") || text.contains("104")) && retry_for_relay
             || (!text.to_lowercase().contains("offline")
                 && !text.to_lowercase().contains("not exist")
@@ -4754,6 +4842,22 @@ pub fn check_if_retry(msgtype: &str, title: &str, text: &str, retry_for_relay: b
                 && !text.to_lowercase().contains("manually")
                 && !text.to_lowercase().contains("restricted")
                 && !text.to_lowercase().contains("not allowed")))
+}
+
+#[cfg(test)]
+mod kq_connection_start_error_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_connection_start_errors_never_auto_retry() {
+        for text in [
+            KQ_CONNECTION_START_TIMEOUT_ERROR,
+            crate::common::KQ_VPN_ROUTE_BLOCKED_ERROR,
+        ] {
+            assert!(kq_is_terminal_connection_start_error(text));
+            assert!(!check_if_retry("error", "Connection Error", text, true));
+        }
+    }
 }
 
 pub async fn hc_connection(
@@ -4991,13 +5095,27 @@ async fn test_udp_uat(
     }
     let mut last_send_time = Instant::now();
     let mut buf = [0u8; 1500];
+    // A dropped NAT-probe sender completes the oneshot receiver with an error.
+    // Never poll a completed oneshot again: Tokio deliberately panics on the second poll.
+    let mut nat_probe_finished = false;
 
     loop {
         tokio::select! {
-            Ok((addr, server)) = &mut rx => {
-                *udp_port.lock().unwrap() = addr.port();
-                log::debug!("UDP NAT test received response from {}: {}", addr, server);
-                break;
+            result = &mut rx, if !nat_probe_finished => {
+                nat_probe_finished = true;
+                match result {
+                    Ok((addr, server)) => {
+                        *udp_port.lock().unwrap() = addr.port();
+                        log::debug!("UDP NAT test received response from {}: {}", addr, server);
+                        break;
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "UDP NAT probe ended without a result; continuing with the direct UDP test: {}",
+                            err
+                        );
+                    }
+                }
             }
             _ = &mut stop_udp_rx => {
                 log::debug!("UDP NAT test received stop signal after {} packets", packets_sent);
@@ -5072,6 +5190,30 @@ async fn test_udp_uat(
         final_port > 0
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod udp_nat_probe_tests {
+    use hbb_common::tokio::{self, sync::oneshot};
+
+    #[tokio::test]
+    async fn completed_oneshot_receiver_is_disabled_before_next_select() {
+        let (tx, mut rx) = oneshot::channel::<()>();
+        drop(tx);
+        let mut finished = false;
+
+        for _ in 0..2 {
+            tokio::select! {
+                result = &mut rx, if !finished => {
+                    finished = true;
+                    assert!(result.is_err());
+                }
+                _ = hbb_common::sleep(0.001) => {}
+            }
+        }
+
+        assert!(finished);
+    }
 }
 
 #[inline]

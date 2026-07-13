@@ -23,6 +23,10 @@ final class RgbaFrame extends Struct {
 
 typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>, int);
 typedef F3Dart = Pointer<Uint8> Function(Pointer<Utf8>, Int32);
+typedef LogRgbaStageNative = Void Function(
+    Pointer<Utf8>, Pointer<Utf8>, UintPtr, UintPtr, UintPtr);
+typedef LogRgbaStageDart = void Function(
+    Pointer<Utf8>, Pointer<Utf8>, int, int, int);
 typedef HandleEvent = Future<void> Function(Map<String, dynamic> evt);
 
 /// FFI wrapper around the native Rust core.
@@ -43,6 +47,7 @@ class PlatformFFI {
 
   RustdeskImpl get ffiBind => _ffiBind;
   F3? _session_get_rgba;
+  LogRgbaStageDart? _sessionLogRgbaStage;
 
   static get localeName => Platform.localeName;
 
@@ -60,7 +65,8 @@ class PlatformFFI {
   }
 
   bool registerEventHandler(
-      String eventName, String handlerName, HandleEvent handler, {bool replace = false}) {
+      String eventName, String handlerName, HandleEvent handler,
+      {bool replace = false}) {
     debugPrint('registerEventHandler $eventName $handlerName');
     var handlers = _eventHandlers[eventName];
     if (handlers == null) {
@@ -107,6 +113,20 @@ class PlatformFFI {
       _ffiBind.sessionGetRgbaSize(sessionId: sessionId, display: display);
   void nextRgba(SessionID sessionId, int display) =>
       _ffiBind.sessionNextRgba(sessionId: sessionId, display: display);
+  void logRgbaStage(SessionID sessionId, String stage, int display,
+      [int value1 = 0, int value2 = 0]) {
+    final logger = _sessionLogRgbaStage;
+    if (logger == null) return;
+    final session = sessionId.toString().toNativeUtf8();
+    final nativeStage = stage.toNativeUtf8();
+    try {
+      logger(session, nativeStage, display, value1, value2);
+    } finally {
+      malloc.free(session);
+      malloc.free(nativeStage);
+    }
+  }
+
   void registerPixelbufferTexture(SessionID sessionId, int display, int ptr) =>
       _ffiBind.sessionRegisterPixelbufferTexture(
           sessionId: sessionId, display: display, ptr: ptr);
@@ -133,6 +153,9 @@ class PlatformFFI {
     debugPrint('initializing FFI $_appType');
     try {
       _session_get_rgba = dylib.lookupFunction<F3Dart, F3>("session_get_rgba");
+      _sessionLogRgbaStage =
+          dylib.lookupFunction<LogRgbaStageNative, LogRgbaStageDart>(
+              "session_log_rgba_stage");
       try {
         // SYSTEM user failed
         _dir = (await getApplicationDocumentsDirectory()).path;
