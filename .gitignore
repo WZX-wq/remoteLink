@@ -6,6 +6,7 @@
 *.log
 .env
 /.gitea/workflows/
+/.github/workflows/
 /deploy/
 /scripts/deploy/
 libsciter-gtk.so
