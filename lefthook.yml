@@ -1,0 +1,5 @@
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks-staged:
+      run: gitleaks protect --staged --source . --redact --no-banner

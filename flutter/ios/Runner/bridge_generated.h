@@ -341,6 +341,10 @@ void wire_session_send_chat(int64_t port_,
                             struct wire_uint_8_list *session_id,
                             struct wire_uint_8_list *text);
 
+void wire_session_send_clipboard_text(int64_t port_,
+                                      struct wire_uint_8_list *session_id,
+                                      struct wire_uint_8_list *text);
+
 void wire_session_open_terminal(int64_t port_,
                                 struct wire_uint_8_list *session_id,
                                 int32_t terminal_id,
@@ -1071,6 +1075,12 @@ void free_c_args(char **ptr, int len);
 
 int32_t get_rustdesk_app_name(uint16_t *buffer, int32_t length);
 
+void session_log_rgba_stage(const char *session_uuid_str,
+                            const char *stage,
+                            uintptr_t display,
+                            uintptr_t value1,
+                            uintptr_t value2);
+
 const uint8_t *session_get_rgba(const uint32_t *session_uuid_str, uintptr_t display);
 
 extern XserverRegion XFixesCreateRegion(Display *dpy,
@@ -1154,6 +1164,7 @@ static int64_t dummy_method_to_enforce_bundling(void) {
     dummy_var ^= ((int64_t) (void*) wire_session_input_key);
     dummy_var ^= ((int64_t) (void*) wire_session_input_string);
     dummy_var ^= ((int64_t) (void*) wire_session_send_chat);
+    dummy_var ^= ((int64_t) (void*) wire_session_send_clipboard_text);
     dummy_var ^= ((int64_t) (void*) wire_session_open_terminal);
     dummy_var ^= ((int64_t) (void*) wire_session_send_terminal_input);
     dummy_var ^= ((int64_t) (void*) wire_session_resize_terminal);

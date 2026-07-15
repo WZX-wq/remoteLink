@@ -42,6 +42,8 @@ use hbb_common::{
 #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
 use hbb_common::{tokio::sync::Mutex as TokioMutex, ResultType};
 use scrap::CodecFormat;
+#[cfg(target_os = "ios")]
+use magnum_opus::{Application::Voip, Channels::Mono, Encoder};
 use std::{
     collections::HashMap,
     ffi::c_void,
@@ -79,6 +81,10 @@ pub struct Remote<T: InvokeUiSession> {
     chroma: Arc<RwLock<Option<Chroma>>>,
     last_record_state: bool,
     sent_close_reason: bool,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_encoder: Option<Encoder>,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_format_sent: bool,
 }
 
 #[derive(Default)]
@@ -129,6 +135,10 @@ impl<T: InvokeUiSession> Remote<T> {
             chroma: Default::default(),
             last_record_state: false,
             sent_close_reason: false,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_encoder: None,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_format_sent: false,
         }
     }
 
@@ -441,6 +451,11 @@ impl<T: InvokeUiSession> Remote<T> {
         if let Some(stopper) = voice_call_sender {
             let _ = stopper.send(());
         }
+        #[cfg(target_os = "ios")]
+        {
+            self.ios_voice_call_encoder = None;
+            self.ios_voice_call_format_sent = false;
+        }
     }
 
     // Start a voice call recorder, records audio and send to remote
@@ -451,7 +466,8 @@ impl<T: InvokeUiSession> Remote<T> {
         {
             return None;
         }
-        // iOS does not have this server.
+        // Desktop and Android use the Rust audio service. iOS supplies
+        // normalized PCM frames through the native capture bridge below.
         #[cfg(not(any(target_os = "ios")))]
         {
             // NOTE:
@@ -542,7 +558,56 @@ impl<T: InvokeUiSession> Remote<T> {
         }
         #[cfg(target_os = "ios")]
         {
-            None
+            match Encoder::new(48_000, Mono, Voip) {
+                Ok(encoder) => {
+                    self.ios_voice_call_encoder = Some(encoder);
+                    self.ios_voice_call_format_sent = false;
+                    let (stopper, _receiver) = std::sync::mpsc::channel();
+                    Some(stopper)
+                }
+                Err(error) => {
+                    log::error!("Failed to create iOS voice call encoder: {}", error);
+                    None
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    async fn send_ios_voice_call_audio(&mut self, samples: Vec<f32>, peer: &mut Stream) {
+        const SAMPLES_PER_FRAME: usize = 960;
+        if samples.len() != SAMPLES_PER_FRAME {
+            log::warn!(
+                "Ignoring iOS voice PCM frame with unexpected length {}",
+                samples.len()
+            );
+            return;
+        }
+        if !self.ios_voice_call_format_sent {
+            let mut misc = Misc::new();
+            misc.set_audio_format(AudioFormat {
+                sample_rate: 48_000,
+                channels: 1,
+                ..Default::default()
+            });
+            let mut format_message = Message::new();
+            format_message.set_misc(misc);
+            allow_err!(peer.send(&format_message).await);
+            self.ios_voice_call_format_sent = true;
+        }
+        let Some(encoder) = self.ios_voice_call_encoder.as_mut() else {
+            return;
+        };
+        match encoder.encode_vec_float(&samples, samples.len() * 6) {
+            Ok(data) => {
+                let mut message = Message::new();
+                message.set_audio_frame(AudioFrame {
+                    data: data.into(),
+                    ..Default::default()
+                });
+                allow_err!(peer.send(&message).await);
+            }
+            Err(error) => log::warn!("Failed to encode iOS voice PCM: {}", error),
         }
     }
 
@@ -990,6 +1055,10 @@ impl<T: InvokeUiSession> Remote<T> {
                 self.handler
                     .on_voice_call_closed("Closed manually by the peer");
                 allow_err!(peer.send(&msg).await);
+            }
+            #[cfg(target_os = "ios")]
+            Data::IOSVoiceCallAudio(samples) => {
+                self.send_ios_voice_call_audio(samples, peer).await;
             }
             Data::ResetDecoder(display) => match display {
                 Some(display) => {
@@ -2087,9 +2156,10 @@ impl<T: InvokeUiSession> Remote<T> {
                         // TODO: maybe we will do a voice call from the peer in the future.
                     } else {
                         log::debug!("The remote has requested to close the voice call");
-                        if let Some(sender) = self.stop_voice_call_sender.take() {
-                            allow_err!(sender.send(()));
-                            self.handler.on_voice_call_closed("");
+                        if self.stop_voice_call_sender.is_some() {
+                            self.stop_voice_call();
+                            self.handler
+                                .on_voice_call_closed("Voice call closed by peer");
                         }
                     }
                 }
@@ -2101,11 +2171,17 @@ impl<T: InvokeUiSession> Remote<T> {
                         } else {
                             if response.accepted {
                                 // The peer accepted the voice call.
-                                self.handler.on_voice_call_started();
-                                self.stop_voice_call_sender = self.start_voice_call();
+                                if let Some(stopper) = self.start_voice_call() {
+                                    self.stop_voice_call_sender = Some(stopper);
+                                    self.handler.on_voice_call_started();
+                                } else {
+                                    self.handler
+                                        .on_voice_call_closed("Failed to start voice call");
+                                }
                             } else {
                                 // The peer refused the voice call.
-                                self.handler.on_voice_call_closed("");
+                                self.handler
+                                    .on_voice_call_closed("Voice call rejected by peer");
                             }
                         }
                     }

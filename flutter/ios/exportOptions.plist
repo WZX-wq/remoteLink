@@ -8,6 +8,8 @@
 	<dict>
 		<key>com.kunqiong.remotelink</key>
 		<string>match AdHoc com.kunqiong.remotelink</string>
+		<key>com.kunqiong.remotelink.broadcast</key>
+		<string>match AdHoc com.kunqiong.remotelink.broadcast</string>
 	</dict>
 	<key>signingStyle</key>
 	<string>manual</string>

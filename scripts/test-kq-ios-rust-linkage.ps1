@@ -38,13 +38,18 @@ $verifyVcpkg = Join-Path $Root 'scripts/ci/verify-ios-vcpkg-libraries.sh'
 $iosProject = Join-Path $Root 'flutter/ios/Runner.xcodeproj/project.pbxproj'
 $iosInfoPlist = Join-Path $Root 'flutter/ios/Runner/Info.plist'
 $iosExportOptions = Join-Path $Root 'flutter/ios/exportOptions.plist'
-$iosBuildDoc = Join-Path $Root 'docs/KQ_REMOTE_LINK_IOS_BUILD.md'
+$iosBuildDoc = Join-Path $Root 'docs/ios-build.md'
 $iosRunnerBridgingHeader = Join-Path $Root 'flutter/ios/Runner/Runner-Bridging-Header.h'
 $iosBridgeHeader = Join-Path $Root 'flutter/ios/Runner/bridge_generated.h'
+$iosBroadcastBridge = Join-Path $Root 'flutter/ios/KQScreenBroadcast/KQBroadcastBridge.h'
+$iosBroadcastRust = Join-Path $Root 'src/ios_broadcast.rs'
+$rootLibRs = Join-Path $Root 'src/lib.rs'
+$serverRs = Join-Path $Root 'src/server.rs'
+$connectionRs = Join-Path $Root 'src/server/connection.rs'
 
 Assert-Contains `
     -Path $buildRs `
-    -Pattern 'kq-ios-no-aom-linkage[\s\S]*if target_os != "ios" \{[\s\S]*gen_vcpkg_package\("aom"' `
+    -Pattern 'kq-ios-no-aom-linkage[\s\S]*if target_os != "ios" \{[\s\S]*gen_vcpkg_package\(\s*"aom"' `
     -Message 'iOS Rust build must not link libaom/aom_codec objects.'
 
 Assert-Contains `
@@ -104,8 +109,8 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagicYaml `
-    -Pattern 'BUNDLE_ID:\s*com\.kunqiong\.remotelink[\s\S]*fetch-signing-files "\$BUNDLE_ID"[\s\S]*--bundle-id "\$BUNDLE_ID"' `
-    -Message 'Codemagic TestFlight workflow must use the registered KQ Remote Link Bundle ID for signing and upload.'
+    -Pattern 'BUNDLE_ID:\s*com\.kunqiong\.remotelink[\s\S]*fetch-signing-files "\$BUNDLE_ID"[\s\S]*--type IOS_APP_STORE[\s\S]*xcrun altool --upload-app -f' `
+    -Message 'Codemagic TestFlight workflow must fetch App Store signing files for the registered KQ Remote Link Bundle ID before uploading its IPA.'
 
 Assert-Contains `
     -Path $iosProject `
@@ -136,6 +141,46 @@ Assert-Contains `
     -Path $iosBridgeHeader `
     -Pattern 'dummy_method_to_enforce_bundling[\s\S]*session_get_rgba' `
     -Message 'iOS must include the generated flutter_rust_bridge C header used by AppDelegate.swift.'
+
+Assert-Contains `
+    -Path $modRs `
+    -Pattern 'target_os = "ios"[\s\S]*mod ios;[\s\S]*pub use self::ios::\*;' `
+    -Message 'scrap must select the ReplayKit-backed iOS display and capturer.'
+
+Assert-Contains `
+    -Path $rootLibRs `
+    -Pattern 'mod server;[\s\S]*mod rendezvous_mediator;[\s\S]*pub mod ipc;[\s\S]*target_os = "ios"[\s\S]*mod ios_broadcast;' `
+    -Message 'iOS builds must include the host server, rendezvous, IPC, and ReplayKit bridge.'
+
+Assert-Contains `
+    -Path $serverRs `
+    -Pattern 'server\.add_service\(Box::new\(display_service::new\(\)\)\);' `
+    -Message 'iOS host mode must publish display metadata and video service state.'
+
+Assert-Contains `
+    -Path $connectionRs `
+    -Pattern '#\[cfg\(target_os = "android"\)\][\s\S]*use scrap::android::\{call_main_service_key_event, call_main_service_pointer_input\};' `
+    -Message 'iOS view-only hosting must not call Android remote-input services.'
+
+Assert-Contains `
+    -Path $iosBroadcastBridge `
+    -Pattern 'kq_ios_broadcast_start[\s\S]*kq_ios_broadcast_push_bgra[\s\S]*kq_ios_broadcast_stop' `
+    -Message 'ReplayKit target must import the Rust host and frame ABI.'
+
+Assert-Contains `
+    -Path $iosBroadcastRust `
+    -Pattern 'start_server\(true\)[\s\S]*submit_bgra_frame' `
+    -Message 'ReplayKit Rust bridge must start the host and feed ReplayKit frames.'
+
+Assert-Contains `
+    -Path $iosBroadcastRust `
+    -Pattern 'RendezvousMediator::restart' `
+    -Message 'ReplayKit Rust bridge must restart or stop the existing rendezvous host safely.'
+
+Assert-Contains `
+    -Path $iosProject `
+    -Pattern 'liblibrustdesk\.a in Frameworks[\s\S]*SWIFT_OBJC_BRIDGING_HEADER = KQScreenBroadcast/KQBroadcastBridge\.h;' `
+    -Message 'Broadcast extension must link Rust and import its dedicated C header.'
 
 Assert-GitTracks `
     -RelativePath 'flutter/ios/Runner/bridge_generated.h' `

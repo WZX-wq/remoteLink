@@ -1,0 +1,68 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available development tasks
+    cmds:
+      - task --list-all
+
+  tools:doctor:
+    desc: Print required local tooling versions
+    cmds:
+      - sccache --version
+      - task --version
+      - lefthook version
+      - gitleaks version
+      - cargo --version
+      - rustc --version
+
+  hooks:install:
+    desc: Install repository git hooks
+    cmds:
+      - lefthook install
+
+  security:gitleaks:
+    desc: Scan the repository for committed secrets
+    cmds:
+      - gitleaks detect --source . --redact --no-banner --max-target-megabytes 25
+
+  security:gitleaks:staged:
+    desc: Scan staged changes for secrets
+    cmds:
+      - gitleaks protect --staged --source . --redact --no-banner
+
+  rust:check:
+    desc: Run Rust check with sccache
+    env:
+      RUSTC_WRAPPER: sccache
+    cmds:
+      - cargo check
+
+  rust:test:
+    desc: Run Rust tests with sccache
+    env:
+      RUSTC_WRAPPER: sccache
+    cmds:
+      - cargo test
+
+  flutter:test:
+    desc: Run Flutter unit tests
+    dir: flutter
+    cmds:
+      - flutter test
+
+  codegraph:sync:
+    desc: Refresh the local CodeGraph index
+    cmds:
+      - codegraph sync
+
+  cache:stats:
+    desc: Show sccache statistics
+    cmds:
+      - sccache --show-stats
+
+  verify:quick:
+    desc: Run fast local checks before handing work off
+    cmds:
+      - task tools:doctor
+      - task security:gitleaks:staged

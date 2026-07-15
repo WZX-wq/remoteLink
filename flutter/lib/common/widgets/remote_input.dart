@@ -107,8 +107,12 @@ class _RawTouchGestureDetectorRegionState
   // For mouse mode, we need to block the events when the cursor is in a blocked area.
   // So we need to cache the last tap down position.
   Offset? _lastTapDownPositionForMouseMode;
-  // Cache global position for onTap (which lacks position info).
-  Offset? _lastTapDownGlobalPosition;
+  // Consume the Magic Mouse duplicate decision across one tap sequence.
+  bool _ignoreCurrentTouchTap = false;
+  bool _ignoreCurrentDoubleTap = false;
+  bool _longPressLeftButtonDown = false;
+  bool _longPressLeftButtonStarting = false;
+  bool _longPressReleasePending = false;
 
   FFI get ffi => widget.ffi;
   FfiModel get ffiModel => widget.ffiModel;
@@ -138,10 +142,11 @@ class _RawTouchGestureDetectorRegionState
 
   onTapDown(TapDownDetails d) async {
     lastDeviceKind = d.kind;
-    _lastTapDownGlobalPosition = d.globalPosition;
+    _ignoreCurrentTouchTap = false;
     if (isNotTouchBasedDevice()) {
       return;
     }
+    _ignoreCurrentTouchTap = inputModel.shouldIgnoreTouchTap(d.globalPosition);
     if (handleTouch) {
       _lastPosOfDoubleTapDown = d.localPosition;
       // Desktop or mobile "Touch mode"
@@ -157,8 +162,7 @@ class _RawTouchGestureDetectorRegionState
     if (isNotTouchBasedDevice()) {
       return;
     }
-    // Filter duplicate touch tap events on iOS (Magic Mouse issue).
-    if (inputModel.shouldIgnoreTouchTap(d.globalPosition)) {
+    if (_ignoreCurrentTouchTap) {
       return;
     }
     if (handleTouch) {
@@ -178,9 +182,8 @@ class _RawTouchGestureDetectorRegionState
     if (isNotTouchBasedDevice()) {
       return;
     }
-    // Filter duplicate touch tap events on iOS (Magic Mouse issue).
-    final lastPos = _lastTapDownGlobalPosition;
-    if (lastPos != null && inputModel.shouldIgnoreTouchTap(lastPos)) {
+    if (_ignoreCurrentTouchTap) {
+      _ignoreCurrentTouchTap = false;
       return;
     }
     if (!handleTouch) {
@@ -194,9 +197,19 @@ class _RawTouchGestureDetectorRegionState
     }
   }
 
+  onTapCancel() {
+    _ignoreCurrentTouchTap = false;
+  }
+
   onDoubleTapDown(TapDownDetails d) async {
     lastDeviceKind = d.kind;
+    _ignoreCurrentDoubleTap = false;
     if (isNotTouchBasedDevice()) {
+      return;
+    }
+    _ignoreCurrentDoubleTap =
+        inputModel.shouldIgnoreTouchTap(d.globalPosition);
+    if (_ignoreCurrentDoubleTap) {
       return;
     }
     if (handleTouch) {
@@ -209,6 +222,10 @@ class _RawTouchGestureDetectorRegionState
 
   onDoubleTap() async {
     if (isNotTouchBasedDevice()) {
+      return;
+    }
+    if (_ignoreCurrentDoubleTap) {
+      _ignoreCurrentDoubleTap = false;
       return;
     }
     if (ffiModel.touchMode && ffi.cursorModel.lastIsBlocked) {
@@ -230,6 +247,9 @@ class _RawTouchGestureDetectorRegionState
 
   onLongPressDown(LongPressDownDetails d) async {
     lastDeviceKind = d.kind;
+    _longPressLeftButtonDown = false;
+    _longPressLeftButtonStarting = false;
+    _longPressReleasePending = false;
     if (isNotTouchBasedDevice()) {
       return;
     }
@@ -241,9 +261,22 @@ class _RawTouchGestureDetectorRegionState
       }
       _cacheLongPressPositionTs = DateTime.now().millisecondsSinceEpoch;
       if (ffiModel.isPeerMobile) {
+        _longPressLeftButtonStarting = true;
         await ffi.cursorModel
             .move(_cacheLongPressPosition.dx, _cacheLongPressPosition.dy);
+        if (_longPressReleasePending) {
+          _longPressLeftButtonStarting = false;
+          _longPressReleasePending = false;
+          return;
+        }
         await inputModel.tapDown(MouseButtons.left);
+        _longPressLeftButtonStarting = false;
+        _longPressLeftButtonDown = true;
+        if (_longPressReleasePending) {
+          await inputModel.tapUp(MouseButtons.left);
+          _longPressLeftButtonDown = false;
+          _longPressReleasePending = false;
+        }
       }
     } else {
       _lastTapDownPositionForMouseMode = d.localPosition;
@@ -254,8 +287,14 @@ class _RawTouchGestureDetectorRegionState
     if (isNotTouchBasedDevice()) {
       return;
     }
-    if (handleTouch) {
+    if (!handleTouch) return;
+    if (_longPressLeftButtonStarting) {
+      _longPressReleasePending = true;
+      return;
+    }
+    if (_longPressLeftButtonDown) {
       await inputModel.tapUp(MouseButtons.left);
+      _longPressLeftButtonDown = false;
     }
   }
 
@@ -538,6 +577,7 @@ class _RawTouchGestureDetectorRegionState
         instance
           ..onTapDown = onTapDown
           ..onTapUp = onTapUp
+          ..onTapCancel = onTapCancel
           ..onTap = onTap;
       }),
       DoubleTapGestureRecognizer:

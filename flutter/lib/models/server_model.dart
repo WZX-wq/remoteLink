@@ -30,6 +30,43 @@ enum KqPasswordKind {
   permanent,
 }
 
+String kqPasswordTextForDisplay({
+  required bool isVisible,
+  required String rawText,
+}) {
+  if (!isVisible) {
+    return '-';
+  }
+  final text = rawText.trim();
+  if (text.isNotEmpty && text != '-') {
+    return text;
+  }
+  return '--';
+}
+
+bool kqPasswordKindSupportsRandomGenerate(KqPasswordKind kind) {
+  switch (kind) {
+    case KqPasswordKind.oneTime:
+    case KqPasswordKind.daily:
+    case KqPasswordKind.permanent:
+      return true;
+  }
+}
+
+String kqPasswordTextForUi({
+  required String rawText,
+  required bool reveal,
+}) {
+  final text = rawText.trim();
+  if (text.isEmpty || text == '-' || text == '--') {
+    return text.isEmpty ? '--' : text;
+  }
+  if (reveal) {
+    return text;
+  }
+  return List.filled(text.length, '•').join();
+}
+
 KqPasswordKind? _parseSelectedPasswordKind(String value) {
   final normalized = value.trim();
   for (final kind in KqPasswordKind.values) {
@@ -124,12 +161,7 @@ class ServerModel with ChangeNotifier {
 
   TextEditingController get permanentPasswd => _permanentPasswd;
 
-  bool get isSelectedPasswordVisible {
-    if (_selectedPasswordKind == KqPasswordKind.oneTime) {
-      return !_passwordServiceStopped;
-    }
-    return true;
-  }
+  bool get isSelectedPasswordVisible => true;
 
   String get selectedPasswordLabel {
     switch (_selectedPasswordKind) {
@@ -154,14 +186,10 @@ class ServerModel with ChangeNotifier {
   }
 
   String get selectedPasswordText {
-    if (!isSelectedPasswordVisible) {
-      return '-';
-    }
-    final text = selectedPasswordController.text.trim();
-    if (text.isNotEmpty) {
-      return text;
-    }
-    return '--';
+    return kqPasswordTextForDisplay(
+      isVisible: isSelectedPasswordVisible,
+      rawText: selectedPasswordController.text,
+    );
   }
 
   bool get selectedPasswordCanCopy {
@@ -203,6 +231,8 @@ class ServerModel with ChangeNotifier {
     if (_selectedPasswordKind == kind) {
       if (kind == KqPasswordKind.permanent) {
         unawaited(_ensurePermanentPasswordPreviewOnSelect());
+      } else {
+        unawaited(updatePasswordModel());
       }
       return;
     }
@@ -211,6 +241,8 @@ class ServerModel with ChangeNotifier {
         key: kOptionKqSelectedPasswordKind, value: kind.name));
     if (kind == KqPasswordKind.permanent) {
       unawaited(_ensurePermanentPasswordPreviewOnSelect());
+    } else {
+      unawaited(updatePasswordModel());
     }
     notifyListeners();
   }
@@ -233,6 +265,10 @@ class ServerModel with ChangeNotifier {
       count,
       (_) => charset[random.nextInt(charset.length)],
     ).join();
+  }
+
+  String generateVerificationCodePreview() {
+    return _generatePassword();
   }
 
   String _normalizeVerificationCode(String password) {
@@ -511,7 +547,7 @@ class ServerModel with ChangeNotifier {
   updatePasswordModel() async {
     var update = false;
     final rawTemporaryPassword = await bind.mainGetTemporaryPassword();
-    final temporaryPassword = _normalizeVerificationCode(rawTemporaryPassword);
+    var temporaryPassword = _normalizeVerificationCode(rawTemporaryPassword);
     if (temporaryPassword.isNotEmpty &&
         temporaryPassword != rawTemporaryPassword.trim()) {
       await bind.mainSetOption(
@@ -534,6 +570,16 @@ class ServerModel with ChangeNotifier {
       length: temporaryPasswordLength,
       numeric: numericOneTimePassword,
     );
+    if (temporaryPassword.isEmpty) {
+      temporaryPassword = _generatePassword(
+        length: temporaryPasswordLength,
+        numeric: numericOneTimePassword,
+      );
+      await bind.mainSetOption(
+        key: kKqTemporaryPasswordControlKey,
+        value: temporaryPassword,
+      );
+    }
     final rawPermanentPasswordPreview =
         await bind.mainGetOption(key: kOptionKqPermanentPasswordPreview);
     var permanentPasswordPreview =
@@ -598,13 +644,9 @@ class ServerModel with ChangeNotifier {
       update = true;
     }
     final oldPwdText = _serverPasswd.text;
-    if (stopped) {
-      _serverPasswd.text = '-';
-    } else {
-      if (_serverPasswd.text != temporaryPassword &&
-          temporaryPassword.isNotEmpty) {
-        _serverPasswd.text = temporaryPassword;
-      }
+    if (_serverPasswd.text != temporaryPassword &&
+        temporaryPassword.isNotEmpty) {
+      _serverPasswd.text = temporaryPassword;
     }
     if (oldPwdText != _serverPasswd.text) {
       update = true;
@@ -624,7 +666,7 @@ class ServerModel with ChangeNotifier {
       _allowNumericOneTimePassword = numericOneTimePassword;
       update = true;
     }
-    final nextDailyPassword = stopped ? '' : dailyPassword;
+    final nextDailyPassword = dailyPassword;
     if (_dailyPasswd.text != nextDailyPassword) {
       _dailyPasswd.text = nextDailyPassword;
       update = true;

@@ -1588,7 +1588,6 @@ pub fn send_clipboard_msg(msg: Message, _is_file: bool) {
 }
 
 // Server Side
-#[cfg(not(any(target_os = "ios")))]
 pub mod connection_manager {
     use std::collections::HashMap;
 
@@ -1720,10 +1719,10 @@ pub mod connection_manager {
         start_listen_ipc_thread();
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     use hbb_common::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     pub fn start_channel(
         rx: UnboundedReceiver<crate::ipc::Data>,
         tx: UnboundedSender<crate::ipc::Data>,

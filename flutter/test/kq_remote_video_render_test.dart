@@ -89,7 +89,7 @@ void main() {
     expect(windowsPlugin, contains('MarkFrameAvailable()'));
   });
 
-  test('720p and 1080p use the same stable stream quality', () {
+  test('basic and member profiles use distinct receiver stream parameters', () {
     expect(
       kqRemoteStreamQuality(highDefinition: false),
       kqStandardRemoteStreamQuality,
@@ -98,13 +98,12 @@ void main() {
       kqRemoteStreamQuality(highDefinition: true),
       kqHighDefinitionRemoteStreamQuality,
     );
-    expect(kqStandardRemoteStreamQuality, 150);
+    expect(kqStandardRemoteStreamQuality, 100);
     expect(kqHighDefinitionRemoteStreamQuality, 150);
-    expect(
-      kqStandardRemoteStreamQuality,
-      kqHighDefinitionRemoteStreamQuality,
-    );
-    expect(UserModel.freeMaxFps, UserModel.memberDefaultFps);
+    expect(kqStandardRemoteStreamQuality,
+        lessThan(kqHighDefinitionRemoteStreamQuality));
+    expect(UserModel.freeMaxFps, 30);
+    expect(UserModel.memberDefaultFps, 60);
     expect(
       kqRemoteProfileRequiresMembership(highDefinition: false),
       isFalse,
@@ -115,7 +114,7 @@ void main() {
     );
   });
 
-  testWidgets('Windows standard quality applies one sigma 0.6 blur',
+  testWidgets('standard quality is not artificially blurred',
       (tester) async {
     await tester.pumpWidget(const Directionality(
       textDirection: TextDirection.ltr,
@@ -126,9 +125,9 @@ void main() {
       ),
     ));
 
-    expect(kqStandardRemoteBlurSigma, 0.6);
-    expect(find.byType(ImageFiltered), findsOneWidget);
-    expect(find.byType(ClipRect), findsOneWidget);
+    expect(kqStandardRemoteBlurSigma, 0);
+    expect(find.byType(ImageFiltered), findsNothing);
+    expect(find.byType(ClipRect), findsNothing);
     expect(find.byType(Stack), findsNothing);
     expect(find.byType(BackdropFilter), findsNothing);
     expect(find.byKey(const Key('standard-video')), findsOneWidget);

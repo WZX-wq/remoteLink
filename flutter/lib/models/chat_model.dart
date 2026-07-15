@@ -20,6 +20,7 @@ import '../common.dart';
 import '../common/widgets/overlay.dart';
 import '../main.dart';
 import 'model.dart';
+import 'mobile_voice_call_policy.dart';
 
 class MessageKey {
   final String peerId;
@@ -54,6 +55,7 @@ class MessageBody {
 }
 
 class ChatModel with ChangeNotifier {
+  static const _iosMethodChannel = MethodChannel('mChannel');
   static final clientModeID = -1;
 
   OverlayEntry? chatIconOverlayEntry;
@@ -545,14 +547,45 @@ class ChatModel with ChangeNotifier {
     if (isAndroid) {
       parent.target?.invokeMethod("on_voice_call_started");
     }
+    if (isIOS) {
+      unawaited(_startIOSVoiceCapture());
+    }
+  }
+
+  Future<void> _startIOSVoiceCapture() async {
+    try {
+      final started = await _iosMethodChannel.invokeMethod<bool>(
+            'start_ios_voice_capture',
+            sessionId.toString(),
+          ) ??
+          false;
+      if (!started) {
+        bind.sessionCloseVoiceCall(sessionId: sessionId);
+        onVoiceCallClosed('Failed to start voice call');
+      }
+    } on PlatformException catch (error) {
+      debugPrint('Unable to start iOS voice capture: $error');
+      bind.sessionCloseVoiceCall(sessionId: sessionId);
+      onVoiceCallClosed('Failed to start voice call');
+    }
   }
 
   void onVoiceCallClosed(String reason) {
+    final wasActive = _voiceCallStatus.value != VoiceCallStatus.notStarted;
     _voiceCallStatus.value = VoiceCallStatus.notStarted;
     if (isAndroid) {
       // We can always invoke "on_voice_call_closed"
       // no matter if the `_voiceCallStatus` was `VoiceCallStatus.notStarted` or not.
       parent.target?.invokeMethod("on_voice_call_closed");
+    }
+    if (isIOS) {
+      unawaited(_iosMethodChannel.invokeMethod<bool>('stop_ios_voice_capture'));
+    }
+    if (wasActive) {
+      final message = mobileVoiceCallClosedMessage(reason);
+      if (message != null) {
+        showToast(message);
+      }
     }
   }
 

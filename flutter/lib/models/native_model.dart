@@ -179,6 +179,13 @@ class PlatformFFI {
           // only support for android
           _homeDir = (await ExternalPath.getExternalStorageDirectories())[0];
         } else if (isIOS) {
+          final sharedConfigDir = await _toAndroidChannel.invokeMethod<String>(
+            'prepare_broadcast_config_dir',
+            {'legacyDir': _dir},
+          );
+          if (sharedConfigDir != null && sharedConfigDir.trim().isNotEmpty) {
+            _dir = sharedConfigDir;
+          }
           // The previous code was `_homeDir = (await getDownloadsDirectory())?.path ?? '';`,
           // which provided the `downloads` path in the sandbox.
           // It is unclear why we now use the `data` directory in the sandbox instead.

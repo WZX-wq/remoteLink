@@ -46,7 +46,7 @@ use hbb_common::{
     },
     tokio_util::codec::{BytesCodec, Framed},
 };
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 use scrap::android::{call_main_service_key_event, call_main_service_pointer_input};
 use scrap::camera;
 use serde_derive::Serialize;
@@ -2992,7 +2992,7 @@ impl Connection {
                     if self.is_authed_view_camera_conn() {
                         return true;
                     }
-                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    #[cfg(target_os = "android")]
                     if let Err(e) = call_main_service_pointer_input("mouse", me.mask, me.x, me.y) {
                         log::debug!("call_main_service_pointer_input fail:{}", e);
                     }
@@ -3040,7 +3040,7 @@ impl Connection {
                     if self.is_authed_view_camera_conn() {
                         return true;
                     }
-                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    #[cfg(target_os = "android")]
                     if let Err(e) = match pde.union {
                         Some(pointer_device_event::Union::TouchEvent(touch)) => match touch.union {
                             Some(touch_event::Union::PanStart(pan_start)) => {

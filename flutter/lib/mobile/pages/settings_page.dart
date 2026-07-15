@@ -18,6 +18,7 @@ import '../../common/widgets/login.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/mobile_platform_capability_policy.dart';
 import '../widgets/dialog.dart';
 import 'page_shape.dart';
 import 'scan_page.dart';
@@ -822,7 +823,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       ];
 
       final remoteAccessSections = <AbstractSettingsSection>[
-        if (isAndroid &&
+        if (mobilePlatformCapabilities.canReceiveRemoteInput &&
             !disabledSettings &&
             !outgoingOnly &&
             !hideSecuritySettings)
@@ -830,7 +831,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             title: Text(_settingsText("Share screen")),
             tiles: shareScreenTiles,
           ),
-        if (isAndroid &&
+        if (mobilePlatformCapabilities.canRunPersistentBackgroundService &&
+            mobilePlatformCapabilities.canUseSystemOverlay &&
             !disabledSettings &&
             !outgoingOnly &&
             !hideSecuritySettings)

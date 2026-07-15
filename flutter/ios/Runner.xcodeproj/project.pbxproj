@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A1B2C3D40000000000000001 /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000006 /* SampleHandler.swift */; };
 		A1B2C3D40000000000000002 /* KQScreenBroadcast.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000009 /* KQScreenBroadcast.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A1B2C3D40000000000000012 /* liblibrustdesk.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A3A301029F021DD0095DDA5 /* liblibrustdesk.a */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
@@ -59,6 +60,7 @@
 		A1B2C3D40000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D40000000000000008 /* KQScreenBroadcast.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KQScreenBroadcast.entitlements; sourceTree = "<group>"; };
 		A1B2C3D40000000000000009 /* KQScreenBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KQScreenBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D40000000000000013 /* KQBroadcastBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = KQBroadcastBridge.h; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		25E069BDBEF2890938537ABB /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -83,6 +85,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D40000000000000012 /* liblibrustdesk.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -101,6 +104,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D40000000000000006 /* SampleHandler.swift */,
+				A1B2C3D40000000000000013 /* KQBroadcastBridge.h */,
 				A1B2C3D40000000000000007 /* Info.plist */,
 				A1B2C3D40000000000000008 /* KQScreenBroadcast.entitlements */,
 			);
@@ -406,7 +410,32 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-l\"c++\"",
+					"-l\"sqlite3\"",
+					"-framework",
+					"Accelerate",
+					"-framework",
+					"AVFoundation",
+					"-framework",
+					"CoreFoundation",
+					"-framework",
+					"CoreMedia",
+					"-framework",
+					"CoreVideo",
+					"-framework",
+					"Security",
+					"-framework",
+					"SystemConfiguration",
+					"-framework",
+					"VideoToolbox",
+				);
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
@@ -414,6 +443,7 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_OBJC_BRIDGING_HEADER = KQScreenBroadcast/KQBroadcastBridge.h;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -435,7 +465,32 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-l\"c++\"",
+					"-l\"sqlite3\"",
+					"-framework",
+					"Accelerate",
+					"-framework",
+					"AVFoundation",
+					"-framework",
+					"CoreFoundation",
+					"-framework",
+					"CoreMedia",
+					"-framework",
+					"CoreVideo",
+					"-framework",
+					"Security",
+					"-framework",
+					"SystemConfiguration",
+					"-framework",
+					"VideoToolbox",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -443,6 +498,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_OBJC_BRIDGING_HEADER = KQScreenBroadcast/KQBroadcastBridge.h;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
@@ -465,7 +521,32 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-l\"c++\"",
+					"-l\"sqlite3\"",
+					"-framework",
+					"Accelerate",
+					"-framework",
+					"AVFoundation",
+					"-framework",
+					"CoreFoundation",
+					"-framework",
+					"CoreMedia",
+					"-framework",
+					"CoreVideo",
+					"-framework",
+					"Security",
+					"-framework",
+					"SystemConfiguration",
+					"-framework",
+					"VideoToolbox",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -473,6 +554,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_OBJC_BRIDGING_HEADER = KQScreenBroadcast/KQBroadcastBridge.h;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;

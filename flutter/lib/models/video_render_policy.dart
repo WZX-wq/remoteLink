@@ -5,6 +5,19 @@ bool shouldUseNativeVideoTexture({
   return isDesktopPlatform && nativeTextureAvailable;
 }
 
+bool shouldDeferSoftwareFirstFrameUntilPaint({
+  required bool isWindowsPlatform,
+  required bool isIOSPlatform,
+  required bool isRemoteDesktopConnection,
+  required bool waitingForFirstImage,
+  required bool hasPaintedFrame,
+}) {
+  return (isWindowsPlatform || isIOSPlatform) &&
+      isRemoteDesktopConnection &&
+      waitingForFirstImage &&
+      !hasPaintedFrame;
+}
+
 bool shouldBuildRemoteToolbarPerformanceMenu({
   required bool isWindowsPlatform,
 }) {

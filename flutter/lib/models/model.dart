@@ -15,8 +15,10 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_hbb/models/cm_file_model.dart';
+import 'package:flutter_hbb/models/connection_failure_presentation.dart';
 import 'package:flutter_hbb/models/file_model.dart';
 import 'package:flutter_hbb/models/group_model.dart';
+import 'package:flutter_hbb/models/mobile_remote_route.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
@@ -943,8 +945,12 @@ class FfiModel with ChangeNotifier {
     } else if (type == 'elevation-error') {
       showElevationError(sessionId, type, title, text, dialogManager);
     } else if (type == 'kq-network-diagnostics') {
-      showKqNetworkDiagnosticsDialog(
-          sessionId, type, title, text, dialogManager, peerId);
+      if (isIOS && !isWeb) {
+        _notifyConnectionFailureAndClose('error', 'Connection Error', text);
+      } else {
+        showKqNetworkDiagnosticsDialog(
+            sessionId, type, title, text, dialogManager, peerId);
+      }
     } else if (type == 'relay-hint' || type == 'relay-hint2') {
       showRelayHintDialog(sessionId, type, title, text, dialogManager, peerId);
     } else if (text == kMsgboxTextWaitingForImage) {
@@ -1042,75 +1048,60 @@ class FfiModel with ChangeNotifier {
   }
 
   bool _shouldAbortKqConnectionStart(String type, String title, String text) {
-    if (appName != '鲲穹远程桌面' ||
-        !isDesktop ||
-        isWeb ||
-        type != 'error' ||
-        title != 'Connection Error') {
-      return false;
-    }
-    return text.contains('KQ_VPN_ROUTE_BLOCKED') ||
-        text.contains('KQ_CONNECTION_START_TIMEOUT');
-  }
-
-  String _connectionFailureReason(String title, String text) {
-    final raw = text.trim();
-    final lower = raw.toLowerCase();
-    if (lower.contains('kq_vpn_route_blocked')) {
-      return kqLocaleText(
-        zhCn: '检测到 VPN 正在影响远程连接，本次连接已自动停止。请关闭 VPN，或允许鲲穹远程桌面绕过 VPN 后重试。',
-        en: 'A VPN is interfering with the remote connection, so this attempt was stopped. Turn off the VPN or allow KQ RemoteLink to bypass it, then try again.',
-      );
-    }
-    if (lower.contains('kq_connection_start_timeout')) {
-      return kqLocaleText(
-        zhCn: '连接超过 30 秒仍未建立，本次连接已自动停止。请确认对方设备在线，并检查 VPN、防火墙或当前网络后重试。',
-        en: 'The connection was not established within 30 seconds and was stopped. Check that the peer is online and review the VPN, firewall, and network before trying again.',
-      );
-    }
-    if (lower.contains('kq_video_first_frame_timeout')) {
-      return kqLocaleText(
-        zhCn: '连接已建立，但控制端未能完成视频首帧的解码或绘制，本次连接已自动停止。请重试或重启客户端后再连接。',
-        en: 'The connection was established, but the controller could not decode or draw the first video frame, so this attempt was stopped. Retry or restart the client before connecting again.',
-      );
-    }
-    if (raw == 'Timeout' ||
-        raw == 'Remote desktop is offline' ||
-        lower.contains('timed out')) {
-      return kqLocaleText(
-        zhCn: '对方设备暂时连不上，请确认对方在线并且网络正常。',
-        en: 'The peer device cannot be reached. Check that it is online and the network is working.',
-      );
-    }
-    if (lower.contains('rendezvous') || lower.contains('relay')) {
-      return kqLocaleText(
-        zhCn: '连接服务器暂时不可用，请稍后重试，或检查本机网络。',
-        en: 'The connection service is temporarily unavailable. Try again later or check your network.',
-      );
-    }
-    if (raw.contains('10054') ||
-        lower.contains('reset') ||
-        lower.contains('refused')) {
-      return kqLocaleText(
-        zhCn: '连接被中断，请检查对方设备和网络后重试。',
-        en: 'The connection was interrupted. Check the peer device and network, then try again.',
-      );
-    }
-    if (lower.contains('password')) {
-      return kqLocaleText(
-        zhCn: '验证码或密码不正确，请重新输入。',
-        en: 'The verification code or password is incorrect. Please try again.',
-      );
-    }
-    return kqLocaleText(
-      zhCn: '连接失败，请确认对方设备在线，并检查网络是否正常。',
-      en: 'Connection failed. Check that the peer device is online and the network is working.',
+    return shouldCloseKqConnectionFailure(
+      isKqApp: appName == '鲲穹远程桌面',
+      isDesktopPlatform: isDesktop,
+      isMobilePlatform: isMobile,
+      isIOSPlatform: isIOS,
+      isWebPlatform: isWeb,
+      type: type,
+      title: title,
+      text: text,
     );
   }
 
   void _notifyConnectionFailureAndClose(
       String type, String title, String text) {
-    final reason = _connectionFailureReason(title, text);
+    final failureCopy = presentKqConnectionFailure(text);
+    final reason = kqLocaleText(zhCn: failureCopy.zhCn, en: failureCopy.en);
+    final isKqIOS = appName == '鲲穹远程桌面' && isIOS && !isWeb;
+    if (isKqIOS) {
+      if (_connectionFailureCloseStarted) {
+        debugPrint(
+            '[connectionFailure] Mobile failure cleanup already started for session $sessionId.');
+        return;
+      }
+      _connectionFailureCloseStarted = true;
+
+      final failedSessionId = sessionId;
+      final failedTarget = parent.target;
+      final failedRoute = failedTarget?.mobileRemoteRoute;
+      failedTarget?.dialogManager.dismissAll();
+      unawaited(() async {
+        final navigator = failedRoute?.navigator ?? globalKey.currentState;
+        final routeRemoved = navigator != null &&
+            removeRegisteredMobileRemoteRoute(
+              navigator: navigator,
+              route: failedRoute,
+            );
+        if (routeRemoved) {
+          failedTarget?.mobileRemoteRoute = null;
+        } else if (failedTarget != null) {
+          try {
+            await failedTarget.close();
+          } catch (e) {
+            debugPrint(
+                '[connectionFailure] Failed to clean mobile session $failedSessionId: $e');
+          }
+        }
+        stateGlobal.isInMainPage = true;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showToast(reason, timeout: const Duration(seconds: 5));
+        });
+      }());
+      return;
+    }
     final isKqDesktop = appName == '鲲穹远程桌面' && isDesktop && !isWeb;
     if (isKqDesktop) {
       if (_connectionFailureCloseStarted) {
@@ -1240,6 +1231,12 @@ class FfiModel with ChangeNotifier {
       zhCn: '当前直连不稳定。你可以先重试；如果仍然失败，可以换一种连接方式。',
       en: 'The direct connection is unstable. Try again first; if it still fails, use another connection method.',
     );
+    final closeText = kqLocaleText(zhCn: '关闭', en: 'Close');
+    final retryText = kqLocaleText(zhCn: '重试', en: 'Retry');
+    final alternateConnectionText = kqLocaleText(
+      zhCn: '换一种连接方式',
+      en: 'Use another connection method',
+    );
 
     if (parent.target != null &&
         allowAskForNoteAtEndOfConnection(parent.target, false) &&
@@ -1264,16 +1261,16 @@ class FfiModel with ChangeNotifier {
         title: null,
         content: msgboxContent(type, title, text2),
         actions: [
-          dialogButton('关闭', onPressed: onClose, isOutline: true),
+          dialogButton(closeText, onPressed: onClose, isOutline: true),
           if (type == 'relay-hint')
-            dialogButton('换一种连接方式',
+            dialogButton(alternateConnectionText,
                 onPressed: () => reconnect(dialogManager, sessionId, true),
                 buttonStyle: style,
                 isOutline: true),
-          dialogButton('重试',
+          dialogButton(retryText,
               onPressed: () => reconnect(dialogManager, sessionId, false)),
           if (type == 'relay-hint2')
-            dialogButton('换一种连接方式',
+            dialogButton(alternateConnectionText,
                 onPressed: () => reconnect(dialogManager, sessionId, true),
                 buttonStyle: style),
         ],
@@ -4336,6 +4333,7 @@ class FFI {
   var connType = ConnType.defaultConn;
   var closed = false;
   int? desktopWindowId;
+  Route<dynamic>? mobileRemoteRoute;
 
   /// dialogManager use late to ensure init after main page binding [globalKey]
   late final dialogManager = OverlayDialogManager();
@@ -4431,7 +4429,10 @@ class FFI {
     desktopWindowId = isDesktop && stateGlobal.windowId > kMainWindowId
         ? stateGlobal.windowId
         : null;
-    if (isMobile) mobileReset();
+    if (isMobile) {
+      ffiModel._connectionFailureCloseStarted = false;
+      mobileReset();
+    }
     assert(
         (!(isPortForward && isViewCamera)) &&
             (!(isViewCamera && isPortForward)) &&
@@ -4592,10 +4593,14 @@ class FFI {
                 sessionId, 'dart-buffer-read', display, sz);
             final rendered = await imageModel.onRgba(display, rgba);
             if (rendered) {
-              final waitForCanvasPaint = isWindows &&
-                  connType == ConnType.defaultConn &&
-                  ffiModel.waitForFirstImage.isTrue &&
-                  !imageModel.hasPaintedFrame;
+              final waitForCanvasPaint =
+                  shouldDeferSoftwareFirstFrameUntilPaint(
+                isWindowsPlatform: isWindows,
+                isIOSPlatform: isIOS,
+                isRemoteDesktopConnection: connType == ConnType.defaultConn,
+                waitingForFirstImage: ffiModel.waitForFirstImage.isTrue,
+                hasPaintedFrame: imageModel.hasPaintedFrame,
+              );
               if (waitForCanvasPaint) {
                 platformFFI.logRgbaStage(
                     sessionId, 'first-frame-ui-deferred-until-paint', display);
@@ -4706,6 +4711,9 @@ class FFI {
   /// Close the remote session.
   Future<void> close({bool closeSession = true}) async {
     closed = true;
+    if (isMobile) {
+      mobileRemoteRoute = null;
+    }
     chatModel.close();
     // Close all terminal models
     for (final model in _terminalModels.values) {

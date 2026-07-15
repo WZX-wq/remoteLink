@@ -416,7 +416,7 @@ class MyTheme {
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       elevation: 15,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.0),
@@ -447,7 +447,7 @@ class MyTheme {
     cardColor: grayBg,
     hintColor: Color(0xFFAAAAAA),
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarTheme(
+    tabBarTheme: const TabBarThemeData(
       labelColor: Colors.black87,
     ),
     tooltipTheme: tooltipTheme(),
@@ -514,7 +514,7 @@ class MyTheme {
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       elevation: 15,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.0),
@@ -548,7 +548,7 @@ class MyTheme {
     ),
     cardColor: Color(0xFF24252B),
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarTheme(
+    tabBarTheme: const TabBarThemeData(
       labelColor: Colors.white70,
     ),
     tooltipTheme: tooltipTheme(),
@@ -2999,16 +2999,19 @@ connect(BuildContext context, String id,
           ),
         );
       } else {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (BuildContext context) => RemotePage(
-                id: id,
-                password: password,
-                isSharedPassword: isSharedPassword,
-                forceRelay: forceRelay),
-          ),
+        final remoteRoute = MaterialPageRoute<void>(
+          builder: (BuildContext context) => RemotePage(
+              id: id,
+              password: password,
+              isSharedPassword: isSharedPassword,
+              forceRelay: forceRelay),
         );
+        gFFI.mobileRemoteRoute = remoteRoute;
+        unawaited(Navigator.push<void>(context, remoteRoute).then((_) {
+          if (identical(gFFI.mobileRemoteRoute, remoteRoute)) {
+            gFFI.mobileRemoteRoute = null;
+          }
+        }));
       }
     }
     stateGlobal.isInMainPage = false;

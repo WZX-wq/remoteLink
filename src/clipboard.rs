@@ -532,7 +532,7 @@ impl std::fmt::Display for ClipboardSide {
     }
 }
 
-pub use proto::get_msg_if_not_support_multi_clip;
+pub use proto::{create_text_clipboard_msg, get_msg_if_not_support_multi_clip};
 mod proto {
     #[cfg(not(target_os = "android"))]
     use arboard::ClipboardData;
@@ -555,6 +555,15 @@ mod proto {
             format: format.into(),
             ..Default::default()
         }
+    }
+
+    pub fn create_text_clipboard_msg(text: String) -> Message {
+        let mut msg = Message::new();
+        msg.set_multi_clipboards(MultiClipboards {
+            clipboards: vec![plain_to_proto(text, ClipboardFormat::Text)],
+            ..Default::default()
+        });
+        msg
     }
 
     #[cfg(not(target_os = "android"))]

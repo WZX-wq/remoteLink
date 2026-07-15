@@ -118,6 +118,10 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Future<void> _openMembershipSheet() async {
+    if (isIOS) {
+      showToast(_mineText('Membership purchase is being prepared for iPhone.'));
+      return;
+    }
     final user = gFFI.userModel;
     if (!user.isLogin) {
       final loggedIn = await loginDialog();
@@ -200,7 +204,7 @@ class _AccountPageState extends State<AccountPage> {
       final html = order.alipaySubmitHtml.trim();
       if (html.isEmpty) return false;
       try {
-        if (isAndroid || isIOS) {
+        if (isAndroid) {
           final opened = await _kqMobilePaymentChannel.invokeMethod(
             AndroidChannel.kOpenAlipayHtml,
             html,
@@ -227,7 +231,7 @@ class _AccountPageState extends State<AccountPage> {
 
     Future<bool> openPaymentUri(Uri uri) async {
       try {
-        if (isAndroid || isIOS) {
+        if (isAndroid) {
           final opened = await _kqMobilePaymentChannel.invokeMethod(
             AndroidChannel.kOpenPaymentUri,
             uri.toString(),
@@ -263,7 +267,7 @@ class _AccountPageState extends State<AccountPage> {
       }
       return _KqPaymentLaunchResult(
         _KqPaymentLaunchState.unavailable,
-        messageKey: (isAndroid || isIOS)
+        messageKey: isAndroid
             ? 'Alipay is not installed. Please install Alipay and try again.'
             : null,
       );
@@ -423,7 +427,7 @@ class _AccountPageState extends State<AccountPage> {
                 final isMobileAlipayUnavailable =
                     launchState == _KqPaymentLaunchState.unavailable &&
                         payType == 2 &&
-                        (isAndroid || isIOS);
+                        isAndroid;
                 final shouldShowQrFallback =
                     launchState == _KqPaymentLaunchState.unavailable &&
                         !isMobileAlipayUnavailable;
@@ -517,7 +521,7 @@ class _AccountPageState extends State<AccountPage> {
                       const SizedBox(height: 10),
                       Text(
                         translate(
-                            'Both profiles use 60 FPS. Membership unlocks 1080p HD; basic uses 720p standard quality.'),
+                            'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.'),
                         style: TextStyle(
                           color: q.muted,
                           fontSize: 13,
@@ -943,7 +947,7 @@ class _MembershipBanner extends StatelessWidget {
     final subtitle = isMember && formattedExpireAt.isNotEmpty
         ? '${translate('Membership valid until')} $formattedExpireAt'
         : translate(
-            'Both profiles use 60 FPS. Membership unlocks 1080p HD; basic uses 720p standard quality.');
+            'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.');
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -1812,7 +1816,7 @@ class _RemoteExperienceControl extends StatelessWidget {
           icon: Icons.high_quality_rounded,
           children: [
             _QualityOption(
-              label: '720p / 60 FPS',
+              label: '720p / 30 FPS',
               caption: _mineText('Basic plan available'),
               selected: resolution == UserModel.remoteResolution720p,
               enabled: !saving,
@@ -2272,7 +2276,9 @@ const _mineZh = {
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
   'Membership quality unlocked': '会员画质已解锁，可使用 1080p 和 60 FPS。',
   'Upgrade to unlock 1080p and 60 FPS':
-      '当前账号可使用 720p 标清画质与稳定 60 FPS，开通会员后可使用 1080p 高清画质。',
+      '当前账号可使用 720p / 30 FPS，开通会员后可使用 1080p / 60 FPS。',
+  'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.':
+      '基础版使用 720p / 30 FPS，会员可使用 1080p / 60 FPS。',
 };
 
 const _mineTw = {

@@ -8,6 +8,8 @@ extern crate winapi;
 
 pub use common::*;
 
+pub mod external_frame;
+
 #[cfg(quartz)]
 pub mod quartz;
 

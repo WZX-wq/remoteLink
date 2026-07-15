@@ -36,52 +36,22 @@ $infoPlist = Join-Path $Root 'flutter/ios/Runner/Info.plist'
 
 Assert-Contains `
     -Path $accountPage `
-    -Pattern 'if \(isAndroid \|\| isIOS\) \{[\s\S]*AndroidChannel\.kOpenAlipayHtml' `
-    -Message 'iOS Alipay HTML checkout must use the native payment channel instead of url_launcher data HTML.'
-
-Assert-Contains `
-    -Path $accountPage `
-    -Pattern 'if \(isAndroid \|\| isIOS\) \{[\s\S]*AndroidChannel\.kOpenPaymentUri' `
-    -Message 'iOS payment URI launch must use the native payment channel.'
-
-Assert-Contains `
-    -Path $appDelegate `
-    -Pattern 'import WebKit[\s\S]*FlutterMethodChannel\(name: "mChannel"[\s\S]*open_alipay_html[\s\S]*open_payment_uri' `
-    -Message 'iOS AppDelegate must register the payment MethodChannel handlers.'
-
-Assert-Contains `
-    -Path $appDelegate `
-    -Pattern 'WKNavigationDelegate[\s\S]*loadHTMLString[\s\S]*UIApplication\.shared\.open' `
-    -Message 'iOS Alipay HTML checkout must load the cashier form in WKWebView and hand off custom schemes to Alipay.'
-
-Assert-Contains `
-    -Path $infoPlist `
-    -Pattern '<key>LSApplicationQueriesSchemes</key>[\s\S]*<string>alipays</string>[\s\S]*<string>alipayqr</string>[\s\S]*<string>alipay</string>' `
-    -Message 'iOS Info.plist must whitelist Alipay URL schemes.'
-
-Assert-Contains `
-    -Path $accountPage `
-    -Pattern 'Alipay is not installed\. Please install Alipay and try again\.' `
-    -Message 'iOS Alipay unavailable state must tell the user to install Alipay instead of showing a QR fallback.'
-
-Assert-Contains `
-    -Path $accountPage `
-    -Pattern 'isMobileAlipayUnavailable\s*=\s*launchState == _KqPaymentLaunchState\.unavailable[\s\S]*payType == 2[\s\S]*\(isAndroid \|\| isIOS\)' `
-    -Message 'Mobile Alipay unavailable state must be detected as a missing-app terminal state.'
-
-Assert-Contains `
-    -Path $accountPage `
-    -Pattern 'shouldShowQrFallback\s*=\s*launchState == _KqPaymentLaunchState\.unavailable &&[\s\S]*!isMobileAlipayUnavailable' `
-    -Message 'Mobile Alipay unavailable state must cancel the payment instead of enabling QR fallback.'
-
-Assert-Contains `
-    -Path $accountPage `
-    -Pattern 'order\s*=\s*shouldShowQrFallback \|\|[\s\S]*launchState == _KqPaymentLaunchState\.opened[\s\S]*\? nextOrder[\s\S]*: null' `
-    -Message 'iOS unavailable Alipay orders must not be retained for the QR order panel.'
+    -Pattern 'Future<void> _openMembershipSheet\(\) async \{[\s\S]*if \(isIOS\) \{[\s\S]*Membership purchase is being prepared for iPhone\.[\s\S]*return;' `
+    -Message 'iOS must stop before it creates an external membership order or opens a third-party payment app.'
 
 Assert-NotContains `
     -Path $accountPage `
-    -Pattern 'showQrFallback\s*=\s*launchState == _KqPaymentLaunchState\.unavailable;' `
-    -Message 'Payment unavailable must not unconditionally show the QR fallback.'
+    -Pattern 'if \(isAndroid \|\| isIOS\)' `
+    -Message 'iOS must not share the Android external-payment launch path.'
+
+Assert-NotContains `
+    -Path $appDelegate `
+    -Pattern 'WebKit|WKNavigationDelegate|open_alipay_html|open_payment_uri|openAlipayHtml|openPaymentUri' `
+    -Message 'The iOS runner must not include an external Alipay or payment-URI bridge.'
+
+Assert-NotContains `
+    -Path $infoPlist `
+    -Pattern 'LSApplicationQueriesSchemes|alipays|alipayqr|weixin|wechat' `
+    -Message 'The iOS bundle must not declare third-party payment URL schemes while iOS purchase is disabled.'
 
 Write-Host 'KQ iOS payment checks passed'

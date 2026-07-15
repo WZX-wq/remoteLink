@@ -1,27 +1,34 @@
 import UIKit
 import Flutter
-import WebKit
 import ReplayKit
+import AVFoundation
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, WKNavigationDelegate {
-  private var paymentWebView: WKWebView?
-  private var paymentResult: FlutterResult?
-  private var paymentTimeout: Timer?
+@objc class AppDelegate: FlutterAppDelegate {
   private let broadcastExtensionBundleId = "com.kunqiong.remotelink.broadcast"
   private let broadcastAppGroupId = "group.com.kunqiong.remotelink"
+  private let broadcastConfigDirectoryName = "remoteLink-config"
+  private let voiceAudioEngine = AVAudioEngine()
+  private let voiceAudioQueue = DispatchQueue(
+    label: "com.kunqiong.remotelink.voice-audio",
+    qos: .userInitiated
+  )
+  private var voiceSessionId: String?
+  private var voiceAudioSamples = [Float]()
+  private var voiceAudioReadIndex = 0
+  private var voiceTapInstalled = false
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
-    registerPaymentChannel()
+    registerNativeChannel()
     dummyMethodToEnforceBundling();
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  private func registerPaymentChannel() {
+  private func registerNativeChannel() {
     guard let controller = window?.rootViewController as? FlutterViewController else {
       return
     }
@@ -32,59 +39,183 @@ import ReplayKit
         return
       }
       switch call.method {
-      case "open_alipay_html":
-        self.openAlipayHtml(call.arguments as? String ?? "", result: result)
-      case "open_payment_uri":
-        self.openPaymentUri(call.arguments as? String ?? "", result: result)
       case "show_broadcast_picker":
         self.showBroadcastPicker(result: result)
       case "get_broadcast_status":
         self.getBroadcastStatus(result: result)
+      case "prepare_broadcast_config_dir":
+        self.prepareBroadcastConfigDirectory(
+          arguments: call.arguments,
+          result: result
+        )
+      case "request_microphone_permission":
+        self.requestMicrophonePermission(result: result)
+      case "start_ios_voice_capture":
+        result(self.startIOSVoiceCapture(call.arguments as? String ?? ""))
+      case "stop_ios_voice_capture":
+        self.stopIOSVoiceCapture()
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
   }
 
-  private func openAlipayHtml(_ html: String, result: @escaping FlutterResult) {
-    let checkoutHtml = html.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !checkoutHtml.isEmpty else {
+  private func requestMicrophonePermission(result: @escaping FlutterResult) {
+    let session = AVAudioSession.sharedInstance()
+    switch session.recordPermission {
+    case .granted:
+      result(true)
+    case .denied:
       result(false)
-      return
+    case .undetermined:
+      session.requestRecordPermission { granted in
+        DispatchQueue.main.async {
+          result(granted)
+        }
+      }
+    @unknown default:
+      result(false)
     }
-
-    finishPaymentHandoff(opened: false)
-    paymentResult = result
-
-    guard let rootView = window?.rootViewController?.view else {
-      finishPaymentHandoff(opened: false)
-      return
-    }
-
-    let configuration = WKWebViewConfiguration()
-    configuration.preferences.javaScriptEnabled = true
-    let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: configuration)
-    webView.navigationDelegate = self
-    webView.alpha = 0.01
-    webView.isOpaque = false
-    webView.backgroundColor = .clear
-    webView.accessibilityElementsHidden = true
-    rootView.addSubview(webView)
-    paymentWebView = webView
-    paymentTimeout = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
-      self?.finishPaymentHandoff(opened: false)
-    }
-    webView.loadHTMLString(checkoutHtml, baseURL: URL(string: "https://openapi.alipay.com/"))
   }
 
-  private func openPaymentUri(_ value: String, result: @escaping FlutterResult) {
-    let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let url = URL(string: text) else {
-      result(false)
+  private func startIOSVoiceCapture(_ sessionId: String) -> Bool {
+    let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedSessionId.isEmpty else {
+      return false
+    }
+
+    stopIOSVoiceCapture()
+    do {
+      let audioSession = AVAudioSession.sharedInstance()
+      try audioSession.setCategory(
+        .playAndRecord,
+        mode: .voiceChat,
+        options: [.defaultToSpeaker, .allowBluetooth]
+      )
+      try audioSession.setPreferredSampleRate(48_000)
+      try audioSession.setActive(true)
+
+      let inputNode = voiceAudioEngine.inputNode
+      let format = inputNode.outputFormat(forBus: 0)
+      guard format.sampleRate > 0, format.channelCount > 0 else {
+        stopIOSVoiceCapture()
+        return false
+      }
+
+      voiceAudioQueue.sync {
+        voiceSessionId = normalizedSessionId
+        voiceAudioSamples.removeAll(keepingCapacity: true)
+        voiceAudioReadIndex = 0
+      }
+
+      inputNode.installTap(
+        onBus: 0,
+        bufferSize: 960,
+        format: format
+      ) { [weak self] buffer, _ in
+        self?.enqueueIOSVoiceBuffer(buffer, sampleRate: format.sampleRate)
+      }
+      voiceTapInstalled = true
+      voiceAudioEngine.prepare()
+      try voiceAudioEngine.start()
+      return true
+    } catch {
+      NSLog("Failed to start iOS voice capture: \(error)")
+      stopIOSVoiceCapture()
+      return false
+    }
+  }
+
+  private func stopIOSVoiceCapture() {
+    if voiceTapInstalled {
+      voiceAudioEngine.inputNode.removeTap(onBus: 0)
+      voiceTapInstalled = false
+    }
+    voiceAudioEngine.stop()
+    voiceAudioQueue.sync {
+      voiceSessionId = nil
+      voiceAudioSamples.removeAll(keepingCapacity: false)
+      voiceAudioReadIndex = 0
+    }
+    try? AVAudioSession.sharedInstance().setActive(
+      false,
+      options: .notifyOthersOnDeactivation
+    )
+  }
+
+  private func enqueueIOSVoiceBuffer(
+    _ buffer: AVAudioPCMBuffer,
+    sampleRate: Double
+  ) {
+    guard let channelData = buffer.floatChannelData else {
       return
     }
-    UIApplication.shared.open(url, options: [:]) { opened in
-      result(opened)
+    let frameCount = Int(buffer.frameLength)
+    let channelCount = Int(buffer.format.channelCount)
+    guard frameCount > 0, channelCount > 0 else {
+      return
+    }
+
+    var mono = [Float](repeating: 0, count: frameCount)
+    for frame in 0..<frameCount {
+      var value: Float = 0
+      for channel in 0..<channelCount {
+        value += channelData[channel][frame]
+      }
+      mono[frame] = value / Float(channelCount)
+    }
+
+    voiceAudioQueue.async { [weak self] in
+      self?.processIOSVoiceSamples(mono, sampleRate: sampleRate)
+    }
+  }
+
+  private func processIOSVoiceSamples(
+    _ mono: [Float],
+    sampleRate: Double
+  ) {
+    let normalized: [Float]
+    if abs(sampleRate - 48_000) < 1 {
+      normalized = mono
+    } else {
+      let outputCount = max(1, Int(Double(mono.count) * 48_000 / sampleRate))
+      normalized = (0..<outputCount).map { index in
+        let sourcePosition = Double(index) * sampleRate / 48_000
+        let lower = min(Int(sourcePosition), mono.count - 1)
+        let upper = min(lower + 1, mono.count - 1)
+        let fraction = Float(sourcePosition - Double(lower))
+        return mono[lower] + (mono[upper] - mono[lower]) * fraction
+      }
+    }
+
+    guard let sessionId = voiceSessionId else {
+      return
+    }
+    voiceAudioSamples.append(contentsOf: normalized)
+    while voiceAudioSamples.count - voiceAudioReadIndex >= 960 {
+      let endIndex = voiceAudioReadIndex + 960
+      let frame = Array(voiceAudioSamples[voiceAudioReadIndex..<endIndex])
+      voiceAudioReadIndex = endIndex
+      sendIOSVoiceFrame(frame, sessionId: sessionId)
+    }
+    if voiceAudioReadIndex >= 9_600 {
+      voiceAudioSamples.removeFirst(voiceAudioReadIndex)
+      voiceAudioReadIndex = 0
+    }
+  }
+
+  private func sendIOSVoiceFrame(_ frame: [Float], sessionId: String) {
+    let sessionBytes = Array(sessionId.utf8)
+    sessionBytes.withUnsafeBufferPointer { sessionPointer in
+      frame.withUnsafeBufferPointer { framePointer in
+        kq_ios_voice_call_audio(
+          sessionPointer.baseAddress,
+          sessionPointer.count,
+          framePointer.baseAddress,
+          framePointer.count
+        )
+      }
     }
   }
 
@@ -127,6 +258,10 @@ import ReplayKit
         "height": 0,
         "updatedAt": 0.0,
         "isFresh": false,
+        "transportState": "unavailable",
+        "remoteViewAvailable": false,
+        "viewOnly": true,
+        "errorCode": "app_group_unavailable",
       ])
       return
     }
@@ -141,42 +276,81 @@ import ReplayKit
       "height": defaults.integer(forKey: "kq_broadcast_height"),
       "updatedAt": updatedAt,
       "isFresh": updatedAt > 0 && Date().timeIntervalSince1970 - updatedAt < 5.0,
+      "transportState": defaults.string(forKey: "kq_broadcast_transport_state") ?? "not_started",
+      "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
+      "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
+        ? true
+        : defaults.bool(forKey: "kq_broadcast_view_only"),
+      "errorCode": defaults.string(forKey: "kq_broadcast_error_code") ?? "",
     ])
   }
 
-  private func finishPaymentHandoff(opened: Bool) {
-    paymentTimeout?.invalidate()
-    paymentTimeout = nil
-    paymentWebView?.navigationDelegate = nil
-    paymentWebView?.stopLoading()
-    paymentWebView?.removeFromSuperview()
-    paymentWebView = nil
-    if let result = paymentResult {
-      paymentResult = nil
-      result(opened)
+  private func prepareBroadcastConfigDirectory(
+    arguments: Any?,
+    result: @escaping FlutterResult
+  ) {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: broadcastAppGroupId
+    ) else {
+      result(FlutterError(
+        code: "app_group_unavailable",
+        message: "无法准备屏幕共享配置，请检查应用安装状态。",
+        details: nil
+      ))
+      return
+    }
+
+    let destination = container.appendingPathComponent(
+      broadcastConfigDirectoryName,
+      isDirectory: true
+    )
+    let fileManager = FileManager.default
+    do {
+      try fileManager.createDirectory(
+        at: destination,
+        withIntermediateDirectories: true
+      )
+      let existing = try fileManager.contentsOfDirectory(
+        at: destination,
+        includingPropertiesForKeys: nil
+      )
+      if existing.isEmpty,
+         let values = arguments as? [String: Any],
+         let legacyPath = values["legacyDir"] as? String,
+         !legacyPath.isEmpty {
+        try migrateBroadcastConfiguration(
+          from: URL(fileURLWithPath: legacyPath, isDirectory: true),
+          to: destination
+        )
+      }
+      result(destination.path)
+    } catch {
+      NSLog("Failed to prepare broadcast config directory: \(error)")
+      result(FlutterError(
+        code: "config_migration_failed",
+        message: "屏幕共享配置准备失败，请重新打开应用后再试。",
+        details: nil
+      ))
     }
   }
 
-  func webView(
-    _ webView: WKWebView,
-    decidePolicyFor navigationAction: WKNavigationAction,
-    decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
-  ) {
-    guard let url = navigationAction.request.url else {
-      decisionHandler(.allow)
+  private func migrateBroadcastConfiguration(from source: URL, to destination: URL) throws {
+    let fileManager = FileManager.default
+    guard fileManager.fileExists(atPath: source.path) else {
       return
     }
-    let scheme = (url.scheme ?? "").lowercased()
-    if scheme.isEmpty || scheme == "http" || scheme == "https" || scheme == "about" {
-      decisionHandler(.allow)
-      return
-    }
-    decisionHandler(.cancel)
-    UIApplication.shared.open(url, options: [:]) { [weak self] opened in
-      self?.finishPaymentHandoff(opened: opened)
+    for item in try fileManager.contentsOfDirectory(
+      at: source,
+      includingPropertiesForKeys: nil
+    ) {
+      let target = destination.appendingPathComponent(item.lastPathComponent)
+      guard !fileManager.fileExists(atPath: target.path) else {
+        continue
+      }
+      try fileManager.copyItem(at: item, to: target)
     }
   }
-    
+
   public func dummyMethodToEnforceBundling() {
       dummy_method_to_enforce_bundling();
     session_get_rgba(nil, 0);

@@ -709,6 +709,12 @@ pub fn session_send_chat(session_id: SessionID, text: String) {
     }
 }
 
+pub fn session_send_clipboard_text(session_id: SessionID, text: String) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.send_clipboard_text(text);
+    }
+}
+
 // Terminal functions
 pub fn session_open_terminal(session_id: SessionID, terminal_id: i32, rows: u32, cols: u32) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
@@ -1732,6 +1738,30 @@ pub fn session_request_voice_call(session_id: SessionID) {
 pub fn session_close_voice_call(session_id: SessionID) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         session.close_voice_call();
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+unsafe extern "C" fn kq_ios_voice_call_audio(
+    session_id: *const u8,
+    session_id_len: usize,
+    samples: *const f32,
+    sample_len: usize,
+) {
+    if session_id.is_null() || samples.is_null() || session_id_len == 0 || sample_len == 0 {
+        return;
+    }
+    let session_id = std::slice::from_raw_parts(session_id, session_id_len);
+    let Ok(session_id) = std::str::from_utf8(session_id) else {
+        return;
+    };
+    let Ok(session_id) = uuid::Uuid::parse_str(session_id) else {
+        return;
+    };
+    let samples = std::slice::from_raw_parts(samples, sample_len).to_vec();
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.send_ios_voice_call_audio(samples);
     }
 }
 

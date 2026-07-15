@@ -559,6 +559,15 @@ pub extern "C" fn wire_session_send_chat(
 }
 
 #[no_mangle]
+pub extern "C" fn wire_session_send_clipboard_text(
+    port_: i64,
+    session_id: *mut wire_uint_8_list,
+    text: *mut wire_uint_8_list,
+) {
+    wire_session_send_clipboard_text_impl(port_, session_id, text)
+}
+
+#[no_mangle]
 pub extern "C" fn wire_session_open_terminal(
     port_: i64,
     session_id: *mut wire_uint_8_list,

@@ -110,9 +110,9 @@ const KQ_VIEW_STYLE_MIGRATION_KEY: &str = "kq-view-style-adaptive-migrated";
 const KQ_REMEMBER_CONNECT_PASSWORD_ONCE: &str = "kq-remember-connect-password-once";
 const KQ_VIEW_STYLE_ORIGINAL: &str = "original";
 const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
-const KQ_FREE_MAX_FPS: i32 = 60;
+const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
-const KQ_STANDARD_IMAGE_QUALITY: i32 = 150;
+const KQ_STANDARD_IMAGE_QUALITY: i32 = 100;
 const KQ_HIGH_DEFINITION_IMAGE_QUALITY: i32 = 150;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
@@ -160,8 +160,27 @@ fn kq_max_remote_fps() -> i32 {
 }
 
 #[inline]
-fn clamp_kq_remote_fps(_fps: i32) -> i32 {
-    kq_max_remote_fps()
+fn clamp_kq_remote_fps(fps: i32) -> i32 {
+    fps.clamp(5, kq_max_remote_fps())
+}
+
+#[inline]
+fn kq_remote_fps_for_tier(tier: &str) -> i32 {
+    if tier == "1080p" {
+        KQ_MEMBER_MAX_FPS
+    } else {
+        KQ_FREE_MAX_FPS
+    }
+}
+
+#[inline]
+fn kq_remote_fps() -> i32 {
+    let tier = if kq_member_active() {
+        LocalConfig::get_option(KQ_REMOTE_RESOLUTION_TIER_KEY)
+    } else {
+        String::new()
+    };
+    kq_remote_fps_for_tier(&tier)
 }
 
 #[inline]
@@ -188,15 +207,18 @@ mod kq_remote_video_quality_tests {
     use super::*;
 
     #[test]
-    fn profiles_use_same_stable_stream_quality() {
-        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 150);
+    fn profiles_use_distinct_receiver_stream_parameters() {
+        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 100);
         assert_eq!(kq_remote_custom_image_quality_for_tier("1080p"), 150);
-        assert_eq!(
-            kq_remote_custom_image_quality_for_tier("720p"),
-            kq_remote_custom_image_quality_for_tier("1080p")
+        assert!(
+            kq_remote_custom_image_quality_for_tier("720p")
+                < kq_remote_custom_image_quality_for_tier("1080p")
         );
-        assert_eq!(KQ_FREE_MAX_FPS, KQ_MEMBER_MAX_FPS);
-        assert_eq!(clamp_kq_remote_fps(30), KQ_MEMBER_MAX_FPS);
+        assert_eq!(KQ_FREE_MAX_FPS, 30);
+        assert_eq!(KQ_MEMBER_MAX_FPS, 60);
+        assert_eq!(kq_remote_fps_for_tier("720p"), KQ_FREE_MAX_FPS);
+        assert_eq!(kq_remote_fps_for_tier("1080p"), KQ_MEMBER_MAX_FPS);
+        assert_eq!(clamp_kq_remote_fps(30), KQ_FREE_MAX_FPS);
         assert_eq!(clamp_kq_remote_fps(60), KQ_MEMBER_MAX_FPS);
     }
 }
@@ -3078,7 +3100,7 @@ impl LoginConfigHandler {
             }
         }
         if crate::get_app_name() == crate::common::KQ_APP_NAME {
-            let custom_fps = kq_max_remote_fps();
+            let custom_fps = kq_remote_fps();
             msg.custom_image_quality = kq_remote_custom_image_quality() << 8;
             msg.custom_fps = custom_fps;
             *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
@@ -4679,6 +4701,8 @@ pub enum Data {
     ElevateWithLogon(String, String),
     NewVoiceCall,
     CloseVoiceCall,
+    #[cfg(target_os = "ios")]
+    IOSVoiceCallAudio(Vec<f32>),
     ResetDecoder(Option<usize>),
     RenameFile((i32, String, String, bool)),
     TakeScreenshot((i32, String)),

@@ -1486,9 +1486,9 @@ class InputModel {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final dt = nowMs - _lastMouseDownTimeMs;
     final distance = (_lastMouseDownPos - pos).distance;
-    // If touch tap is within 2000ms and 80px of the last mouse down,
+    // If touch tap is within 700ms and 80px of the last mouse down,
     // it's likely a duplicate event from the same Magic Mouse click.
-    if (dt >= 0 && dt < 2000 && distance < 80.0) {
+    if (dt >= 0 && dt < 700 && distance < 80.0) {
       debugPrint("shouldIgnoreTouchTap: IGNORED (dt=$dt, dist=$distance)");
       return true;
     }

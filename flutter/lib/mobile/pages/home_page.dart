@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/mobile/pages/account_page.dart';
 import 'package:flutter_hbb/mobile/pages/recent_connections_page.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
+import 'package:flutter_hbb/mobile/widgets/mobile_bottom_navigation_safe_area.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
 import 'package:get/get.dart';
 import '../../common.dart';
@@ -86,61 +87,65 @@ class HomePageState extends State<HomePage> {
           child: Scaffold(
             extendBody: false,
             backgroundColor: q.surface,
-            bottomNavigationBar: Container(
-              margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              decoration: BoxDecoration(
-                color: q.panelStrong.withOpacity(q.isDark ? 0.92 : 0.96),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: q.line),
-                boxShadow: [
-                  BoxShadow(
-                    color: q.shadow,
-                    blurRadius: 22,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: NavigationBarTheme(
-                data: NavigationBarThemeData(
-                  iconTheme: WidgetStateProperty.resolveWith((states) {
-                    final selected = states.contains(WidgetState.selected);
-                    return IconThemeData(
-                      color: selected ? q.primary : q.muted,
-                      size: 26,
-                    );
-                  }),
-                  labelTextStyle: WidgetStateProperty.resolveWith((states) {
-                    final selected = states.contains(WidgetState.selected);
-                    return TextStyle(
-                      color: selected ? q.ink : q.muted,
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                    );
-                  }),
-                ),
-                child: ClipRRect(
+            bottomNavigationBar: MobileBottomNavigationSafeArea(
+              isIOS: isIOS,
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+                decoration: BoxDecoration(
+                  color: q.panelStrong.withOpacity(q.isDark ? 0.92 : 0.96),
                   borderRadius: BorderRadius.circular(24),
-                  child: NavigationBar(
-                    key: navigationBarKey,
-                    height: 68,
-                    elevation: 0,
-                    backgroundColor: Colors.transparent,
-                    indicatorColor: q.primary.withOpacity(0.16),
-                    selectedIndex: _selectedIndex,
-                    labelBehavior:
-                        NavigationDestinationLabelBehavior.alwaysShow,
-                    destinations: _pages
-                        .map((page) => NavigationDestination(
-                              icon: page.icon,
-                              selectedIcon: page.icon,
-                              label: _mobileNavigationLabel(page.title),
-                            ))
-                        .toList(),
-                    onDestinationSelected: (index) => setState(() {
-                      if (_selectedIndex != index) {
-                        _selectedIndex = index;
-                      }
+                  border: Border.all(color: q.line),
+                  boxShadow: [
+                    BoxShadow(
+                      color: q.shadow,
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: NavigationBarTheme(
+                  data: NavigationBarThemeData(
+                    iconTheme: WidgetStateProperty.resolveWith((states) {
+                      final selected = states.contains(WidgetState.selected);
+                      return IconThemeData(
+                        color: selected ? q.primary : q.muted,
+                        size: 26,
+                      );
                     }),
+                    labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                      final selected = states.contains(WidgetState.selected);
+                      return TextStyle(
+                        color: selected ? q.ink : q.muted,
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w900 : FontWeight.w700,
+                      );
+                    }),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: NavigationBar(
+                      key: navigationBarKey,
+                      height: 68,
+                      elevation: 0,
+                      backgroundColor: Colors.transparent,
+                      indicatorColor: q.primary.withOpacity(0.16),
+                      selectedIndex: _selectedIndex,
+                      labelBehavior:
+                          NavigationDestinationLabelBehavior.alwaysShow,
+                      destinations: _pages
+                          .map((page) => NavigationDestination(
+                                icon: page.icon,
+                                selectedIcon: page.icon,
+                                label: _mobileNavigationLabel(page.title),
+                              ))
+                          .toList(),
+                      onDestinationSelected: (index) => setState(() {
+                        if (_selectedIndex != index) {
+                          _selectedIndex = index;
+                        }
+                      }),
+                    ),
                   ),
                 ),
               ),

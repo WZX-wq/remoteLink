@@ -15,6 +15,7 @@ import '../../common.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../common/widgets/login.dart';
 import '../../models/model.dart';
+import '../../models/mobile_platform_capability_policy.dart';
 import '../../models/platform_model.dart';
 import 'page_shape.dart';
 
@@ -139,6 +140,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 
   Future<void> _restoreLastConnection() async {
+    if (isIOS) return;
     if (!isMobile) return;
     var lastRemoteId = kqLastSuccessfulMobileConnectId();
     lastRemoteId = lastRemoteId.isEmpty
@@ -385,34 +387,36 @@ class _ConnectionPageState extends State<ConnectionPage> {
             ),
           ),
         ),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () async {
-              if (!await _ensureLoggedIn()) return;
-              if (!_ensureRemoteId()) return;
-              connect(
-                context,
-                _idController.id,
-                isFileTransfer: true,
-                password: _remotePassword,
-                rememberPassword: _remotePassword.isNotEmpty,
-              );
-            },
-            icon: const Icon(Icons.folder_copy_outlined),
-            label: Text(translate('Transfer file')),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: q.primary,
-              backgroundColor: q.primary.withOpacity(q.isDark ? 0.1 : 0.06),
-              side: BorderSide(color: q.primary.withOpacity(0.36)),
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+        if (mobilePlatformCapabilities.canTransferFiles) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                if (!await _ensureLoggedIn()) return;
+                if (!_ensureRemoteId()) return;
+                connect(
+                  context,
+                  _idController.id,
+                  isFileTransfer: true,
+                  password: _remotePassword,
+                  rememberPassword: _remotePassword.isNotEmpty,
+                );
+              },
+              icon: const Icon(Icons.folder_copy_outlined),
+              label: Text(translate('Transfer file')),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: q.primary,
+                backgroundColor: q.primary.withOpacity(q.isDark ? 0.1 : 0.06),
+                side: BorderSide(color: q.primary.withOpacity(0.36)),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ],
     );
   }

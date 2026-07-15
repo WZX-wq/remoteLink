@@ -18,7 +18,9 @@ class KqRemoteQualityPresentation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isStandardTier || streamQuality != kqStandardRemoteStreamQuality) {
+    if (!isStandardTier ||
+        streamQuality != kqStandardRemoteStreamQuality ||
+        kqStandardRemoteBlurSigma <= 0) {
       return child;
     }
     return ClipRect(

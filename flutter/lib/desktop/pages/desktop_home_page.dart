@@ -119,6 +119,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   SettingsTabKey? _embeddedSettingsPage;
   bool _showEmbeddedAccountPage = false;
   bool _showEmbeddedDevicesPage = false;
+  bool _revealPasswordText = false;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -1193,6 +1194,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final q = KqTheme.of(context);
     final canChangePassword = !bind.isDisableSettings();
     final actions = <Widget>[
+      _KqInlineIconButton(
+        tooltip: _revealPasswordText
+            ? _kqHomeText('隐藏验证码', 'Hide verification code')
+            : _kqHomeText('显示验证码', 'Show verification code'),
+        icon: _revealPasswordText
+            ? Icons.visibility_off_outlined
+            : Icons.visibility_outlined,
+        onTap: () => setState(() => _revealPasswordText = !_revealPasswordText),
+      ),
       if (model.selectedPasswordCanRefresh)
         _KqInlineIconButton(
           tooltip: translate('Refresh Password'),
@@ -1263,7 +1273,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           children: [
             Expanded(
               child: AutoSizeText(
-                model.selectedPasswordText,
+                kqPasswordTextForUi(
+                  rawText: model.selectedPasswordText,
+                  reveal: _revealPasswordText,
+                ),
                 maxLines: 1,
                 minFontSize: 18,
                 overflow: TextOverflow.ellipsis,
@@ -1759,12 +1772,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   buildPasswordBoard2(BuildContext context, ServerModel model) {
     RxBool refreshHover = false.obs;
+    RxBool revealHover = false.obs;
     RxBool shareHover = false.obs;
     RxBool editHover = false.obs;
     final q = KqTheme.of(context);
     const actionButtonSize = 22.0;
     const actionButtonGap = 2.0;
     final actionButtons = <Widget>[
+      InkWell(
+        borderRadius: BorderRadius.circular(999),
+        child: Tooltip(
+          message: _revealPasswordText
+              ? _kqHomeText('隐藏验证码', 'Hide verification code')
+              : _kqHomeText('显示验证码', 'Show verification code'),
+          child: _KqPasswordToolButton(
+            icon: _revealPasswordText
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            hover: revealHover,
+            iconSize: 15,
+            size: actionButtonSize,
+          ),
+        ),
+        onTap: () => setState(() => _revealPasswordText = !_revealPasswordText),
+        onHover: (value) => revealHover.value = value,
+      ),
       if (model.selectedPasswordCanRefresh)
         AnimatedRotationWidget(
           onPressed: () => model.refreshSelectedPassword(),
@@ -1951,7 +1983,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       child: AnimatedBuilder(
                         animation: model.selectedPasswordController,
                         builder: (context, _) => AutoSizeText(
-                          model.selectedPasswordText,
+                          kqPasswordTextForUi(
+                            rawText: model.selectedPasswordText,
+                            reveal: _revealPasswordText,
+                          ),
                           maxLines: 1,
                           minFontSize: 14,
                           overflow: TextOverflow.ellipsis,
@@ -2060,6 +2095,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       final title = _kqPasswordKindLabel(editingKind);
       final canRemovePermanent =
           isPermanent && model.localPermanentPasswordSet && !submitting;
+      final canRandomGenerate =
+          kqPasswordKindSupportsRandomGenerate(editingKind) && !submitting;
+
+      fillRandomPassword() {
+        final value = model.generateVerificationCodePreview();
+        controller.text = value;
+        if (isPermanent) {
+          confirmController.text = value;
+        }
+        setState(() {
+          errMsg = '';
+          confirmErrMsg = '';
+        });
+      }
 
       submit() async {
         if (submitting) {
@@ -2200,6 +2249,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               onPressed: removePermanent,
               isOutline: true,
             ),
+          dialogButton(
+            _kqHomeText('随机验证码', 'Random code'),
+            icon: const Icon(Icons.casino_outlined),
+            onPressed: canRandomGenerate ? fillRandomPassword : null,
+            isOutline: true,
+          ),
           dialogButton(
             "OK",
             icon: const Icon(Icons.done_rounded),
@@ -3356,11 +3411,32 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
   void _showAddDeviceDialog() {
     final idController = TextEditingController();
     final nameController = TextEditingController();
+    final deviceTypeMenuController = MenuController();
     var platform = kPeerPlatformWindows;
     var errorText = '';
     var submitting = false;
 
     gFFI.dialogManager.show((setState, close, context) {
+      void closeDialog([dynamic result]) {
+        deviceTypeMenuController.close();
+        close(result);
+      }
+
+      void selectPlatform(String value) {
+        if (value != kPeerPlatformWindows && value != kPeerPlatformAndroid) {
+          showToast(_kqHomeText('暂不支持，待开发中', 'Not supported yet'));
+          return;
+        }
+        setState(() => platform = value);
+      }
+
+      Widget platformMenuItem(String value, String label) {
+        return MenuItemButton(
+          onPressed: submitting ? null : () => selectPlatform(value),
+          child: Text(label),
+        );
+      }
+
       Future<void> submit() async {
         if (submitting) return;
         final id = kqNormalizePeerId(idController.text);
@@ -3401,7 +3477,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
         _queryDeviceOnlines([peer]);
         bind.mainLoadRecentPeers();
         showToast(_kqHomeText('已添加设备', 'Device added'));
-        close();
+        closeDialog();
       }
 
       return CustomAlertDialog(
@@ -3444,40 +3520,35 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
                 onSubmitted: (_) => submit(),
               ).workaroundFreezeLinuxMint(),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: platform,
-                decoration: InputDecoration(
-                  labelText: _kqHomeText('设备类型', 'Device type'),
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: kPeerPlatformWindows,
-                    child: Text('Windows'),
-                  ),
-                  DropdownMenuItem(
-                    value: kPeerPlatformMacOS,
-                    child: Text('macOS'),
-                  ),
-                  DropdownMenuItem(
-                    value: kPeerPlatformLinux,
-                    child: Text('Linux'),
-                  ),
-                  DropdownMenuItem(
-                    value: kPeerPlatformAndroid,
-                    child: Text('Android'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'iOS',
-                    child: Text('iOS'),
-                  ),
+              MenuAnchor(
+                controller: deviceTypeMenuController,
+                crossAxisUnconstrained: false,
+                menuChildren: [
+                  platformMenuItem(kPeerPlatformWindows, 'Windows'),
+                  platformMenuItem(kPeerPlatformMacOS, 'macOS'),
+                  platformMenuItem(kPeerPlatformLinux, 'Linux'),
+                  platformMenuItem(kPeerPlatformAndroid, 'Android'),
+                  platformMenuItem('iOS', 'iOS'),
                 ],
-                onChanged: submitting
-                    ? null
-                    : (value) {
-                        if (value != null) {
-                          setState(() => platform = value);
-                        }
-                      },
+                builder: (context, controller, child) => InkWell(
+                  onTap: submitting
+                      ? null
+                      : () {
+                          if (controller.isOpen) {
+                            controller.close();
+                          } else {
+                            controller.open();
+                          }
+                        },
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: _kqHomeText('设备类型', 'Device type'),
+                      suffixIcon: const Icon(Icons.arrow_drop_down),
+                    ),
+                    isEmpty: false,
+                    child: Text(platform),
+                  ),
+                ),
               ),
               if (submitting)
                 const LinearProgressIndicator().marginOnly(top: 12),
@@ -3485,13 +3556,14 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
           ),
         ),
         actions: [
-          dialogButton('Cancel', onPressed: close, isOutline: true),
+          dialogButton('Cancel', onPressed: closeDialog, isOutline: true),
           dialogButton(
             'Add',
             icon: const Icon(Icons.add_rounded),
             onPressed: submitting ? null : submit,
           ),
         ],
+        onCancel: closeDialog,
       );
     }, backDismiss: true, clickMaskDismiss: true);
   }

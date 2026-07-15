@@ -411,7 +411,6 @@ impl<T: InvokeUiSession> Session<T> {
         self.lc.read().unwrap().is_privacy_mode_supported()
     }
 
-    #[cfg(not(target_os = "ios"))]
     pub fn is_text_clipboard_required(&self) -> bool {
         *self.server_clipboard_enabled.read().unwrap()
             && *self.server_keyboard_enabled.read().unwrap()
@@ -799,6 +798,29 @@ impl<T: InvokeUiSession> Session<T> {
         let mut msg_out = Message::new();
         msg_out.set_misc(misc);
         self.send(Data::Message(msg_out));
+    }
+
+    pub fn send_clipboard_text(&self, text: String) {
+        if text.is_empty() || !self.is_text_clipboard_required() {
+            return;
+        }
+
+        let msg = crate::clipboard::create_text_clipboard_msg(text);
+        if let Some(message::Union::MultiClipboards(multi_clipboards)) = &msg.union {
+            let lc = self.lc.read().unwrap();
+            if let Some(peer_info) = lc.peer_info.as_ref() {
+                if let Some(msg_out) = crate::clipboard::get_msg_if_not_support_multi_clip(
+                    &peer_info.version,
+                    &peer_info.platform,
+                    multi_clipboards,
+                ) {
+                    drop(lc);
+                    self.send(Data::Message(msg_out));
+                    return;
+                }
+            }
+        }
+        self.send(Data::Message(msg));
     }
 
     // Terminal methods
@@ -1624,6 +1646,11 @@ impl<T: InvokeUiSession> Session<T> {
     #[inline]
     pub fn close_voice_call(&self) {
         self.send(Data::CloseVoiceCall);
+    }
+
+    #[cfg(target_os = "ios")]
+    pub(crate) fn send_ios_voice_call_audio(&self, samples: Vec<f32>) {
+        self.send(Data::IOSVoiceCallAudio(samples));
     }
 
     pub fn send_selected_session_id(&self, sid: String) {

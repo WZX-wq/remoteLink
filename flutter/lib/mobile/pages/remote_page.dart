@@ -62,6 +62,7 @@ class RemotePage extends StatefulWidget {
 }
 
 class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
+  static const _iosMethodChannel = MethodChannel('mChannel');
   Timer? _timer;
   bool _showBar = !isWebDesktop;
   bool _showGestureHelp = false;
@@ -69,6 +70,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   Orientation? _currentOrientation;
   final _uniqueKey = UniqueKey();
   Timer? _iosKeyboardWorkaroundTimer;
+  Timer? _orientationRefreshTimer;
+  bool _wasBackgrounded = false;
 
   final _blockableOverlayState = BlockableOverlayState();
 
@@ -158,6 +161,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   @override
   Future<void> dispose() async {
     WidgetsBinding.instance.removeObserver(this);
+    // Stop microphone capture before any awaited cleanup can fail or stall.
+    gFFI.chatModel.onVoiceCallClosed("End connection");
+    _orientationRefreshTimer?.cancel();
     // https://github.com/flutter/flutter/issues/64935
     super.dispose();
     gFFI.dialogManager.hideMobileActionsOverlay(store: false);
@@ -177,23 +183,93 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     WakelockManager.disable(_uniqueKey);
     await keyboardSubscription.cancel();
     removeSharedStates(widget.id);
-    // `on_voice_call_closed` should be called when the connection is ended.
-    // The inner logic of `on_voice_call_closed` will check if the voice call is active.
-    // Only one client is considered here for now.
-    gFFI.chatModel.onVoiceCallClosed("End connection");
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      trySyncClipboard();
+      unawaited(trySyncClipboard());
+      if (_wasBackgrounded) {
+        _wasBackgrounded = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _refreshIOSRemoteVideo('app-resumed');
+        });
+      }
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _wasBackgrounded = true;
     }
+  }
+
+  void _refreshIOSRemoteVideo(String reason) {
+    if (!isIOS ||
+        !mounted || _wasBackgrounded || gFFI.closed ||
+        gFFI.ffiModel.pi.isSet.isFalse) {
+      return;
+    }
+    final display = gFFI.ffiModel.pi.currentDisplay;
+    platformFFI.logRgbaStage(
+        sessionId, 'ios-video-refresh-$reason', display);
+    gFFI.imageModel.requestRepaint();
+    unawaited(() async {
+      try {
+        await sessionRefreshVideo(sessionId, gFFI.ffiModel.pi);
+      } catch (error, stackTrace) {
+        debugPrint('Failed to refresh iOS remote video after $reason: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }());
+  }
+
+  void _scheduleOrientationRefresh(Orientation orientation) {
+    if (_currentOrientation == orientation) return;
+    _currentOrientation = orientation;
+    _orientationRefreshTimer?.cancel();
+    _orientationRefreshTimer = Timer(const Duration(milliseconds: 200), () async {
+      if (!mounted || gFFI.closed) return;
+      gFFI.dialogManager.resetMobileActionsOverlay(ffi: gFFI);
+      await gFFI.canvasModel.updateViewStyle();
+      _refreshIOSRemoteVideo('orientation-changed');
+    });
+  }
+
+  void _handleIOSSoftwarePaint(ImageModel model) {
+    if (!isIOS) return;
+    final display = gFFI.ffiModel.pi.currentDisplay;
+    if (!model.markFramePainted(display)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || gFFI.closed) return;
+      platformFFI.logRgbaStage(sessionId, 'ios-first-frame-after-paint',
+          display, model.image?.width ?? 0, model.image?.height ?? 0);
+      try {
+        await gFFI.onEvent2UIRgba(updateCanvasLayout: false);
+      } catch (error, stackTrace) {
+        platformFFI.logRgbaStage(
+            sessionId, 'ios-first-frame-finalize-error', display);
+        debugPrint('Failed to finalize the first iOS remote frame: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    });
   }
 
   // For client side
   // When swithing from other app to this app, try to sync clipboard.
-  void trySyncClipboard() {
-    gFFI.invokeMethod("try_sync_clipboard");
+  Future<void> trySyncClipboard() async {
+    if (!isIOS) {
+      await gFFI.invokeMethod("try_sync_clipboard");
+      return;
+    }
+
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text;
+      if (text == null || text.isEmpty || gFFI.closed) return;
+      await bind.sessionSendClipboardText(sessionId: sessionId, text: text);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to sync iOS foreground clipboard: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   // to-do: It should be better to use transparent color instead of the bgColor.
@@ -291,7 +367,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     // Input the new string.
     if (newStr.length > 1) {
       bind.sessionInputString(sessionId: sessionId, value: newStr);
-    } else {
+    } else if (newStr.isNotEmpty) {
       inputChar(newStr);
     }
   }
@@ -447,14 +523,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                         : SafeArea(
                             child:
                                 OrientationBuilder(builder: (ctx, orientation) {
-                              if (_currentOrientation != orientation) {
-                                Timer(const Duration(milliseconds: 200), () {
-                                  gFFI.dialogManager
-                                      .resetMobileActionsOverlay(ffi: gFFI);
-                                  _currentOrientation = orientation;
-                                  gFFI.canvasModel.updateViewStyle();
-                                });
-                              }
+                              _scheduleOrientationRefresh(orientation);
                               return Container(
                                 color: MyTheme.canvasColor,
                                 child: RawTouchGestureDetectorRegion(
@@ -542,7 +611,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         futureBuilder(
           future: gFFI.invokeMethod("get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
           hasData: (isSupportVoiceCall) {
-            final showVoiceCall = isAndroid && isSupportVoiceCall;
+            final showVoiceCall =
+                isIOS || (isAndroid && isSupportVoiceCall);
             if (!showVoiceCall) {
               return const SizedBox.shrink();
             }
@@ -659,7 +729,25 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     });
   }
 
-  void _requestMobileVoiceCall() {
+  Future<bool> _ensureMobileVoicePermission() async {
+    if (!isIOS) return true;
+    try {
+      return await _iosMethodChannel.invokeMethod<bool>(
+            'request_microphone_permission',
+          ) ??
+          false;
+    } on PlatformException catch (error) {
+      debugPrint('Unable to request iOS microphone permission: $error');
+      return false;
+    }
+  }
+
+  Future<void> _requestMobileVoiceCall() async {
+    if (!await _ensureMobileVoicePermission()) {
+      showToast('无法使用麦克风，请在系统设置中允许麦克风权限后重试');
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       _showBar = false;
       _showEdit = false;
@@ -669,6 +757,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   void _endMobileVoiceCall() {
+    gFFI.chatModel.onVoiceCallClosed('End connection');
     bind.sessionCloseVoiceCall(sessionId: sessionId);
     showToast(translate('End voice call'));
   }
@@ -684,7 +773,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         color: MyTheme.canvasColor,
         child: Stack(children: () {
           final paints = [
-            ImagePaint(ffiModel: gFFI.ffiModel),
+            ImagePaint(
+              ffiModel: gFFI.ffiModel,
+              onPaint: _handleIOSSoftwarePaint,
+            ),
             Positioned(
               top: 10,
               right: 10,
@@ -1155,7 +1247,8 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
 
 class ImagePaint extends StatelessWidget {
   final FfiModel ffiModel;
-  ImagePaint({Key? key, required this.ffiModel}) : super(key: key);
+  final ValueChanged<ImageModel>? onPaint;
+  ImagePaint({Key? key, required this.ffiModel, this.onPaint}) : super(key: key);
 
   FilterQuality _remoteImageFilterQuality(double scale) {
     if (scale < 1.0) {
@@ -1180,14 +1273,17 @@ class ImagePaint extends StatelessWidget {
             UserModel.remoteResolution720p
         ? kqStandardRemoteBlurSigma
         : 0.0;
-    return CustomPaint(
-      painter: ImagePainter(
-        image: m.image,
-        x: c.x / s,
-        y: (c.y + adjust) / s,
-        scale: s,
-        filterQuality: _remoteImageFilterQuality(s),
-        blurSigma: blurSigma,
+    return SizedBox.expand(
+      child: CustomPaint(
+        painter: ImagePainter(
+          image: m.image,
+          x: c.x / s,
+          y: (c.y + adjust) / s,
+          scale: s,
+          filterQuality: _remoteImageFilterQuality(s),
+          blurSigma: blurSigma,
+          onPaint: () => onPaint?.call(m),
+        ),
       ),
     );
   }

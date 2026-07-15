@@ -12,6 +12,7 @@ import '../../common.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
+import '../../models/mobile_platform_capability_policy.dart';
 import '../../models/server_model.dart';
 import 'page_shape.dart';
 
@@ -25,10 +26,12 @@ class ServerPage extends StatefulWidget implements PageShape {
   final icon = const Icon(Icons.mobile_screen_share);
 
   @override
-  final appBarActions = (!bind.isDisableSettings() &&
-          bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
-      ? [_DropDownAction()]
-      : [];
+  final appBarActions = isIOS
+      ? const <Widget>[]
+      : (!bind.isDisableSettings() &&
+              bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
+          ? [_DropDownAction()]
+          : <Widget>[];
 
   ServerPage({Key? key}) : super(key: key);
 
@@ -191,7 +194,7 @@ class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
     });
-    if (isAndroid) {
+    if (mobilePlatformCapabilities.canReceiveRemoteInput) {
       gFFI.serverModel.checkAndroidPermission();
     }
   }
@@ -206,7 +209,8 @@ class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed && isAndroid) {
+    if (state == AppLifecycleState.resumed &&
+        mobilePlatformCapabilities.canReceiveRemoteInput) {
       checkService();
       unawaited(gFFI.serverModel.checkAndroidPermission());
     }
@@ -214,7 +218,7 @@ class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (isIOS) {
+    if (mobilePlatformCapabilities.canHostViewOnlyBroadcast) {
       return const _IOSScreenShareBroadcastMvp();
     }
     checkService();
@@ -269,6 +273,10 @@ class _IOSScreenShareBroadcastMvpState
     'height': 0,
     'updatedAt': 0.0,
     'isFresh': false,
+    'transportState': 'not_started',
+    'remoteViewAvailable': false,
+    'viewOnly': true,
+    'errorCode': '',
   };
   bool _opening = false;
   String? _errorText;
@@ -311,12 +319,13 @@ class _IOSScreenShareBroadcastMvpState
         });
       }
     } catch (e) {
+      debugPrint('Failed to open iOS broadcast picker: $e');
       if (!mounted) return;
       setState(() {
         _errorText = _iosShareText(
-          zhCn: '打开屏幕共享失败：$e',
-          zhTw: '開啟螢幕分享失敗：$e',
-          en: 'Failed to open screen sharing: $e',
+          zhCn: '暂时无法打开屏幕共享，请重新打开应用后再试。',
+          zhTw: '暫時無法開啟螢幕分享，請重新開啟應用程式後再試。',
+          en: 'Screen sharing could not be opened. Reopen the app and try again.',
         );
       });
     } finally {
@@ -337,12 +346,13 @@ class _IOSScreenShareBroadcastMvpState
         _status = raw.map((key, value) => MapEntry(key.toString(), value));
       });
     } catch (e) {
+      debugPrint('Failed to read iOS broadcast status: $e');
       if (!mounted) return;
       setState(() {
         _errorText = _iosShareText(
-          zhCn: '读取屏幕共享状态失败：$e',
-          zhTw: '讀取螢幕分享狀態失敗：$e',
-          en: 'Failed to read screen sharing status: $e',
+          zhCn: '暂时无法读取屏幕共享状态，请稍后重试。',
+          zhTw: '暫時無法讀取螢幕分享狀態，請稍後重試。',
+          en: 'Screen sharing status is temporarily unavailable. Try again shortly.',
         );
       });
     }
@@ -358,6 +368,11 @@ class _IOSScreenShareBroadcastMvpState
     final width = _statusInt('width');
     final height = _statusInt('height');
     final isFresh = _status['isFresh'] == true;
+    final remoteViewAvailable = _status['remoteViewAvailable'] == true;
+    final transportState =
+        (_status['transportState'] ?? 'not_started').toString();
+    final errorCode = (_status['errorCode'] ?? '').toString();
+    final statusErrorText = _broadcastErrorText(errorCode);
     final hasVideo = videoFrames > 0;
     final stateColor = hasVideo && isFresh
         ? q.online
@@ -390,9 +405,9 @@ class _IOSScreenShareBroadcastMvpState
                     children: [
                       Text(
                         _iosShareText(
-                          zhCn: 'iOS 屏幕共享',
-                          zhTw: 'iOS 螢幕分享',
-                          en: 'iOS screen sharing',
+                          zhCn: 'iOS 屏幕广播',
+                          zhTw: 'iOS 螢幕廣播',
+                          en: 'iOS screen broadcast',
                         ),
                         style: TextStyle(
                           color: q.ink,
@@ -403,9 +418,9 @@ class _IOSScreenShareBroadcastMvpState
                       const SizedBox(height: 6),
                       Text(
                         _iosShareText(
-                          zhCn: '点击开始后，在系统面板里选择鲲穹远程桌面并开始直播。当前版本先验证采集链路。',
-                          zhTw: '點擊開始後，在系統面板裡選擇鯤穹遠程桌面並開始直播。目前版本先驗證擷取鏈路。',
-                          en: 'Tap start, choose KQ Remote Link in the system panel, and start broadcast. This build verifies the capture path first.',
+                          zhCn: '使用 ReplayKit 安全共享本机画面，其他设备可以连接观看。',
+                          zhTw: '使用 ReplayKit 安全分享本機畫面，其他裝置可以連線觀看。',
+                          en: 'Share this screen securely with ReplayKit for viewing from another device.',
                         ),
                         style: TextStyle(
                           color: q.muted,
@@ -440,9 +455,9 @@ class _IOSScreenShareBroadcastMvpState
                           en: 'Opening...',
                         )
                       : _iosShareText(
-                          zhCn: '开始屏幕共享',
-                          zhTw: '開始螢幕分享',
-                          en: 'Start screen sharing',
+                          zhCn: '打开系统广播面板',
+                          zhTw: '開啟系統廣播面板',
+                          en: 'Open broadcast panel',
                         )),
                 ),
               ),
@@ -503,15 +518,42 @@ class _IOSScreenShareBroadcastMvpState
                 ),
                 value: '$micAudioFrames',
               ),
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '远程观看',
+                  zhTw: '遠端觀看',
+                  en: 'Remote viewing',
+                ),
+                value: remoteViewAvailable
+                    ? _iosShareText(
+                        zhCn: '可以连接观看',
+                        zhTw: '可以連線觀看',
+                        en: 'Available to view',
+                      )
+                    : _remoteViewingLabel(state, transportState),
+                color: remoteViewAvailable ? q.online : q.warning,
+              ),
+              _IOSBroadcastStatusRow(
+                label: _iosShareText(
+                  zhCn: '传输模式',
+                  zhTw: '傳輸模式',
+                  en: 'Transport mode',
+                ),
+                value: _transportLabel(transportState),
+              ),
             ],
           ),
         ),
+        if (statusErrorText != null)
+          PaddingCard(
+            child: _IOSShareRequirementNotice(text: statusErrorText),
+          ),
         PaddingCard(
           child: _IOSShareRequirementNotice(
             text: _iosShareText(
-              zhCn: '这是第一阶段 ReplayKit 采集验证。iOS 受系统限制，暂不能像安卓一样接收远程鼠标键盘控制。',
-              zhTw: '這是第一階段 ReplayKit 擷取驗證。iOS 受系統限制，暫不能像安卓一樣接收遠端滑鼠鍵盤控制。',
-              en: 'This is the first-stage ReplayKit capture check. iOS system limits still prevent Android-style remote mouse and keyboard control.',
+              zhCn: 'iOS 屏幕广播仅支持观看，不接收系统级远程鼠标、键盘或触控操作。',
+              zhTw: 'iOS 螢幕廣播僅支援觀看，不接收系統級遠端滑鼠、鍵盤或觸控操作。',
+              en: 'iOS screen broadcasting is view-only and does not accept system-level remote mouse, keyboard, or touch input.',
             ),
           ),
         ),
@@ -524,6 +566,100 @@ class _IOSScreenShareBroadcastMvpState
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _remoteViewingLabel(String state, String transportState) {
+    if (state == 'failed' || transportState == 'failed') {
+      return _iosShareText(
+        zhCn: '启动失败',
+        zhTw: '啟動失敗',
+        en: 'Could not start',
+      );
+    }
+    if (transportState == 'waiting_for_frame') {
+      return _iosShareText(
+        zhCn: '等待画面',
+        zhTw: '等待畫面',
+        en: 'Waiting for video',
+      );
+    }
+    return _iosShareText(
+      zhCn: '尚未开始',
+      zhTw: '尚未開始',
+      en: 'Not started',
+    );
+  }
+
+  String _transportLabel(String state) {
+    switch (state) {
+      case 'waiting_for_frame':
+        return _iosShareText(
+          zhCn: '等待画面',
+          zhTw: '等待畫面',
+          en: 'Waiting for video',
+        );
+      case 'starting':
+      case 'registering':
+        return _iosShareText(
+          zhCn: '正在准备',
+          zhTw: '正在準備',
+          en: 'Preparing',
+        );
+      case 'ready':
+      case 'streaming':
+        return _iosShareText(
+          zhCn: '传输已就绪',
+          zhTw: '傳輸已就緒',
+          en: 'Ready',
+        );
+      case 'paused':
+        return _iosShareText(
+          zhCn: '已暂停',
+          zhTw: '已暫停',
+          en: 'Paused',
+        );
+      case 'stopped':
+        return _iosShareText(
+          zhCn: '已结束',
+          zhTw: '已結束',
+          en: 'Stopped',
+        );
+      case 'failed':
+        return _iosShareText(
+          zhCn: '启动失败',
+          zhTw: '啟動失敗',
+          en: 'Could not start',
+        );
+      default:
+        return _iosShareText(
+          zhCn: '尚未开始',
+          zhTw: '尚未開始',
+          en: 'Not started',
+        );
+    }
+  }
+
+  String? _broadcastErrorText(String code) {
+    if (code.isEmpty) return null;
+    if (code == 'app_group_unavailable' || code == 'config_migration_failed') {
+      return _iosShareText(
+        zhCn: '屏幕共享配置不可用，请重新安装或重新打开应用后再试。',
+        zhTw: '螢幕分享設定不可用，請重新安裝或重新開啟應用程式後再試。',
+        en: 'Screen sharing configuration is unavailable. Reinstall or reopen the app and try again.',
+      );
+    }
+    if (code == 'unsupported_pixel_format') {
+      return _iosShareText(
+        zhCn: '当前设备暂时无法处理屏幕画面，请更新系统后重试。',
+        zhTw: '目前裝置暫時無法處理螢幕畫面，請更新系統後重試。',
+        en: 'This device cannot process the screen video. Update iOS and try again.',
+      );
+    }
+    return _iosShareText(
+      zhCn: '屏幕共享启动失败，请停止系统广播后重新开始。',
+      zhTw: '螢幕分享啟動失敗，請停止系統廣播後重新開始。',
+      en: 'Screen sharing could not start. Stop the system broadcast and try again.',
+    );
   }
 
   String _statusLabel(String state, bool hasVideo, bool isFresh) {
@@ -1126,7 +1262,7 @@ class ServerInfo extends StatelessWidget {
   }
 }
 
-class _DevicePasswordTile extends StatelessWidget {
+class _DevicePasswordTile extends StatefulWidget {
   const _DevicePasswordTile({
     required this.serverModel,
     required this.onCopy,
@@ -1140,8 +1276,16 @@ class _DevicePasswordTile extends StatelessWidget {
   final VoidCallback? onEdit;
 
   @override
+  State<_DevicePasswordTile> createState() => _DevicePasswordTileState();
+}
+
+class _DevicePasswordTileState extends State<_DevicePasswordTile> {
+  bool _revealPassword = false;
+
+  @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
+    final serverModel = widget.serverModel;
 
     Widget actionButton({
       required IconData icon,
@@ -1247,7 +1391,10 @@ class _DevicePasswordTile extends StatelessWidget {
               AnimatedBuilder(
                 animation: serverModel.selectedPasswordController,
                 builder: (context, _) => Text(
-                  serverModel.selectedPasswordText,
+                  kqPasswordTextForUi(
+                    rawText: serverModel.selectedPasswordText,
+                    reveal: _revealPassword,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1263,20 +1410,27 @@ class _DevicePasswordTile extends StatelessWidget {
           ),
         ),
         actionButton(
+          tooltip: _revealPassword ? '隐藏验证码' : '显示验证码',
+          icon: _revealPassword
+              ? Icons.visibility_off_outlined
+              : Icons.visibility_outlined,
+          onPressed: () => setState(() => _revealPassword = !_revealPassword),
+        ),
+        actionButton(
           tooltip: translate('Refresh Password'),
           icon: Icons.refresh_rounded,
-          onPressed: onRefresh,
+          onPressed: widget.onRefresh,
         ),
-        if (onEdit != null)
+        if (widget.onEdit != null)
           actionButton(
             tooltip: translate('Change Password'),
             icon: Icons.edit_rounded,
-            onPressed: onEdit,
+            onPressed: widget.onEdit,
           ),
         actionButton(
           tooltip: translate('Copy'),
           icon: Icons.copy_outlined,
-          onPressed: onCopy,
+          onPressed: widget.onCopy,
         ),
       ]),
     );
@@ -1311,6 +1465,20 @@ void _showMobileKqPasswordDialog(ServerModel model) {
     final isPermanent = editingKind == KqPasswordKind.permanent;
     final canRemovePermanent =
         isPermanent && model.localPermanentPasswordSet && !submitting;
+    final canRandomGenerate =
+        kqPasswordKindSupportsRandomGenerate(editingKind) && !submitting;
+
+    fillRandomPassword() {
+      final value = model.generateVerificationCodePreview();
+      controller.text = value;
+      if (isPermanent) {
+        confirmController.text = value;
+      }
+      setState(() {
+        errMsg = '';
+        confirmErrMsg = '';
+      });
+    }
 
     submit() async {
       if (submitting) {
@@ -1446,6 +1614,12 @@ void _showMobileKqPasswordDialog(ServerModel model) {
             onPressed: removePermanent,
             isOutline: true,
           ),
+        dialogButton(
+          '随机验证码',
+          icon: const Icon(Icons.casino_outlined),
+          onPressed: canRandomGenerate ? fillRandomPassword : null,
+          isOutline: true,
+        ),
         dialogButton(
           "OK",
           icon: const Icon(Icons.done_rounded),

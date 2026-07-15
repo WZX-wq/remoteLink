@@ -1793,6 +1793,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
   bool locked = bind.mainIsInstalled();
+  bool _revealAccessPasswordText = false;
   final scrollController = ScrollController();
 
   @override
@@ -1953,7 +1954,10 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                   children: [
                     Expanded(
                       child: SelectableText(
-                        model.selectedPasswordText,
+                        kqPasswordTextForUi(
+                          rawText: model.selectedPasswordText,
+                          reveal: _revealAccessPasswordText,
+                        ),
                         maxLines: 1,
                         style: TextStyle(
                           color: palette.primaryText,
@@ -1962,6 +1966,16 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                           letterSpacing: 0,
                         ),
                       ),
+                    ),
+                    _settingsIconAction(
+                      tooltip: _revealAccessPasswordText
+                          ? _kqSettingText('隐藏验证码', 'Hide verification code')
+                          : _kqSettingText('显示验证码', 'Show verification code'),
+                      icon: _revealAccessPasswordText
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      onTap: () => setState(() => _revealAccessPasswordText =
+                          !_revealAccessPasswordText),
                     ),
                     _settingsIconAction(
                       tooltip: translate('Refresh Password'),
@@ -2235,6 +2249,20 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
       final title = _settingsPasswordKindLabel(editingKind);
       final canRemovePermanent =
           isPermanent && model.localPermanentPasswordSet && !submitting;
+      final canRandomGenerate =
+          kqPasswordKindSupportsRandomGenerate(editingKind) && !submitting;
+
+      fillRandomPassword() {
+        final value = model.generateVerificationCodePreview();
+        controller.text = value;
+        if (isPermanent) {
+          confirmController.text = value;
+        }
+        setState(() {
+          errMsg = '';
+          confirmErrMsg = '';
+        });
+      }
 
       submit() async {
         if (submitting) {
@@ -2374,6 +2402,12 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
               onPressed: removePermanent,
               isOutline: true,
             ),
+          dialogButton(
+            _kqSettingText('随机验证码', 'Random code'),
+            icon: const Icon(Icons.casino_outlined),
+            onPressed: canRandomGenerate ? fillRandomPassword : null,
+            isOutline: true,
+          ),
           dialogButton(
             "OK",
             icon: const Icon(Icons.done_rounded),
@@ -3928,7 +3962,7 @@ class _AccountState extends State<_Account> {
       controller: scrollController,
       children: [
         Obx(() {
-          if (gFFI.userModel.userName.value.isEmpty) {
+          if (!gFFI.userModel.isLogin) {
             return _accountShell(context, _signedOutReferencePanel(context));
           }
           return _accountShell(

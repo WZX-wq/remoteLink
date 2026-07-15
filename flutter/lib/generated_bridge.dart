@@ -386,6 +386,11 @@ abstract class Rustdesk {
 
   FlutterRustBridgeTaskConstMeta get kSessionSendChatConstMeta;
 
+  Future<void> sessionSendClipboardText(
+      {required UuidValue sessionId, required String text, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kSessionSendClipboardTextConstMeta;
+
   Future<void> sessionOpenTerminal(
       {required UuidValue sessionId,
       required int terminalId,
@@ -3137,6 +3142,26 @@ class RustdeskImpl implements Rustdesk {
   FlutterRustBridgeTaskConstMeta get kSessionSendChatConstMeta =>
       const FlutterRustBridgeTaskConstMeta(
         debugName: "session_send_chat",
+        argNames: ["sessionId", "text"],
+      );
+
+  Future<void> sessionSendClipboardText(
+      {required UuidValue sessionId, required String text, dynamic hint}) {
+    var arg0 = _platform.api2wire_Uuid(sessionId);
+    var arg1 = _platform.api2wire_String(text);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) =>
+          _platform.inner.wire_session_send_clipboard_text(port_, arg0, arg1),
+      parseSuccessData: _wire2api_unit,
+      constMeta: kSessionSendClipboardTextConstMeta,
+      argValues: [sessionId, text],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kSessionSendClipboardTextConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "session_send_clipboard_text",
         argNames: ["sessionId", "text"],
       );
 
@@ -9580,6 +9605,29 @@ class RustdeskWire implements FlutterRustBridgeWireBase {
         ffi.Pointer<wire_uint_8_list>,
       )>();
 
+  void wire_session_send_clipboard_text(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> session_id,
+    ffi.Pointer<wire_uint_8_list> text,
+  ) {
+    return _wire_session_send_clipboard_text(port_, session_id, text);
+  }
+
+  late final _wire_session_send_clipboard_textPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Int64,
+            ffi.Pointer<wire_uint_8_list>,
+            ffi.Pointer<wire_uint_8_list>,
+          )>>('wire_session_send_clipboard_text');
+  late final _wire_session_send_clipboard_text =
+      _wire_session_send_clipboard_textPtr.asFunction<
+          void Function(
+            int,
+            ffi.Pointer<wire_uint_8_list>,
+            ffi.Pointer<wire_uint_8_list>,
+          )>();
+
   void wire_session_open_terminal(
     int port_,
     ffi.Pointer<wire_uint_8_list> session_id,
@@ -13670,6 +13718,40 @@ class RustdeskWire implements FlutterRustBridgeWireBase {
               ffi.Pointer<ffi.Uint16>, ffi.Int32)>>('get_rustdesk_app_name');
   late final _get_rustdesk_app_name = _get_rustdesk_app_namePtr
       .asFunction<int Function(ffi.Pointer<ffi.Uint16>, int)>();
+
+  void session_log_rgba_stage(
+    ffi.Pointer<ffi.Char> session_uuid_str,
+    ffi.Pointer<ffi.Char> stage,
+    int display,
+    int value1,
+    int value2,
+  ) {
+    return _session_log_rgba_stage(
+      session_uuid_str,
+      stage,
+      display,
+      value1,
+      value2,
+    );
+  }
+
+  late final _session_log_rgba_stagePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.UintPtr,
+            ffi.UintPtr,
+            ffi.UintPtr,
+          )>>('session_log_rgba_stage');
+  late final _session_log_rgba_stage = _session_log_rgba_stagePtr.asFunction<
+      void Function(
+        ffi.Pointer<ffi.Char>,
+        ffi.Pointer<ffi.Char>,
+        int,
+        int,
+        int,
+      )>();
 
   ffi.Pointer<ffi.Uint8> session_get_rgba(
     ffi.Pointer<ffi.Uint32> session_uuid_str,

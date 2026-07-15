@@ -39,7 +39,7 @@ class UserModel {
   static const remoteFpsTierKey = 'kq_remote_fps_tier';
   static const remoteResolution720p = '720p';
   static const remoteResolution1080p = '1080p';
-  static const freeMaxFps = 60;
+  static const freeMaxFps = 30;
   static const memberDefaultFps = 60;
   static const memberMaxFps = 60;
 
@@ -57,7 +57,7 @@ class UserModel {
   int _membershipRefreshSerial = 0;
   bool get hasMemberApiCredential => _memberTokenCandidates().isNotEmpty;
   bool get hasLoginCredential => hasMemberApiCredential;
-  bool get isLogin => userName.isNotEmpty || hasLoginCredential;
+  bool get isLogin => userName.isNotEmpty && hasLoginCredential;
   bool get canUseMemberRemoteQuality => isMember.value;
   String get remoteResolutionSelection {
     final saved = bind.mainGetLocalOption(key: remoteResolutionTierKey).trim();
@@ -68,7 +68,9 @@ class UserModel {
   }
 
   int get remoteFpsSelection {
-    return memberDefaultFps;
+    return remoteResolutionSelection == remoteResolution1080p
+        ? memberDefaultFps
+        : freeMaxFps;
   }
 
   int get remoteCustomQualitySelection =>
@@ -385,9 +387,11 @@ class UserModel {
     final normalizedResolution = wantsMemberProfile && canUseMemberRemoteQuality
         ? remoteResolution1080p
         : remoteResolution720p;
-    // Resolution tier is only a product-facing compression quality choice.
-    // Both profiles use the exact same connection and 60 FPS video pipeline.
-    final normalizedFps = memberDefaultFps;
+    // Keep both tiers on the same codec/decoder path. Only the receiver's
+    // requested quality and frame rate change, which avoids decoder restarts.
+    final normalizedFps = normalizedResolution == remoteResolution1080p
+        ? memberDefaultFps
+        : freeMaxFps;
     final customQuality = customQualityForResolution(normalizedResolution);
     await bind.mainSetLocalOption(
         key: remoteResolutionTierKey, value: normalizedResolution);
@@ -510,7 +514,14 @@ class UserModel {
     isRefreshingMembership.value = true;
     try {
       if (!isLogin) {
-        await setCurrentMemberStatus(false, expireAt: '', error: '');
+        if (userName.isNotEmpty) {
+          await reset();
+          if (showError) {
+            showToast(translate('Please log in first'));
+          }
+        } else {
+          await setCurrentMemberStatus(false, expireAt: '', error: '');
+        }
         return;
       }
       if (isKqTestUnlimitedMember) {
@@ -524,13 +535,15 @@ class UserModel {
 
       final candidates = _memberTokenCandidates().toList();
       if (candidates.isEmpty) {
-        await setCurrentMemberStatus(false,
-            expireAt: '',
-            error: translate('Missing membership login credential'));
+        await reset();
+        if (showError) {
+          showToast(translate('Please log in first'));
+        }
         return;
       }
 
       Object? lastError;
+      var allCredentialsRejected = true;
       for (final token in candidates) {
         try {
           final projectMemberInfo = await _getProjectMemberInfo(token);
@@ -550,6 +563,7 @@ class UserModel {
 
           final body = _decodeMemberBody(response);
           if (body is! Map) {
+            allCredentialsRejected = false;
             throw translate('Membership API returned an invalid format');
           }
           final code = int.tryParse((body['code'] ?? '').toString());
@@ -559,6 +573,7 @@ class UserModel {
                 translate('Membership login credential expired');
             continue;
           }
+          allCredentialsRejected = false;
           if (response.statusCode < 200 ||
               response.statusCode >= 300 ||
               code != 1) {
@@ -573,8 +588,17 @@ class UserModel {
           await _applyMemberInfo(data, shouldApply: isCurrentRefresh);
           return;
         } catch (e) {
+          allCredentialsRejected = false;
           lastError = e;
         }
+      }
+
+      if (allCredentialsRejected && isCurrentRefresh()) {
+        await reset();
+        if (showError) {
+          showToast(translate('Please log in first'));
+        }
+        return;
       }
 
       final message = lastError?.toString() ??

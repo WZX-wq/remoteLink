@@ -1265,6 +1265,24 @@ fn wire_session_send_chat_impl(
         },
     )
 }
+fn wire_session_send_clipboard_text_impl(
+    port_: MessagePort,
+    session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,
+    text: impl Wire2Api<String> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+        WrapInfo {
+            debug_name: "session_send_clipboard_text",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_session_id = session_id.wire2api();
+            let api_text = text.wire2api();
+            move |task_callback| Ok(session_send_clipboard_text(api_session_id, api_text))
+        },
+    )
+}
 fn wire_session_open_terminal_impl(
     port_: MessagePort,
     session_id: impl Wire2Api<uuid::Uuid> + UnwindSafe,

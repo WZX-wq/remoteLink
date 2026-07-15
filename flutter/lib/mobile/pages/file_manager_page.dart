@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_breadcrumb/flutter_breadcrumb.dart';
 import 'package:flutter_hbb/models/file_model.dart';
 import 'package:get/get.dart';
+import 'package:path/path.dart' as path;
 import 'package:toggle_switch/toggle_switch.dart';
 
 import '../../common.dart';
@@ -66,6 +69,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
   final selectMode = SelectMode.none.obs;
 
   var showLocal = true;
+  var _importingFiles = false;
 
   FileController get currentFileController =>
       showLocal ? model.localController : model.remoteController;
@@ -98,6 +102,75 @@ class _FileManagerPageState extends State<FileManagerPage> {
     });
     model.jobController.clear();
     super.dispose();
+  }
+
+  Future<String> _availableImportPath(String directory, String fileName) async {
+    var candidate = path.join(directory, fileName);
+    if (!await FileSystemEntity.type(candidate)
+        .then((type) => type != FileSystemEntityType.notFound)) {
+      return candidate;
+    }
+
+    final baseName = path.basenameWithoutExtension(fileName);
+    final extension = path.extension(fileName);
+    var suffix = 1;
+    do {
+      candidate = path.join(directory, '$baseName ($suffix)$extension');
+      suffix++;
+    } while (await FileSystemEntity.type(candidate)
+        .then((type) => type != FileSystemEntityType.notFound));
+    return candidate;
+  }
+
+  Future<void> _importFilesFromIOS() async {
+    if (!isIOS || !showLocal || _importingFiles || currentDir.path.isEmpty) {
+      return;
+    }
+
+    setState(() => _importingFiles = true);
+    var imported = 0;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: false,
+      );
+      if (result == null) return;
+
+      for (final picked in result.files) {
+        final sourcePath = picked.path;
+        if (sourcePath == null || sourcePath.isEmpty) continue;
+        final source = File(sourcePath);
+        if (!await source.exists()) continue;
+        final destinationPath =
+            await _availableImportPath(currentDir.path, picked.name);
+        await source.copy(destinationPath);
+        imported++;
+      }
+
+      if (imported > 0) {
+        await currentFileController.refresh();
+        showToast(kqLocaleText(
+          zhCn: '已导入 $imported 个文件',
+          en: 'Imported $imported files',
+        ));
+      } else {
+        showToast(kqLocaleText(
+          zhCn: '没有可导入的文件',
+          en: 'No files were available to import',
+        ));
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Failed to import iOS documents: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      showToast(kqLocaleText(
+        zhCn: '文件导入失败，请重新选择',
+        en: 'File import failed. Please choose the files again.',
+      ));
+    } finally {
+      if (mounted) {
+        setState(() => _importingFiles = false);
+      }
+    }
   }
 
   @override
@@ -148,6 +221,22 @@ class _FileManagerPageState extends State<FileManagerPage> {
                 icon: Icon(Icons.more_vert),
                 itemBuilder: (context) {
                   return [
+                    if (isIOS && showLocal)
+                      PopupMenuItem(
+                        enabled: !_importingFiles && currentDir.path != "/",
+                        value: "import_ios",
+                        child: Row(
+                          children: [
+                            Icon(Icons.file_open_outlined,
+                                color: Theme.of(context).iconTheme.color),
+                            SizedBox(width: 5),
+                            Text(kqLocaleText(
+                              zhCn: '从“文件”导入',
+                              en: 'Import from Files',
+                            )),
+                          ],
+                        ),
+                      ),
                     PopupMenuItem(
                       child: Row(
                         children: [
@@ -200,8 +289,10 @@ class _FileManagerPageState extends State<FileManagerPage> {
                     )
                   ];
                 },
-                onSelected: (v) {
-                  if (v == "refresh") {
+                onSelected: (v) async {
+                  if (v == "import_ios") {
+                    await _importFilesFromIOS();
+                  } else if (v == "refresh") {
                     currentFileController.refresh();
                   } else if (v == "select") {
                     model.localController.selectedItems.clear();
