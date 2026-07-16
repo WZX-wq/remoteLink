@@ -47,6 +47,16 @@ void main() {
     expect(script, contains('test/kq_ios_release_policy_test.dart'));
   });
 
+  test('GitHub iOS preflight keeps Flutter 3.24 dependency constraints valid',
+      () {
+    final workflow =
+        File('../.github/workflows/ios-preflight.yml').readAsStringSync();
+
+    expect(workflow, contains('FLUTTER_VERSION: "3.24.5"'));
+    expect(workflow, contains('Patch Flutter 3.24 dependency constraints'));
+    expect('extended_text: 14.0.0'.allMatches(workflow), hasLength(3));
+  });
+
   test('phone registration remains shared by Android and iOS', () {
     final oauth = File('lib/common/kq_oauth_io.dart').readAsStringSync();
     final login = File('lib/common/widgets/login.dart').readAsStringSync();

@@ -61,6 +61,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      - name: Patch Flutter 3.24 dependency constraints
+        working-directory: flutter
+        run: |
+          perl -0pi -e 's/extended_text: \^15\.0\.2/extended_text: 14.0.0/g' pubspec.yaml
+
       - name: Install Flutter Rust Bridge tools
         shell: bash
         run: |
@@ -107,6 +112,11 @@ jobs:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Patch Flutter 3.24 dependency constraints
+        working-directory: flutter
+        run: |
+          perl -0pi -e 's/extended_text: \^15\.0\.2/extended_text: 14.0.0/g' pubspec.yaml
 
       - name: Install dependencies
         working-directory: flutter
@@ -194,6 +204,11 @@ jobs:
 
       - name: Build Rust iOS library
         run: cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+
+      - name: Patch Flutter 3.24 dependency constraints
+        working-directory: flutter
+        run: |
+          perl -0pi -e 's/extended_text: \^15\.0\.2/extended_text: 14.0.0/g' pubspec.yaml
 
       - name: Build Flutter IPA without codesign
         working-directory: flutter
