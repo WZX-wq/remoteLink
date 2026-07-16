@@ -8233,6 +8233,73 @@ class RustdeskWire implements FlutterRustBridgeWireBase {
     ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
   ) : _lookup = lookup;
 
+  int kq_ios_broadcast_start(
+    ffi.Pointer<ffi.Uint8> config_dir,
+    int config_dir_len,
+  ) {
+    return _kq_ios_broadcast_start(config_dir, config_dir_len);
+  }
+
+  late final _kq_ios_broadcast_startPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int32 Function(
+              ffi.Pointer<ffi.Uint8>, ffi.UintPtr)>>('kq_ios_broadcast_start');
+  late final _kq_ios_broadcast_start = _kq_ios_broadcast_startPtr
+      .asFunction<int Function(ffi.Pointer<ffi.Uint8>, int)>();
+
+  int kq_ios_broadcast_push_bgra(
+    ffi.Pointer<ffi.Void> data,
+    int data_len,
+    int width,
+    int height,
+    int stride,
+  ) {
+    return _kq_ios_broadcast_push_bgra(data, data_len, width, height, stride);
+  }
+
+  late final _kq_ios_broadcast_push_bgraPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<ffi.Void>,
+            ffi.UintPtr,
+            ffi.UintPtr,
+            ffi.UintPtr,
+            ffi.UintPtr,
+          )>>('kq_ios_broadcast_push_bgra');
+  late final _kq_ios_broadcast_push_bgra = _kq_ios_broadcast_push_bgraPtr
+      .asFunction<int Function(ffi.Pointer<ffi.Void>, int, int, int, int)>();
+
+  void kq_ios_broadcast_pause() {
+    return _kq_ios_broadcast_pause();
+  }
+
+  late final _kq_ios_broadcast_pausePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function()>>(
+    'kq_ios_broadcast_pause',
+  );
+  late final _kq_ios_broadcast_pause =
+      _kq_ios_broadcast_pausePtr.asFunction<void Function()>();
+
+  void kq_ios_broadcast_resume() {
+    return _kq_ios_broadcast_resume();
+  }
+
+  late final _kq_ios_broadcast_resumePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function()>>(
+    'kq_ios_broadcast_resume',
+  );
+  late final _kq_ios_broadcast_resume =
+      _kq_ios_broadcast_resumePtr.asFunction<void Function()>();
+
+  void kq_ios_broadcast_stop() {
+    return _kq_ios_broadcast_stop();
+  }
+
+  late final _kq_ios_broadcast_stopPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function()>>('kq_ios_broadcast_stop');
+  late final _kq_ios_broadcast_stop =
+      _kq_ios_broadcast_stopPtr.asFunction<void Function()>();
+
   void store_dart_post_cobject(DartPostCObjectFnType ptr) {
     return _store_dart_post_cobject(ptr);
   }

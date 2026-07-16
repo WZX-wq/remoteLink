@@ -107,6 +107,20 @@ typedef struct XRectangle {
 
 #define INJECTED_PROCESS_EXE WIN_TOPMOST_INJECTED_PROCESS_EXE
 
+int32_t kq_ios_broadcast_start(const uint8_t *config_dir, uintptr_t config_dir_len);
+
+int32_t kq_ios_broadcast_push_bgra(const void *data,
+                                   uintptr_t data_len,
+                                   uintptr_t width,
+                                   uintptr_t height,
+                                   uintptr_t stride);
+
+void kq_ios_broadcast_pause(void);
+
+void kq_ios_broadcast_resume(void);
+
+void kq_ios_broadcast_stop(void);
+
 void store_dart_post_cobject(DartPostCObjectFnType ptr);
 
 Dart_Handle get_dart_object(uintptr_t ptr);

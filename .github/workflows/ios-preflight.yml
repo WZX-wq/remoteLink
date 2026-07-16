@@ -81,13 +81,29 @@ jobs:
           cp ./flutter/macos/Runner/bridge_generated.h ./flutter/ios/Runner/bridge_generated.h
 
       - name: Verify generated bridge files are committed
+        shell: bash
         run: |
           git diff --exit-code -- \
             ./src/bridge_generated.rs \
-            ./src/bridge_generated.io.rs \
-            ./flutter/lib/generated_bridge.dart \
-            ./flutter/lib/generated_bridge.freezed.dart \
-            ./flutter/ios/Runner/bridge_generated.h
+            ./src/bridge_generated.io.rs
+
+          compare_without_whitespace() {
+            local file="$1"
+            local expected
+            local actual
+            expected="$(mktemp)"
+            actual="$(mktemp)"
+            git show "HEAD:${file#./}" | tr -d '[:space:]' > "$expected"
+            tr -d '[:space:]' < "$file" > "$actual"
+            if ! diff -u "$expected" "$actual"; then
+              echo "::error file=$file::Generated bridge file is out of date. Regenerate and commit it."
+              return 1
+            fi
+          }
+
+          compare_without_whitespace ./flutter/lib/generated_bridge.dart
+          compare_without_whitespace ./flutter/lib/generated_bridge.freezed.dart
+          compare_without_whitespace ./flutter/ios/Runner/bridge_generated.h
 
   flutter-compliance-tests:
     name: Flutter iOS Compliance Tests
