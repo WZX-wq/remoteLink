@@ -31,6 +31,10 @@ try {
         test/kq_ios_foreground_clipboard_test.dart `
         test/kq_ios_file_transfer_test.dart `
         test/kq_ios_broadcast_status_contract_test.dart `
+        test/kq_ios_privacy_policy_test.dart `
+        test/kq_account_deletion_test.dart `
+        test/kq_ios_in_app_purchase_test.dart `
+        test/kq_ios_release_policy_test.dart `
         test/member_session_state_test.dart
     if ($LASTEXITCODE -ne 0) {
         throw 'iOS Flutter regression tests failed.'

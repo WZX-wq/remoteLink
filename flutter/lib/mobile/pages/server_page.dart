@@ -275,6 +275,7 @@ class _IOSScreenShareBroadcastMvpState
     'isFresh': false,
     'transportState': 'not_started',
     'remoteViewAvailable': false,
+    'audioSupported': false,
     'viewOnly': true,
     'errorCode': '',
   };
@@ -363,12 +364,11 @@ class _IOSScreenShareBroadcastMvpState
     final q = KqTheme.of(context);
     final state = (_status['state'] ?? 'not_started').toString();
     final videoFrames = _statusInt('videoFrames');
-    final appAudioFrames = _statusInt('appAudioFrames');
-    final micAudioFrames = _statusInt('micAudioFrames');
     final width = _statusInt('width');
     final height = _statusInt('height');
     final isFresh = _status['isFresh'] == true;
     final remoteViewAvailable = _status['remoteViewAvailable'] == true;
+    final audioSupported = _status['audioSupported'] == true;
     final transportState =
         (_status['transportState'] ?? 'not_started').toString();
     final errorCode = (_status['errorCode'] ?? '').toString();
@@ -418,7 +418,7 @@ class _IOSScreenShareBroadcastMvpState
                       const SizedBox(height: 6),
                       Text(
                         _iosShareText(
-                          zhCn: '使用 ReplayKit 安全共享本机画面，其他设备可以连接观看。',
+                          zhCn: '使用 ReplayKit 安全共享本机画面；广播启动后，其他设备可发起连接请求。',
                           zhTw: '使用 ReplayKit 安全分享本機畫面，其他裝置可以連線觀看。',
                           en: 'Share this screen securely with ReplayKit for viewing from another device.',
                         ),
@@ -504,33 +504,11 @@ class _IOSScreenShareBroadcastMvpState
               ),
               _IOSBroadcastStatusRow(
                 label: _iosShareText(
-                  zhCn: '应用音频帧',
-                  zhTw: '應用音訊幀',
-                  en: 'App audio frames',
+                  zhCn: '连接状态',
+                  zhTw: '連線狀態',
+                  en: 'Connection status',
                 ),
-                value: '$appAudioFrames',
-              ),
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '麦克风音频帧',
-                  zhTw: '麥克風音訊幀',
-                  en: 'Mic audio frames',
-                ),
-                value: '$micAudioFrames',
-              ),
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '远程观看',
-                  zhTw: '遠端觀看',
-                  en: 'Remote viewing',
-                ),
-                value: remoteViewAvailable
-                    ? _iosShareText(
-                        zhCn: '可以连接观看',
-                        zhTw: '可以連線觀看',
-                        en: 'Available to view',
-                      )
-                    : _remoteViewingLabel(state, transportState),
+                value: _remoteViewingLabel(state, transportState),
                 color: remoteViewAvailable ? q.online : q.warning,
               ),
               _IOSBroadcastStatusRow(
@@ -544,6 +522,16 @@ class _IOSScreenShareBroadcastMvpState
             ],
           ),
         ),
+        if (!audioSupported)
+          PaddingCard(
+            child: _IOSShareRequirementNotice(
+              text: _iosShareText(
+                zhCn: '当前屏幕共享仅传输画面。需要语音时，请使用远程协助中的语音通话。',
+                zhTw: '目前螢幕分享僅傳輸畫面。需要語音時，請使用遠端協助中的語音通話。',
+                en: 'Screen sharing currently sends video only. Use the remote-assistance voice call for audio.',
+              ),
+            ),
+          ),
         if (statusErrorText != null)
           PaddingCard(
             child: _IOSShareRequirementNotice(text: statusErrorText),
@@ -581,6 +569,13 @@ class _IOSScreenShareBroadcastMvpState
         zhCn: '等待画面',
         zhTw: '等待畫面',
         en: 'Waiting for video',
+      );
+    }
+    if (transportState == 'ready' || transportState == 'streaming') {
+      return _iosShareText(
+        zhCn: '共享已启动，等待其他设备连接',
+        zhTw: '分享已啟動，等待其他裝置連線',
+        en: 'Sharing started, waiting for another device',
       );
     }
     return _iosShareText(

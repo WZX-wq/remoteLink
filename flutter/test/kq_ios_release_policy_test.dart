@@ -1,0 +1,102 @@
+import 'dart:io';
+
+import 'package:flutter_hbb/mobile/ios_membership_payment_policy.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('iOS only enables direct Alipay in an explicitly internal build', () {
+    expect(
+      KqIosMembershipPaymentPolicy.routeFor(
+        isIOS: true,
+        internalDirectPaymentEnabled: false,
+      ),
+      KqIosMembershipPaymentRoute.appleInAppPurchaseRequired,
+    );
+    expect(
+      KqIosMembershipPaymentPolicy.routeFor(
+        isIOS: true,
+        internalDirectPaymentEnabled: true,
+      ),
+      KqIosMembershipPaymentRoute.externalPayment,
+    );
+    expect(
+      KqIosMembershipPaymentPolicy.routeFor(
+        isIOS: false,
+        internalDirectPaymentEnabled: false,
+      ),
+      KqIosMembershipPaymentRoute.externalPayment,
+    );
+  });
+
+  test('iOS account page uses the explicit membership payment policy', () {
+    final page = File('lib/mobile/pages/account_page.dart').readAsStringSync();
+
+    expect(page, contains('ios_membership_payment_policy.dart'));
+    expect(
+        page, contains('KqIosMembershipPaymentPolicy.routeFor(isIOS: isIOS)'));
+    expect(page, contains('appleInAppPurchaseRequired'));
+  });
+
+  test('iOS readiness gate runs compliance and purchase tests', () {
+    final script =
+        File('../scripts/test-kq-ios-code-readiness.ps1').readAsStringSync();
+
+    expect(script, contains('test/kq_ios_privacy_policy_test.dart'));
+    expect(script, contains('test/kq_account_deletion_test.dart'));
+    expect(script, contains('test/kq_ios_in_app_purchase_test.dart'));
+    expect(script, contains('test/kq_ios_release_policy_test.dart'));
+  });
+
+  test('phone registration remains shared by Android and iOS', () {
+    final oauth = File('lib/common/kq_oauth_io.dart').readAsStringSync();
+    final login = File('lib/common/widgets/login.dart').readAsStringSync();
+
+    expect(oauth, contains('static Future<LoginResponse> registerWithPhone'));
+    expect(login, contains('KqOauth.registerWithPhone('));
+    expect(login, isNot(contains('isIOS && !canRegisterWithPhone')));
+  });
+
+  test('iOS declares its app-group UserDefaults privacy reasons', () {
+    final manifest = File('ios/Runner/PrivacyInfo.xcprivacy');
+    final extensionManifest =
+        File('ios/KQScreenBroadcast/PrivacyInfo.xcprivacy');
+
+    expect(manifest.existsSync(), isTrue);
+    final content = manifest.readAsStringSync();
+    expect(content, contains('NSPrivacyAccessedAPICategoryUserDefaults'));
+    expect(content, contains('CA92.1'));
+    expect(content, contains('1C8F.1'));
+    expect(extensionManifest.existsSync(), isTrue);
+    expect(extensionManifest.readAsStringSync(), contains('1C8F.1'));
+    final project =
+        File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+    expect(
+        project,
+        contains(
+            'A1B2C3D40000000000000014 /* PrivacyInfo.xcprivacy in Resources */'));
+    expect(
+        project,
+        contains(
+            'A1B2C3D40000000000000016 /* PrivacyInfo.xcprivacy in Resources */'));
+    expect(project, contains('A1B2C3D40000000000000018 /* Resources */'));
+  });
+
+  test('screen broadcast does not advertise unsupported audio or a viewer', () {
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final info = File('ios/Runner/Info.plist').readAsStringSync();
+
+    expect(handler, contains('kq_broadcast_audio_supported'));
+    expect(
+        handler,
+        contains(
+            'defaults.set(false, forKey: "kq_broadcast_remote_view_available")'));
+    expect(page, contains("_status['audioSupported']"));
+    expect(page, contains('共享已启动，等待其他设备连接'));
+    expect(page, isNot(contains('应用音频帧')));
+    expect(page, isNot(contains('麦克风音频帧')));
+    expect(info, contains('用于远程协助过程中的语音通话。'));
+    expect(info, isNot(contains('屏幕共享音频')));
+  });
+}

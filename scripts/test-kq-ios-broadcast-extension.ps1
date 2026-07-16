@@ -222,8 +222,23 @@ Assert-NotContains `
 
 Assert-Contains `
     -Path $serverPage `
-    -Pattern 'Available to view[\s\S]*view-only' `
-    -Message 'iOS broadcast page must report real view-only availability in user-readable text.'
+    -Pattern 'Sharing started, waiting for another device' `
+    -Message 'iOS broadcast page must distinguish a ready transport from an actual remote viewer.'
+
+Assert-Contains `
+    -Path $serverPage `
+    -Pattern 'view-only' `
+    -Message 'iOS broadcast page must state that the shared screen is view-only.'
+
+Assert-Contains `
+    -Path $serverPage `
+    -Pattern "audioSupported" `
+    -Message 'iOS broadcast page must expose whether broadcast audio is actually supported.'
+
+Assert-NotContains `
+    -Path $serverPage `
+    -Pattern 'Available to view|App audio frames|Mic audio frames' `
+    -Message 'iOS broadcast page must not advertise an unverified viewer or unsupported broadcast audio.'
 
 Assert-NotContains `
     -Path $serverPage `

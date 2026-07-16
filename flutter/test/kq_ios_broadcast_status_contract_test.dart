@@ -24,7 +24,8 @@ void main() {
 
     expect(page, contains("_status['remoteViewAvailable']"));
     expect(page, contains("_status['errorCode']"));
-    expect(page, contains('可以连接观看'));
+    expect(page, contains('共享已启动，等待其他设备连接'));
+    expect(page, isNot(contains('可以连接观看')));
     expect(page, contains('仅支持观看'));
     expect(page, contains('打开系统广播面板'));
     expect(page, isNot(contains('远程观看服务尚未接入')));

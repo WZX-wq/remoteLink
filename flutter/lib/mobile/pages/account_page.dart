@@ -16,7 +16,12 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/user_model.dart';
 import '../../utils/http_service.dart' as http;
+import '../ios_membership_payment_policy.dart';
+import 'ios_membership_purchase_page.dart';
+import '../privacy/kq_privacy_policy.dart';
+import 'account_deletion_page.dart';
 import 'page_shape.dart';
+import 'privacy_policy_page.dart';
 import 'settings_page.dart';
 
 const _kqMobilePaymentChannel = MethodChannel('mChannel');
@@ -118,10 +123,7 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Future<void> _openMembershipSheet() async {
-    if (isIOS) {
-      showToast(_mineText('Membership purchase is being prepared for iPhone.'));
-      return;
-    }
+    final route = KqIosMembershipPaymentPolicy.routeFor(isIOS: isIOS);
     final user = gFFI.userModel;
     if (!user.isLogin) {
       final loggedIn = await loginDialog();
@@ -134,6 +136,17 @@ class _AccountPageState extends State<AccountPage> {
       return;
     }
     if (!mounted) return;
+    if (route == KqIosMembershipPaymentRoute.appleInAppPurchaseRequired) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => KqIosMembershipPurchasePage(packages: packages),
+        ),
+      );
+      if (mounted) {
+        await _syncMemberEntitlementFromDisk(force: true);
+      }
+      return;
+    }
     _showMemberRechargeSheet(packages);
   }
 
@@ -1244,7 +1257,37 @@ class _PersonalCenterPage extends StatelessWidget {
                             icon: Icons.phone_android_rounded,
                             title: _mineText('Phone number'),
                             value: _localUserPhoneNumber(),
+                          ),
+                          _PersonalInfoRow(
+                            icon: Icons.privacy_tip_outlined,
+                            title: _mineText('Privacy policy'),
+                            value: KqPrivacyPolicy.summaryForCurrentLanguage(),
                             showDivider: false,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const PrivacyPolicyPage(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      _PersonalInfoSection(
+                        children: [
+                          _PersonalInfoRow(
+                            icon: Icons.delete_forever_rounded,
+                            title: _mineText('Delete account'),
+                            value: _mineText('Remove your account and data'),
+                            showDivider: false,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const AccountDeletionPage(),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -1447,61 +1490,69 @@ class _PersonalInfoRow extends StatelessWidget {
     required this.title,
     required this.value,
     this.showDivider = true,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final bool showDivider;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: q.primary.withOpacity(0.11),
-                  borderRadius: BorderRadius.circular(12),
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: q.primary.withOpacity(0.11),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: q.primary, size: 20),
                 ),
-                child: Icon(icon, color: q.primary, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: q.ink,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: q.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: q.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                      const SizedBox(height: 4),
+                      Text(
+                        value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: q.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                if (onTap != null)
+                  Icon(Icons.chevron_right_rounded, color: q.muted),
+              ],
+            ),
           ),
         ),
         if (showDivider)
@@ -2248,6 +2299,9 @@ const _mineZh = {
   'Personal center': '个人中心',
   'Username': '用户名',
   'Phone number': '手机号',
+  'Privacy policy': '隐私政策',
+  'Delete account': '注销账号',
+  'Remove your account and data': '删除账号及相关数据',
   'Not set': '未设置',
   'Me': '我的',
   'Notifications': '通知',
@@ -2285,6 +2339,9 @@ const _mineTw = {
   'Personal center': '個人中心',
   'Username': '使用者名稱',
   'Phone number': '手機號',
+  'Privacy policy': '隱私政策',
+  'Delete account': '註銷帳號',
+  'Remove your account and data': '刪除帳號及相關資料',
   'Not set': '未設定',
   'Unlimited': '永久有效',
   'Pay now': '立即支付',

@@ -136,10 +136,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
           transportState: "ready"
         )
       }
-    case .audioApp:
-      appAudioFrameCount += 1
-    case .audioMic:
-      micAudioFrameCount += 1
+    case .audioApp, .audioMic:
+      // The broadcast transport currently carries video only. Do not expose
+      // captured audio as if a remote device could hear it.
+      break
     @unknown default:
       publishStatus(state: "unknown")
     }
@@ -164,7 +164,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
       transportState ?? (transportStarted ? "ready" : "waiting_for_frame"),
       forKey: "kq_broadcast_transport_state"
     )
-    defaults.set(transportStarted, forKey: "kq_broadcast_remote_view_available")
+    defaults.set(false, forKey: "kq_broadcast_remote_view_available")
+    defaults.set(false, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")
     defaults.set(errorCode ?? "", forKey: "kq_broadcast_error_code")
     if let width = width {

@@ -31,13 +31,29 @@ function Assert-NotContains {
 }
 
 $accountPage = Join-Path $Root 'flutter/lib/mobile/pages/account_page.dart'
+$paymentPolicy = Join-Path $Root 'flutter/lib/mobile/ios_membership_payment_policy.dart'
 $appDelegate = Join-Path $Root 'flutter/ios/Runner/AppDelegate.swift'
 $infoPlist = Join-Path $Root 'flutter/ios/Runner/Info.plist'
 
 Assert-Contains `
     -Path $accountPage `
-    -Pattern 'Future<void> _openMembershipSheet\(\) async \{[\s\S]*if \(isIOS\) \{[\s\S]*Membership purchase is being prepared for iPhone\.[\s\S]*return;' `
-    -Message 'iOS must stop before it creates an external membership order or opens a third-party payment app.'
+    -Pattern 'KqIosMembershipPaymentPolicy\.routeFor\(isIOS: isIOS\)' `
+    -Message 'The membership sheet must resolve the iOS payment policy before it creates an order.'
+
+Assert-Contains `
+    -Path $accountPage `
+    -Pattern 'KqIosMembershipPaymentRoute\.appleInAppPurchaseRequired[\s\S]*return;' `
+    -Message 'App Store iOS builds must stop before they create an external membership order.'
+
+Assert-Contains `
+    -Path $paymentPolicy `
+    -Pattern "KQ_IOS_INTERNAL_DIRECT_PAYMENT" `
+    -Message 'Direct iOS payment must require an explicit internal-build flag.'
+
+Assert-Contains `
+    -Path $paymentPolicy `
+    -Pattern 'defaultValue: false' `
+    -Message 'Direct iOS payment must remain disabled by default.'
 
 Assert-NotContains `
     -Path $accountPage `
