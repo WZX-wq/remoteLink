@@ -90,7 +90,7 @@ jobs:
           require_committed_symbol() {
             local file="$1"
             local symbol="$2"
-            if ! git show "HEAD:${file#./}" | grep -q "$symbol"; then
+            if ! git grep -q -- "$symbol" HEAD -- "${file#./}"; then
               echo "::error file=$file::Committed bridge file is missing $symbol."
               return 1
             fi

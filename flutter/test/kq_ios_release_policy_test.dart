@@ -67,6 +67,8 @@ void main() {
     expect(workflow, contains('Verify generated bridge files are committed'));
     expect(workflow, contains('git diff --exit-code --'));
     expect(workflow, contains('require_committed_symbol'));
+    expect(workflow, contains('git grep -q --'));
+    expect(workflow, isNot(contains('git show "HEAD:\${file#./}" | grep -q')));
     expect(workflow, contains('kq_ios_broadcast_start'));
   });
 
