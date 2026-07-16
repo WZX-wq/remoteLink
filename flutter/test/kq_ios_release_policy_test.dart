@@ -57,7 +57,8 @@ void main() {
     expect('extended_text: 14.0.0'.allMatches(workflow), hasLength(3));
   });
 
-  test('GitHub iOS preflight does not require artifact storage for bridge handoff',
+  test(
+      'GitHub iOS preflight does not require artifact storage for bridge handoff',
       () {
     final workflow =
         File('../.github/workflows/ios-preflight.yml').readAsStringSync();
@@ -82,13 +83,19 @@ void main() {
     }
   });
 
-  test('shared theme avoids Flutter 3.24-incompatible Material theme APIs', () {
+  test('shared theme uses ThemeData material theme data classes', () {
     final common = File('lib/common.dart').readAsStringSync();
 
-    expect(common, isNot(contains('DialogThemeData')));
-    expect(common, isNot(contains('TabBarThemeData')));
-    expect(common, contains('dialogTheme: DialogTheme('));
-    expect(common, contains('tabBarTheme: const TabBarTheme('));
+    expect(
+      'dialogTheme: DialogThemeData('.allMatches(common),
+      hasLength(2),
+    );
+    expect(
+      'tabBarTheme: const TabBarThemeData('.allMatches(common),
+      hasLength(2),
+    );
+    expect(common, isNot(contains('dialogTheme: DialogTheme(')));
+    expect(common, isNot(contains('tabBarTheme: const TabBarTheme(')));
   });
 
   test('phone registration remains shared by Android and iOS', () {
