@@ -416,7 +416,7 @@ class MyTheme {
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
-    dialogTheme: DialogThemeData(
+    dialogTheme: DialogTheme(
       elevation: 15,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.0),
@@ -447,7 +447,7 @@ class MyTheme {
     cardColor: grayBg,
     hintColor: Color(0xFFAAAAAA),
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarThemeData(
+    tabBarTheme: const TabBarTheme(
       labelColor: Colors.black87,
     ),
     tooltipTheme: tooltipTheme(),
@@ -514,7 +514,7 @@ class MyTheme {
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
-    dialogTheme: DialogThemeData(
+    dialogTheme: DialogTheme(
       elevation: 15,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.0),
@@ -548,7 +548,7 @@ class MyTheme {
     ),
     cardColor: Color(0xFF24252B),
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarThemeData(
+    tabBarTheme: const TabBarTheme(
       labelColor: Colors.white70,
     ),
     tooltipTheme: tooltipTheme(),
@@ -767,19 +767,19 @@ closeConnection({String? id}) {
         unawaited(windowOnTop(null));
         return;
       }
-      if (controller!.tabType == DesktopTabType.terminal &&
-          controller!.onCloseWindow != null) {
+      if (controller.tabType == DesktopTabType.terminal &&
+          controller.onCloseWindow != null) {
         // Terminal windows are scoped to one peer. The optional id passed to
         // closeConnection() is that peer id, not a terminal tab key
         // (${peerId}_${terminalId}). Closing from terminal dialogs should close
         // the peer's whole terminal window, including all terminal tabs.
-        unawaited(controller!.onCloseWindow!().catchError((e, _) {
+        unawaited(controller.onCloseWindow!().catchError((e, _) {
           debugPrint('[closeConnection] Failed to close terminal window: $e');
         }));
         unawaited(windowOnTop(null));
         return;
       }
-      controller!.closeBy(id);
+      controller.closeBy(id);
       unawaited(Future<void>.delayed(const Duration(milliseconds: 250), () {
         return windowOnTop(null);
       }));

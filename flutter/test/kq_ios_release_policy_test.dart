@@ -82,6 +82,15 @@ void main() {
     }
   });
 
+  test('shared theme avoids Flutter 3.24-incompatible Material theme APIs', () {
+    final common = File('lib/common.dart').readAsStringSync();
+
+    expect(common, isNot(contains('DialogThemeData')));
+    expect(common, isNot(contains('TabBarThemeData')));
+    expect(common, contains('dialogTheme: DialogTheme('));
+    expect(common, contains('tabBarTheme: const TabBarTheme('));
+  });
+
   test('phone registration remains shared by Android and iOS', () {
     final oauth = File('lib/common/kq_oauth_io.dart').readAsStringSync();
     final login = File('lib/common/widgets/login.dart').readAsStringSync();
