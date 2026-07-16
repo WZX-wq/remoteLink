@@ -57,6 +57,17 @@ void main() {
     expect('extended_text: 14.0.0'.allMatches(workflow), hasLength(3));
   });
 
+  test('GitHub iOS preflight does not require artifact storage for bridge handoff',
+      () {
+    final workflow =
+        File('../.github/workflows/ios-preflight.yml').readAsStringSync();
+
+    expect(workflow, isNot(contains('actions/upload-artifact@v4')));
+    expect(workflow, isNot(contains('actions/download-artifact@v4')));
+    expect(workflow, contains('Verify generated bridge files are committed'));
+    expect(workflow, contains('git diff --exit-code --'));
+  });
+
   test('phone registration remains shared by Android and iOS', () {
     final oauth = File('lib/common/kq_oauth_io.dart').readAsStringSync();
     final login = File('lib/common/widgets/login.dart').readAsStringSync();
