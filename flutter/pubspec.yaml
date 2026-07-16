@@ -109,7 +109,7 @@ dependencies:
   sqflite: 2.2.0
   google_fonts: ^6.2.1
   vector_math: ^2.1.4
-  in_app_purchase: ^3.3.0
+  in_app_purchase: 3.2.3
 
 dev_dependencies:
   icons_launcher: ^2.0.4

@@ -69,4 +69,28 @@ void main() {
     expect(source, contains('purchase.pendingCompletePurchase &&'));
     expect(source, contains('!await _completePurchase(purchase)'));
   });
+
+  test('StoreKit dependency stays compatible with CI Flutter 3.24.5', () {
+    final workflow =
+        File('../.github/workflows/ios-preflight.yml').readAsStringSync();
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final lock = File('pubspec.lock').readAsStringSync();
+    final purchaseLockVersion = RegExp(
+      r'  in_app_purchase:\r?\n(?:    .*\r?\n)+?    version: "([^"]+)"',
+    ).firstMatch(lock)?.group(1);
+    final platformInterfaceLockVersion = RegExp(
+      r'  in_app_purchase_platform_interface:\r?\n'
+      r'(?:    .*\r?\n)+?    version: "([^"]+)"',
+    ).firstMatch(lock)?.group(1);
+    final storeKitLockVersion = RegExp(
+      r'  in_app_purchase_storekit:\r?\n'
+      r'(?:    .*\r?\n)+?    version: "([^"]+)"',
+    ).firstMatch(lock)?.group(1);
+
+    expect(workflow, contains('FLUTTER_VERSION: "3.24.5"'));
+    expect(pubspec, contains('in_app_purchase: 3.2.3'));
+    expect(purchaseLockVersion, '3.2.3');
+    expect(platformInterfaceLockVersion, '1.4.0');
+    expect(storeKitLockVersion, '0.4.0');
+  });
 }
