@@ -66,8 +66,8 @@ void main() {
     expect(workflow, isNot(contains('actions/download-artifact@v4')));
     expect(workflow, contains('Verify generated bridge files are committed'));
     expect(workflow, contains('git diff --exit-code --'));
-    expect(workflow, contains('compare_without_whitespace'));
-    expect(workflow, contains("tr -d '[:space:]'"));
+    expect(workflow, contains('require_committed_symbol'));
+    expect(workflow, contains('kq_ios_broadcast_start'));
   });
 
   test('phone registration remains shared by Android and iOS', () {

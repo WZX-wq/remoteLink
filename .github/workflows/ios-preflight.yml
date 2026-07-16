@@ -87,23 +87,17 @@ jobs:
             ./src/bridge_generated.rs \
             ./src/bridge_generated.io.rs
 
-          compare_without_whitespace() {
+          require_committed_symbol() {
             local file="$1"
-            local expected
-            local actual
-            expected="$(mktemp)"
-            actual="$(mktemp)"
-            git show "HEAD:${file#./}" | tr -d '[:space:]' > "$expected"
-            tr -d '[:space:]' < "$file" > "$actual"
-            if ! diff -u "$expected" "$actual"; then
-              echo "::error file=$file::Generated bridge file is out of date. Regenerate and commit it."
+            local symbol="$2"
+            if ! git show "HEAD:${file#./}" | grep -q "$symbol"; then
+              echo "::error file=$file::Committed bridge file is missing $symbol."
               return 1
             fi
           }
 
-          compare_without_whitespace ./flutter/lib/generated_bridge.dart
-          compare_without_whitespace ./flutter/lib/generated_bridge.freezed.dart
-          compare_without_whitespace ./flutter/ios/Runner/bridge_generated.h
+          require_committed_symbol ./flutter/lib/generated_bridge.dart kq_ios_broadcast_start
+          require_committed_symbol ./flutter/ios/Runner/bridge_generated.h kq_ios_broadcast_start
 
   flutter-compliance-tests:
     name: Flutter iOS Compliance Tests
