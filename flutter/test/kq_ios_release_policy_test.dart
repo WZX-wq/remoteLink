@@ -72,6 +72,16 @@ void main() {
     expect(workflow, contains('kq_ios_broadcast_start'));
   });
 
+  test('iOS preflight pages avoid Flutter 3.24-incompatible Color APIs', () {
+    for (final path in <String>[
+      'lib/mobile/pages/account_deletion_page.dart',
+      'lib/mobile/pages/ios_membership_purchase_page.dart',
+      'lib/mobile/pages/privacy_policy_page.dart',
+    ]) {
+      expect(File(path).readAsStringSync(), isNot(contains('withValues')));
+    }
+  });
+
   test('phone registration remains shared by Android and iOS', () {
     final oauth = File('lib/common/kq_oauth_io.dart').readAsStringSync();
     final login = File('lib/common/widgets/login.dart').readAsStringSync();
