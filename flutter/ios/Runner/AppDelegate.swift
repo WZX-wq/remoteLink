@@ -211,9 +211,9 @@ import AVFoundation
       frame.withUnsafeBufferPointer { framePointer in
         kq_ios_voice_call_audio(
           sessionPointer.baseAddress,
-          sessionPointer.count,
+          UInt(sessionPointer.count),
           framePointer.baseAddress,
-          framePointer.count
+          UInt(framePointer.count)
         )
       }
     }
