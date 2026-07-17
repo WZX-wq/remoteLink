@@ -102,10 +102,11 @@ impl RendezvousMediator {
         tokio::spawn(async move {
             direct_server(server_cloned).await;
         });
-        #[cfg(any(target_os = "android", target_os = "ios"))]
+        #[cfg(target_os = "android")]
         let start_lan_listening = true;
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let start_lan_listening = crate::platform::is_installed();
+        #[cfg(not(target_os = "ios"))]
         if start_lan_listening {
             std::thread::spawn(move || {
                 allow_err!(super::lan::start_listening());
@@ -116,6 +117,7 @@ impl RendezvousMediator {
         if crate::is_server() {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
+        #[cfg(not(target_os = "ios"))]
         scrap::codec::test_av1();
         loop {
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));

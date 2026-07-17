@@ -1719,10 +1719,10 @@ pub mod connection_manager {
         start_listen_ipc_thread();
     }
 
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(target_os = "android")]
     use hbb_common::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(target_os = "android")]
     pub fn start_channel(
         rx: UnboundedReceiver<crate::ipc::Data>,
         tx: UnboundedSender<crate::ipc::Data>,

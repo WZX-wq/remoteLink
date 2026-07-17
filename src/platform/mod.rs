@@ -87,6 +87,11 @@ pub fn get_active_username() -> String {
     "android".into()
 }
 
+#[cfg(target_os = "ios")]
+pub fn get_active_username() -> String {
+    "ios".into()
+}
+
 #[cfg(target_os = "android")]
 pub const PA_SAMPLE_RATE: u32 = 48000;
 
@@ -106,6 +111,16 @@ impl WakeLock {
             }
         }
     }
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Default)]
+pub struct WakeLock;
+
+#[cfg(target_os = "ios")]
+pub fn get_wakelock(_display: bool) -> WakeLock {
+    hbb_common::log::info!("iOS wake lock is managed by the host application");
+    WakeLock
 }
 
 #[cfg(not(target_os = "ios"))]

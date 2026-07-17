@@ -24,12 +24,30 @@ lazy_static::lazy_static! {
     static ref PRO: Arc<Mutex<bool>> = Default::default();
 }
 
+#[cfg(target_os = "ios")]
+lazy_static::lazy_static! {
+    // iOS has no background HBBS synchronization worker. Keep the connection
+    // service receiver alive without starting unsupported background work.
+    static ref SENDER: Mutex<broadcast::Sender<Vec<i32>>> = {
+        let (sender, _) = broadcast::channel::<Vec<i32>>(1);
+        Mutex::new(sender)
+    };
+}
+
 #[cfg(not(any(target_os = "ios")))]
 pub fn start() {
     let _sender = SENDER.lock().unwrap();
 }
 
+#[cfg(target_os = "ios")]
+pub fn start() {}
+
 #[cfg(not(target_os = "ios"))]
+pub fn signal_receiver() -> broadcast::Receiver<Vec<i32>> {
+    SENDER.lock().unwrap().subscribe()
+}
+
+#[cfg(target_os = "ios")]
 pub fn signal_receiver() -> broadcast::Receiver<Vec<i32>> {
     SENDER.lock().unwrap().subscribe()
 }
@@ -307,4 +325,9 @@ fn handle_config_options(config_options: HashMap<String, String>) {
 #[cfg(not(any(target_os = "ios")))]
 pub fn is_pro() -> bool {
     PRO.lock().unwrap().clone()
+}
+
+#[cfg(target_os = "ios")]
+pub fn is_pro() -> bool {
+    false
 }

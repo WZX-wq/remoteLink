@@ -53,6 +53,28 @@ use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 
+#[cfg(target_os = "ios")]
+fn create_ios_text_clipboard_msg(text: String) -> Message {
+    let compressed = hbb_common::compress::compress(text.as_bytes());
+    let compress = compressed.len() < text.len();
+    let content = if compress {
+        compressed
+    } else {
+        text.into_bytes()
+    };
+    let mut msg = Message::new();
+    msg.set_multi_clipboards(MultiClipboards {
+        clipboards: vec![Clipboard {
+            compress,
+            content: content.into(),
+            format: ClipboardFormat::Text.into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    msg
+}
+
 #[derive(Clone, Default)]
 pub struct Session<T: InvokeUiSession> {
     pub password: String,
@@ -805,22 +827,31 @@ impl<T: InvokeUiSession> Session<T> {
             return;
         }
 
-        let msg = crate::clipboard::create_text_clipboard_msg(text);
-        if let Some(message::Union::MultiClipboards(multi_clipboards)) = &msg.union {
-            let lc = self.lc.read().unwrap();
-            if let Some(peer_info) = lc.peer_info.as_ref() {
-                if let Some(msg_out) = crate::clipboard::get_msg_if_not_support_multi_clip(
-                    &peer_info.version,
-                    &peer_info.platform,
-                    multi_clipboards,
-                ) {
-                    drop(lc);
-                    self.send(Data::Message(msg_out));
-                    return;
+        #[cfg(target_os = "ios")]
+        {
+            self.send(Data::Message(create_ios_text_clipboard_msg(text)));
+            return;
+        }
+
+        #[cfg(not(target_os = "ios"))]
+        {
+            let msg = crate::clipboard::create_text_clipboard_msg(text);
+            if let Some(message::Union::MultiClipboards(multi_clipboards)) = &msg.union {
+                let lc = self.lc.read().unwrap();
+                if let Some(peer_info) = lc.peer_info.as_ref() {
+                    if let Some(msg_out) = crate::clipboard::get_msg_if_not_support_multi_clip(
+                        &peer_info.version,
+                        &peer_info.platform,
+                        multi_clipboards,
+                    ) {
+                        drop(lc);
+                        self.send(Data::Message(msg_out));
+                        return;
+                    }
                 }
             }
+            self.send(Data::Message(msg));
         }
-        self.send(Data::Message(msg));
     }
 
     // Terminal methods

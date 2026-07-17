@@ -139,6 +139,11 @@ pub fn check_file_count_limit(file_count: usize) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "ios")]
+pub fn check_file_count_limit(_file_count: usize) -> Result<(), String> {
+    Ok(())
+}
+
 #[derive(Serialize, Clone)]
 pub struct Client {
     pub id: i32,

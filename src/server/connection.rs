@@ -25,7 +25,9 @@ use crate::{
     display_service, ipc, privacy_mode, video_service, VERSION,
 };
 #[cfg(any(target_os = "android", target_os = "ios"))]
-use crate::{common::DEVICE_NAME, flutter::connection_manager::start_channel};
+use crate::common::DEVICE_NAME;
+#[cfg(target_os = "android")]
+use crate::flutter::connection_manager::start_channel;
 use cidr_utils::cidr::IpCidr;
 #[cfg(target_os = "android")]
 use hbb_common::protobuf::EnumOrUnknown;
@@ -1831,7 +1833,7 @@ impl Connection {
             ..Default::default()
         };
 
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             pi.hostname = crate::whoami_hostname();
             pi.platform = hbb_common::whoami::platform().to_string();
@@ -1840,6 +1842,11 @@ impl Connection {
         {
             pi.hostname = DEVICE_NAME.lock().unwrap().clone();
             pi.platform = "Android".into();
+        }
+        #[cfg(target_os = "ios")]
+        {
+            pi.hostname = DEVICE_NAME.lock().unwrap().clone();
+            pi.platform = "iOS".into();
         }
         #[cfg(all(target_os = "macos", not(feature = "unix-file-copy-paste")))]
         let mut platform_additions = serde_json::Map::new();

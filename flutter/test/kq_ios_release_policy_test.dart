@@ -174,4 +174,85 @@ void main() {
     expect(frame,
         contains('convert_to_yuv(&pixelbuffer, yuvfmt, yuv, mid_data)?'));
   });
+
+  test('iOS Rust host keeps mobile-safe server symbols available', () {
+    final platform = File('../src/platform/mod.rs').readAsStringSync();
+    final flutter = File('../src/flutter.rs').readAsStringSync();
+    final uiCm = File('../src/ui_cm_interface.rs').readAsStringSync();
+    final sync = File('../src/hbbs_http/sync.rs').readAsStringSync();
+    final rendezvous =
+        File('../src/rendezvous_mediator.rs').readAsStringSync();
+    final connection = File('../src/server/connection.rs').readAsStringSync();
+    final video = File('../src/server/video_service.rs').readAsStringSync();
+    final converter =
+        File('../libs/scrap/src/common/convert.rs').readAsStringSync();
+    final session =
+        File('../src/ui_session_interface.rs').readAsStringSync();
+    final ipc = File('../src/ipc.rs').readAsStringSync();
+
+    expect(
+      platform,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "ios"\)\]\s*(?:#\[derive\([^\n]+\)\]\s*)?pub struct WakeLock')),
+    );
+    expect(
+      flutter,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "android"\)\]\s*pub fn start_channel')),
+    );
+    expect(
+      uiCm,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "ios"\)\]\s*pub fn check_file_count_limit')),
+    );
+    expect(
+      sync,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "ios"\)\]\s*pub fn signal_receiver')),
+    );
+    expect(
+      sync,
+      contains(RegExp(r'#\[cfg\(target_os = "ios"\)\]\s*pub fn is_pro')),
+    );
+    expect(
+      rendezvous,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "android"\)\]\s*let start_lan_listening')),
+    );
+    expect(
+      rendezvous,
+      contains(RegExp(
+          r'#\[cfg\(not\(target_os = "ios"\)\)\]\s*scrap::codec::test_av1\(\);')),
+    );
+    expect(
+      connection,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "ios"\)\][\s\S]{0,240}pi\.platform = "iOS"')),
+    );
+    expect(
+      connection,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "android"\)\]\s*use crate::flutter::connection_manager::start_channel;')),
+    );
+    expect(
+      video,
+      contains(RegExp(
+          r'#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*resolutions: Some')),
+    );
+    expect(
+      converter,
+      isNot(contains(RegExp(
+          r'#\[cfg\(not\(target_os = "ios"\)\)\]\s*pub fn convert\('))),
+    );
+    expect(
+      session,
+      contains(RegExp(
+          r'#\[cfg\(target_os = "ios"\)\]\s*fn create_ios_text_clipboard_msg')),
+    );
+    expect(
+      ipc,
+      contains(RegExp(
+          r'#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*crate::server::input_service::fix_key_down_timeout_at_exit')),
+    );
+  });
 }
