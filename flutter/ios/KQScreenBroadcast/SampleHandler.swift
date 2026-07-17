@@ -118,7 +118,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
           }
           return kq_ios_broadcast_start(
             UnsafeRawPointer(baseAddress).assumingMemoryBound(to: UInt8.self),
-            max(0, buffer.count - 1)
+            UInt(max(0, buffer.count - 1))
           )
         }
         guard startResult == 0 else {
@@ -187,10 +187,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     if target.width == width && target.height == height {
       return kq_ios_broadcast_push_bgra(
         baseAddress,
-        stride * height,
-        width,
-        height,
-        stride
+        UInt(stride * height),
+        UInt(width),
+        UInt(height),
+        UInt(stride)
       )
     }
 
@@ -227,10 +227,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
       }
       return kq_ios_broadcast_push_bgra(
         outputBaseAddress,
-        targetLength,
-        target.width,
-        target.height,
-        targetStride
+        UInt(targetLength),
+        UInt(target.width),
+        UInt(target.height),
+        UInt(targetStride)
       )
     }
   }

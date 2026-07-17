@@ -175,6 +175,21 @@ void main() {
         contains('convert_to_yuv(&pixelbuffer, yuvfmt, yuv, mid_data)?'));
   });
 
+  test('iOS ReplayKit bridge passes C size values as UInt', () {
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+
+    expect(handler, contains('UInt(max(0, buffer.count - 1))'));
+    expect(handler, contains('UInt(stride * height)'));
+    expect(handler, contains('UInt(width)'));
+    expect(handler, contains('UInt(height)'));
+    expect(handler, contains('UInt(stride)'));
+    expect(handler, contains('UInt(targetLength)'));
+    expect(handler, contains('UInt(target.width)'));
+    expect(handler, contains('UInt(target.height)'));
+    expect(handler, contains('UInt(targetStride)'));
+  });
+
   test('iOS Rust host keeps mobile-safe server symbols available', () {
     final platform = File('../src/platform/mod.rs').readAsStringSync();
     final flutter = File('../src/flutter.rs').readAsStringSync();
