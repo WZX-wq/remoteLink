@@ -154,4 +154,24 @@ void main() {
     expect(info, contains('用于远程协助过程中的语音通话。'));
     expect(info, isNot(contains('屏幕共享音频')));
   });
+
+  test('iOS ReplayKit frames keep YUV conversion available to video encoding',
+      () {
+    final converter =
+        File('../libs/scrap/src/common/convert.rs').readAsStringSync();
+    final frame = File('../libs/scrap/src/common/mod.rs').readAsStringSync();
+
+    expect(converter, contains('pub fn convert_to_yuv('));
+    expect(
+      converter,
+      isNot(
+        contains(
+          RegExp(
+              r'#\[cfg\(not\(target_os = "ios"\)\)\]\s*pub fn convert_to_yuv'),
+        ),
+      ),
+    );
+    expect(frame,
+        contains('convert_to_yuv(&pixelbuffer, yuvfmt, yuv, mid_data)?'));
+  });
 }
