@@ -9,7 +9,7 @@ on:
 env:
   CARGO_EXPAND_VERSION: "1.0.95"
   FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"
-  FLUTTER_VERSION: "3.24.5"
+  FLUTTER_VERSION: "3.44.5"
   RUST_VERSION: "1.75"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -61,11 +61,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Patch Flutter 3.24 dependency constraints
-        working-directory: flutter
-        run: |
-          perl -0pi -e 's/extended_text: \^15\.0\.2/extended_text: 14.0.0/g' pubspec.yaml
-
       - name: Install Flutter Rust Bridge tools
         shell: bash
         run: |
@@ -114,11 +109,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Patch Flutter 3.24 dependency constraints
-        working-directory: flutter
-        run: |
-          perl -0pi -e 's/extended_text: \^15\.0\.2/extended_text: 14.0.0/g' pubspec.yaml
-
       - name: Install dependencies
         working-directory: flutter
         run: flutter pub get
@@ -165,12 +155,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Patch Flutter
-        shell: bash
-        run: |
-          cd "$(dirname "$(dirname "$(which flutter)")")"
-          git apply "${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
-
       - name: Setup vcpkg with GitHub Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
@@ -199,11 +183,6 @@ jobs:
 
       - name: Build Rust iOS library
         run: cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
-
-      - name: Patch Flutter 3.24 dependency constraints
-        working-directory: flutter
-        run: |
-          perl -0pi -e 's/extended_text: \^15\.0\.2/extended_text: 14.0.0/g' pubspec.yaml
 
       - name: Build Flutter IPA without codesign
         working-directory: flutter

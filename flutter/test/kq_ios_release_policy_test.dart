@@ -47,14 +47,15 @@ void main() {
     expect(script, contains('test/kq_ios_release_policy_test.dart'));
   });
 
-  test('GitHub iOS preflight keeps Flutter 3.24 dependency constraints valid',
-      () {
+  test('GitHub iOS preflight uses the locked Flutter 3.44 toolchain', () {
     final workflow =
         File('../.github/workflows/ios-preflight.yml').readAsStringSync();
 
-    expect(workflow, contains('FLUTTER_VERSION: "3.24.5"'));
-    expect(workflow, contains('Patch Flutter 3.24 dependency constraints'));
-    expect('extended_text: 14.0.0'.allMatches(workflow), hasLength(3));
+    expect(workflow, contains('FLUTTER_VERSION: "3.44.5"'));
+    expect(workflow, isNot(contains('Patch Flutter 3.24 dependency constraints')));
+    expect(workflow,
+        isNot(contains('flutter_3.24.4_dropdown_menu_enableFilter.diff')));
+    expect('extended_text: 14.0.0'.allMatches(workflow), isEmpty);
   });
 
   test(
@@ -73,13 +74,16 @@ void main() {
     expect(workflow, contains('kq_ios_broadcast_start'));
   });
 
-  test('iOS preflight pages avoid Flutter 3.24-incompatible Color APIs', () {
+  test('iOS preflight pages use Flutter 3.44 Color APIs', () {
     for (final path in <String>[
       'lib/mobile/pages/account_deletion_page.dart',
       'lib/mobile/pages/ios_membership_purchase_page.dart',
       'lib/mobile/pages/privacy_policy_page.dart',
     ]) {
-      expect(File(path).readAsStringSync(), isNot(contains('withValues')));
+      final source = File(path).readAsStringSync();
+
+      expect(source, isNot(contains('withOpacity(')));
+      expect(source, contains('withValues(alpha:'));
     }
   });
 

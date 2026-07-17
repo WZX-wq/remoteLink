@@ -115,9 +115,9 @@ class _PrivacyIntroCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: q.panelStrong.withOpacity(q.isDark ? 0.84 : 0.98),
+        color: q.panelStrong.withValues(alpha: q.isDark ? 0.84 : 0.98),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: q.line.withOpacity(0.64)),
+        border: Border.all(color: q.line.withValues(alpha: 0.64)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,7 +126,7 @@ class _PrivacyIntroCard extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: q.primary.withOpacity(0.12),
+              color: q.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(13),
             ),
             child: Icon(Icons.privacy_tip_outlined, color: q.primary),
@@ -173,9 +173,9 @@ class _PrivacySectionCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: q.panelStrong.withOpacity(q.isDark ? 0.8 : 0.94),
+        color: q.panelStrong.withValues(alpha: q.isDark ? 0.8 : 0.94),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: q.line.withOpacity(0.58)),
+        border: Border.all(color: q.line.withValues(alpha: 0.58)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
