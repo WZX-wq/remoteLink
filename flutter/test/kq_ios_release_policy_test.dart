@@ -193,6 +193,37 @@ void main() {
     expect(appDelegate, contains('UInt(framePointer.count)'));
   });
 
+  test('iOS project lets CocoaPods link Flutter plugin frameworks', () {
+    final project = File('ios/Runner.xcodeproj/project.pbxproj')
+        .readAsStringSync();
+
+    expect(project, contains(r'$(inherited)'));
+    expect(project, contains('liblibrustdesk.a'));
+    for (final framework in <String>[
+      'DKImagePickerController',
+      'DKPhotoGallery',
+      'MTBBarcodeScanner',
+      'SDWebImage',
+      'SwiftyGif',
+      'device_info_plus',
+      'file_picker',
+      'flutter_keyboard_visibility',
+      'image_picker_ios',
+      'package_info_plus',
+      'path_provider_foundation',
+      'qr_code_scanner',
+      'sqflite',
+      'uni_links',
+      'url_launcher_ios',
+      'video_player_avfoundation',
+      'wakelock_plus',
+    ]) {
+      final xcodeFramework =
+          '${String.fromCharCode(92)}"$framework${String.fromCharCode(92)}"';
+      expect(project, isNot(contains(xcodeFramework)));
+    }
+  });
+
   test('iOS Rust host keeps mobile-safe server symbols available', () {
     final platform = File('../src/platform/mod.rs').readAsStringSync();
     final flutter = File('../src/flutter.rs').readAsStringSync();
