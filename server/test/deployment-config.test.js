@@ -118,6 +118,8 @@ test('public privacy policy route is available for App Store metadata', () => {
     "app.get(['/privacy', '/api/privacy']",
     '鲲穹远程桌面隐私政策',
     'Data we collect',
+    '应用声音',
+    'application audio',
     'Membership and payments',
   ]) {
     assert.equal(server.includes(value), true);

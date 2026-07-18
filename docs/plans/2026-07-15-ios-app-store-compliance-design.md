@@ -21,14 +21,14 @@ settings must be omitted.
 
 `KQScreenBroadcast` is a Broadcast Upload Extension and is the only process
 allowed to keep receiving screen frames after the containing app leaves the
-foreground. The extension therefore needs a real upload transport and cannot
-depend on the Runner process polling App Group files. The current repository
-contains no server endpoint or protocol that accepts ReplayKit frames and maps
-them to an existing remoteLink device session. This change will define and test
-the extension-side transport contract, status/error reporting, and view-only
-capability metadata. Enabling real remote viewing still requires the matching
-server transport to be supplied and then verified on macOS and physical iOS
-devices.
+foreground. The extension runs the existing Rust peer service in its own
+process, feeds ReplayKit BGRA frames into the shared video pipeline, and
+normalizes application audio to 48 kHz stereo PCM before the existing Opus
+audio service sends it. App Group storage carries status and diagnostics only;
+the media path does not depend on the Runner process polling files. The shared
+session remains view-only because iOS does not allow remote input injection
+into other apps. Final availability still requires macOS compilation and
+direct/relay verification on physical iOS devices.
 
 ## Error Handling And Verification
 
@@ -36,7 +36,8 @@ Unsupported capabilities are represented by a pure platform capability policy
 so UI code cannot accidentally re-enable Android controls on iOS. Clipboard
 sync is foreground-only and ignores empty or unchanged values. File transfer
 continues through the iOS sandbox and system document picker. ReplayKit status
-distinguishes capture-only, upload-ready, uploading, failed, and stopped states
-using user-readable copy. Automated tests cover policy decisions and static
-native integration; Xcode compilation, upload transport integration, and
+distinguishes waiting, ready, capturing, paused, failed, and stopped states and
+reports application-audio availability separately from remote-viewer presence.
+Automated tests cover policy decisions, native integration, PCM queueing, and
+the existing video/audio service contracts; Xcode compilation and physical
 device acceptance remain explicit external gates.

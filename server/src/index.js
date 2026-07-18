@@ -2322,8 +2322,8 @@ function privacyPolicyPage() {
     <section>
       <h2>我们收集的数据 <span>Data we collect</span></h2>
       <p>为了创建和保护账号，我们会处理用户名、手机号、登录凭证和账号资料。</p>
-      <p>为了提供远程协助，我们会处理设备识别信息、连接识别码、远程画面、输入操作，以及您主动选择传输的文件、剪贴板内容和语音数据。</p>
-      <p class="english">To create and protect an account, we process your username, phone number, sign-in credentials, and account profile. To provide remote assistance, we process device and connection identifiers, remote display frames, input actions, and the files, clipboard content, and voice data you choose to transfer.</p>
+      <p>为了提供远程协助，我们会处理设备识别信息、连接识别码、远程画面、输入操作，以及您主动选择传输的应用声音、语音、文件和剪贴板内容。</p>
+      <p class="english">To create and protect an account, we process your username, phone number, sign-in credentials, and account profile. To provide remote assistance, we process device and connection identifiers, remote display frames, input actions, and the application audio, voice data, files, and clipboard content you choose to transmit.</p>
     </section>
     <section>
       <h2>数据如何使用 <span>How we use data</span></h2>
@@ -2332,8 +2332,8 @@ function privacyPolicyPage() {
     </section>
     <section>
       <h2>数据共享与安全 <span>Data sharing and security</span></h2>
-      <p>远程画面、控制指令、文件、剪贴板和语音内容只会按您的操作发送给当前远程会话的另一端。我们仅在提供服务、安全防护、支付验证或法律要求所必需的范围内，与受约束的服务提供方处理数据。</p>
-      <p class="english">Remote display frames, control instructions, files, clipboard data, and voice content are sent only to the other side of the remote session you start. We process data with bound service providers only when necessary to provide the service, protect security, verify payment, or comply with law.</p>
+      <p>远程画面、应用声音、语音、控制指令、文件和剪贴板内容只会按您的操作发送给当前远程会话的另一端。我们仅在提供服务、安全防护、支付验证或法律要求所必需的范围内，与受约束的服务提供方处理数据。</p>
+      <p class="english">Remote display frames, application audio, voice content, control instructions, files, and clipboard data are sent only to the other side of the remote session you start. We process data with bound service providers only when necessary to provide the service, protect security, verify payment, or comply with law.</p>
     </section>
     <section>
       <h2>保存、删除与您的选择 <span>Retention, deletion, and your choices</span></h2>

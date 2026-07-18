@@ -18,6 +18,14 @@ void main() {
         'contact',
       ]),
     );
+    final policyText = KqPrivacyPolicy.sections
+        .expand((section) => <String>[
+              ...section.paragraphsZh,
+              ...section.paragraphsEn,
+            ])
+        .join('\n');
+    expect(policyText, contains('应用声音'));
+    expect(policyText, contains('application audio'));
   });
 
   test('public privacy policy is hosted by the Remote Link API', () {
@@ -48,6 +56,7 @@ void main() {
     expect(manifest, contains('NSPrivacyCollectedDataTypePhoneNumber'));
     expect(manifest, contains('NSPrivacyCollectedDataTypeUserID'));
     expect(manifest, contains('NSPrivacyCollectedDataTypeOtherUserContent'));
+    expect(manifest, contains('NSPrivacyCollectedDataTypeAudioData'));
     expect(manifest, contains('NSPrivacyCollectedDataTypePurchaseHistory'));
     expect(
       manifest,
@@ -60,6 +69,10 @@ void main() {
     expect(
       extensionManifest,
       contains('NSPrivacyCollectedDataTypeOtherUserContent'),
+    );
+    expect(
+      extensionManifest,
+      contains('NSPrivacyCollectedDataTypeAudioData'),
     );
   });
 }

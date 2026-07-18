@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File scripts/test-kq-ios-code-readiness.ps1
 
 - [x] Static iOS project and permission checks pass
 - [x] Flutter iOS regression tests pass
-- [x] Full Flutter test suite passes (110 tests)
+- [x] Full Flutter iOS readiness suite passes
 - [x] Rust receiver quality test passes
 - [x] Rust `flutter` feature compiles
 - [x] Changed Dart files have no analyzer errors
@@ -49,8 +49,9 @@ Record device model and iOS version for every result.
 - [ ] Member profile requests 1080p / 60 FPS with visibly higher quality
 - [ ] Microphone permission, voice call start/end, rejection, busy, and timeout copy
 - [ ] File transfer, Files App import, incoming clipboard, and foreground outgoing text clipboard
-- [ ] ReplayKit picker, capture status, frame counters, and stop behavior
-- [ ] Remote viewer receives ReplayKit video through direct and relay connections on physical devices
+- [ ] ReplayKit picker, capture status, frame counters, pause/resume, and stop behavior
+- [ ] Remote viewer receives ReplayKit video and application audio through direct and relay connections on physical devices
+- [ ] Microphone stays on the separate voice-call path without duplicated audio or echo
 
 ## Release Preconditions
 
