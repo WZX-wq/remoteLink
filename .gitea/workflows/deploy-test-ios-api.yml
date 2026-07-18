@@ -47,7 +47,11 @@ jobs:
           test -f server/src/account-deletion.js
           test -f server/src/apple-iap.js
           test -f server/src/apple-entitlement.js
+          test -f scripts/deploy/deploy-windows.sh
+          test -f scripts/deploy/verify-ios-release-server.sh
           bash -n deploy/deploy-rustdesk-server.sh
+          bash -n scripts/deploy/deploy-windows.sh
+          bash -n scripts/deploy/verify-ios-release-server.sh
           node --check server/src/index.js
           node --test \
             server/test/account-deletion.test.js \
@@ -70,8 +74,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sleep 8
-          curl --fail --silent --show-error http://127.0.0.1:21120/api/health >/dev/null
+          wait_for_status() {
+            local url="$1"
+            local expected_status="$2"
+            local deadline=$((SECONDS + 90))
+            local status_code
+            while true; do
+              status_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                --connect-timeout 3 --max-time 8 "${url}" || true)"
+              if [[ "${status_code}" == "${expected_status}" ]]; then
+                return 0
+              fi
+              if (( SECONDS >= deadline )); then
+                echo "Timed out waiting for ${url}; last status: ${status_code:-no response}" >&2
+                return 1
+              fi
+              sleep 3
+            done
+          }
+          wait_for_status http://127.0.0.1:21120/api/health 200
+          download_page="$(curl --fail --silent --show-error --max-time 20 http://127.0.0.1:21120/download)"
+          grep -F 'href="http://43.154.197.96/kq-api/download/windows"' <<<"${download_page}" >/dev/null
+          grep -F 'href="http://43.154.197.96/kq-api/download/android"' <<<"${download_page}" >/dev/null
+          privacy_page="$(curl --fail --silent --show-error --max-time 20 http://127.0.0.1:21120/privacy)"
+          grep -F '鲲穹远程桌面隐私政策' <<<"${privacy_page}" >/dev/null
           for path in /api/auth/account/delete /api/membership/apple/verify; do
             code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
               --request POST "http://127.0.0.1:21120${path}" \

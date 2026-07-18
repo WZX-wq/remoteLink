@@ -1,0 +1,82 @@
+name: Publish Windows Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      installer_url:
+        description: Direct HTTP(S) URL of the signed Windows installer
+        required: true
+        type: string
+      version:
+        description: Display version, for example 1.4.7.4074
+        required: true
+        type: string
+      sha256:
+        description: Optional SHA256 checksum expected for the installer
+        required: false
+        type: string
+
+jobs:
+  publish-windows-installer:
+    runs-on: linux
+    env:
+      INSTALL_DIR: /www/wwwroot/KQromoteLink
+      PUBLIC_HOST: 43.154.197.96
+      KQ_DOWNLOAD_URL: http://43.154.197.96/kq-api/download/windows
+    steps:
+      - name: Checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+
+      - name: Download installer
+        shell: bash
+        env:
+          INSTALLER_URL: ${{ inputs.installer_url }}
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          case "${INSTALLER_URL}" in
+            http://*|https://*) ;;
+            *)
+              echo "installer_url must be a complete HTTP(S) URL." >&2
+              exit 1
+              ;;
+          esac
+          mkdir -p artifacts
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 1800 \
+            --output artifacts/Kunqiong-Remote-Desktop-Setup.exe "${INSTALLER_URL}"
+          if [[ -n "${EXPECTED_SHA256:-}" ]]; then
+            actual_sha256="$(sha256sum artifacts/Kunqiong-Remote-Desktop-Setup.exe | awk '{print $1}')"
+            if [[ "${actual_sha256,,}" != "${EXPECTED_SHA256,,}" ]]; then
+              echo "Installer SHA256 does not match the supplied checksum." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Publish canonical installer
+        shell: bash
+        env:
+          KQ_DOWNLOAD_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          KQ_WINDOWS_INSTALLER_PATH=artifacts/Kunqiong-Remote-Desktop-Setup.exe \
+          OUTPUT_DIR="${INSTALL_DIR}/windows" \
+          API_DOWNLOAD_DIR="${INSTALL_DIR}/api/public/downloads" \
+          KQ_API_ENV_FILE="${INSTALL_DIR}/.env" \
+            bash scripts/deploy/deploy-windows.sh
+
+      - name: Verify published installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --connect-timeout 5 --max-time 20 --range 0-0 "${KQ_DOWNLOAD_URL}" || true)"
+          if [[ "${status}" != "206" && "${status}" != "200" ]]; then
+            echo "Published Windows installer is not reachable: HTTP ${status:-no response}" >&2
+            exit 1
+          fi
