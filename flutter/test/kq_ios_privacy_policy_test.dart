@@ -20,6 +20,18 @@ void main() {
     );
   });
 
+  test('public privacy policy is hosted by the Remote Link API', () {
+    final server = File('../server/src/index.js').readAsStringSync();
+
+    expect(
+      KqPrivacyPolicy.publicUrl,
+      contains('remotelink.kunqiongai.com/kq-api/privacy'),
+    );
+    expect(server, contains('function privacyPolicyPage()'));
+    expect(server, contains("app.get(['/privacy', '/api/privacy']"));
+    expect(server, contains('鲲穹远程桌面隐私政策'));
+  });
+
   test('personal center exposes the internal privacy policy page', () {
     final page = File('lib/mobile/pages/account_page.dart').readAsStringSync();
 

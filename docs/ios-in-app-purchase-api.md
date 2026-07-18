@@ -8,10 +8,14 @@ Provide these values only through the release build environment:
 
 ```text
 KQ_IOS_IAP_PRODUCTS={"1":"com.kunqiong.remotelink.member.monthly","2":"com.kunqiong.remotelink.member.quarterly"}
-KQ_IOS_IAP_VERIFY_URL=https://api-web.kunqiongai.com/api/membership/apple/verify
+KQ_IOS_IAP_VERIFY_URL=https://membership.example.com/api/membership/apple/verify
 ```
 
 The JSON key is the existing server membership package ID. Each value is the matching App Store Connect product ID. Product identifiers, Apple private keys, App Store Connect keys, and receipt-verification secrets must never be compiled into the Flutter client.
+
+The verification URL must be a deployed authenticated `POST` route. It must
+validate Apple transaction data server-side before granting membership and must
+not trust a client-supplied package or expiry date.
 
 ## Verification request
 

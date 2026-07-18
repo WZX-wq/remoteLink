@@ -1,0 +1,87 @@
+name: Deploy Test iOS API
+
+on:
+  push:
+    branches:
+      - test-server-ios-api-20260718
+  workflow_dispatch:
+
+jobs:
+  deploy-ios-api:
+    runs-on: linux
+    env:
+      INSTALL_DIR: /www/wwwroot/KQromoteLink
+      PUBLIC_HOST: 43.154.197.96
+      KQ_RELAY_SERVER: 43.154.197.96:21117
+      KQ_ENABLE_API: "Y"
+      KQ_ENABLE_LOCAL_DB: "Y"
+      KQ_API_PORT: "21120"
+      KQ_API_PUBLIC_PATH: /kq-api
+      KQ_PUBLIC_API_URL: http://43.154.197.96/kq-api/api
+      KQ_API_ENV_ENC_FILE: /dev/null
+      KQ_DB_HOST: 127.0.0.1
+      KQ_DB_PORT: "23306"
+      KQ_DB_USER: kq_remote_link_test
+      KQ_DB_NAME: kq_remote_link_test
+      KQ_DB_CREATE_DATABASE: "Y"
+      KQ_SUBSITE_NAME: http://43.154.197.96/
+      KQ_API_WEB_BASE_URL: https://api-web.kunqiongai.com
+      KQ_ACCOUNT_DELETION_MODE: local_test
+    steps:
+      - name: Checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+
+      - name: Validate source and isolated target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f deploy/rustdesk-server.compose.yml
+          test -f deploy/deploy-rustdesk-server.sh
+          test -f server/src/index.js
+          test -f server/src/account-deletion.js
+          test -f server/src/apple-iap.js
+          test -f server/src/apple-entitlement.js
+          bash -n deploy/deploy-rustdesk-server.sh
+          node --check server/src/index.js
+          node --test \
+            server/test/account-deletion.test.js \
+            server/test/apple-entitlement.test.js \
+            server/test/apple-iap.test.js \
+            server/test/deployment-config.test.js
+          test -s "${INSTALL_DIR}/.env"
+          grep -qx 'KQ_DB_HOST=127.0.0.1' "${INSTALL_DIR}/.env"
+          grep -qx 'KQ_DB_PORT=23306' "${INSTALL_DIR}/.env"
+          grep -qx 'KQ_DB_NAME=kq_remote_link_test' "${INSTALL_DIR}/.env"
+          grep -qx 'KQ_PUBLIC_API_URL=http://43.154.197.96/kq-api/api' "${INSTALL_DIR}/.env"
+
+      - name: Deploy isolated test API
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash deploy/deploy-rustdesk-server.sh
+
+      - name: Verify deployed routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          curl --fail --silent --show-error http://127.0.0.1:21120/api/health >/dev/null
+          for path in /api/auth/account/delete /api/membership/apple/verify; do
+            code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --request POST "http://127.0.0.1:21120${path}" \
+              --header 'Content-Type: application/json' \
+              --data '{}')"
+            case "${code}" in
+              401|503) ;;
+              *)
+                echo "Unexpected status for ${path}: ${code}" >&2
+                exit 1
+                ;;
+            esac
+          done

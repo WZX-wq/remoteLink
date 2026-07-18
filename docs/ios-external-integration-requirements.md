@@ -25,7 +25,7 @@ flutter build ipa --dart-define=KQ_IOS_INTERNAL_DIRECT_PAYMENT=true
 
 ```text
 KQ_IOS_IAP_PRODUCTS={"1":"com.kunqiong.remotelink.member.monthly"}
-KQ_IOS_IAP_VERIFY_URL=https://api-web.kunqiongai.com/api/membership/apple/verify
+KQ_IOS_IAP_VERIFY_URL=https://membership.example.com/api/membership/apple/verify
 ```
 
 ## 账号删除依赖
@@ -40,7 +40,7 @@ KQ_IOS_IAP_VERIFY_URL=https://api-web.kunqiongai.com/api/membership/apple/verify
 构建时通过环境变量提供：
 
 ```text
-KQ_ACCOUNT_DELETE_URL=https://api-web.kunqiongai.com/api/auth/account/delete
+KQ_ACCOUNT_DELETE_URL=https://identity.example.com/api/account/delete
 ```
 
 未配置或接口不可用时，客户端会提示暂不能注销账号；这种状态不能作为 App Store 正式验收通过。
@@ -52,7 +52,7 @@ App 内已经提供隐私政策页面，iOS 工程也包含 `PrivacyInfo.xcpriva
 构建时通过环境变量提供：
 
 ```text
-KQ_PRIVACY_POLICY_URL=https://remotelink.kunqiongai.com/privacy
+KQ_PRIVACY_POLICY_URL=https://www.kunqiongai.com/privacy/
 ```
 
 ## 发布验证

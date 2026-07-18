@@ -104,5 +104,28 @@ history, and membership mirror data; deleting it alone is not sufficient.
 iOS intentionally does not expose WeChat, Alipay, QR-code, or payment-URI
 membership checkout. Enable membership purchase only after Apple StoreKit
 product identifiers, purchase handling, and server-side transaction verification
-are configured. The Codemagic signed workflow uploads its IPA with `xcrun
-altool --upload-app -f ... -t ios` and App Store Connect API-key credentials.
+are configured.
+
+Before the `kq-remote-link-ios-testflight` workflow is run, configure these
+non-secret values in its Codemagic environment group. They are compiled into
+the signed IPA as Dart defines, but Apple credentials and server verification
+secrets must remain only in Codemagic/App Store Connect:
+
+```text
+KQ_PRIVACY_POLICY_URL=https://remotelink.kunqiongai.com/kq-api/privacy
+KQ_ACCOUNT_DELETE_URL=https://remotelink.kunqiongai.com/kq-api/api/auth/account/delete
+KQ_IOS_IAP_PRODUCTS={"1":"com.kunqiong.remotelink.member.monthly"}
+KQ_IOS_IAP_VERIFY_URL=https://remotelink.kunqiongai.com/kq-api/api/membership/apple/verify
+```
+
+Map every active server membership package to its matching App Store Connect
+product ID. The signed workflow rejects missing or non-HTTPS values and rejects
+`KQ_IOS_INTERNAL_DIRECT_PAYMENT=true`, so an App Store/TestFlight IPA cannot
+accidentally expose the internal Alipay flow. It uses Codemagic's increasing
+`BUILD_NUMBER` for `CFBundleVersion`; do not reuse a fixed TestFlight build
+number. Before compiling, the workflow sends an unauthenticated JSON `POST`
+probe to the deletion and transaction-verification URLs. A deployed route must
+answer `200`, `400`, `401`, `403`, or `422`; `404`, a wrong method, or a server
+error stops the build. Codemagic then publishes the IPA with its App Store
+Connect publishing configuration and API-key credentials; the first app record
+and its required App Store metadata must already exist in App Store Connect.

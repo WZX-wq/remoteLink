@@ -4,7 +4,7 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
-      flutter: 3.24.5
+      flutter: 3.44.5
       xcode: latest
       cocoapods: default
       vars:
@@ -103,7 +103,7 @@ workflows:
     environment:
       groups:
         - appstore_credentials
-      flutter: 3.24.5
+      flutter: 3.44.5
       xcode: latest
       cocoapods: default
       vars:
@@ -124,6 +124,10 @@ workflows:
       - name: Install native build dependencies
         script: |
           brew install nasm yasm
+      - name: Validate iOS App Store release configuration
+        script: |
+          set -euo pipefail
+          python3 "$CM_BUILD_DIR/scripts/prepare_ios_release_config.py"
       - name: Install Rust iOS target
         script: |
           if ! command -v rustup >/dev/null 2>&1; then
@@ -203,14 +207,20 @@ workflows:
       - name: Set up code signing settings
         script: |
           cd "$CM_BUILD_DIR/flutter/ios"
-          xcode-project use-profiles --project "$XCODE_PROJECT"
+          xcode-project use-profiles \
+            --project "$XCODE_PROJECT" \
+            --custom-export-options='{"testFlightInternalTestingOnly": true}'
       - name: Build signed IPA
         script: |
           cd "$CM_BUILD_DIR/flutter"
           flutter build ipa \
             --release \
             --build-name "$FLUTTER_BUILD_NAME" \
-            --build-number "$FLUTTER_BUILD_NUMBER" \
+            --build-number "$BUILD_NUMBER" \
+            --dart-define=KQ_PRIVACY_POLICY_URL="$KQ_PRIVACY_POLICY_URL" \
+            --dart-define=KQ_ACCOUNT_DELETE_URL="$KQ_ACCOUNT_DELETE_URL" \
+            --dart-define=KQ_IOS_IAP_PRODUCTS="$KQ_IOS_IAP_PRODUCTS" \
+            --dart-define=KQ_IOS_IAP_VERIFY_URL="$KQ_IOS_IAP_VERIFY_URL" \
             --export-options-plist=/Users/builder/export_options.plist
       - name: Normalize IPA filename
         script: |
@@ -224,40 +234,13 @@ workflows:
           if [ "$ipa_path" != "build/ios/ipa/KQRemoteLink.ipa" ]; then
             mv "$ipa_path" build/ios/ipa/KQRemoteLink.ipa
           fi
-      - name: Upload IPA to App Store Connect
-        script: |
-          set -euo pipefail
-          if [ -z "${APP_STORE_CONNECT_APPLE_ID:-}" ]; then
-            echo "APP_STORE_CONNECT_APPLE_ID is required. Set it to the numeric Apple ID from App Store Connect > App Information."
-            exit 1
-          fi
-          key_dir="$HOME/.appstoreconnect/private_keys"
-          mkdir -p "$key_dir"
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          key = os.environ["APP_STORE_CONNECT_PRIVATE_KEY"]
-          key = key.replace("\\n", "\n").replace("\r\n", "\n")
-          key_path = Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{os.environ['APP_STORE_CONNECT_KEY_IDENTIFIER']}.p8"
-          key_path.write_text(key if key.endswith("\n") else key + "\n")
-          PY
-          upload_args=(
-            --upload-package "$CM_BUILD_DIR/flutter/build/ios/ipa/KQRemoteLink.ipa"
-            --type ios
-            --apple-id "$APP_STORE_CONNECT_APPLE_ID"
-            --bundle-id "$BUNDLE_ID"
-            --bundle-short-version-string "$FLUTTER_BUILD_NAME"
-            --bundle-version "$FLUTTER_BUILD_NUMBER"
-            --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER"
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
-          )
-          if [ -n "${APP_STORE_CONNECT_ASC_PUBLIC_ID:-}" ]; then
-            upload_args+=(--asc-public-id "$APP_STORE_CONNECT_ASC_PUBLIC_ID")
-          fi
-          xcrun altool "${upload_args[@]}"
     artifacts:
       - flutter/build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID

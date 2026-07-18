@@ -26,7 +26,7 @@ class KqPrivacyPolicySection {
 class KqPrivacyPolicy {
   static const publicUrl = String.fromEnvironment(
     'KQ_PRIVACY_POLICY_URL',
-    defaultValue: 'https://kunqiongai.com/privacy',
+    defaultValue: 'https://remotelink.kunqiongai.com/kq-api/privacy',
   );
 
   static const sections = <KqPrivacyPolicySection>[

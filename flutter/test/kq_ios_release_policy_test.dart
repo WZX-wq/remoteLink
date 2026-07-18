@@ -47,12 +47,73 @@ void main() {
     expect(script, contains('test/kq_ios_release_policy_test.dart'));
   });
 
+  test('TestFlight workflow validates and injects release-only iOS settings',
+      () {
+    final workflow = File('../codemagic.yaml').readAsStringSync();
+    final validator = File('../scripts/prepare_ios_release_config.py');
+    final preflight =
+        File('../.github/workflows/ios-preflight.yml').readAsStringSync();
+    final testFlightStart = workflow.indexOf('kq-remote-link-ios-testflight:');
+    final unsignedWorkflow = workflow.substring(0, testFlightStart);
+    final testFlightWorkflow = workflow.substring(testFlightStart);
+
+    expect(validator.existsSync(), isTrue);
+    expect(testFlightWorkflow,
+        contains('Validate iOS App Store release configuration'));
+    expect(testFlightWorkflow, contains('prepare_ios_release_config.py'));
+    expect(unsignedWorkflow,
+        isNot(contains('Validate iOS App Store release configuration')));
+    expect(testFlightWorkflow, contains(r'--build-number "$BUILD_NUMBER"'));
+    expect(
+        testFlightWorkflow,
+        contains(
+            r'--dart-define=KQ_PRIVACY_POLICY_URL="$KQ_PRIVACY_POLICY_URL"'));
+    expect(
+        testFlightWorkflow,
+        contains(
+            r'--dart-define=KQ_ACCOUNT_DELETE_URL="$KQ_ACCOUNT_DELETE_URL"'));
+    expect(testFlightWorkflow,
+        contains(r'--dart-define=KQ_IOS_IAP_PRODUCTS="$KQ_IOS_IAP_PRODUCTS"'));
+    expect(
+        testFlightWorkflow,
+        contains(
+            r'--dart-define=KQ_IOS_IAP_VERIFY_URL="$KQ_IOS_IAP_VERIFY_URL"'));
+    expect(preflight, contains('test_ios_release_config.py'));
+  });
+
+  test('TestFlight workflow uses Codemagic publishing instead of altool', () {
+    final workflow = File('../codemagic.yaml').readAsStringSync();
+    final testFlightWorkflow =
+        workflow.substring(workflow.indexOf('kq-remote-link-ios-testflight:'));
+
+    expect(
+      testFlightWorkflow,
+      contains(
+        '--custom-export-options=\''
+        '{"testFlightInternalTestingOnly": true}'
+        '\'',
+      ),
+    );
+    expect(testFlightWorkflow, contains('publishing:'));
+    expect(testFlightWorkflow, contains('app_store_connect:'));
+    expect(testFlightWorkflow,
+        contains('api_key: \$APP_STORE_CONNECT_PRIVATE_KEY'));
+    expect(
+      testFlightWorkflow,
+      contains('key_id: \$APP_STORE_CONNECT_KEY_IDENTIFIER'),
+    );
+    expect(testFlightWorkflow,
+        contains('issuer_id: \$APP_STORE_CONNECT_ISSUER_ID'));
+    expect(testFlightWorkflow, isNot(contains('xcrun altool')));
+  });
+
   test('GitHub iOS preflight uses the locked Flutter 3.44 toolchain', () {
     final workflow =
         File('../.github/workflows/ios-preflight.yml').readAsStringSync();
 
     expect(workflow, contains('FLUTTER_VERSION: "3.44.5"'));
-    expect(workflow, isNot(contains('Patch Flutter 3.24 dependency constraints')));
+    expect(
+        workflow, isNot(contains('Patch Flutter 3.24 dependency constraints')));
     expect(workflow,
         isNot(contains('flutter_3.24.4_dropdown_menu_enableFilter.diff')));
     expect('extended_text: 14.0.0'.allMatches(workflow), isEmpty);
@@ -194,8 +255,8 @@ void main() {
   });
 
   test('iOS project lets CocoaPods link Flutter plugin frameworks', () {
-    final project = File('ios/Runner.xcodeproj/project.pbxproj')
-        .readAsStringSync();
+    final project =
+        File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
 
     expect(project, contains(r'$(inherited)'));
     expect(project, contains('liblibrustdesk.a'));
@@ -229,14 +290,12 @@ void main() {
     final flutter = File('../src/flutter.rs').readAsStringSync();
     final uiCm = File('../src/ui_cm_interface.rs').readAsStringSync();
     final sync = File('../src/hbbs_http/sync.rs').readAsStringSync();
-    final rendezvous =
-        File('../src/rendezvous_mediator.rs').readAsStringSync();
+    final rendezvous = File('../src/rendezvous_mediator.rs').readAsStringSync();
     final connection = File('../src/server/connection.rs').readAsStringSync();
     final video = File('../src/server/video_service.rs').readAsStringSync();
     final converter =
         File('../libs/scrap/src/common/convert.rs').readAsStringSync();
-    final session =
-        File('../src/ui_session_interface.rs').readAsStringSync();
+    final session = File('../src/ui_session_interface.rs').readAsStringSync();
     final ipc = File('../src/ipc.rs').readAsStringSync();
 
     expect(
@@ -246,8 +305,8 @@ void main() {
     );
     expect(
       flutter,
-      contains(RegExp(
-          r'#\[cfg\(target_os = "android"\)\]\s*pub fn start_channel')),
+      contains(
+          RegExp(r'#\[cfg\(target_os = "android"\)\]\s*pub fn start_channel')),
     );
     expect(
       uiCm,
@@ -256,8 +315,8 @@ void main() {
     );
     expect(
       sync,
-      contains(RegExp(
-          r'#\[cfg\(target_os = "ios"\)\]\s*pub fn signal_receiver')),
+      contains(
+          RegExp(r'#\[cfg\(target_os = "ios"\)\]\s*pub fn signal_receiver')),
     );
     expect(
       sync,
@@ -290,8 +349,8 @@ void main() {
     );
     expect(
       converter,
-      isNot(contains(RegExp(
-          r'#\[cfg\(not\(target_os = "ios"\)\)\]\s*pub fn convert\('))),
+      isNot(contains(
+          RegExp(r'#\[cfg\(not\(target_os = "ios"\)\)\]\s*pub fn convert\('))),
     );
     expect(
       session,

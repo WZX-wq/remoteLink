@@ -10,6 +10,16 @@ import {
   queryAlipayTradeByOutTradeNo,
   verifyAlipaySignature,
 } from './alipay.js';
+import {
+  normalizeAccountDeletionMode,
+  submitAccountDeletion,
+} from './account-deletion.js';
+import {
+  fetchAndValidateAppleTransaction,
+  parseAppleProductMap,
+  resolveAppleTransactionId,
+} from './apple-iap.js';
+import { claimAppleSubscriptionOwner } from './apple-entitlement.js';
 import { createRequestGate } from './request-gate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +112,20 @@ const config = {
     gatewayUrl:
       (process.env.KQ_ALIPAY_GATEWAY_URL || 'https://openapi.alipay.com/gateway.do')
         .replace(/\/+$/, ''),
+  },
+  accountDeletion: {
+    mode: normalizeAccountDeletionMode(process.env.KQ_ACCOUNT_DELETION_MODE),
+    upstreamUrl: process.env.KQ_IDENTITY_ACCOUNT_DELETE_URL || '',
+  },
+  appleIap: {
+    productsJson: process.env.KQ_IOS_IAP_PRODUCTS || '',
+    bundleId: process.env.KQ_APPLE_IAP_BUNDLE_ID || '',
+    issuerId: process.env.KQ_APPLE_IAP_ISSUER_ID || '',
+    keyId: process.env.KQ_APPLE_IAP_KEY_ID || '',
+    privateKey:
+      process.env.KQ_APPLE_IAP_PRIVATE_KEY ||
+      readOptionalSecretFile(process.env.KQ_APPLE_IAP_PRIVATE_KEY_PATH),
+    environment: process.env.KQ_APPLE_IAP_ENVIRONMENT || 'sandbox',
   },
   appScheme: normalizeUriScheme(process.env.KQ_APP_SCHEME || 'kqremote'),
   requestGate: {
@@ -553,6 +577,144 @@ async function markProjectMemberOrderPaid(orderNo, wechatOrder = {}) {
   };
 }
 
+function getAppleIapConfig() {
+  return {
+    ...config.appleIap,
+    productMap: parseAppleProductMap(config.appleIap.productsJson),
+  };
+}
+
+function appleMembershipOrderNo(originalTransactionId) {
+  return `APPLE-${String(originalTransactionId || '').trim()}`.slice(0, 64);
+}
+
+function appleMembershipExpiry(memberPackage, transaction) {
+  if (transaction.expiresAt) return transaction.expiresAt;
+  const packageDays = Number(memberPackage?.days || 0);
+  if (packageDays >= 999999) return '9999-12-31 23:59:59';
+  return formatMysqlDateTime(addDays(new Date(), Math.max(1, packageDays)));
+}
+
+function isMembershipExpiryActive(expireAt) {
+  if (!expireAt || expireAt === '9999-12-31 23:59:59') return true;
+  const timestamp = new Date(String(expireAt).replace(' ', 'T') + 'Z').getTime();
+  return Number.isFinite(timestamp) && timestamp > Date.now();
+}
+
+async function grantAppleMembership({ ctx, packageId, memberPackage, transaction }) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [existingTransactions] = await connection.execute(
+      'SELECT * FROM kq_apple_transactions WHERE transaction_id = ? FOR UPDATE',
+      [transaction.transactionId],
+    );
+    const existingTransaction = existingTransactions[0];
+    if (existingTransaction && Number(existingTransaction.user_id) !== Number(ctx.user.id)) {
+      throw Object.assign(
+        new Error('This Apple purchase has already been used by another account.'),
+        { statusCode: 409 },
+      );
+    }
+    await claimAppleSubscriptionOwner(connection, {
+      originalTransactionId: transaction.originalTransactionId,
+      userId: ctx.user.id,
+    });
+
+    const orderNo = appleMembershipOrderNo(transaction.originalTransactionId);
+    const expireAt = appleMembershipExpiry(memberPackage, transaction);
+    const memberActive = isMembershipExpiryActive(expireAt);
+    const packageName = String(memberPackage?.name || 'Kunqiong membership').slice(0, 128);
+    const packageDays = Number(memberPackage?.days || 0);
+    const payAmount = Number(memberPackage?.price_yuan || 0);
+    const rawTransaction = {
+      payment_provider: 'apple_iap',
+      transaction_id: transaction.transactionId,
+      original_transaction_id: transaction.originalTransactionId,
+      product_id: transaction.productId,
+      environment: transaction.environment,
+      signed_transaction_info: transaction.signedTransactionInfo,
+      claims: transaction.claims,
+    };
+
+    await connection.execute(
+      `
+        INSERT INTO kq_member_orders (
+          user_id, order_no, package_id, package_name, package_days,
+          pay_amount, pay_type, pay_status, expire_at, raw_order_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 3, 1, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          package_id = VALUES(package_id),
+          package_name = VALUES(package_name),
+          package_days = VALUES(package_days),
+          pay_amount = VALUES(pay_amount),
+          pay_type = 3,
+          pay_status = 1,
+          expire_at = VALUES(expire_at),
+          raw_order_json = VALUES(raw_order_json),
+          updated_at = NOW()
+      `,
+      [
+        ctx.user.id,
+        orderNo,
+        Number(packageId),
+        packageName,
+        packageDays,
+        Number.isFinite(payAmount) ? payAmount : 0,
+        expireAt,
+        JSON.stringify(rawTransaction),
+      ],
+    );
+    await connection.execute(
+      `
+        INSERT INTO kq_apple_transactions (
+          transaction_id, original_transaction_id, user_id, package_id, product_id,
+          environment, expires_at, purchase_at, signed_transaction_hash, raw_transaction_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          original_transaction_id = VALUES(original_transaction_id),
+          package_id = VALUES(package_id),
+          product_id = VALUES(product_id),
+          environment = VALUES(environment),
+          expires_at = VALUES(expires_at),
+          purchase_at = VALUES(purchase_at),
+          signed_transaction_hash = VALUES(signed_transaction_hash),
+          raw_transaction_json = VALUES(raw_transaction_json),
+          verified_at = NOW()
+      `,
+      [
+        transaction.transactionId,
+        transaction.originalTransactionId,
+        ctx.user.id,
+        Number(packageId),
+        transaction.productId,
+        transaction.environment,
+        transaction.expiresAt,
+        transaction.purchaseDate,
+        sha256(transaction.signedTransactionInfo),
+        JSON.stringify(rawTransaction),
+      ],
+    );
+    await connection.execute(
+      `
+        UPDATE kq_users
+        SET member_active = ?, member_expire_at = ?, last_seen_at = NOW()
+        WHERE id = ?
+      `,
+      [memberActive ? 1 : 0, expireAt, ctx.user.id],
+    );
+    await connection.commit();
+    return { expireAt, memberActive };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function queryWechatAppOrderStatus(orderNo, cfg) {
   const pathWithQuery =
     `/v3/pay/transactions/out-trade-no/${encodeURIComponent(orderNo)}?mchid=${encodeURIComponent(cfg.mchId)}`;
@@ -918,9 +1080,44 @@ function cacheIdentityContext(tokenHash, ctx) {
   });
 }
 
-async function loadUserIdentityContextForToken(token, tokenHash) {
+function clearCachedIdentityContext(tokenHash) {
+  identityContextCache.delete(tokenHash);
+  identityContextInFlight.delete(tokenHash);
+}
+
+async function assertAccountDeletionDoesNotBlock(user) {
+  if (config.accountDeletion.mode === 'local_test') return;
+  const [rows] = await pool.execute(
+    `
+      SELECT status
+      FROM kq_account_deletion_requests
+      WHERE external_provider = ?
+        AND external_user_id = ?
+        AND status IN ('pending', 'processing', 'deleted')
+      LIMIT 1
+    `,
+    [user.external_provider, user.external_user_id],
+  );
+  if (rows.length) {
+    throw Object.assign(
+      new Error('This account has a pending deletion request.'),
+      { statusCode: 410 },
+    );
+  }
+}
+
+async function loadUserIdentityContextForToken(
+  token,
+  tokenHash,
+  { allowPendingDeletion = false } = {},
+) {
   const cached = getCachedIdentityContext(tokenHash);
-  if (cached) return cached;
+  if (cached) {
+    if (!allowPendingDeletion) {
+      await assertAccountDeletionDoesNotBlock(cached.user);
+    }
+    return cached;
+  }
 
   const inFlight = identityContextInFlight.get(tokenHash);
   if (inFlight) return await inFlight;
@@ -933,6 +1130,9 @@ async function loadUserIdentityContextForToken(token, tokenHash) {
       tokenHash,
     });
     await mergeLegacyAccountRowsForUser(dbUser, user);
+    if (!allowPendingDeletion) {
+      await assertAccountDeletionDoesNotBlock(dbUser);
+    }
     const ctx = { token, user: dbUser, userInfo };
     cacheIdentityContext(tokenHash, ctx);
     return ctx;
@@ -986,13 +1186,48 @@ async function loadUserContext(req) {
   return { token, user: dbUser, userInfo: identity.userInfo, memberInfo: mergedMemberInfo };
 }
 
-async function loadUserIdentityContext(req) {
+async function loadUserIdentityContext(req, options = {}) {
   const token = getAuthToken(req);
   if (!token) {
     throw Object.assign(new Error('missing token'), { statusCode: 401 });
   }
   const tokenHash = sha256(token);
-  return await loadUserIdentityContextForToken(token, tokenHash);
+  return await loadUserIdentityContextForToken(token, tokenHash, options);
+}
+
+async function recordAccountDeletionRequest(ctx, outcome) {
+  const requestScope = outcome.localOnly ? 'local_test' : 'identity_service';
+  await pool.execute(
+    `
+      INSERT INTO kq_account_deletion_requests (
+        external_provider, external_user_id, status, request_scope, message, raw_request_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        status = VALUES(status),
+        request_scope = VALUES(request_scope),
+        message = VALUES(message),
+        raw_request_json = VALUES(raw_request_json),
+        requested_at = NOW(),
+        updated_at = NOW()
+    `,
+    [
+      ctx.user.external_provider,
+      ctx.user.external_user_id,
+      outcome.status,
+      requestScope,
+      outcome.message,
+      JSON.stringify({
+        local_only: outcome.localOnly,
+        user_id: ctx.user.id,
+        requested_at: new Date().toISOString(),
+      }),
+    ],
+  );
+}
+
+async function deleteLocalProjectAccount(userId) {
+  await pool.execute('DELETE FROM kq_users WHERE id = ?', [userId]);
 }
 
 async function ensureDatabase() {
@@ -1133,6 +1368,57 @@ async function ensureDatabase() {
       UNIQUE KEY uniq_user_snapshot_hash (user_id, snapshot_hash),
       KEY idx_user_synced (user_id, synced_at),
       CONSTRAINT fk_snapshot_user FOREIGN KEY (user_id) REFERENCES kq_users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kq_account_deletion_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      external_provider VARCHAR(32) NOT NULL DEFAULT 'kunqiong',
+      external_user_id VARCHAR(128) NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'pending',
+      request_scope VARCHAR(32) NOT NULL DEFAULT 'identity_service',
+      message VARCHAR(512) NOT NULL DEFAULT '',
+      raw_request_json JSON NULL,
+      requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_deletion_external_user (external_provider, external_user_id),
+      KEY idx_deletion_status (status, requested_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kq_apple_transactions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      transaction_id VARCHAR(128) NOT NULL,
+      original_transaction_id VARCHAR(128) NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      package_id INT UNSIGNED NOT NULL DEFAULT 0,
+      product_id VARCHAR(255) NOT NULL,
+      environment VARCHAR(32) NOT NULL,
+      expires_at DATETIME NULL,
+      purchase_at DATETIME NULL,
+      signed_transaction_hash CHAR(64) NOT NULL,
+      raw_transaction_json JSON NULL,
+      verified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_apple_transaction (transaction_id),
+      KEY idx_apple_user_original (user_id, original_transaction_id),
+      CONSTRAINT fk_apple_transaction_user FOREIGN KEY (user_id) REFERENCES kq_users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kq_apple_subscription_owners (
+      original_transaction_id VARCHAR(128) NOT NULL,
+      user_id BIGINT UNSIGNED NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (original_transaction_id),
+      KEY idx_apple_subscription_owner_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
@@ -2002,6 +2288,74 @@ function downloadPage(req) {
 </html>`;
 }
 
+function privacyPolicyPage() {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="index,follow" />
+  <title>鲲穹远程桌面隐私政策</title>
+  <style>
+    :root { color-scheme: light; --ink: #172b45; --muted: #5f7185; --line: #d9e2ec; --link: #0b74c9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f6f8fb; color: var(--ink); font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; line-height: 1.7; }
+    main { width: min(860px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 64px; }
+    header { margin-bottom: 34px; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+    h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: 0; }
+    header p, .intro { margin: 0; color: var(--muted); }
+    section { padding: 22px 0; border-bottom: 1px solid var(--line); }
+    h2 { margin: 0 0 12px; font-size: 20px; letter-spacing: 0; }
+    h2 span { color: var(--muted); font-weight: 500; font-size: 15px; }
+    p { margin: 10px 0; }
+    .english { color: var(--muted); font-size: 15px; }
+    a { color: var(--link); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>鲲穹远程桌面隐私政策</h1>
+      <p>Kunqiong Remote Link Privacy Policy</p>
+    </header>
+    <p class="intro">本政策说明我们如何处理账号、远程协助和会员服务相关的数据。</p>
+    <section>
+      <h2>我们收集的数据 <span>Data we collect</span></h2>
+      <p>为了创建和保护账号，我们会处理用户名、手机号、登录凭证和账号资料。</p>
+      <p>为了提供远程协助，我们会处理设备识别信息、连接识别码、远程画面、输入操作，以及您主动选择传输的文件、剪贴板内容和语音数据。</p>
+      <p class="english">To create and protect an account, we process your username, phone number, sign-in credentials, and account profile. To provide remote assistance, we process device and connection identifiers, remote display frames, input actions, and the files, clipboard content, and voice data you choose to transfer.</p>
+    </section>
+    <section>
+      <h2>数据如何使用 <span>How we use data</span></h2>
+      <p>这些数据仅用于登录验证、建立远程连接、传输您发起的内容、保障服务安全、处理会员权益和提供技术支持。我们不会将您的个人数据用于跨应用跟踪，也不会出售您的个人数据。</p>
+      <p class="english">We use this data only to authenticate you, establish remote sessions, transfer content you initiate, protect service security, process membership entitlements, and provide support. We do not use personal data for cross-app tracking or sell personal data.</p>
+    </section>
+    <section>
+      <h2>数据共享与安全 <span>Data sharing and security</span></h2>
+      <p>远程画面、控制指令、文件、剪贴板和语音内容只会按您的操作发送给当前远程会话的另一端。我们仅在提供服务、安全防护、支付验证或法律要求所必需的范围内，与受约束的服务提供方处理数据。</p>
+      <p class="english">Remote display frames, control instructions, files, clipboard data, and voice content are sent only to the other side of the remote session you start. We process data with bound service providers only when necessary to provide the service, protect security, verify payment, or comply with law.</p>
+    </section>
+    <section>
+      <h2>保存、删除与您的选择 <span>Retention, deletion, and your choices</span></h2>
+      <p>我们会在提供服务和履行法律义务所需的期限内保存账号和服务数据。您可以在系统设置中管理麦克风、照片和文件等权限，也可以随时退出登录。</p>
+      <p>您可以在个人中心发起账号注销。注销会删除账号和不再需要保留的相关数据；法律要求保留的数据会在法定期限届满后删除。</p>
+      <p class="english">We retain account and service data only for the period needed to provide the service and meet legal obligations. You can manage permissions in system settings, sign out at any time, and initiate account deletion from Personal center.</p>
+    </section>
+    <section>
+      <h2>会员与支付 <span>Membership and payments</span></h2>
+      <p>App Store 版本的会员购买和恢复购买由 Apple 的应用内购买完成。我们仅处理验证会员权益所需的交易信息。删除账号不会自动取消 Apple 订阅；如有自动续订订阅，请先在 Apple 订阅管理中取消。</p>
+      <p class="english">Membership purchase and restoration in the App Store build are handled by Apple In-App Purchase. We process only transaction information needed to verify membership entitlements. Deleting an account does not automatically cancel an Apple subscription.</p>
+    </section>
+    <section>
+      <h2>联系我们 <span>Contact us</span></h2>
+      <p>如需咨询隐私、数据访问、更正或删除，请通过应用内“联系我们”渠道提交请求。本政策会在功能或数据处理方式发生重大变化时更新。</p>
+      <p class="english">For privacy, data-access, correction, or deletion requests, use the Contact us channel in the app. We update this policy when there are material changes to features or data handling.</p>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
 function connectionLimitFor(user) {
   return Number(user.member_active) === 1 ? 50 : 5;
 }
@@ -2329,6 +2683,10 @@ app.get(['/download', '/api/download'], (req, res) => {
     .send(downloadPage(req));
 });
 
+app.get(['/privacy', '/api/privacy'], (_req, res) => {
+  res.status(200).type('html').send(privacyPolicyPage());
+});
+
 app.head(['/download/windows', '/api/download/windows'], async (req, res, next) => {
   try {
     await sendWindowsInstaller(req, res);
@@ -2469,6 +2827,83 @@ app.post('/api/connection-history/bulk', async (req, res, next) => {
     }
     const limit = connectionLimitFor(ctx.user);
     res.json({ ok: true, limit, stored: Math.min(peers.length, limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(['/api/auth/account/delete', '/api/account/delete'], async (req, res, next) => {
+  try {
+    const token = getAuthToken(req);
+    const ctx = await loadUserIdentityContext(req, { allowPendingDeletion: true });
+    const outcome = await submitAccountDeletion({
+      mode: config.accountDeletion.mode,
+      upstreamUrl: config.accountDeletion.upstreamUrl,
+      token,
+      confirmation: req.body?.confirmation,
+    });
+    await recordAccountDeletionRequest(ctx, outcome);
+    await deleteLocalProjectAccount(ctx.user.id);
+    clearCachedIdentityContext(sha256(token));
+    res.status(outcome.statusCode).json({
+      success: true,
+      code: outcome.statusCode,
+      status: outcome.status,
+      message: outcome.localOnly
+        ? '测试环境已清理本项目数据，登录账号不会在测试环境中删除。'
+        : outcome.message,
+      test_only: outcome.localOnly,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/membership/apple/verify', async (req, res, next) => {
+  try {
+    const ctx = await loadUserContext(req);
+    const appleConfig = getAppleIapConfig();
+    const packageId = String(req.body?.package_id || '').trim();
+    const expectedProductId = appleConfig.productMap.get(packageId);
+    if (!expectedProductId) {
+      throw Object.assign(new Error('Apple membership package is not configured.'), {
+        statusCode: 400,
+      });
+    }
+    const submittedProductId = String(req.body?.product_id || '').trim();
+    if (submittedProductId !== expectedProductId) {
+      throw Object.assign(new Error('Apple product does not match the selected membership package.'), {
+        statusCode: 400,
+      });
+    }
+    const transactionId = resolveAppleTransactionId({
+      transactionId: req.body?.transaction_id,
+      signedTransaction: req.body?.server_verification_data,
+    });
+    const transaction = await fetchAndValidateAppleTransaction({
+      transactionId,
+      expectedProductId,
+      config: appleConfig,
+    });
+    const memberPackage = findMemberPackage(ctx.memberInfo, Number(packageId));
+    if (!memberPackage) {
+      throw Object.assign(new Error('Membership package was not found.'), { statusCode: 404 });
+    }
+    const entitlement = await grantAppleMembership({
+      ctx,
+      packageId,
+      memberPackage,
+      transaction,
+    });
+    res.json({
+      success: true,
+      code: 200,
+      status: entitlement.memberActive ? 'active' : 'expired',
+      message: entitlement.memberActive
+        ? 'Apple membership entitlement updated.'
+        : 'Apple purchase was verified, but the membership has expired.',
+      expire_at: entitlement.expireAt,
+    });
   } catch (error) {
     next(error);
   }

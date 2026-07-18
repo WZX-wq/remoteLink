@@ -64,8 +64,13 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagic `
-    -Pattern '(?s)(FLUTTER_BUILD_NUMBER:\s*4073.*){2}' `
-    -Message 'Both Codemagic iOS workflows must use build number 4073, matching build_ios.sh.'
+    -Pattern '(?s)kq-remote-link-ios-nosign:.*FLUTTER_BUILD_NUMBER:\s*4073' `
+    -Message 'The unsigned Codemagic iOS workflow must keep the documented local build number.'
+
+Assert-Contains `
+    -Path $codemagic `
+    -Pattern '(?s)kq-remote-link-ios-testflight:.*Build signed IPA.*--build-number "\$BUILD_NUMBER"' `
+    -Message 'The TestFlight workflow must use Codemagic build numbers to avoid duplicate uploads.'
 
 Assert-Contains `
     -Path $buildDoc `
@@ -74,12 +79,12 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagic `
-    -Pattern 'xcrun altool --upload-app -f "\$CM_BUILD_DIR/flutter/build/ios/ipa/KQRemoteLink\.ipa" -t ios[\s\S]*--apiKey "\$APP_STORE_CONNECT_KEY_IDENTIFIER"[\s\S]*--apiIssuer "\$APP_STORE_CONNECT_ISSUER_ID"' `
-    -Message 'Codemagic must upload the IPA with altool upload-app syntax and its App Store Connect API key.'
+    -Pattern '(?s)publishing:\s*app_store_connect:\s*api_key:\s*\$APP_STORE_CONNECT_PRIVATE_KEY\s*key_id:\s*\$APP_STORE_CONNECT_KEY_IDENTIFIER\s*issuer_id:\s*\$APP_STORE_CONNECT_ISSUER_ID' `
+    -Message 'Codemagic must publish the IPA through its App Store Connect publishing configuration.'
 
 Assert-NotContains `
     -Path $codemagic `
-    -Pattern '--upload-package|--apple-id|--bundle-id|--bundle-short-version-string|--bundle-version|--asc-public-id' `
-    -Message 'Codemagic must not pass unsupported package metadata flags to altool.'
+    -Pattern 'xcrun altool|--upload-package|--apple-id|--bundle-short-version-string|--bundle-version|--asc-public-id' `
+    -Message 'Codemagic must not use the retired altool upload path or unsupported metadata flags.'
 
 Write-Host 'KQ iOS build readiness checks passed'

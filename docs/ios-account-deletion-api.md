@@ -3,10 +3,13 @@
 The iOS app sends an account-deletion request only after the user types `DELETE` in Personal center. Configure the complete HTTPS endpoint at build time:
 
 ```text
-KQ_ACCOUNT_DELETE_URL=https://api-web.kunqiongai.com/api/auth/account/delete
+KQ_ACCOUNT_DELETE_URL=https://identity.example.com/api/account/delete
 ```
 
-The concrete path can differ, but the deployed endpoint must match this contract.
+The concrete path can differ, but the deployed endpoint must match this contract
+and respond to an unauthenticated JSON `POST` with an authentication or request
+validation error instead of `404`. Do not use a placeholder `api-web` path unless
+the identity service has actually deployed that route.
 
 ## Request
 

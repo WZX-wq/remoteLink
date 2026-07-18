@@ -453,13 +453,6 @@ appstore_credentials
 APP_STORE_CONNECT_PRIVATE_KEY
 APP_STORE_CONNECT_KEY_IDENTIFIER
 APP_STORE_CONNECT_ISSUER_ID
-APP_STORE_CONNECT_APPLE_ID
-```
-
-可选：
-
-```text
-APP_STORE_CONNECT_ASC_PUBLIC_ID
 ```
 
 ### 8.5 iOS 合规与会员配置
@@ -467,10 +460,10 @@ APP_STORE_CONNECT_ASC_PUBLIC_ID
 TestFlight / App Store 构建需要额外配置：
 
 ```text
-KQ_PRIVACY_POLICY_URL=https://remotelink.kunqiongai.com/privacy
-KQ_ACCOUNT_DELETE_URL=https://api-web.kunqiongai.com/api/auth/account/delete
+KQ_PRIVACY_POLICY_URL=https://remotelink.kunqiongai.com/kq-api/privacy
+KQ_ACCOUNT_DELETE_URL=https://remotelink.kunqiongai.com/kq-api/api/auth/account/delete
 KQ_IOS_IAP_PRODUCTS={"1":"com.kunqiong.remotelink.member.monthly"}
-KQ_IOS_IAP_VERIFY_URL=https://api-web.kunqiongai.com/api/membership/apple/verify
+KQ_IOS_IAP_VERIFY_URL=https://remotelink.kunqiongai.com/kq-api/api/membership/apple/verify
 ```
 
 说明：
@@ -649,7 +642,7 @@ iOS 通过 App Store Connect/TestFlight 回滚：
 - Broadcast Extension profile 是否存在
 - App Group 是否同时加到主 App 和扩展
 - `appstore_credentials` 环境变量是否齐全
-- `APP_STORE_CONNECT_APPLE_ID` 是否是 App Store Connect 的数字 Apple ID
+- App Store Connect 是否已创建 `com.kunqiong.remotelink` 的 App 记录，且 API Key 具备 App Manager 权限
 
 ## 13. 关键文件索引
 

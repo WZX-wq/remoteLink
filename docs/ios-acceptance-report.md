@@ -3,11 +3,11 @@
 ## Build Information
 
 - App version: 1.4.6
-- Build number: 4073
+- TestFlight build number: Codemagic `BUILD_NUMBER` (do not reuse `4073`)
 - Bundle ID: `com.kunqiong.remotelink`
 - ReplayKit extension: `com.kunqiong.remotelink.broadcast`
 - Minimum iOS version: 13.0
-- Test build URL or artifact: Not provided
+- Latest checked unsigned preflight: GitHub macOS no-codesign IPA build passed on 2026-07-16; no signed IPA or TestFlight record is available
 
 ## Automated Code Checks
 
@@ -23,6 +23,8 @@ powershell -ExecutionPolicy Bypass -File scripts/test-kq-ios-code-readiness.ps1
 - [x] Rust receiver quality test passes
 - [x] Rust `flutter` feature compiles
 - [x] Changed Dart files have no analyzer errors
+- [x] TestFlight release configuration validator rejects missing, insecure, direct-payment, and missing-route settings
+- [x] TestFlight workflow injects privacy, deletion, and StoreKit verification Dart defines and uses an increasing build number
 - [x] Manual connection-manager demo is isolated from the automated test suite
 
 ## Required macOS Build Checks
@@ -62,12 +64,22 @@ Record device model and iOS version for every result.
   that revokes sessions and permanently deletes the external account. Deleting
   only `server/` mirror data is not an account deletion and must not be presented
   as one in the app.
+- [ ] Deploy authenticated JSON `POST` endpoints for account deletion and Apple
+  transaction verification. On 2026-07-17, the previously documented
+  `api-web.kunqiongai.com` paths both returned HTTP `404` to a harmless
+  unauthenticated `POST`, so they are not release-ready endpoints.
+- [ ] Configure every active StoreKit product in App Store Connect, map it in
+  `KQ_IOS_IAP_PRODUCTS`, and verify that the server validates Apple transaction
+  data before changing membership rights.
+- [ ] Confirm the App Store privacy labels and the export-compliance answer for
+  `ITSAppUsesNonExemptEncryption`; this cannot be inferred safely from source
+  code alone.
 
 ## Result
 
 - Tester: Codex code readiness checks
-- Date: 2026-07-15
+- Date: 2026-07-17
 - Devices:
-- Overall result: Repository transport code and Windows-verifiable checks passed; macOS build and physical-device acceptance remain pending
-- Blocking issues: The ReplayKit extension now submits BGRA frames directly to the existing Rust encoder, rendezvous, relay, and remote viewer protocol. A frame-size change interrupts the old encoder before it receives mismatched ReplayKit frames. Final confirmation requires an Xcode build and two physical devices because Windows does not provide the iPhoneOS SDK or ReplayKit runtime. App Store release also requires StoreKit membership configuration and a real account-deletion API from the external identity service.
+- Overall result: iOS client code, unsigned macOS CI compilation, permissions, privacy manifest, StoreKit UI, and release guards are ready for the next stage. The product is not yet eligible for TestFlight or App Store submission.
+- Blocking issues: The identity-service deletion API and Apple transaction-verification API are not deployed at the configured paths. The TestFlight workflow now fails before compilation rather than producing a broken IPA. Final confirmation still requires a signed Archive plus iPhone/iPad tests for ReplayKit, remote video, input, files, voice, account deletion, and StoreKit Sandbox purchases.
 - Non-blocking issues:

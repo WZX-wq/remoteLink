@@ -109,7 +109,7 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $codemagicYaml `
-    -Pattern 'BUNDLE_ID:\s*com\.kunqiong\.remotelink[\s\S]*fetch-signing-files "\$BUNDLE_ID"[\s\S]*--type IOS_APP_STORE[\s\S]*xcrun altool --upload-app -f' `
+    -Pattern 'BUNDLE_ID:\s*com\.kunqiong\.remotelink[\s\S]*fetch-signing-files "\$BUNDLE_ID"[\s\S]*--type IOS_APP_STORE[\s\S]*publishing:\s*app_store_connect:' `
     -Message 'Codemagic TestFlight workflow must fetch App Store signing files for the registered KQ Remote Link Bundle ID before uploading its IPA.'
 
 Assert-Contains `
