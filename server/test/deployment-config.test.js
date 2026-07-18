@@ -13,6 +13,10 @@ function configuredValue(text, key) {
   return line == null ? '' : line.slice(key.length + 1).trim();
 }
 
+function normalizeLineEndings(text) {
+  return text.replace(/\r\n/g, '\n');
+}
+
 test('production environment template contains placeholders instead of live credentials', () => {
   for (const relativePath of [
     '../../deploy/kq-production.env.example',
@@ -138,9 +142,11 @@ test('production workflow forwards iOS release settings and only verifies enable
 });
 
 test('deployment script restores workflow overrides after loading an existing server env', () => {
-  const script = fs.readFileSync(
-    path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),
-    'utf8',
+  const script = normalizeLineEndings(
+    fs.readFileSync(
+      path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),
+      'utf8',
+    ),
   );
   for (const value of [
     'capture_runtime_overrides()',
@@ -155,9 +161,11 @@ test('deployment script restores workflow overrides after loading an existing se
 });
 
 test('compose deployment disables legacy systemd services before starting the test stack', () => {
-  const script = fs.readFileSync(
-    path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),
-    'utf8',
+  const script = normalizeLineEndings(
+    fs.readFileSync(
+      path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),
+      'utf8',
+    ),
   );
   for (const value of [
     'prepare_compose_runtime()',
@@ -170,9 +178,11 @@ test('compose deployment disables legacy systemd services before starting the te
   }
 });
 test('test-server workflow keeps iOS deletion in isolated local-test mode', () => {
-  const workflow = fs.readFileSync(
-    path.resolve(__dirname, '../../.gitea/workflows/deploy-test-ios-api.yml'),
-    'utf8',
+  const workflow = normalizeLineEndings(
+    fs.readFileSync(
+      path.resolve(__dirname, '../../.gitea/workflows/deploy-test-ios-api.yml'),
+      'utf8',
+    ),
   );
   for (const value of [
     'test-server-ios-api-20260718',

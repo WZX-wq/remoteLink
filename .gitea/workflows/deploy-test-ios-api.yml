@@ -18,6 +18,8 @@ jobs:
       KQ_API_PORT: "21120"
       KQ_API_PUBLIC_PATH: /kq-api
       KQ_PUBLIC_API_URL: http://43.154.197.96/kq-api/api
+      KQ_DOWNLOAD_URL: http://43.154.197.96/kq-api/download/windows
+      KQ_ANDROID_DOWNLOAD_URL: http://43.154.197.96/kq-api/download/android
       KQ_API_ENV_ENC_FILE: /dev/null
       KQ_DB_HOST: 127.0.0.1
       KQ_DB_PORT: "23306"
@@ -58,7 +60,11 @@ jobs:
             server/test/apple-entitlement.test.js \
             server/test/apple-iap.test.js \
             server/test/deployment-config.test.js
-          test -s "${INSTALL_DIR}/.env"
+          if [[ ! -s "${INSTALL_DIR}/.env" ]]; then
+            echo "This runner cannot access the test-server installation at ${INSTALL_DIR}." >&2
+            echo "Use the host deployment runner labeled linux for this workflow." >&2
+            exit 1
+          fi
           grep -qx 'KQ_DB_HOST=127.0.0.1' "${INSTALL_DIR}/.env"
           grep -qx 'KQ_DB_PORT=23306' "${INSTALL_DIR}/.env"
           grep -qx 'KQ_DB_NAME=kq_remote_link_test' "${INSTALL_DIR}/.env"
@@ -99,7 +105,7 @@ jobs:
           privacy_page="$(curl --fail --silent --show-error --max-time 20 http://127.0.0.1:21120/privacy)"
           grep -F '鲲穹远程桌面隐私政策' <<<"${privacy_page}" >/dev/null
           for path in /api/auth/account/delete /api/membership/apple/verify; do
-            code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 \
               --request POST "http://127.0.0.1:21120${path}" \
               --header 'Content-Type: application/json' \
               --data '{}')"
