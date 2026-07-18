@@ -122,6 +122,16 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $sampleHandler `
+    -Pattern 'case \.audioApp:[\s\S]*CMSampleBufferCopyPCMDataIntoAudioBufferList[\s\S]*kq_ios_broadcast_push_audio_f32' `
+    -Message 'Broadcast extension must convert ReplayKit application audio to Rust PCM input.'
+
+Assert-Contains `
+    -Path $sampleHandler `
+    -Pattern 'AVAudioConverter[\s\S]*pcmFormatFloat32[\s\S]*sampleRate: 48_000' `
+    -Message 'Broadcast extension must normalize ReplayKit audio to 48 kHz Float32 PCM.'
+
+Assert-Contains `
+    -Path $sampleHandler `
     -Pattern 'maxLongEdge\s*=\s*1920[\s\S]*vImageScale_ARGB8888[\s\S]*targetWidth -= targetWidth % 2' `
     -Message 'Broadcast extension must bound ReplayKit resolution and keep encoder dimensions even.'
 
@@ -277,8 +287,8 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $rustBroadcast `
-    -Pattern 'kq_ios_broadcast_start[\s\S]*kq_ios_broadcast_push_bgra[\s\S]*kq_ios_broadcast_stop' `
-    -Message 'Rust must export the ReplayKit host lifecycle and frame submission ABI.'
+    -Pattern 'kq_ios_broadcast_start[\s\S]*kq_ios_broadcast_push_bgra[\s\S]*kq_ios_broadcast_push_audio_f32[\s\S]*kq_ios_broadcast_stop' `
+    -Message 'Rust must export the ReplayKit host lifecycle, video, and audio ABI.'
 
 Assert-Contains `
     -Path $iosCapture `

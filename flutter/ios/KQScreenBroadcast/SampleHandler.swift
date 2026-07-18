@@ -1,4 +1,5 @@
 import Accelerate
+import AVFoundation
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -13,7 +14,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var appAudioFrameCount = 0
   private var micAudioFrameCount = 0
   private var transportStarted = false
+  private var audioForwardingActive = false
   private var scaledFrame = [UInt8]()
+  private var audioConverters = [String: AVAudioConverter]()
+  private let outputAudioFormat = AVAudioFormat(
+    commonFormat: .pcmFormatFloat32,
+    sampleRate: 48_000,
+    channels: 2,
+    interleaved: true
+  )!
 
   override init() {
     defaults = UserDefaults(suiteName: appGroupId)
@@ -25,6 +34,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     appAudioFrameCount = 0
     micAudioFrameCount = 0
     transportStarted = false
+    audioForwardingActive = false
+    audioConverters.removeAll()
     publishStatus(
       state: "started",
       width: 0,
@@ -58,6 +69,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
       kq_ios_broadcast_stop()
     }
     transportStarted = false
+    audioForwardingActive = false
+    audioConverters.removeAll()
     publishStatus(state: "finished", transportState: "stopped")
   }
 
@@ -136,10 +149,31 @@ final class SampleHandler: RPBroadcastSampleHandler {
           transportState: "ready"
         )
       }
-    case .audioApp, .audioMic:
-      // The broadcast transport currently carries video only. Do not expose
-      // captured audio as if a remote device could hear it.
-      break
+    case .audioApp:
+      appAudioFrameCount += 1
+      guard transportStarted else {
+        return
+      }
+      let audioResult = submitApplicationAudio(sampleBuffer)
+      if audioResult == 0 {
+        audioForwardingActive = true
+        if appAudioFrameCount == 1 || appAudioFrameCount % 100 == 0 {
+          publishStatus(state: "capturing", transportState: "ready")
+        }
+      } else if appAudioFrameCount == 1 || appAudioFrameCount % 100 == 0 {
+        // Keep video streaming if a device returns an audio format that cannot
+        // be converted. The shared status gives the app a useful diagnostic.
+        publishStatus(
+          state: "capturing",
+          transportState: "ready",
+          errorCode: "audio_submit_\(audioResult)"
+        )
+      }
+    case .audioMic:
+      // Screen-sharing audio is application sound. Microphone audio remains in
+      // the existing voice-call channel so the two independent sources do not
+      // get mixed twice and create echo for the remote viewer.
+      micAudioFrameCount += 1
     @unknown default:
       publishStatus(state: "unknown")
     }
@@ -165,7 +199,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       forKey: "kq_broadcast_transport_state"
     )
     defaults.set(false, forKey: "kq_broadcast_remote_view_available")
-    defaults.set(false, forKey: "kq_broadcast_audio_supported")
+    defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")
     defaults.set(errorCode ?? "", forKey: "kq_broadcast_error_code")
     if let width = width {
@@ -233,6 +267,89 @@ final class SampleHandler: RPBroadcastSampleHandler {
         UInt(targetStride)
       )
     }
+  }
+
+  private func submitApplicationAudio(_ sampleBuffer: CMSampleBuffer) -> Int32 {
+    guard let description = CMSampleBufferGetFormatDescription(sampleBuffer),
+          let inputFormat = AVAudioFormat(cmAudioFormatDescription: description) else {
+      return 10
+    }
+    let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+    guard frameCount > 0,
+          let inputBuffer = AVAudioPCMBuffer(
+            pcmFormat: inputFormat,
+            frameCapacity: AVAudioFrameCount(frameCount)
+          ) else {
+      return 11
+    }
+    inputBuffer.frameLength = AVAudioFrameCount(frameCount)
+    let copyStatus = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+      sampleBuffer,
+      at: 0,
+      frameCount: Int32(frameCount),
+      into: inputBuffer.mutableAudioBufferList
+    )
+    guard copyStatus == 0 else {
+      return 12
+    }
+
+    let key = "\(inputFormat.sampleRate)-\(inputFormat.channelCount)-\(inputFormat.isInterleaved)-\(inputFormat.commonFormat)"
+    guard let converter = audioConverter(for: inputFormat, key: key) else {
+      return 13
+    }
+    let outputCapacity = AVAudioFrameCount(max(
+      1,
+      Int(ceil(Double(frameCount) * outputAudioFormat.sampleRate / inputFormat.sampleRate)) + 32
+    ))
+    guard let outputBuffer = AVAudioPCMBuffer(
+      pcmFormat: outputAudioFormat,
+      frameCapacity: outputCapacity
+    ) else {
+      return 14
+    }
+
+    var suppliedInput = false
+    var conversionError: NSError?
+    let conversionStatus = converter.convert(to: outputBuffer, error: &conversionError) {
+      _, inputStatus in
+      if suppliedInput {
+        inputStatus.pointee = .noDataNow
+        return nil
+      }
+      suppliedInput = true
+      inputStatus.pointee = .haveData
+      return inputBuffer
+    }
+    guard conversionStatus != .error,
+          conversionError == nil,
+          outputBuffer.frameLength > 0 else {
+      return 15
+    }
+
+    let audioBuffer = outputBuffer.audioBufferList.pointee.mBuffers
+    guard let data = audioBuffer.mData,
+          audioBuffer.mDataByteSize > 0 else {
+      return 16
+    }
+    let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.stride
+    guard sampleCount > 0 && sampleCount % 2 == 0 else {
+      return 17
+    }
+    return kq_ios_broadcast_push_audio_f32(
+      data.assumingMemoryBound(to: Float.self),
+      UInt(sampleCount)
+    )
+  }
+
+  private func audioConverter(for inputFormat: AVAudioFormat, key: String) -> AVAudioConverter? {
+    if let converter = audioConverters[key] {
+      return converter
+    }
+    guard let converter = AVAudioConverter(from: inputFormat, to: outputAudioFormat) else {
+      return nil
+    }
+    audioConverters[key] = converter
+    return converter
   }
 
   private func normalizedVideoSize(width: Int, height: Int) -> (width: Int, height: Int) {

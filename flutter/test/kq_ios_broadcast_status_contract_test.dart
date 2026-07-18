@@ -11,7 +11,14 @@ void main() {
     expect(handler, contains('kq_broadcast_transport_state'));
     expect(handler, contains('kq_broadcast_remote_view_available'));
     expect(handler, contains('kq_ios_broadcast_push_bgra'));
+    expect(handler, contains('kq_ios_broadcast_push_audio_f32'));
     expect(handler, contains('kq_ios_broadcast_start'));
+    expect(handler, contains('CMSampleBufferCopyPCMDataIntoAudioBufferList'));
+    expect(handler, contains('AVAudioConverter'));
+    expect(
+        handler,
+        contains(
+            'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));
     expect(handler, isNot(contains('capture_only')));
     expect(delegate, contains('"transportState"'));
     expect(delegate, contains('"remoteViewAvailable"'));
@@ -28,6 +35,7 @@ void main() {
     expect(page, isNot(contains('可以连接观看')));
     expect(page, contains('仅支持观看'));
     expect(page, contains('打开系统广播面板'));
+    expect(page, contains('正在传输画面和应用声音'));
     expect(page, isNot(contains('远程观看服务尚未接入')));
     expect(page, isNot(contains('Service not connected')));
     expect(page, isNot(contains('capture_only')));

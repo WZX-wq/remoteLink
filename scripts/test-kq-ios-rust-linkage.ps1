@@ -43,6 +43,8 @@ $iosRunnerBridgingHeader = Join-Path $Root 'flutter/ios/Runner/Runner-Bridging-H
 $iosBridgeHeader = Join-Path $Root 'flutter/ios/Runner/bridge_generated.h'
 $iosBroadcastBridge = Join-Path $Root 'flutter/ios/KQScreenBroadcast/KQBroadcastBridge.h'
 $iosBroadcastRust = Join-Path $Root 'src/ios_broadcast.rs'
+$iosBroadcastAudio = Join-Path $Root 'src/ios_broadcast_audio.rs'
+$audioServiceRs = Join-Path $Root 'src/server/audio_service.rs'
 $rootLibRs = Join-Path $Root 'src/lib.rs'
 $serverRs = Join-Path $Root 'src/server.rs'
 $connectionRs = Join-Path $Root 'src/server/connection.rs'
@@ -164,13 +166,28 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $iosBroadcastBridge `
-    -Pattern 'kq_ios_broadcast_start[\s\S]*kq_ios_broadcast_push_bgra[\s\S]*kq_ios_broadcast_stop' `
-    -Message 'ReplayKit target must import the Rust host and frame ABI.'
+    -Pattern 'kq_ios_broadcast_start[\s\S]*kq_ios_broadcast_push_bgra[\s\S]*kq_ios_broadcast_push_audio_f32[\s\S]*kq_ios_broadcast_stop' `
+    -Message 'ReplayKit target must import the Rust host, video, and audio ABI.'
 
 Assert-Contains `
     -Path $iosBroadcastRust `
     -Pattern 'start_server\(true\)[\s\S]*submit_bgra_frame' `
     -Message 'ReplayKit Rust bridge must start the host and feed ReplayKit frames.'
+
+Assert-Contains `
+    -Path $iosBroadcastAudio `
+    -Pattern 'AUDIO_FRAME_SAMPLES[\s\S]*push_audio_samples[\s\S]*take_audio_frame' `
+    -Message 'ReplayKit Rust bridge must queue application PCM for the Opus audio service.'
+
+Assert-Contains `
+    -Path $serverRs `
+    -Pattern 'server\.add_service\(Box::new\(audio_service::new\(\)\)\);' `
+    -Message 'iOS host mode must publish the audio service with the display service.'
+
+Assert-Contains `
+    -Path $audioServiceRs `
+    -Pattern 'target_os = "ios"[\s\S]*ios_broadcast_audio::take_audio_frame' `
+    -Message 'The audio service must consume ReplayKit PCM on iOS instead of opening a device input.'
 
 Assert-Contains `
     -Path $iosBroadcastRust `

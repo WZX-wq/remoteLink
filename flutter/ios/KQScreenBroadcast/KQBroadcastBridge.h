@@ -14,6 +14,10 @@ int32_t kq_ios_broadcast_push_bgra(
     uintptr_t height,
     uintptr_t stride);
 
+int32_t kq_ios_broadcast_push_audio_f32(
+    const float *data,
+    uintptr_t sample_count);
+
 void kq_ios_broadcast_pause(void);
 void kq_ios_broadcast_resume(void);
 void kq_ios_broadcast_stop(void);

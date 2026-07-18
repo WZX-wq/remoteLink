@@ -197,19 +197,30 @@ void main() {
     expect(project, contains('A1B2C3D40000000000000018 /* Resources */'));
   });
 
-  test('screen broadcast does not advertise unsupported audio or a viewer', () {
+  test(
+      'screen broadcast forwards application audio without advertising a viewer',
+      () {
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
     final info = File('ios/Runner/Info.plist').readAsStringSync();
 
     expect(handler, contains('kq_broadcast_audio_supported'));
+    expect(handler, contains('case .audioApp:'));
+    expect(handler, contains('CMSampleBufferCopyPCMDataIntoAudioBufferList'));
+    expect(handler, contains('kq_ios_broadcast_push_audio_f32'));
     expect(
         handler,
         contains(
             'defaults.set(false, forKey: "kq_broadcast_remote_view_available")'));
+    expect(
+        handler,
+        contains(
+            'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));
     expect(page, contains("_status['audioSupported']"));
     expect(page, contains('共享已启动，等待其他设备连接'));
+    expect(page, contains('正在传输画面和应用声音'));
+    expect(page, isNot(contains('当前屏幕共享仅传输画面。')));
     expect(page, isNot(contains('应用音频帧')));
     expect(page, isNot(contains('麦克风音频帧')));
     expect(info, contains('用于远程协助过程中的语音通话。'));

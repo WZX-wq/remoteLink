@@ -92,7 +92,7 @@ pub fn get_active_username() -> String {
     "ios".into()
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub const PA_SAMPLE_RATE: u32 = 48000;
 
 #[cfg(target_os = "android")]

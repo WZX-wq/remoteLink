@@ -13,7 +13,7 @@
 // https://github.com/krruzic/pulsectl
 
 use super::*;
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios")))]
 use hbb_common::anyhow::anyhow;
 use magnum_opus::{Application::*, Channels::*, Encoder};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,14 +27,14 @@ lazy_static::lazy_static! {
     static ref VOICE_CALL_INPUT_DEVICE: Arc::<Mutex::<Option<String>>> = Default::default();
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios")))]
 pub fn new() -> GenericService {
     let svc = EmptyExtraFieldService::new(NAME.to_owned(), true);
     GenericService::repeat::<cpal_impl::State, _, _>(&svc.clone(), 33, cpal_impl::run);
     svc.sp
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios"))]
 pub fn new() -> GenericService {
     let svc = EmptyExtraFieldService::new(NAME.to_owned(), true);
     GenericService::run(&svc.clone(), pa_impl::run);
@@ -89,7 +89,7 @@ pub fn restart() {
     RESTARTING.store(true, Ordering::SeqCst);
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios"))]
 mod pa_impl {
     use super::*;
 
@@ -128,6 +128,8 @@ mod pa_impl {
         let zero_audio_frame: Vec<f32> = vec![0.; AUDIO_DATA_SIZE_U8 / 4];
         #[cfg(target_os = "android")]
         let mut android_data = vec![];
+        #[cfg(target_os = "ios")]
+        let mut ios_data = vec![];
         while sp.ok() && !RESTARTING.load(Ordering::SeqCst) {
             sp.snapshot(|sps| {
                 sps.send(create_format_msg(crate::platform::PA_SAMPLE_RATE, 2));
@@ -165,6 +167,13 @@ mod pa_impl {
             } else {
                 hbb_common::sleep(0.1).await;
             }
+
+            #[cfg(target_os = "ios")]
+            if crate::ios_broadcast_audio::take_audio_frame(&mut ios_data) {
+                send_f32(&ios_data, &mut encoder, &sp);
+            } else {
+                hbb_common::sleep(0.01).await;
+            }
         }
         Ok(())
     }
@@ -178,7 +187,7 @@ pub fn is_screen_capture_kit_available() -> bool {
         .any(|host| *host == cpal::HostId::ScreenCaptureKit)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios")))]
 mod cpal_impl {
     use self::service::{Reset, ServiceSwap};
     use super::*;
@@ -558,14 +567,14 @@ fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
             AUDIO_ZERO_COUNT += 1;
         }
     }
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         // the permitted opus data size are 120, 240, 480, 960, 1920, and 2880
         // if data size is bigger than BATCH_SIZE, AND is an integer multiple of BATCH_SIZE
         // then upload in batches
         const BATCH_SIZE: usize = 960;
         let input_size = data.len();
-        if input_size > BATCH_SIZE && input_size % BATCH_SIZE == 0 {
+        if input_size >= BATCH_SIZE && input_size % BATCH_SIZE == 0 {
             let n = input_size / BATCH_SIZE;
             for i in 0..n {
                 match encoder
@@ -588,7 +597,7 @@ fn send_f32(data: &[f32], encoder: &mut Encoder, sp: &GenericService) {
         }
     }
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     match encoder.encode_vec_float(data, data.len() * 6) {
         Ok(data) => {
             let mut msg_out = Message::new();

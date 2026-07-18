@@ -115,7 +115,6 @@ pub fn new() -> ServerPtr {
         services: HashMap::new(),
         id_count: hbb_common::rand::random::<i32>() % 1000 + 1000, // ensure positive
     };
-    #[cfg(not(target_os = "ios"))]
     server.add_service(Box::new(audio_service::new()));
     server.add_service(Box::new(display_service::new()));
     #[cfg(not(target_os = "ios"))]

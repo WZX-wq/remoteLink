@@ -526,9 +526,19 @@ class _IOSScreenShareBroadcastMvpState
           PaddingCard(
             child: _IOSShareRequirementNotice(
               text: _iosShareText(
-                zhCn: '当前屏幕共享仅传输画面。需要语音时，请使用远程协助中的语音通话。',
-                zhTw: '目前螢幕分享僅傳輸畫面。需要語音時，請使用遠端協助中的語音通話。',
-                en: 'Screen sharing currently sends video only. Use the remote-assistance voice call for audio.',
+                zhCn: '正在等待应用声音。需要语音通话时，请使用远程协助中的语音通话。',
+                zhTw: '正在等待應用程式聲音。需要語音通話時，請使用遠端協助中的語音通話。',
+                en: 'Waiting for application audio. Use the remote-assistance voice call for microphone audio.',
+              ),
+            ),
+          )
+        else
+          PaddingCard(
+            child: _IOSShareRequirementNotice(
+              text: _iosShareText(
+                zhCn: '正在传输画面和应用声音。麦克风请继续使用远程协助中的语音通话。',
+                zhTw: '正在傳輸畫面與應用程式聲音。麥克風請繼續使用遠端協助中的語音通話。',
+                en: 'Sharing video and application audio. Use the remote-assistance voice call for microphone audio.',
               ),
             ),
           ),
