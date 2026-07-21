@@ -16,6 +16,20 @@ void main() {
     expect(handler, contains('CMSampleBufferCopyPCMDataIntoAudioBufferList'));
     expect(handler, contains('AVAudioConverter'));
     expect(
+      handler,
+      contains(
+        'let inputFormat = AVAudioFormat(cmAudioFormatDescription: description)',
+      ),
+    );
+    expect(
+      handler,
+      isNot(
+        contains(
+          'let inputFormat = AVAudioFormat(cmAudioFormatDescription: description) else',
+        ),
+      ),
+    );
+    expect(
         handler,
         contains(
             'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));

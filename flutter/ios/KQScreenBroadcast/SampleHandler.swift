@@ -270,10 +270,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   private func submitApplicationAudio(_ sampleBuffer: CMSampleBuffer) -> Int32 {
-    guard let description = CMSampleBufferGetFormatDescription(sampleBuffer),
-          let inputFormat = AVAudioFormat(cmAudioFormatDescription: description) else {
+    guard let description = CMSampleBufferGetFormatDescription(sampleBuffer) else {
       return 10
     }
+    let inputFormat = AVAudioFormat(cmAudioFormatDescription: description)
     let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
     guard frameCount > 0,
           let inputBuffer = AVAudioPCMBuffer(
