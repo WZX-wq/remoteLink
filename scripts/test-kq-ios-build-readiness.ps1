@@ -38,6 +38,7 @@ $buildScript = Join-Path $Root 'flutter/build_ios.sh'
 $buildDoc = Join-Path $Root 'docs/ios-build.md'
 $xcodeProject = Join-Path $Root 'flutter/ios/Runner.xcodeproj/project.pbxproj'
 $githubWorkflow = Join-Path $Root '.github/workflows/ios-development-build.yml'
+$archiveSigningConfigurator = Join-Path $Root 'scripts/configure-ios-archive-signing.py'
 $gitignore = Join-Path $Root '.gitignore'
 
 Assert-Contains `
@@ -134,8 +135,22 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $githubWorkflow `
-    -Pattern '<string>development</string>[\s\S]*flutter build ipa --release[\s\S]*--export-options-plist' `
+    -Pattern '"method": "development"[\s\S]*"signingStyle": "manual"[\s\S]*flutter build ipa --release[\s\S]*--export-options-plist' `
     -Message 'GitHub signing workflow must export a development IPA with explicit export options.'
+
+if (-not (Test-Path -LiteralPath $archiveSigningConfigurator)) {
+    throw 'The archive-signing configurator is missing.'
+}
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'Configure manual archive signing[\s\S]*configure-ios-archive-signing\.py[\s\S]*--main-profile "\$IOS_MAIN_PROFILE_NAME"[\s\S]*--broadcast-profile "\$IOS_BROADCAST_PROFILE_NAME"[\s\S]*flutter build ipa --release' `
+    -Message 'GitHub signing workflow must configure both targets for manual provisioning before the archive phase.'
+
+Assert-Contains `
+    -Path $archiveSigningConfigurator `
+    -Pattern 'CODE_SIGN_STYLE = Manual;[\s\S]*PROVISIONING_PROFILE_SPECIFIER' `
+    -Message 'The archive-signing configurator must make Xcode use explicit provisioning profiles.'
 
 Assert-Contains `
     -Path $githubWorkflow `

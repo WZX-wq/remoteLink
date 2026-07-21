@@ -110,10 +110,47 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
           security find-identity -v -p codesigning "$keychain_path"
 
+          main_profile_name=""
+          broadcast_profile_name=""
           for profile in "$signing_dir"/*.mobileprovision; do
-            uuid="$(security cms -D -i "$profile" | plutil -extract UUID raw -)"
+            profile_plist="$signing_dir/$(basename "$profile").plist"
+            security cms -D -i "$profile" > "$profile_plist"
+
+            uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
+            profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
+            application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
+            team_identifier="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
+            get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist")"
+
+            if [ "$team_identifier" != "G4C3ADW2F4" ] || [ "$get_task_allow" != "true" ]; then
+              echo "::error::A supplied provisioning profile is not a G4C3ADW2F4 development profile."
+              exit 1
+            fi
+
+            case "$application_identifier" in
+              "G4C3ADW2F4.com.kunqiong.remotelink")
+                main_profile_name="$profile_name"
+                ;;
+              "G4C3ADW2F4.com.kunqiong.remotelink.broadcast")
+                broadcast_profile_name="$profile_name"
+                ;;
+              *)
+                echo "::error::A supplied provisioning profile has an unexpected application identifier."
+                exit 1
+                ;;
+            esac
+
             cp "$profile" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            echo "Installed development provisioning profile for ${application_identifier#G4C3ADW2F4.}."
           done
+
+          if [ -z "$main_profile_name" ] || [ -z "$broadcast_profile_name" ]; then
+            echo "::error::Both the main app and broadcast extension development profiles are required."
+            exit 1
+          fi
+
+          printf 'IOS_MAIN_PROFILE_NAME=%s\n' "$main_profile_name" >> "$GITHUB_ENV"
+          printf 'IOS_BROADCAST_PROFILE_NAME=%s\n' "$broadcast_profile_name" >> "$GITHUB_ENV"
 
       - name: Build development-signed IPA
         shell: bash
@@ -126,36 +163,53 @@ jobs:
             exit 1
           fi
 
+          if [ -z "${IOS_MAIN_PROFILE_NAME:-}" ] || [ -z "${IOS_BROADCAST_PROFILE_NAME:-}" ]; then
+            echo "::error::Provisioning profile names were not imported from the signing assets."
+            exit 1
+          fi
+
           export_options="$RUNNER_TEMP/ExportOptions-development.plist"
-          cat > "$export_options" <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>G4C3ADW2F4</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.kunqiong.remotelink</key>
-              <string>RemoteLink Development 20260721</string>
-              <key>com.kunqiong.remotelink.broadcast</key>
-              <string>RemoteLink Broadcast Development 20260721</string>
-            </dict>
-            <key>stripSwiftSymbols</key>
-            <true/>
-          </dict>
-          </plist>
-          PLIST
+          python3 - "$export_options" <<'PY'
+          import os
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "wb") as output:
+              plistlib.dump(
+                  {
+                      "method": "development",
+                      "signingStyle": "manual",
+                      "teamID": "G4C3ADW2F4",
+                      "provisioningProfiles": {
+                          "com.kunqiong.remotelink": os.environ["IOS_MAIN_PROFILE_NAME"],
+                          "com.kunqiong.remotelink.broadcast": os.environ[
+                              "IOS_BROADCAST_PROFILE_NAME"
+                          ],
+                      },
+                      "stripSwiftSymbols": True,
+                  },
+                  output,
+                  sort_keys=False,
+              )
+          PY
 
           pushd flutter
           flutter pub get
           pushd ios
           pod install
           popd
+          popd
+
+          echo "Configure manual archive signing"
+          python3 scripts/configure-ios-archive-signing.py \
+            --project flutter/ios/Runner.xcodeproj/project.pbxproj \
+            --team-id G4C3ADW2F4 \
+            --main-profile "$IOS_MAIN_PROFILE_NAME" \
+            --broadcast-profile "$IOS_BROADCAST_PROFILE_NAME"
+
+          pushd flutter/ios
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -showBuildSettings \
+            | grep -E 'CODE_SIGN_STYLE =|DEVELOPMENT_TEAM =|PRODUCT_BUNDLE_IDENTIFIER =|PROVISIONING_PROFILE_SPECIFIER ='
           popd
 
           cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
