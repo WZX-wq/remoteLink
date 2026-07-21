@@ -36,6 +36,9 @@ $exportOptions = Join-Path $Root 'flutter/ios/exportOptions.plist'
 $codemagic = Join-Path $Root 'codemagic.yaml'
 $buildScript = Join-Path $Root 'flutter/build_ios.sh'
 $buildDoc = Join-Path $Root 'docs/ios-build.md'
+$xcodeProject = Join-Path $Root 'flutter/ios/Runner.xcodeproj/project.pbxproj'
+$githubWorkflow = Join-Path $Root '.github/workflows/ios-development-build.yml'
+$gitignore = Join-Path $Root '.gitignore'
 
 Assert-Contains `
     -Path $podfile `
@@ -86,5 +89,77 @@ Assert-NotContains `
     -Path $codemagic `
     -Pattern 'xcrun altool|--upload-package|--apple-id|--bundle-short-version-string|--bundle-version|--asc-public-id' `
     -Message 'Codemagic must not use the retired altool upload path or unsupported metadata flags.'
+
+$developmentTeamCount = [regex]::Matches(
+    (Get-Content -LiteralPath $xcodeProject -Raw -Encoding UTF8),
+    'DEVELOPMENT_TEAM = G4C3ADW2F4;'
+).Count
+if ($developmentTeamCount -ne 6) {
+    throw 'All Runner and KQScreenBroadcast build configurations must use the supplied G4C3ADW2F4 development team.'
+}
+
+if (-not (Test-Path -LiteralPath $githubWorkflow)) {
+    throw 'GitHub development signing workflow is missing.'
+}
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'workflow_dispatch:' `
+    -Message 'GitHub development signing must be manually dispatched.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'IOS_SIGNING_CERTIFICATE_BASE64' `
+    -Message 'GitHub signing workflow must read the signing certificate from a secret.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'IOS_SIGNING_CERTIFICATE_PASSWORD' `
+    -Message 'GitHub signing workflow must read the certificate password from a secret.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'IOS_MAIN_PROVISIONING_PROFILE_BASE64' `
+    -Message 'GitHub signing workflow must read the main provisioning profile from a secret.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'IOS_BROADCAST_PROVISIONING_PROFILE_BASE64' `
+    -Message 'GitHub signing workflow must read the broadcast provisioning profile from a secret.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'security create-keychain[\s\S]*security import[\s\S]*security set-key-partition-list' `
+    -Message 'GitHub signing workflow must import the certificate into a temporary macOS keychain.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern '<string>development</string>[\s\S]*flutter build ipa --release[\s\S]*--export-options-plist' `
+    -Message 'GitHub signing workflow must export a development IPA with explicit export options.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'actions/upload-artifact@v4[\s\S]*\.ipa' `
+    -Message 'GitHub signing workflow must upload the signed IPA artifact.'
+
+Assert-Contains `
+    -Path $githubWorkflow `
+    -Pattern 'BUILD_NAME: \$\{\{ inputs\.build_name \}\}' `
+    -Message 'GitHub signing workflow must pass dispatch inputs through an environment variable.'
+
+Assert-NotContains `
+    -Path $githubWorkflow `
+    -Pattern '--build-name "\$\{\{ inputs\.build_name \}\}"' `
+    -Message 'GitHub signing workflow must not interpolate dispatch inputs directly into a shell command.'
+
+Assert-NotContains `
+    -Path $githubWorkflow `
+    -Pattern 'CERTIFICATE_PASSWORD\.txt|RemoteLink-Apple-Development\.p12|RemoteLink-Development\.mobileprovision|RemoteLink-Broadcast-Development\.mobileprovision' `
+    -Message 'GitHub signing workflow must not reference local signing material files.'
+
+Assert-Contains `
+    -Path $gitignore `
+    -Pattern '!/\.github/workflows/[\s\S]*\.github/workflows/\*[\s\S]*!/\.github/workflows/ios-development-build\.yml' `
+    -Message 'Only the iOS development-signing workflow must be explicitly trackable.'
 
 Write-Host 'KQ iOS build readiness checks passed'

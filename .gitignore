@@ -7,6 +7,9 @@
 .env
 /.gitea/workflows/
 /.github/workflows/
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/ios-development-build.yml
 /deploy/
 /scripts/deploy/
 libsciter-gtk.so
