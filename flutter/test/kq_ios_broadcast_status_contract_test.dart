@@ -55,7 +55,7 @@ void main() {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
 
     expect(page, contains("_status['remoteViewAvailable']"));
-    expect(page, contains("_status['remoteViewerCount']"));
+    expect(page, contains("_statusInt('remoteViewerCount')"));
     expect(page, contains("_status['errorCode']"));
     expect(page, contains('共享已启动，等待其他设备连接'));
     expect(page, contains('已有设备正在观看'));
@@ -68,5 +68,32 @@ void main() {
     expect(page, isNot(contains('capture_only')));
     expect(page, isNot(contains('当前版本先验证采集链路')));
     expect(page, isNot(contains('开始屏幕共享')));
+  });
+
+  test('iOS broadcast keeps device credentials and explains computer viewing',
+      () {
+    final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final iosStart = page
+        .indexOf('if (mobilePlatformCapabilities.canHostViewOnlyBroadcast)');
+    final iosEnd = page.indexOf('    checkService();', iosStart);
+    final broadcastStart =
+        page.indexOf('class _IOSScreenShareBroadcastMvpState');
+    final broadcastEnd =
+        page.indexOf('class _IOSBroadcastStatusRow', broadcastStart);
+
+    expect(iosStart, greaterThanOrEqualTo(0));
+    expect(iosEnd, greaterThan(iosStart));
+    expect(broadcastStart, greaterThanOrEqualTo(0));
+    expect(broadcastEnd, greaterThan(broadcastStart));
+
+    final iosBranch = page.substring(iosStart, iosEnd);
+    final broadcastPage = page.substring(broadcastStart, broadcastEnd);
+    expect(iosBranch, contains('ChangeNotifierProvider.value'));
+    expect(iosBranch, contains('child: const _IOSScreenShareBroadcastMvp()'));
+    expect(broadcastPage, contains('ServerInfo(),'));
+    expect(broadcastPage, contains('在电脑端打开“远程协助”'));
+    expect(broadcastPage, contains('输入上方的设备识别码和验证码'));
+    expect(broadcastPage, contains('确认“鲲穹远程桌面”后点击“开始广播”'));
+    expect(broadcastPage, contains('已开启，等待画面'));
   });
 }

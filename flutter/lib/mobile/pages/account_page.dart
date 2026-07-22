@@ -533,7 +533,7 @@ class _AccountPageState extends State<AccountPage> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        translate(
+                        _mineText(
                             'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.'),
                         style: TextStyle(
                           color: q.muted,
@@ -2354,4 +2354,6 @@ const _mineTw = {
   'Alipay cashier opened': '已開啟支付寶收銀台',
   'Payment cancelled': '\u652f\u4ed8\u5df2\u53d6\u6d88',
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
+  'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.':
+      '基礎版使用 720p / 30 FPS，會員可使用 1080p / 60 FPS。',
 };

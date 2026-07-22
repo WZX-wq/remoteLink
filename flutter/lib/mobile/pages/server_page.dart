@@ -193,6 +193,7 @@ class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
+      await gFFI.serverModel.updatePasswordModel();
     });
     if (mobilePlatformCapabilities.canReceiveRemoteInput) {
       gFFI.serverModel.checkAndroidPermission();
@@ -219,7 +220,10 @@ class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     if (mobilePlatformCapabilities.canHostViewOnlyBroadcast) {
-      return const _IOSScreenShareBroadcastMvp();
+      return ChangeNotifierProvider.value(
+        value: gFFI.serverModel,
+        child: const _IOSScreenShareBroadcastMvp(),
+      );
     }
     checkService();
     return ChangeNotifierProvider.value(
@@ -385,6 +389,43 @@ class _IOSScreenShareBroadcastMvpState
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
       children: [
+        ServerInfo(),
+        PaddingCard(
+          title: _iosShareText(
+            zhCn: '电脑和手机连接方式',
+            zhTw: '電腦和手機連線方式',
+            en: 'How to connect from a computer',
+          ),
+          titleIcon: Icon(Icons.sync_alt_rounded, color: q.primary),
+          child: Column(
+            children: [
+              _IOSBroadcastConnectStep(
+                number: '1',
+                text: _iosShareText(
+                  zhCn: '在电脑端打开“远程协助”，选择连接远程设备。',
+                  zhTw: '在電腦端開啟「遠端協助」，選擇連線遠端裝置。',
+                  en: 'Open Remote Assistance on the computer and choose to connect to a remote device.',
+                ),
+              ),
+              _IOSBroadcastConnectStep(
+                number: '2',
+                text: _iosShareText(
+                  zhCn: '输入上方的设备识别码和验证码，发起连接。',
+                  zhTw: '輸入上方的裝置識別碼和驗證碼，發起連線。',
+                  en: 'Enter the device ID and verification code shown above, then start the connection.',
+                ),
+              ),
+              _IOSBroadcastConnectStep(
+                number: '3',
+                text: _iosShareText(
+                  zhCn: '回到 iPhone，打开系统广播面板，确认“鲲穹远程桌面”后点击“开始广播”。',
+                  zhTw: '回到 iPhone，開啟系統廣播面板，確認「鯤穹遠端桌面」後點擊「開始廣播」。',
+                  en: 'Return to iPhone, open the broadcast panel, select KQ Remote Link, then tap Start Broadcast.',
+                ),
+              ),
+            ],
+          ),
+        ),
         PaddingCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -714,6 +755,13 @@ class _IOSScreenShareBroadcastMvpState
         en: 'Paused',
       );
     }
+    if (state == 'started' || state == 'resumed' || state == 'capturing') {
+      return _iosShareText(
+        zhCn: '已开启，等待画面',
+        zhTw: '已開啟，等待畫面',
+        en: 'Started, waiting for video',
+      );
+    }
     if (hasVideo) {
       return _iosShareText(
         zhCn: '等待新画面',
@@ -725,6 +773,57 @@ class _IOSScreenShareBroadcastMvpState
       zhCn: '未开始',
       zhTw: '未開始',
       en: 'Not started',
+    );
+  }
+}
+
+class _IOSBroadcastConnectStep extends StatelessWidget {
+  const _IOSBroadcastConnectStep({
+    required this.number,
+    required this.text,
+  });
+
+  final String number;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: q.primary.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: q.primary.withOpacity(0.22)),
+          ),
+          child: Text(
+            number,
+            style: TextStyle(
+              color: q.primary,
+              fontSize: 12,
+              height: 1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: q.ink,
+              fontSize: 13,
+              height: 1.38,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ]),
     );
   }
 }

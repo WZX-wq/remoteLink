@@ -35,6 +35,20 @@ void main() {
     expect(source, contains('UserModel.memberDefaultFps'));
   });
 
+  test('membership card localizes the free and member quality message', () {
+    final source =
+        File('lib/mobile/pages/account_page.dart').readAsStringSync();
+    const key = 'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.';
+    final cardTextOffset = source.indexOf("'$key'");
+    expect(cardTextOffset, greaterThanOrEqualTo(0));
+    expect(
+      source.substring(cardTextOffset - 80, cardTextOffset + key.length + 4),
+      contains('_mineText('),
+    );
+    expect(source, contains('基础版使用 720p / 30 FPS，会员可使用 1080p / 60 FPS。'));
+    expect(source, contains('基礎版使用 720p / 30 FPS，會員可使用 1080p / 60 FPS。'));
+  });
+
   test('iOS declares all native permission descriptions used by the app', () {
     final plist = File('ios/Runner/Info.plist').readAsStringSync();
     for (final key in <String>[
