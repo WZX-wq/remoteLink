@@ -244,7 +244,7 @@ jobs:
 
           pushd flutter/ios
           xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -showBuildSettings \
-            | grep -E 'CODE_SIGN_STYLE =|DEVELOPMENT_TEAM =|PRODUCT_BUNDLE_IDENTIFIER =|PROVISIONING_PROFILE_SPECIFIER ='
+            | grep -E 'CODE_SIGN_IDENTITY =|CODE_SIGN_STYLE =|DEVELOPMENT_TEAM =|PRODUCT_BUNDLE_IDENTIFIER =|PROVISIONING_PROFILE_SPECIFIER ='
           popd
 
       - name: Build Rust iOS library

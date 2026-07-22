@@ -18,6 +18,9 @@ CODE_SIGN_STYLE = re.compile(r"(?m)^\t\t\t\tCODE_SIGN_STYLE = [^;]+;\n")
 PROVISIONING_PROFILE = re.compile(
     r"(?m)^\t\t\t\tPROVISIONING_PROFILE(?:_SPECIFIER)? = [^;]+;\n"
 )
+CODE_SIGN_IDENTITY = re.compile(
+    r"(?m)^\t\t\t\t(?:\"?CODE_SIGN_IDENTITY(?:\[[^\]]+\])?\"?) = [^;]+;\n"
+)
 DEVELOPMENT_TEAM = re.compile(
     r"(?m)^(?P<indent>\t\t\t\t)DEVELOPMENT_TEAM = [^;]+;\n"
 )
@@ -29,6 +32,7 @@ def quote_pbx_value(value):
 
 def configure_project(project_text, team_id, profiles):
     configured_counts = {bundle_id: 0 for bundle_id in TARGET_BUNDLES}
+    project_text = CODE_SIGN_IDENTITY.sub("", project_text)
 
     def configure_block(match):
         body = match.group("body")
@@ -52,6 +56,8 @@ def configure_project(project_text, team_id, profiles):
         signing_settings = (
             f"{indent}DEVELOPMENT_TEAM = {team_id};\n"
             f"{indent}CODE_SIGN_STYLE = Manual;\n"
+            f'{indent}CODE_SIGN_IDENTITY = "Apple Distribution";\n'
+            f'{indent}"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";\n'
             f"{indent}PROVISIONING_PROFILE_SPECIFIER = {quote_pbx_value(profiles[bundle_id])};\n"
         )
         body = DEVELOPMENT_TEAM.sub(signing_settings, body, count=1)
