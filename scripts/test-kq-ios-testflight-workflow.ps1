@@ -27,6 +27,10 @@ Assert-Contains $content 'push:[\s\S]*branches:[\s\S]*- main' `
     'TestFlight workflow must build from pushes to main.'
 Assert-Contains $content 'workflow_dispatch:' `
     'TestFlight workflow must support a manual run.'
+Assert-Contains $content 'skip_endpoint_probe:[\s\S]*type:\s*boolean' `
+    'TestFlight workflow must expose endpoint probing as an explicit manual boolean input.'
+Assert-Contains $content 'KQ_SKIP_ENDPOINT_PROBE:\s*\$\{\{ inputs\.skip_endpoint_probe \}\}' `
+    'TestFlight workflow must pass the manual endpoint probe choice to the validator.'
 Assert-Contains $content 'runs-on:\s*macos-latest' `
     'TestFlight workflow must run on macOS.'
 Assert-Contains $content 'IOS_DISTRIBUTION_CERTIFICATE_BASE64:\s*\$\{\{ secrets\.IOS_DISTRIBUTION_CERTIFICATE_BASE64 \}\}' `

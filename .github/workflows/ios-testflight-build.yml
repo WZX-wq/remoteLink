@@ -20,6 +20,11 @@ on:
         required: false
         default: ""
         type: string
+      skip_endpoint_probe:
+        description: Skip only the live endpoint probe for a manual test build
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -41,6 +46,7 @@ env:
   KQ_IOS_IAP_PRODUCTS: ${{ vars.KQ_IOS_IAP_PRODUCTS }}
   KQ_IOS_IAP_VERIFY_URL: ${{ vars.KQ_IOS_IAP_VERIFY_URL }}
   KQ_IOS_INTERNAL_DIRECT_PAYMENT: "false"
+  KQ_SKIP_ENDPOINT_PROBE: ${{ inputs.skip_endpoint_probe }}
 
 jobs:
   build-and-upload-testflight:

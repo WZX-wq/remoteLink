@@ -111,10 +111,30 @@ def probe_release_endpoints(config: Mapping[str, str], opener=urlopen) -> None:
             )
 
 
+def endpoint_probe_is_skipped(values: Mapping[str, str] | None = None) -> bool:
+    """Return whether a manually triggered test build explicitly skips probing."""
+
+    environment = os.environ if values is None else values
+    raw = str(environment.get("KQ_SKIP_ENDPOINT_PROBE", "")).strip().lower()
+    if raw in _direct_payment_enabled_values:
+        return True
+    if raw in _direct_payment_disabled_values:
+        return False
+    raise ReleaseConfigError(
+        "KQ_SKIP_ENDPOINT_PROBE must be empty or an explicit true/false value."
+    )
+
+
 def main() -> int:
     try:
         config = validate_release_config()
-        probe_release_endpoints(config)
+        if endpoint_probe_is_skipped():
+            print(
+                "Endpoint reachability probe skipped by explicit manual test-build input.",
+                file=sys.stderr,
+            )
+        else:
+            probe_release_endpoints(config)
     except ReleaseConfigError as error:
         print(f"iOS App Store release configuration error: {error}", file=sys.stderr)
         return 1
