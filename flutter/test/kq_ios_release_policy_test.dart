@@ -135,7 +135,8 @@ void main() {
     expect(workflow, contains('kq_ios_broadcast_start'));
   });
 
-  test('iOS preflight pages use Flutter 3.44 Color APIs', () {
+  test('iOS preflight pages remain compatible with shared Flutter 3.24 builds',
+      () {
     for (final path in <String>[
       'lib/mobile/pages/account_deletion_page.dart',
       'lib/mobile/pages/ios_membership_purchase_page.dart',
@@ -143,22 +144,17 @@ void main() {
     ]) {
       final source = File(path).readAsStringSync();
 
-      expect(source, isNot(contains('withOpacity(')));
-      expect(source, contains('withValues(alpha:'));
+      expect(source, isNot(contains('withValues(')));
+      expect(source, contains('withOpacity('));
     }
   });
 
-  test('shared theme uses ThemeData material theme data classes', () {
+  test('shared theme avoids version-specific dialog and tab theme data classes',
+      () {
     final common = File('lib/common.dart').readAsStringSync();
 
-    expect(
-      'dialogTheme: DialogThemeData('.allMatches(common),
-      hasLength(2),
-    );
-    expect(
-      'tabBarTheme: const TabBarThemeData('.allMatches(common),
-      hasLength(2),
-    );
+    expect(common, isNot(contains('DialogThemeData(')));
+    expect(common, isNot(contains('TabBarThemeData(')));
     expect(common, isNot(contains('dialogTheme: DialogTheme(')));
     expect(common, isNot(contains('tabBarTheme: const TabBarTheme(')));
   });
@@ -198,7 +194,7 @@ void main() {
   });
 
   test(
-      'screen broadcast forwards application audio without advertising a viewer',
+      'screen broadcast forwards application audio and reports verified viewers',
       () {
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
@@ -209,16 +205,20 @@ void main() {
     expect(handler, contains('case .audioApp:'));
     expect(handler, contains('CMSampleBufferCopyPCMDataIntoAudioBufferList'));
     expect(handler, contains('kq_ios_broadcast_push_audio_f32'));
+    expect(handler, contains('kq_ios_broadcast_active_viewer_count'));
+    expect(handler, contains('kq_broadcast_remote_viewer_count'));
     expect(
-        handler,
-        contains(
-            'defaults.set(false, forKey: "kq_broadcast_remote_view_available")'));
+      handler,
+      isNot(contains(
+          'defaults.set(false, forKey: "kq_broadcast_remote_view_available")')),
+    );
     expect(
         handler,
         contains(
             'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));
     expect(page, contains("_status['audioSupported']"));
     expect(page, contains('共享已启动，等待其他设备连接'));
+    expect(page, contains('已有设备正在观看'));
     expect(page, contains('正在传输画面和应用声音'));
     expect(page, isNot(contains('当前屏幕共享仅传输画面。')));
     expect(page, isNot(contains('应用音频帧')));

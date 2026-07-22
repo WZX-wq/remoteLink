@@ -260,6 +260,7 @@ import AVFoundation
         "isFresh": false,
         "transportState": "unavailable",
         "remoteViewAvailable": false,
+        "remoteViewerCount": 0,
         "audioSupported": false,
         "viewOnly": true,
         "errorCode": "app_group_unavailable",
@@ -279,6 +280,7 @@ import AVFoundation
       "isFresh": updatedAt > 0 && Date().timeIntervalSince1970 - updatedAt < 5.0,
       "transportState": defaults.string(forKey: "kq_broadcast_transport_state") ?? "not_started",
       "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
+      "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
       "audioSupported": defaults.bool(forKey: "kq_broadcast_audio_supported"),
       "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
         ? true

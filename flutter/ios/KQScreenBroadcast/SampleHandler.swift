@@ -198,7 +198,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
       transportState ?? (transportStarted ? "ready" : "waiting_for_frame"),
       forKey: "kq_broadcast_transport_state"
     )
-    defaults.set(false, forKey: "kq_broadcast_remote_view_available")
+    let viewerCount = transportStarted
+      ? Int(kq_ios_broadcast_active_viewer_count())
+      : 0
+    defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
+    defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")
     defaults.set(errorCode ?? "", forKey: "kq_broadcast_error_code")

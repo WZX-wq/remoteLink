@@ -105,6 +105,10 @@ jobs:
       - name: Test iOS release configuration guard
         run: python3 scripts/test_ios_release_config.py
 
+      - name: Test GitHub TestFlight workflow contract
+        shell: pwsh
+        run: ./scripts/test-kq-ios-testflight-workflow.ps1
+
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:

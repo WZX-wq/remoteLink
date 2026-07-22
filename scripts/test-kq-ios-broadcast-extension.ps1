@@ -147,8 +147,8 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $sampleHandler `
-    -Pattern 'kq_broadcast_transport_state[\s\S]*kq_broadcast_remote_view_available[\s\S]*kq_broadcast_view_only' `
-    -Message 'Broadcast extension must publish capture transport and view-only capability separately.'
+    -Pattern 'kq_broadcast_transport_state[\s\S]*kq_ios_broadcast_active_viewer_count[\s\S]*kq_broadcast_remote_viewer_count[\s\S]*kq_broadcast_remote_view_available[\s\S]*kq_broadcast_view_only' `
+    -Message 'Broadcast extension must publish capture transport, verified viewer state, and view-only capability separately.'
 
 Assert-Contains `
     -Path $runnerEntitlements `

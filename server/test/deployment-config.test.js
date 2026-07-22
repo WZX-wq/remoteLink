@@ -68,6 +68,7 @@ test('iOS release deployment blocks raw-IP, HTTP, and incomplete StoreKit config
     'KQ_APPLE_IAP_ENVIRONMENT must be production',
     'KQ_APPLE_IAP_PRIVATE_KEY_PATH must be an existing /app/data/ path',
     'verify_ios_release_public_api()',
+    'Apple subscription notification endpoint',
     '--resolve "${PUBLIC_HOST}:443:127.0.0.1"',
   ]) {
     assert.equal(script.includes(value), true);
@@ -200,6 +201,7 @@ test('test-server workflow keeps iOS deletion in isolated local-test mode', () =
     'http://127.0.0.1:21120/privacy',
     '/api/auth/account/delete',
     '/api/membership/apple/verify',
+    '/api/membership/apple/notifications',
   ]) {
     assert.equal(workflow.includes(value), true);
   }

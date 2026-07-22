@@ -410,6 +410,12 @@ impl Server {
         self.update_enable_retina();
     }
 
+    /// Connections are inserted only after the remote session has subscribed
+    /// to the host service. ReplayKit uses this count for its viewer status.
+    pub fn active_connection_count(&self) -> usize {
+        self.connections.len()
+    }
+
     pub fn close_connections(&mut self) {
         let conn_inners: Vec<_> = self.connections.values_mut().collect();
         for c in conn_inners {

@@ -18,8 +18,9 @@ flutter build ipa --dart-define=KQ_IOS_INTERNAL_DIRECT_PAYMENT=true
 
 1. 每个会员套餐的产品 ID、类型、价格和有效期。
 2. 服务端交易校验接口，接收 Apple 签名交易数据并更新现有会员权益。
-3. 恢复购买接口和测试账号。
-4. Sandbox 测试结果与 App Review 备注。
+3. App Store Server Notifications V2 地址：`/api/membership/apple/notifications`，用于同步续费、退款、撤销和到期状态。
+4. 恢复购买测试账号。
+5. Sandbox 测试结果与 App Review 备注。
 
 构建时通过环境变量提供：
 
@@ -27,6 +28,9 @@ flutter build ipa --dart-define=KQ_IOS_INTERNAL_DIRECT_PAYMENT=true
 KQ_IOS_IAP_PRODUCTS={"1":"com.kunqiong.remotelink.member.monthly"}
 KQ_IOS_IAP_VERIFY_URL=https://membership.example.com/api/membership/apple/verify
 ```
+
+通知地址不需要编译到客户端；在 App Store Connect 配置为部署 API 的
+`/api/membership/apple/notifications` 即可。
 
 ## 账号删除依赖
 

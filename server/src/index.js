@@ -19,6 +19,7 @@ import {
   parseAppleProductMap,
   resolveAppleTransactionId,
 } from './apple-iap.js';
+import { parseAppleNotification } from './apple-notifications.js';
 import { claimAppleSubscriptionOwner } from './apple-entitlement.js';
 import { createRequestGate } from './request-gate.js';
 
@@ -518,8 +519,8 @@ function overlayProjectMemberInfo(memberInfo, activeOrder) {
   };
 }
 
-async function latestPaidProjectMemberOrder(userId) {
-  const [rows] = await pool.execute(
+async function latestPaidProjectMemberOrder(userId, executor = pool) {
+  const [rows] = await executor.execute(
     `
       SELECT *
       FROM kq_member_orders
@@ -597,7 +598,9 @@ function appleMembershipExpiry(memberPackage, transaction) {
 
 function isMembershipExpiryActive(expireAt) {
   if (!expireAt || expireAt === '9999-12-31 23:59:59') return true;
-  const timestamp = new Date(String(expireAt).replace(' ', 'T') + 'Z').getTime();
+  const timestamp = expireAt instanceof Date
+    ? expireAt.getTime()
+    : new Date(String(expireAt).replace(' ', 'T') + 'Z').getTime();
   return Number.isFinite(timestamp) && timestamp > Date.now();
 }
 
@@ -707,6 +710,120 @@ async function grantAppleMembership({ ctx, packageId, memberPackage, transaction
     );
     await connection.commit();
     return { expireAt, memberActive };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+function parseStoredMemberInfo(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function appleConfigForNotification(appleConfig, environment) {
+  if (environment !== 'sandbox' && environment !== 'production') {
+    return appleConfig;
+  }
+  return { ...appleConfig, environment };
+}
+
+async function findAppleNotificationMembershipContext(
+  originalTransactionId,
+  packageId,
+) {
+  const orderNo = appleMembershipOrderNo(originalTransactionId);
+  const [rows] = await pool.execute(
+    `
+      SELECT
+        owner.user_id,
+        member_order.package_id,
+        member_order.package_name,
+        member_order.package_days,
+        member_order.pay_amount,
+        snapshot.raw_member_json
+      FROM kq_apple_subscription_owners AS owner
+      LEFT JOIN kq_member_orders AS member_order
+        ON member_order.user_id = owner.user_id
+        AND member_order.order_no = ?
+      LEFT JOIN kq_member_snapshots AS snapshot
+        ON snapshot.id = (
+          SELECT latest_snapshot.id
+          FROM kq_member_snapshots AS latest_snapshot
+          WHERE latest_snapshot.user_id = owner.user_id
+          ORDER BY latest_snapshot.synced_at DESC, latest_snapshot.id DESC
+          LIMIT 1
+        )
+      WHERE owner.original_transaction_id = ?
+      LIMIT 1
+    `,
+    [orderNo, originalTransactionId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+
+  const memberInfo = parseStoredMemberInfo(row.raw_member_json);
+  let memberPackage = findMemberPackage(memberInfo, packageId);
+  if (!memberPackage && Number(row.package_id) === Number(packageId)) {
+    memberPackage = {
+      id: Number(row.package_id),
+      name: row.package_name,
+      days: Number(row.package_days || 0),
+      price_yuan: Number(row.pay_amount || 0),
+    };
+  }
+  if (!memberPackage) return null;
+
+  return {
+    ctx: { user: { id: row.user_id } },
+    memberPackage,
+  };
+}
+
+async function revokeAppleMembership({ userId, originalTransactionId, transaction }) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      `
+        UPDATE kq_member_orders
+        SET pay_status = 0, updated_at = NOW()
+        WHERE user_id = ? AND order_no = ? AND pay_type = 3
+      `,
+      [userId, appleMembershipOrderNo(originalTransactionId)],
+    );
+    await connection.execute(
+      `
+        UPDATE kq_apple_transactions
+        SET expires_at = ?, updated_at = NOW()
+        WHERE original_transaction_id = ?
+      `,
+      [
+        transaction.revocationDate || transaction.expiresAt || formatMysqlDateTime(new Date()),
+        originalTransactionId,
+      ],
+    );
+    const activeOrder = await latestPaidProjectMemberOrder(userId, connection);
+    const expireAt = activeOrder?.expire_at || null;
+    await connection.execute(
+      `
+        UPDATE kq_users
+        SET member_active = ?, member_expire_at = ?, last_seen_at = NOW()
+        WHERE id = ?
+      `,
+      [activeOrder ? 1 : 0, expireAt, userId],
+    );
+    await connection.commit();
+    return { expireAt, memberActive: Boolean(activeOrder) };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -2903,6 +3020,53 @@ app.post('/api/membership/apple/verify', async (req, res, next) => {
         ? 'Apple membership entitlement updated.'
         : 'Apple purchase was verified, but the membership has expired.',
       expire_at: entitlement.expireAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/membership/apple/notifications', async (req, res, next) => {
+  try {
+    const appleConfig = getAppleIapConfig();
+    const notification = parseAppleNotification(req.body, appleConfig.productMap);
+    if (!notification) {
+      res.json({ success: true, status: 'ignored' });
+      return;
+    }
+    const transaction = await fetchAndValidateAppleTransaction({
+      transactionId: notification.transactionId,
+      expectedProductId: notification.productId,
+      config: appleConfigForNotification(appleConfig, notification.environment),
+      allowRevoked: true,
+    });
+    const context = await findAppleNotificationMembershipContext(
+      transaction.originalTransactionId,
+      notification.packageId,
+    );
+    if (!context) {
+      res.json({ success: true, status: 'ignored', reason: 'subscription_not_owned' });
+      return;
+    }
+
+    const entitlement = transaction.revoked
+      ? await revokeAppleMembership({
+        userId: context.ctx.user.id,
+        originalTransactionId: transaction.originalTransactionId,
+        transaction,
+      })
+      : await grantAppleMembership({
+        ctx: context.ctx,
+        packageId: notification.packageId,
+        memberPackage: context.memberPackage,
+        transaction,
+      });
+    res.json({
+      success: true,
+      status: transaction.revoked ? 'revoked' : 'updated',
+      notification_type: notification.notificationType,
+      expire_at: entitlement.expireAt,
+      member_active: entitlement.memberActive,
     });
   } catch (error) {
     next(error);

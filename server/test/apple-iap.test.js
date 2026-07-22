@@ -134,3 +134,25 @@ test('rejects an Apple transaction whose product does not match the selected pac
     (error) => error instanceof AppleIapError && error.statusCode === 400,
   );
 });
+
+test('returns a revoked transaction only for a lifecycle notification handler', async () => {
+  const transaction = await fetchAndValidateAppleTransaction({
+    transactionId: '1000000123456789',
+    expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+    config: appleConfig(),
+    allowRevoked: true,
+    fetchImpl: async () => new Response(JSON.stringify({
+      signedTransactionInfo: fakeJws({
+        transactionId: '1000000123456789',
+        originalTransactionId: '1000000123456000',
+        productId: 'com.kunqiong.remotelink.member.monthly',
+        bundleId: 'com.kunqiong.remotelink',
+        environment: 'Sandbox',
+        revocationDate: '1780000000000',
+      }),
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  });
+
+  assert.equal(transaction.revoked, true);
+  assert.equal(transaction.revocationDate, '2026-05-28 20:26:40');
+});

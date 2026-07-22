@@ -145,6 +145,7 @@ export async function fetchAndValidateAppleTransaction({
   transactionId,
   expectedProductId,
   config,
+  allowRevoked = false,
   fetchImpl = fetch,
 }) {
   const normalizedTransactionId = String(transactionId || '').trim();
@@ -195,7 +196,7 @@ export async function fetchAndValidateAppleTransaction({
   if (!appleEnvironment || appleEnvironment !== environment) {
     throw new AppleIapError('Apple transaction environment does not match this server.', 400);
   }
-  if (claims.revocationDate) {
+  if (claims.revocationDate && !allowRevoked) {
     throw new AppleIapError('Apple has revoked this purchase.', 409);
   }
   return {
@@ -205,6 +206,8 @@ export async function fetchAndValidateAppleTransaction({
     bundleId,
     environment: String(claims.environment || ''),
     expiresAt: mysqlDateTimeFromMillis(claims.expiresDate),
+    revoked: Boolean(claims.revocationDate),
+    revocationDate: mysqlDateTimeFromMillis(claims.revocationDate),
     purchaseDate: mysqlDateTimeFromMillis(claims.purchaseDate),
     signedTransactionInfo: String(payload.signedTransactionInfo),
     claims,

@@ -275,6 +275,7 @@ class _IOSScreenShareBroadcastMvpState
     'isFresh': false,
     'transportState': 'not_started',
     'remoteViewAvailable': false,
+    'remoteViewerCount': 0,
     'audioSupported': false,
     'viewOnly': true,
     'errorCode': '',
@@ -368,6 +369,7 @@ class _IOSScreenShareBroadcastMvpState
     final height = _statusInt('height');
     final isFresh = _status['isFresh'] == true;
     final remoteViewAvailable = _status['remoteViewAvailable'] == true;
+    final remoteViewerCount = _statusInt('remoteViewerCount');
     final audioSupported = _status['audioSupported'] == true;
     final transportState =
         (_status['transportState'] ?? 'not_started').toString();
@@ -508,7 +510,12 @@ class _IOSScreenShareBroadcastMvpState
                   zhTw: '連線狀態',
                   en: 'Connection status',
                 ),
-                value: _remoteViewingLabel(state, transportState),
+                value: _remoteViewingLabel(
+                  state,
+                  transportState,
+                  remoteViewAvailable,
+                  remoteViewerCount,
+                ),
                 color: remoteViewAvailable ? q.online : q.warning,
               ),
               _IOSBroadcastStatusRow(
@@ -566,7 +573,12 @@ class _IOSScreenShareBroadcastMvpState
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
-  String _remoteViewingLabel(String state, String transportState) {
+  String _remoteViewingLabel(
+    String state,
+    String transportState,
+    bool remoteViewAvailable,
+    int remoteViewerCount,
+  ) {
     if (state == 'failed' || transportState == 'failed') {
       return _iosShareText(
         zhCn: '启动失败',
@@ -579,6 +591,19 @@ class _IOSScreenShareBroadcastMvpState
         zhCn: '等待画面',
         zhTw: '等待畫面',
         en: 'Waiting for video',
+      );
+    }
+    if (remoteViewAvailable) {
+      return _iosShareText(
+        zhCn: remoteViewerCount > 1
+            ? '已有 $remoteViewerCount 台设备正在观看'
+            : '已有设备正在观看',
+        zhTw: remoteViewerCount > 1
+            ? '已有 $remoteViewerCount 台装置正在观看'
+            : '已有装置正在观看',
+        en: remoteViewerCount > 1
+            ? '$remoteViewerCount devices are viewing'
+            : 'A device is viewing',
       );
     }
     if (transportState == 'ready' || transportState == 'streaming') {

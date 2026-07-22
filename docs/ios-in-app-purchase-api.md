@@ -37,6 +37,24 @@ Accept: application/json
 
 The server must validate the signed transaction with Apple, confirm that `product_id` belongs to `package_id`, reject replayed or revoked transactions, update the existing membership entitlement atomically, and return a user-readable result.
 
+## Subscription lifecycle notifications
+
+Configure the App Store Server Notifications V2 URL to the deployed API route:
+
+```text
+https://<public-host>/kq-api/api/membership/apple/notifications
+```
+
+The notification route does not trust the received JWS as an entitlement. It
+only extracts a transaction ID and then retrieves that transaction again from
+the App Store Server API before changing membership data. Renewals refresh the
+stored expiry. Revoked purchases mark only the matching Apple order inactive
+and then recalculate the user's local membership from any remaining paid order.
+
+Notifications received before the app has verified and bound the original
+transaction to an account are accepted without granting membership. The next
+client verification establishes ownership safely.
+
 ## Verification response
 
 ```json

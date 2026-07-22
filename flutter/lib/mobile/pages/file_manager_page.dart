@@ -481,8 +481,22 @@ class _FileManagerPageState extends State<FileManagerPage> {
         case JobState.none:
           break;
         case JobState.paused:
-          // TODO: Handle this case.
-          break;
+          return BottomSheetBody(
+            leading: const Icon(Icons.pause_circle_outline),
+            title: translate("Paused"),
+            text: activeJob.display(),
+            onCanceled: () {
+              model.jobController.cancelJob(activeJob.id);
+              jobTable.clear();
+            },
+            actions: [
+              IconButton(
+                tooltip: translate("Resume"),
+                icon: const Icon(Icons.play_arrow_rounded),
+                onPressed: () => model.jobController.resumeJob(activeJob.id),
+              ),
+            ],
+          );
       }
       return Offstage();
     });

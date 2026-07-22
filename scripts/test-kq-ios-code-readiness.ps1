@@ -1,5 +1,6 @@
 param(
-    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string]$PythonExecutable = $env:PYTHON
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,9 +18,18 @@ foreach ($check in $staticChecks) {
     & (Join-Path $PSScriptRoot $check) -Root $Root
 }
 
-$python = Get-Command python -ErrorAction Stop
+$pythonCommand = $null
+if ($PythonExecutable) {
+    $pythonCommand = (Resolve-Path -LiteralPath $PythonExecutable -ErrorAction Stop).Path
+} else {
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -eq $python) {
+        $python = Get-Command py -ErrorAction Stop
+    }
+    $pythonCommand = $python.Source
+}
 Write-Host 'Running test_ios_release_config.py'
-& $python.Source (Join-Path $PSScriptRoot 'test_ios_release_config.py')
+& $pythonCommand (Join-Path $PSScriptRoot 'test_ios_release_config.py')
 if ($LASTEXITCODE -ne 0) {
     throw 'iOS App Store release configuration tests failed.'
 }

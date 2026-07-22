@@ -18,6 +18,8 @@ int32_t kq_ios_broadcast_push_audio_f32(
     const float *data,
     uintptr_t sample_count);
 
+uintptr_t kq_ios_broadcast_active_viewer_count(void);
+
 void kq_ios_broadcast_pause(void);
 void kq_ios_broadcast_resume(void);
 void kq_ios_broadcast_stop(void);

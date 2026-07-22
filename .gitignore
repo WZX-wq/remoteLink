@@ -10,6 +10,7 @@
 !/.github/workflows/
 /.github/workflows/*
 !/.github/workflows/ios-development-build.yml
+!/.github/workflows/ios-testflight-build.yml
 /deploy/
 /scripts/deploy/
 libsciter-gtk.so

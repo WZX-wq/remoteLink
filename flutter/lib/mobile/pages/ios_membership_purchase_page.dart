@@ -165,8 +165,7 @@ class _KqIosMembershipPurchasePageState
                             _text('恢复 Apple 购买', 'Restore Apple purchases')),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: q.primary,
-                          side: BorderSide(
-                              color: q.primary.withValues(alpha: 0.55)),
+                          side: BorderSide(color: q.primary.withOpacity(0.55)),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -239,9 +238,9 @@ class _IosMembershipIntro extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: q.panelStrong.withValues(alpha: q.isDark ? 0.84 : 0.98),
+        color: q.panelStrong.withOpacity(q.isDark ? 0.84 : 0.98),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: q.line.withValues(alpha: 0.64)),
+        border: Border.all(color: q.line.withOpacity(0.64)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,7 +249,7 @@ class _IosMembershipIntro extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: const Color(0xFFEACB74).withValues(alpha: 0.18),
+              color: const Color(0xFFEACB74).withOpacity(0.18),
               borderRadius: BorderRadius.circular(13),
             ),
             child: const Icon(
@@ -315,9 +314,9 @@ class _IosMembershipPackageTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: q.panelStrong.withValues(alpha: q.isDark ? 0.78 : 0.94),
+        color: q.panelStrong.withOpacity(q.isDark ? 0.78 : 0.94),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: q.line.withValues(alpha: 0.58)),
+        border: Border.all(color: q.line.withOpacity(0.58)),
       ),
       child: Row(
         children: [
@@ -363,7 +362,7 @@ class _IosMembershipPackageTile extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: q.primary,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: q.primary.withValues(alpha: 0.24),
+                    disabledBackgroundColor: q.primary.withOpacity(0.24),
                     disabledForegroundColor: Colors.white70,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -397,9 +396,9 @@ class _IosMembershipNotice extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: q.isDark ? 0.14 : 0.1),
+        color: color.withOpacity(q.isDark ? 0.14 : 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.36)),
+        border: Border.all(color: color.withOpacity(0.36)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

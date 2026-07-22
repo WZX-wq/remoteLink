@@ -99,6 +99,18 @@ pub extern "C" fn kq_ios_broadcast_push_audio_f32(data: *const f32, sample_count
     crate::ios_broadcast_audio::push_audio_samples(samples)
 }
 
+/// Returns remote sessions that completed the server-side subscription flow.
+/// The ReplayKit extension polls this while publishing its App Group status.
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_active_viewer_count() -> usize {
+    let active = ACTIVE.load(Ordering::Acquire);
+    let connections = crate::server::CLIENT_SERVER
+        .read()
+        .map(|server| server.active_connection_count())
+        .unwrap_or(0);
+    crate::ios_broadcast_status::viewer_count_for(active, connections)
+}
+
 #[no_mangle]
 pub extern "C" fn kq_ios_broadcast_pause() {
     PAUSED.store(true, Ordering::Release);

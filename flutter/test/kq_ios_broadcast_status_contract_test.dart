@@ -6,12 +6,17 @@ void main() {
   test('ReplayKit publishes capture and remote-view states separately', () {
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final bridge =
+        File('ios/KQScreenBroadcast/KQBroadcastBridge.h').readAsStringSync();
     final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
     expect(handler, contains('kq_broadcast_transport_state'));
     expect(handler, contains('kq_broadcast_remote_view_available'));
+    expect(handler, contains('kq_broadcast_remote_viewer_count'));
     expect(handler, contains('kq_ios_broadcast_push_bgra'));
     expect(handler, contains('kq_ios_broadcast_push_audio_f32'));
+    expect(handler, contains('kq_ios_broadcast_active_viewer_count'));
+    expect(bridge, contains('kq_ios_broadcast_active_viewer_count'));
     expect(handler, contains('kq_ios_broadcast_start'));
     expect(handler, contains('CMSampleBufferCopyPCMDataIntoAudioBufferList'));
     expect(handler, contains('AVAudioConverter'));
@@ -34,8 +39,14 @@ void main() {
         contains(
             'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));
     expect(handler, isNot(contains('capture_only')));
+    expect(
+      handler,
+      isNot(contains(
+          'defaults.set(false, forKey: "kq_broadcast_remote_view_available")')),
+    );
     expect(delegate, contains('"transportState"'));
     expect(delegate, contains('"remoteViewAvailable"'));
+    expect(delegate, contains('"remoteViewerCount"'));
     expect(delegate, contains('"viewOnly": true'));
     expect(delegate, contains('"errorCode"'));
   });
@@ -44,8 +55,10 @@ void main() {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
 
     expect(page, contains("_status['remoteViewAvailable']"));
+    expect(page, contains("_status['remoteViewerCount']"));
     expect(page, contains("_status['errorCode']"));
     expect(page, contains('共享已启动，等待其他设备连接'));
+    expect(page, contains('已有设备正在观看'));
     expect(page, isNot(contains('可以连接观看')));
     expect(page, contains('仅支持观看'));
     expect(page, contains('打开系统广播面板'));

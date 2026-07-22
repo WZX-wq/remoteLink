@@ -92,6 +92,14 @@ password, key pair, and rendezvous configuration.
 Use the no-sign workflow first to verify native dependencies and Xcode project
 health before configuring App Store signing credentials.
 
+GitHub Actions now also contains `.github/workflows/ios-testflight-build.yml`.
+It uses Apple Distribution signing assets from GitHub Secrets and uploads the
+IPA directly to TestFlight with the Apple-maintained upload action. Pushes to
+`main` build the latest iOS code automatically; a manual `workflow_dispatch`
+run can override the marketing version. Follow
+`docs/github-ios-testflight.md` for the required profiles, API key, Secrets,
+Repository variables, and TestFlight tester setup.
+
 ## App Store Release Boundaries
 
 The iOS build keeps the existing Android-compatible Kunqiong login and account

@@ -152,8 +152,7 @@ class _AccountDeletionPageState extends State<AccountDeletionPage> {
                             : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: q.offline,
-                          disabledBackgroundColor:
-                              q.offline.withValues(alpha: 0.28),
+                          disabledBackgroundColor: q.offline.withOpacity(0.28),
                           foregroundColor: Colors.white,
                           disabledForegroundColor: Colors.white70,
                           shape: RoundedRectangleBorder(
@@ -233,9 +232,9 @@ class _DeletionWarningCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: q.offline.withValues(alpha: q.isDark ? 0.15 : 0.1),
+        color: q.offline.withOpacity(q.isDark ? 0.15 : 0.1),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: q.offline.withValues(alpha: 0.4)),
+        border: Border.all(color: q.offline.withOpacity(0.4)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -279,9 +278,9 @@ class _DeletionInfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: q.warning.withValues(alpha: q.isDark ? 0.16 : 0.1),
+        color: q.warning.withOpacity(q.isDark ? 0.16 : 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: q.warning.withValues(alpha: 0.35)),
+        border: Border.all(color: q.warning.withOpacity(0.35)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

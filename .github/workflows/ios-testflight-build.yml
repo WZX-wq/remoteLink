@@ -1,0 +1,343 @@
+name: iOS TestFlight Distribution
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/ios-testflight-build.yml'
+      - 'flutter/**'
+      - 'src/**'
+      - 'libs/**'
+      - 'res/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: Flutter marketing version (for example 1.4.6)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.44.5"
+  RUST_VERSION: "1.75"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  APPLE_TEAM_ID: "G4C3ADW2F4"
+  IOS_MAIN_BUNDLE_ID: "com.kunqiong.remotelink"
+  IOS_BROADCAST_BUNDLE_ID: "com.kunqiong.remotelink.broadcast"
+  KQ_PRIVACY_POLICY_URL: ${{ vars.KQ_PRIVACY_POLICY_URL }}
+  KQ_ACCOUNT_DELETE_URL: ${{ vars.KQ_ACCOUNT_DELETE_URL }}
+  KQ_IOS_IAP_PRODUCTS: ${{ vars.KQ_IOS_IAP_PRODUCTS }}
+  KQ_IOS_IAP_VERIFY_URL: ${{ vars.KQ_IOS_IAP_VERIFY_URL }}
+  KQ_IOS_INTERNAL_DIRECT_PAYMENT: "false"
+
+jobs:
+  build-and-upload-testflight:
+    name: Build and upload TestFlight IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install native build dependencies
+        run: brew install nasm yasm
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Setup vcpkg with GitHub Actions binary cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install --triplet arm64-ios --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-apple-ios
+
+      - name: Import App Store signing assets
+        shell: bash
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_MAIN_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_MAIN_APPSTORE_PROFILE_BASE64 }}
+          IOS_BROADCAST_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_BROADCAST_APPSTORE_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          for secret_name in \
+            IOS_DISTRIBUTION_CERTIFICATE_BASE64 \
+            IOS_DISTRIBUTION_CERTIFICATE_PASSWORD \
+            IOS_MAIN_APPSTORE_PROFILE_BASE64 \
+            IOS_BROADCAST_APPSTORE_PROFILE_BASE64; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "::error::Missing required TestFlight signing secret: ${secret_name}"
+              exit 1
+            fi
+          done
+
+          signing_dir="$RUNNER_TEMP/ios-testflight-signing"
+          keychain_path="$RUNNER_TEMP/ios-testflight-signing.keychain-db"
+          mkdir -p "$signing_dir" "$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          signing_dir = Path(os.environ["RUNNER_TEMP"]) / "ios-testflight-signing"
+          for variable, filename in (
+              ("IOS_DISTRIBUTION_CERTIFICATE_BASE64", "certificate.p12"),
+              ("IOS_MAIN_APPSTORE_PROFILE_BASE64", "main.mobileprovision"),
+              ("IOS_BROADCAST_APPSTORE_PROFILE_BASE64", "broadcast.mobileprovision"),
+          ):
+              value = os.environ[variable].strip()
+              (signing_dir / filename).write_bytes(base64.b64decode(value, validate=True))
+          PY
+
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$signing_dir/certificate.p12" \
+            -k "$keychain_path" \
+            -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security list-keychain -d user -s "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path"
+
+          main_profile_name=""
+          broadcast_profile_name=""
+          main_profile_uuid=""
+          broadcast_profile_uuid=""
+          for profile in "$signing_dir"/*.mobileprovision; do
+            profile_plist="$signing_dir/$(basename "$profile").plist"
+            security cms -D -i "$profile" > "$profile_plist"
+
+            uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
+            profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
+            application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
+            team_identifier="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
+            get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist" 2>/dev/null || echo false)"
+
+            if [ "$team_identifier" != "$APPLE_TEAM_ID" ] || [ "$get_task_allow" = "true" ]; then
+              echo "::error::A supplied profile is not an App Store distribution profile for team $APPLE_TEAM_ID."
+              exit 1
+            fi
+
+            case "$application_identifier" in
+              "$APPLE_TEAM_ID.$IOS_MAIN_BUNDLE_ID")
+                main_profile_name="$profile_name"
+                main_profile_uuid="$uuid"
+                ;;
+              "$APPLE_TEAM_ID.$IOS_BROADCAST_BUNDLE_ID")
+                broadcast_profile_name="$profile_name"
+                broadcast_profile_uuid="$uuid"
+                ;;
+              *)
+                echo "::error::A supplied profile has an unexpected application identifier: $application_identifier"
+                exit 1
+                ;;
+            esac
+
+            cp "$profile" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            echo "Installed App Store provisioning profile for ${application_identifier#"$APPLE_TEAM_ID."}."
+          done
+
+          if [ -z "$main_profile_name" ] || [ -z "$broadcast_profile_name" ]; then
+            echo "::error::Both the main app and broadcast extension App Store profiles are required."
+            exit 1
+          fi
+
+          printf 'IOS_MAIN_PROFILE_NAME=%s\n' "$main_profile_name" >> "$GITHUB_ENV"
+          printf 'IOS_BROADCAST_PROFILE_NAME=%s\n' "$broadcast_profile_name" >> "$GITHUB_ENV"
+          printf 'IOS_MAIN_PROFILE_UUID=%s\n' "$main_profile_uuid" >> "$GITHUB_ENV"
+          printf 'IOS_BROADCAST_PROFILE_UUID=%s\n' "$broadcast_profile_uuid" >> "$GITHUB_ENV"
+
+      - name: Validate release settings and allocate build number
+        shell: bash
+        env:
+          REQUESTED_BUILD_NAME: ${{ inputs.build_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 scripts/prepare_ios_release_config.py
+
+          build_name="${REQUESTED_BUILD_NAME:-}"
+          if [ -z "$build_name" ]; then
+            build_name="$(sed -n 's/^version: \([0-9][0-9.]*\)\+.*$/\1/p' flutter/pubspec.yaml | head -n 1)"
+          fi
+          if [[ ! "$build_name" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::build_name must use a numeric dot-separated version, for example 1.4.6."
+            exit 1
+          fi
+
+          # run_id is unique across workflows; run_attempt makes a re-run unique too.
+          build_number=$((GITHUB_RUN_ID * 100 + GITHUB_RUN_ATTEMPT))
+          if [[ ! "$build_number" =~ ^[0-9]+$ ]] || [ "${#build_number}" -gt 18 ]; then
+            echo "::error::Generated build number is invalid for CFBundleVersion."
+            exit 1
+          fi
+
+          printf 'IOS_BUILD_NAME=%s\n' "$build_name" >> "$GITHUB_ENV"
+          printf 'IOS_BUILD_NUMBER=%s\n' "$build_number" >> "$GITHUB_ENV"
+          echo "Using iOS version $build_name with unique TestFlight build number $build_number."
+
+      - name: Prepare Flutter and CocoaPods dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd flutter
+          flutter pub get
+          pushd ios
+          pod install
+          popd
+          popd
+
+      - name: Configure manual App Store archive signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/configure-ios-archive-signing.py \
+            --project flutter/ios/Runner.xcodeproj/project.pbxproj \
+            --team-id "$APPLE_TEAM_ID" \
+            --main-profile "$IOS_MAIN_PROFILE_NAME" \
+            --broadcast-profile "$IOS_BROADCAST_PROFILE_NAME"
+
+          pushd flutter/ios
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -showBuildSettings \
+            | grep -E 'CODE_SIGN_STYLE =|DEVELOPMENT_TEAM =|PRODUCT_BUNDLE_IDENTIFIER =|PROVISIONING_PROFILE_SPECIFIER ='
+          popd
+
+      - name: Build Rust iOS library
+        shell: bash
+        run: cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+
+      - name: Create App Store export options
+        shell: bash
+        run: |
+          set -euo pipefail
+          export_options="$RUNNER_TEMP/ExportOptions-app-store.plist"
+          python3 - "$export_options" <<'PY'
+          import os
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "wb") as output:
+              plistlib.dump(
+                  {
+                      "method": "app-store",
+                      "signingStyle": "manual",
+                      "teamID": os.environ["APPLE_TEAM_ID"],
+                      "provisioningProfiles": {
+                          os.environ["IOS_MAIN_BUNDLE_ID"]: os.environ["IOS_MAIN_PROFILE_NAME"],
+                          os.environ["IOS_BROADCAST_BUNDLE_ID"]: os.environ["IOS_BROADCAST_PROFILE_NAME"],
+                      },
+                      "stripSwiftSymbols": True,
+                      "uploadBitcode": False,
+                  },
+                  output,
+                  sort_keys=False,
+              )
+          PY
+          printf 'IOS_EXPORT_OPTIONS=%s\n' "$export_options" >> "$GITHUB_ENV"
+
+      - name: Build TestFlight IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd flutter
+          flutter build ipa \
+            --release \
+            --build-name "$IOS_BUILD_NAME" \
+            --build-number "$IOS_BUILD_NUMBER" \
+            --dart-define=KQ_PRIVACY_POLICY_URL="$KQ_PRIVACY_POLICY_URL" \
+            --dart-define=KQ_ACCOUNT_DELETE_URL="$KQ_ACCOUNT_DELETE_URL" \
+            --dart-define=KQ_IOS_IAP_PRODUCTS="$KQ_IOS_IAP_PRODUCTS" \
+            --dart-define=KQ_IOS_IAP_VERIFY_URL="$KQ_IOS_IAP_VERIFY_URL" \
+            --dart-define=KQ_IOS_INTERNAL_DIRECT_PAYMENT=false \
+            --export-options-plist="$IOS_EXPORT_OPTIONS"
+          ipa_path="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          if [ -z "$ipa_path" ]; then
+            echo "::error::No IPA was produced."
+            exit 1
+          fi
+          if [ "$ipa_path" != "build/ios/ipa/KQRemoteLink.ipa" ]; then
+            mv "$ipa_path" build/ios/ipa/KQRemoteLink.ipa
+          fi
+          popd
+
+      - name: Validate App Store Connect upload credentials
+        shell: bash
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for secret_name in APPSTORE_API_KEY_ID APPSTORE_ISSUER_ID APPSTORE_API_PRIVATE_KEY; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "::error::Missing required App Store Connect secret: ${secret_name}"
+              exit 1
+            fi
+          done
+          case "$APPSTORE_API_PRIVATE_KEY" in
+            *"-----BEGIN PRIVATE KEY-----"*|*"-----BEGIN EC PRIVATE KEY-----"*) ;;
+            *)
+              echo "::error::APPSTORE_API_PRIVATE_KEY must contain the complete .p8 private key."
+              exit 1
+              ;;
+          esac
+
+      - name: Upload IPA to TestFlight
+        uses: apple-actions/upload-testflight-build@v4
+        with:
+          app-path: flutter/build/ios/ipa/KQRemoteLink.ipa
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+
+      - name: Remove signing assets
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/ios-testflight-signing.keychain-db" || true
+          rm -rf "$RUNNER_TEMP/ios-testflight-signing"
+          if [ -n "${IOS_MAIN_PROFILE_UUID:-}" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$IOS_MAIN_PROFILE_UUID.mobileprovision"
+          fi
+          if [ -n "${IOS_BROADCAST_PROFILE_UUID:-}" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$IOS_BROADCAST_PROFILE_UUID.mobileprovision"
+          fi
