@@ -9,7 +9,7 @@ repo_root: D:/demo/远程桌面/remoteLink # repo-relative or absolute path this
 branch: main # git branch the work happens on
 base_sha: bbe5bd7 # git short SHA the plan started from
 created: 2026-07-23 20:33 # YYYY-MM-DD HH:mm
-updated: 2026-07-23 22:29 # YYYY-MM-DD HH:mm  (bump on every edit)
+updated: 2026-07-23 23:25 # YYYY-MM-DD HH:mm  (bump on every edit)
 supersedes: ""           # plan_id this replaces, if any
 ---
 
@@ -29,9 +29,9 @@ _Concrete, checkable conditions. "Done" = all of these are true._
 - [ ] The ID shown on iOS is the same ID sent to hbbs, reaches a registered/online state, and a Windows client no longer receives `ID 不存在` after broadcast starts.
 - [ ] The iOS page contains the ID/password and one context-appropriate sharing action; it has no duplicate instructions, collection-status panel, or app-owned recording-warning page.
 - [ ] Tapping the sharing action opens the required Apple ReplayKit picker; after the user confirms it, the app returns to the credential page and reports whether the device is actually connectable.
-- [ ] Windows, macOS, Linux, Android, and iOS device types all persist through the account-device API and render with the correct type/icon after refresh.
+- [x] Windows, macOS, Linux, Android, and iOS device types all persist through the account-device API and render with the correct type/icon after refresh.
 - [x] StoreKit returns `com.kunqiong.remotelink.member.monthly` in TestFlight/Sandbox, or the remaining App Store Connect blocker is proven with exact configuration evidence rather than masked in code.
-- [ ] Targeted tests, full relevant Flutter tests, analysis, server tests, and CI/TestFlight workflow complete without new failures.
+- [x] Targeted tests, full relevant Flutter tests, analysis, server tests, and CI/TestFlight workflow complete without new failures.
 
 ## Assumptions & Constraints
 
@@ -106,7 +106,7 @@ interface, non-overlapping file ownership); otherwise run it in the main thread 
 | T4 | Simplify the iOS credential/share UI to one context action while retaining the mandatory ReplayKit system picker | `[main]` | T3 | [x] |
 | T5 | Verify and complete persistence/rendering/connection behavior for all five desktop saved-device type options | `[main]` | T1 | [x] |
 | T6 | Diagnose and correct the StoreKit product contract/configuration without faking unavailable products | `[main]` | T1 | [x] |
-| T7 | Run regression checks, record evidence, commit only task files, push, and trigger/verify a TestFlight build | `[main]` | T3,T4,T5,T6 | [ ] |
+| T7 | Run regression checks, record evidence, commit only task files, push, and trigger/verify a TestFlight build | `[main]` | T3,T4,T5,T6 | [x] |
 
 > A task that depends on an unfinished interface is NOT independent. Give it a `Deps`
 > entry on the task that stabilizes the interface, or lock the interface contract first
@@ -144,6 +144,7 @@ the replacement rather than reusing its identity._
 _Open questions or external dependencies stopping progress. Empty when unblocked._
 
 - App Store Connect shows `付费 App 协议` as `新` and requires legal-entity information before signing. The account holder must complete the legal, tax, and banking workflow before StoreKit can sell the subscription; this cannot be completed from source code.
+- The new TestFlight build still needs one real-device acceptance pass: start ReplayKit on the iPhone, wait for `可连接`, then connect from Windows using the displayed ID and password.
 
 ---
 
@@ -161,6 +162,7 @@ reported rows in here after reviewing the diff). Write it as you finish, never i
 | 2026-07-23 21:25 | T4 | `server_page.dart` | Added a one-time-per-session ReplayKit presentation guard, fresh active-state handling, and one contextual start/stop action inside the credential card; removed the duplicate sharing card | main |
 | 2026-07-23 21:25 | T5 | desktop device dialog/platform rendering | Added the iOS platform constant and removed the Windows/Android-only block so Windows, macOS, Linux, Android, and iOS all persist through the existing generic peer path | main |
 | 2026-07-23 22:16 | T6 | App Store Connect and iOS membership UI | Verified the exact product ID, 175-territory USD 0.99 pricing, localization, and draft-review attachment; identified the inactive paid-app agreement as the external blocker and moved technical missing-product IDs to debug logs | main |
+| 2026-07-23 23:25 | T7 | Regression, commit, GitHub push, and TestFlight | Committed `402e72a`, pushed `main`, and verified both iOS Preflight Build and iOS TestFlight Distribution report passing | main |
 
 ## Verification Evidence
 
@@ -183,6 +185,8 @@ rest deferred - list which), or `not-run` (nothing run - say why + residual risk
 | 22:26 | `rustfmt --edition 2021 --check src/common.rs` | Passed | Workspace-wide `cargo fmt` remains blocked by the pre-existing missing `src/ui/inline.rs` module |
 | 22:28 | `node --test test/*.test.js` in `server` | Passed: 35 tests | Apple verification, notifications, entitlement binding, deployment config, and API tests are green |
 | 22:28 | `git diff --check` | Passed | Only expected Windows line-ending notices were emitted |
+| 23:10 | GitHub Actions run `30016824544` | Completed: success for commit `402e72a` | TestFlight distribution workflow finished successfully |
+| 23:24 | GitHub workflow badges on `main` | `iOS TestFlight Distribution - passing`; `iOS Preflight Build - passing` | Confirms both cloud workflows are green after the push |
 
 ## Bug & Fix Log
 
@@ -201,11 +205,15 @@ here after fixing, so the same error logic is not repeated next time._
 _Leave empty until the acceptance pass is done. Then fill in: what was built, key
 decisions, what was verified (and how), verification_status rationale, anything deferred._
 
-<!-- filled in at close-out -->
+- Built and pushed the iOS rendezvous registration fix, so the displayed iPhone ID is no longer intentionally excluded from hbbs registration.
+- Consolidated ReplayKit controls into the credential card and prevented repeated automatic picker presentation within one app session.
+- Enabled all five desktop saved-device platform choices through the existing generic persistence/connection path.
+- Kept StoreKit strict, verified the exact product/price metadata, and identified the inactive Paid Apps Agreement as the remaining external purchase blocker.
+- Verification is `partial` only because the new TestFlight build still requires a physical iPhone-to-Windows connection test and the account holder must activate the Paid Apps Agreement.
 
 ## Next Steps
 
 _Always keep ONE explicit next action here so any agent resuming knows exactly where to
 start. Update it every time you stop._
 
-- Execute T7: run the full regression and formatting checks, commit only task-owned files, push GitHub, then trigger and monitor the TestFlight workflow.
+- Install the new TestFlight build, start iOS screen sharing once, and verify a Windows client can connect using the displayed ID/password; separately complete the Paid Apps Agreement in App Store Connect.
