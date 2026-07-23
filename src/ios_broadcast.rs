@@ -13,6 +13,10 @@ const ERR_INVALID_CONFIG_DIR: i32 = 1;
 const ERR_INVALID_FRAME: i32 = 2;
 const ERR_FRAME_TOO_LARGE: i32 = 3;
 const ERR_PAUSED: i32 = crate::ios_broadcast_audio::ERR_PAUSED;
+const REGISTRATION_NOT_STARTED: i32 = 0;
+const REGISTRATION_PENDING: i32 = 1;
+const REGISTRATION_READY: i32 = 2;
+const REGISTRATION_REQUIRES_DEPLOYMENT: i32 = 3;
 
 static INITIALIZE: Once = Once::new();
 static HOST_THREAD_STARTED: AtomicBool = AtomicBool::new(false);
@@ -43,6 +47,11 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     });
 
     Config::set_option("stop-service".to_owned(), String::new());
+    // A previous app process may have left a cached confirmation behind. The
+    // broadcast extension must prove this session is registered before it can
+    // accept a remote connection.
+    Config::set_key_confirmed(false);
+    crate::rendezvous_mediator::NEEDS_DEPLOY.store(false, Ordering::Release);
     PAUSED.store(false, Ordering::Release);
     ACTIVE.store(true, Ordering::Release);
     crate::ios_broadcast_audio::start();
@@ -56,6 +65,20 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
         crate::RendezvousMediator::restart();
     }
     OK
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_registration_state() -> i32 {
+    if !ACTIVE.load(Ordering::Acquire) {
+        return REGISTRATION_NOT_STARTED;
+    }
+    if crate::rendezvous_mediator::NEEDS_DEPLOY.load(Ordering::Acquire) {
+        return REGISTRATION_REQUIRES_DEPLOYMENT;
+    }
+    if Config::get_key_confirmed() {
+        return REGISTRATION_READY;
+    }
+    REGISTRATION_PENDING
 }
 
 #[no_mangle]

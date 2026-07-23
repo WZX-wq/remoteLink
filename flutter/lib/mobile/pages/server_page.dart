@@ -269,6 +269,110 @@ class _IOSScreenShareBroadcastMvpState
     extends State<_IOSScreenShareBroadcastMvp> {
   bool _opening = false;
   String? _errorText;
+  Timer? _broadcastStatusTimer;
+  Map<String, dynamic>? _broadcastStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshBroadcastStatus();
+    _broadcastStatusTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _refreshBroadcastStatus(),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_openBroadcastPickerWhenNeeded());
+    });
+  }
+
+  @override
+  void dispose() {
+    _broadcastStatusTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshBroadcastStatus() async {
+    try {
+      final response = await _kqIOSBroadcastChannel
+          .invokeMethod<Map<dynamic, dynamic>>('get_broadcast_status');
+      if (!mounted || response == null) return;
+      setState(() {
+        _broadcastStatus = Map<String, dynamic>.fromEntries(
+          response.entries.map(
+            (entry) => MapEntry(entry.key.toString(), entry.value),
+          ),
+        );
+      });
+    } catch (e) {
+      debugPrint('Failed to read iOS broadcast status: $e');
+    }
+  }
+
+  Future<void> _openBroadcastPickerWhenNeeded() async {
+    await _refreshBroadcastStatus();
+    if (!mounted) return;
+    final registrationState = _broadcastStatus?['registrationState'];
+    if (registrationState is num && registrationState.toInt() != 0) return;
+    await _openBroadcastPicker();
+  }
+
+  String _connectionAvailabilityText() {
+    final status = _broadcastStatus;
+    if (status == null) {
+      return _opening
+          ? _iosShareText(
+              zhCn: '等待系统确认',
+              zhTw: '等待系統確認',
+              en: 'Waiting for system confirmation',
+            )
+          : _iosShareText(
+              zhCn: '等待开启',
+              zhTw: '等待開啟',
+              en: 'Waiting to start',
+            );
+    }
+    final registrationState = status['registrationState'];
+    if (registrationState is num) {
+      switch (registrationState.toInt()) {
+        case 2:
+          return _iosShareText(
+            zhCn: '可连接',
+            zhTw: '可連線',
+            en: 'Ready to connect',
+          );
+        case 3:
+          return _iosShareText(
+            zhCn: '暂不可连接',
+            zhTw: '暫不可連線',
+            en: 'Not available',
+          );
+        case 1:
+          return _iosShareText(
+            zhCn: '正在接入',
+            zhTw: '正在接入',
+            en: 'Connecting',
+          );
+      }
+    }
+    if (status['state'] == 'failed') {
+      return _iosShareText(
+        zhCn: '暂不可连接',
+        zhTw: '暫不可連線',
+        en: 'Not available',
+      );
+    }
+    return _opening
+        ? _iosShareText(
+            zhCn: '等待系统确认',
+            zhTw: '等待系統確認',
+            en: 'Waiting for system confirmation',
+          )
+        : _iosShareText(
+            zhCn: '等待开启',
+            zhTw: '等待開啟',
+            en: 'Waiting to start',
+          );
+  }
 
   Future<void> _openBroadcastPicker() async {
     if (_opening) return;
@@ -304,6 +408,7 @@ class _IOSScreenShareBroadcastMvpState
         setState(() {
           _opening = false;
         });
+        _refreshBroadcastStatus();
       }
     }
   }
@@ -311,16 +416,13 @@ class _IOSScreenShareBroadcastMvpState
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
+    final connectionAvailabilityText = _connectionAvailabilityText();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
       children: [
         ServerInfo(
-          connectionStatusTextOverride: _iosShareText(
-            zhCn: '正在接入鲲穹远程',
-            zhTw: '正在接入鯤穹遠端',
-            en: 'Connecting to Kunqiong Remote',
-          ),
+          connectionStatusTextOverride: connectionAvailabilityText,
         ),
         const SizedBox(height: 12),
         PaddingCard(
@@ -345,9 +447,9 @@ class _IOSScreenShareBroadcastMvpState
                     children: [
                       Text(
                         _iosShareText(
-                          zhCn: '开始共享屏幕',
-                          zhTw: '開始分享螢幕',
-                          en: 'Start screen sharing',
+                          zhCn: '屏幕共享',
+                          zhTw: '螢幕分享',
+                          en: 'Screen sharing',
                         ),
                         style: TextStyle(
                           color: q.ink,
@@ -357,11 +459,7 @@ class _IOSScreenShareBroadcastMvpState
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _iosShareText(
-                          zhCn: '在系统广播面板中选择“鲲穹远程桌面”，然后开始广播。',
-                          zhTw: '在系統廣播面板中選擇「鯤穹遠端桌面」，然後開始廣播。',
-                          en: 'Choose KQ Remote Link in the system broadcast panel, then start broadcasting.',
-                        ),
+                        connectionAvailabilityText,
                         style: TextStyle(
                           color: q.muted,
                           fontSize: 13,
@@ -373,34 +471,6 @@ class _IOSScreenShareBroadcastMvpState
                   ),
                 ),
               ]),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _opening ? null : _openBroadcastPicker,
-                  icon: _opening
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: q.primary,
-                          ),
-                        )
-                      : const Icon(Icons.play_arrow_rounded),
-                  label: Text(_opening
-                      ? _iosShareText(
-                          zhCn: '正在打开...',
-                          zhTw: '正在開啟...',
-                          en: 'Opening...',
-                        )
-                      : _iosShareText(
-                          zhCn: '打开系统广播',
-                          zhTw: '開啟系統廣播',
-                          en: 'Open system broadcast',
-                        )),
-                ),
-              ),
               if (_errorText != null) ...[
                 const SizedBox(height: 12),
                 _IOSShareRequirementNotice(text: _errorText!),
@@ -408,10 +478,6 @@ class _IOSScreenShareBroadcastMvpState
             ],
           ),
         ),
-        if (_errorText != null) ...[
-          const SizedBox(height: 12),
-          _IOSShareRequirementNotice(text: _errorText!),
-        ],
       ],
     );
   }

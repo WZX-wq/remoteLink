@@ -2999,6 +2999,7 @@ app.post('/api/membership/apple/verify', async (req, res, next) => {
     });
     const transaction = await fetchAndValidateAppleTransaction({
       transactionId,
+      signedTransaction: req.body?.server_verification_data,
       expectedProductId,
       config: appleConfig,
     });

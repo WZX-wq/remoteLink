@@ -62,6 +62,18 @@ function normalizeAppleEnvironment(value) {
   return '';
 }
 
+function signedTransactionEnvironmentHint(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  try {
+    return normalizeAppleEnvironment(parseJwsPayload(normalized).environment);
+  } catch (_) {
+    // The signed transaction is validated again by Apple's API. A malformed
+    // optional hint must not change the configured verification environment.
+    return '';
+  }
+}
+
 function mysqlDateTimeFromMillis(value) {
   const milliseconds = Number(value);
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
@@ -143,6 +155,7 @@ export function buildAppStoreServerApiToken(config, now = new Date()) {
 
 export async function fetchAndValidateAppleTransaction({
   transactionId,
+  signedTransaction,
   expectedProductId,
   config,
   allowRevoked = false,
@@ -153,7 +166,13 @@ export async function fetchAndValidateAppleTransaction({
   if (!normalizedTransactionId || !normalizedProductId) {
     throw new AppleIapError('Apple transaction data is incomplete.');
   }
-  const environment = normalizeEnvironment(config?.environment);
+  const configuredEnvironment = normalizeEnvironment(config?.environment);
+  // TestFlight transactions carry environment=Sandbox even when the shared
+  // production API is configured for live App Store transactions. Use the
+  // signed data only to choose the Apple endpoint; the response from Apple is
+  // still checked against the selected environment below.
+  const environment =
+    signedTransactionEnvironmentHint(signedTransaction) || configuredEnvironment;
   const bundleId = requiredString(config?.bundleId, 'KQ_APPLE_IAP_BUNDLE_ID');
   const token = buildAppStoreServerApiToken(config);
   const apiBaseUrl = APPLE_API_BASE_URLS[environment];

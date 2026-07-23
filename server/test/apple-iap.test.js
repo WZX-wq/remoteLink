@@ -111,6 +111,41 @@ test('verifies a StoreKit transaction against the Apple sandbox API response', a
   assert.equal(transaction.expiresAt, '2026-05-28 20:26:40');
 });
 
+test('routes a TestFlight sandbox transaction to Apple sandbox when server defaults to production', async () => {
+  const transactionId = '1000000123456790';
+  const signedTransaction = fakeJws({
+    transactionId,
+    environment: 'Sandbox',
+  });
+  const receivedUrls = [];
+  const transaction = await fetchAndValidateAppleTransaction({
+    transactionId,
+    signedTransaction,
+    expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+    config: appleConfig({ environment: 'production' }),
+    fetchImpl: async (url) => {
+      receivedUrls.push(String(url));
+      return new Response(
+        JSON.stringify({
+          signedTransactionInfo: fakeJws({
+            transactionId,
+            originalTransactionId: transactionId,
+            productId: 'com.kunqiong.remotelink.member.monthly',
+            bundleId: 'com.kunqiong.remotelink',
+            environment: 'Sandbox',
+          }),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    },
+  });
+
+  assert.equal(transaction.environment, 'Sandbox');
+  assert.deepEqual(receivedUrls, [
+    'https://api.storekit-sandbox.itunes.apple.com/inApps/v1/transactions/1000000123456790',
+  ]);
+});
+
 test('rejects an Apple transaction whose product does not match the selected package', async () => {
   await assert.rejects(
     () =>

@@ -66,13 +66,42 @@ void main() {
     expect(handler, contains('private func startTransportIfNeeded() -> Bool'));
   });
 
+  test('iOS broadcast requires a fresh rendezvous confirmation before ready',
+      () {
+    final native = File('../src/ios_broadcast.rs').readAsStringSync();
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final bridge =
+        File('ios/KQScreenBroadcast/KQBroadcastBridge.h').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(native, contains('Config::set_key_confirmed(false);'));
+    expect(
+      native,
+      contains(
+          'pub extern "C" fn kq_ios_broadcast_registration_state() -> i32'),
+    );
+    expect(bridge, contains('kq_ios_broadcast_registration_state'));
+    expect(handler, contains('kq_ios_broadcast_registration_state()'));
+    expect(handler, contains('kq_broadcast_registration_state'));
+    expect(delegate, contains('"registrationState"'));
+  });
+
   test('iOS UI keeps the broadcast entry compact and user-facing', () {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
 
     expect(page, contains("invokeMethod<bool>('show_broadcast_picker')"));
-    expect(page, contains('正在接入鲲穹远程'));
-    expect(page, contains('打开系统广播'));
-    expect(page, contains('在系统广播面板中选择“鲲穹远程桌面”'));
+    expect(
+        page,
+        contains(
+            "invokeMethod<Map<dynamic, dynamic>>('get_broadcast_status')"));
+    expect(page, contains('Timer.periodic'));
+    expect(page, contains('addPostFrameCallback'));
+    expect(page, contains('_openBroadcastPickerWhenNeeded'));
+    expect(page, contains('等待系统确认'));
+    expect(page, contains('可连接'));
+    expect(page, isNot(contains("zhCn: '启动'")));
+    expect(page, isNot(contains('打开系统广播')));
     expect(page, isNot(contains('电脑和手机连接方式')));
     expect(page, isNot(contains('采集状态')));
     expect(page, isNot(contains('视频帧')));
@@ -101,7 +130,7 @@ void main() {
     expect(iosBranch, contains('child: const _IOSScreenShareBroadcastMvp()'));
     expect(broadcastPage, contains('ServerInfo('));
     expect(broadcastPage, contains('connectionStatusTextOverride'));
-    expect(broadcastPage, contains('正在接入鲲穹远程'));
-    expect(broadcastPage, contains('开始共享屏幕'));
+    expect(broadcastPage, contains('_connectionAvailabilityText'));
+    expect(broadcastPage, contains('屏幕共享'));
   });
 }

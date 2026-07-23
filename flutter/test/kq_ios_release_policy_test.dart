@@ -194,7 +194,7 @@ void main() {
   });
 
   test(
-      'screen broadcast forwards application audio and reports verified viewers',
+      'screen broadcast forwards application audio and waits for rendezvous registration',
       () {
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
@@ -216,10 +216,9 @@ void main() {
         handler,
         contains(
             'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));
-    expect(page, contains("_status['audioSupported']"));
-    expect(page, contains('共享已启动，等待其他设备连接'));
-    expect(page, contains('已有设备正在观看'));
-    expect(page, contains('正在传输画面和应用声音'));
+    expect(page, contains("status['registrationState']"));
+    expect(page, contains("zhCn: '正在接入'"));
+    expect(page, contains("zhCn: '可连接'"));
     expect(page, isNot(contains('当前屏幕共享仅传输画面。')));
     expect(page, isNot(contains('应用音频帧')));
     expect(page, isNot(contains('麦克风音频帧')));

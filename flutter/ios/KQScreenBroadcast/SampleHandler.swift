@@ -63,7 +63,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
     publishStatus(
       state: "resumed",
-      transportState: transportStarted ? "ready" : "waiting_for_frame"
+      transportState: transportStarted
+        ? registrationTransportState()
+        : "waiting_for_frame"
     )
   }
 
@@ -156,7 +158,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
           state: "capturing",
           width: width,
           height: height,
-          transportState: "ready"
+          transportState: registrationTransportState()
         )
       }
     case .audioApp:
@@ -168,14 +170,17 @@ final class SampleHandler: RPBroadcastSampleHandler {
       if audioResult == 0 {
         audioForwardingActive = true
         if appAudioFrameCount == 1 || appAudioFrameCount % 100 == 0 {
-          publishStatus(state: "capturing", transportState: "ready")
+          publishStatus(
+            state: "capturing",
+            transportState: registrationTransportState()
+          )
         }
       } else if appAudioFrameCount == 1 || appAudioFrameCount % 100 == 0 {
         // Keep video streaming if a device returns an audio format that cannot
         // be converted. The shared status gives the app a useful diagnostic.
         publishStatus(
           state: "capturing",
-          transportState: "ready",
+          transportState: registrationTransportState(),
           errorCode: "audio_submit_\(audioResult)"
         )
       }
@@ -204,8 +209,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(appAudioFrameCount, forKey: "kq_broadcast_app_audio_frames")
     defaults.set(micAudioFrameCount, forKey: "kq_broadcast_mic_audio_frames")
     defaults.set(Date().timeIntervalSince1970, forKey: "kq_broadcast_updated_at")
+    let registrationState = transportStarted
+      ? Int(kq_ios_broadcast_registration_state())
+      : 0
+    defaults.set(registrationState, forKey: "kq_broadcast_registration_state")
     defaults.set(
-      transportState ?? (transportStarted ? "ready" : "waiting_for_frame"),
+      transportState ?? registrationTransportState(),
       forKey: "kq_broadcast_transport_state"
     )
     let viewerCount = transportStarted
@@ -215,7 +224,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")
-    defaults.set(errorCode ?? "", forKey: "kq_broadcast_error_code")
+    defaults.set(
+      errorCode ?? registrationErrorCode(for: registrationState) ?? "",
+      forKey: "kq_broadcast_error_code"
+    )
     if let width = width {
       defaults.set(width, forKey: "kq_broadcast_width")
     }
@@ -223,6 +235,21 @@ final class SampleHandler: RPBroadcastSampleHandler {
       defaults.set(height, forKey: "kq_broadcast_height")
     }
     defaults.synchronize()
+  }
+
+  private func registrationTransportState() -> String {
+    switch kq_ios_broadcast_registration_state() {
+    case 2:
+      return "ready"
+    case 3:
+      return "registration_required"
+    default:
+      return transportStarted ? "registering" : "waiting_for_frame"
+    }
+  }
+
+  private func registrationErrorCode(for registrationState: Int) -> String? {
+    registrationState == 3 ? "server_registration_required" : nil
   }
 
   private func submitVideoFrame(

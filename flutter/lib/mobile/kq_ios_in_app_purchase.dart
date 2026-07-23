@@ -182,6 +182,8 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
   Set<String> get unavailableProductIds =>
       Set<String>.unmodifiable(_notFoundProductIds);
 
+  String get unavailableProductIdsText => unavailableProductIds.join(', ');
+
   bool isPackageAvailable(String packageId) {
     final productId = config.productForPackage(packageId);
     return productId != null && _productsByStoreId.containsKey(productId);

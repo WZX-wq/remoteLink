@@ -86,6 +86,19 @@ void main() {
     expect(page, isNot(contains('product!.description')));
   });
 
+  test(
+      'iOS payment diagnostics expose the Apple product IDs that were not returned',
+      () {
+    final controller =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(controller, contains('unavailableProductIds.join'));
+    expect(page, contains('Apple 未返回商品'));
+    expect(page, contains('请确认 App Store Connect 商品 ID'));
+  });
+
   test('iOS membership and screen sharing pages compile', () {
     expect(KqIosMembershipPurchasePage, isNotNull);
     expect(ServerInfo, isNotNull);

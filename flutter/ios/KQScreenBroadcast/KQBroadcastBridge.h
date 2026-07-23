@@ -7,6 +7,8 @@ int32_t kq_ios_broadcast_start(
     const uint8_t *config_dir,
     uintptr_t config_dir_len);
 
+int32_t kq_ios_broadcast_registration_state(void);
+
 int32_t kq_ios_broadcast_push_bgra(
     const void *data,
     uintptr_t data_len,
