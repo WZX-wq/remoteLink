@@ -86,8 +86,7 @@ void main() {
     expect(page, isNot(contains('product!.description')));
   });
 
-  test(
-      'iOS payment diagnostics expose the Apple product IDs that were not returned',
+  test('iOS payment keeps StoreKit diagnostics out of the customer-facing UI',
       () {
     final controller =
         File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
@@ -95,8 +94,10 @@ void main() {
         .readAsStringSync();
 
     expect(controller, contains('unavailableProductIds.join'));
-    expect(page, contains('Apple 未返回商品'));
-    expect(page, contains('请确认 App Store Connect 商品 ID'));
+    expect(controller, contains('debugPrint'));
+    expect(page, isNot(contains('Apple 未返回商品')));
+    expect(page, isNot(contains('请确认 App Store Connect 商品 ID')));
+    expect(page, contains('当前暂时无法购买会员，请稍后重试'));
   });
 
   test('iOS membership and screen sharing pages compile', () {

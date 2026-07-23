@@ -267,6 +267,8 @@ class _IOSScreenShareBroadcastMvp extends StatefulWidget {
 
 class _IOSScreenShareBroadcastMvpState
     extends State<_IOSScreenShareBroadcastMvp> {
+  static bool _broadcastPickerPresentedThisSession = false;
+
   bool _opening = false;
   String? _errorText;
   Timer? _broadcastStatusTimer;
@@ -281,7 +283,7 @@ class _IOSScreenShareBroadcastMvpState
       (_) => _refreshBroadcastStatus(),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_openBroadcastPickerWhenNeeded());
+      unawaited(_openBroadcastPickerOnFirstEntry());
     });
   }
 
@@ -308,17 +310,24 @@ class _IOSScreenShareBroadcastMvpState
     }
   }
 
-  Future<void> _openBroadcastPickerWhenNeeded() async {
+  bool _isBroadcastActive() {
+    final status = _broadcastStatus;
+    if (status == null || status['isFresh'] != true) return false;
+    return const <String>{'started', 'capturing', 'paused', 'resumed'}
+        .contains(status['state']);
+  }
+
+  Future<void> _openBroadcastPickerOnFirstEntry() async {
     await _refreshBroadcastStatus();
-    if (!mounted) return;
-    final registrationState = _broadcastStatus?['registrationState'];
-    if (registrationState is num && registrationState.toInt() != 0) return;
+    if (!mounted || _isBroadcastActive()) return;
+    if (_broadcastPickerPresentedThisSession) return;
+    _broadcastPickerPresentedThisSession = true;
     await _openBroadcastPicker();
   }
 
   String _connectionAvailabilityText() {
     final status = _broadcastStatus;
-    if (status == null) {
+    if (status == null || !_isBroadcastActive()) {
       return _opening
           ? _iosShareText(
               zhCn: '等待系统确认',
@@ -348,9 +357,9 @@ class _IOSScreenShareBroadcastMvpState
           );
         case 1:
           return _iosShareText(
-            zhCn: '正在接入',
-            zhTw: '正在接入',
-            en: 'Connecting',
+            zhCn: '正在接入鲲穹远程',
+            zhTw: '正在接入鯤穹遠端',
+            en: 'Connecting to Kunqiong Remote',
           );
       }
     }
@@ -361,17 +370,11 @@ class _IOSScreenShareBroadcastMvpState
         en: 'Not available',
       );
     }
-    return _opening
-        ? _iosShareText(
-            zhCn: '等待系统确认',
-            zhTw: '等待系統確認',
-            en: 'Waiting for system confirmation',
-          )
-        : _iosShareText(
-            zhCn: '等待开启',
-            zhTw: '等待開啟',
-            en: 'Waiting to start',
-          );
+    return _iosShareText(
+      zhCn: '正在接入鲲穹远程',
+      zhTw: '正在接入鯤穹遠端',
+      en: 'Connecting to Kunqiong Remote',
+    );
   }
 
   Future<void> _openBroadcastPicker() async {
@@ -415,68 +418,22 @@ class _IOSScreenShareBroadcastMvpState
 
   @override
   Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
     final connectionAvailabilityText = _connectionAvailabilityText();
+    final broadcastActive = _isBroadcastActive();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
       children: [
         ServerInfo(
           connectionStatusTextOverride: connectionAvailabilityText,
-        ),
-        const SizedBox(height: 12),
-        PaddingCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: q.primary.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(Icons.mobile_screen_share_rounded,
-                      color: q.primary, size: 28),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _iosShareText(
-                          zhCn: '屏幕共享',
-                          zhTw: '螢幕分享',
-                          en: 'Screen sharing',
-                        ),
-                        style: TextStyle(
-                          color: q.ink,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        connectionAvailabilityText,
-                        style: TextStyle(
-                          color: q.muted,
-                          fontSize: 13,
-                          height: 1.36,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ]),
-              if (_errorText != null) ...[
-                const SizedBox(height: 12),
-                _IOSShareRequirementNotice(text: _errorText!),
-              ],
-            ],
-          ),
+          sharingActionLabel: broadcastActive
+              ? _iosShareText(zhCn: '关闭', zhTw: '關閉', en: 'Stop')
+              : _iosShareText(zhCn: '开启', zhTw: '開啟', en: 'Start'),
+          sharingActionIcon: broadcastActive
+              ? Icons.stop_circle_outlined
+              : Icons.play_circle_outline_rounded,
+          onSharingAction: _opening ? null : _openBroadcastPicker,
+          sharingErrorText: _errorText,
         ),
       ],
     );
@@ -871,11 +828,22 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
 }
 
 class ServerInfo extends StatelessWidget {
-  ServerInfo({Key? key, this.connectionStatusTextOverride}) : super(key: key);
+  ServerInfo({
+    Key? key,
+    this.connectionStatusTextOverride,
+    this.sharingActionLabel,
+    this.sharingActionIcon,
+    this.onSharingAction,
+    this.sharingErrorText,
+  }) : super(key: key);
 
   final model = gFFI.serverModel;
   final emptyController = TextEditingController(text: "-");
   final String? connectionStatusTextOverride;
+  final String? sharingActionLabel;
+  final IconData? sharingActionIcon;
+  final VoidCallback? onSharingAction;
+  final String? sharingErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -1001,6 +969,22 @@ class ServerInfo extends StatelessWidget {
               ? null
               : () => _showMobileKqPasswordDialog(serverModel),
         ),
+        if (sharingActionLabel != null) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon:
+                  Icon(sharingActionIcon ?? Icons.mobile_screen_share_rounded),
+              label: Text(sharingActionLabel!),
+              onPressed: onSharingAction,
+            ),
+          ),
+        ],
+        if (sharingErrorText != null) ...[
+          const SizedBox(height: 10),
+          _IOSShareRequirementNotice(text: sharingErrorText!),
+        ],
       ],
     ));
   }

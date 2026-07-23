@@ -217,7 +217,7 @@ void main() {
         contains(
             'defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")'));
     expect(page, contains("status['registrationState']"));
-    expect(page, contains("zhCn: '正在接入'"));
+    expect(page, contains("zhCn: '正在接入鲲穹远程'"));
     expect(page, contains("zhCn: '可连接'"));
     expect(page, isNot(contains('当前屏幕共享仅传输画面。')));
     expect(page, isNot(contains('应用音频帧')));

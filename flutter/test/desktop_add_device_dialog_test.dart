@@ -29,7 +29,7 @@ void main() {
     expect(dialogSource, isNot(contains('DropdownMenu<String>(')));
   });
 
-  test('add-device dialog accepts only Windows and Android platforms', () {
+  test('add-device dialog accepts every supported device platform', () {
     final source =
         File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync();
     final dialogStart = source.indexOf('  void _showAddDeviceDialog()');
@@ -39,16 +39,18 @@ void main() {
     );
     final dialogSource = source.substring(dialogStart, dialogEnd);
 
-    expect(
-      dialogSource,
-      contains('value != kPeerPlatformWindows &&'),
-    );
-    expect(dialogSource, contains('value != kPeerPlatformAndroid'));
-    expect(
-      dialogSource,
-      contains("showToast(_kqHomeText('暂不支持，待开发中', 'Not supported yet'))"),
-    );
     expect(dialogSource, contains('void selectPlatform(String value)'));
+    expect(dialogSource, contains('kPeerPlatformWindows'));
+    expect(dialogSource, contains('kPeerPlatformMacOS'));
+    expect(dialogSource, contains('kPeerPlatformLinux'));
+    expect(dialogSource, contains('kPeerPlatformAndroid'));
+    expect(dialogSource, contains('kPeerPlatformIOS'));
+    expect(
+      dialogSource,
+      isNot(
+        contains("showToast(_kqHomeText('暂不支持，待开发中', 'Not supported yet'))"),
+      ),
+    );
   });
 
   testWidgets('controlled device-type menu is removed with its parent',

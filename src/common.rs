@@ -2737,9 +2737,9 @@ fn apply_kq_remote_link_defaults() {
         .unwrap()
         .insert(keys::OPTION_VIEW_STYLE.to_owned(), "adaptive".to_owned());
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     let register_device = "Y";
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let register_device = "N";
     config::BUILTIN_SETTINGS.write().unwrap().insert(
         keys::OPTION_REGISTER_DEVICE.to_owned(),

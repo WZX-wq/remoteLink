@@ -66,6 +66,34 @@ void main() {
     expect(handler, contains('private func startTransportIfNeeded() -> Bool'));
   });
 
+  test('iOS advertises its displayed ID as a registerable device', () {
+    final defaults = File('../src/common.rs').readAsStringSync();
+    final rendezvous = File('../src/rendezvous_mediator.rs').readAsStringSync();
+
+    expect(
+      defaults,
+      contains(
+        RegExp(
+          r'#\[cfg\(any\(target_os = "android", target_os = "ios"\)\)\]\s*'
+          r'let register_device = "Y";',
+        ),
+      ),
+    );
+    expect(
+      defaults,
+      contains(
+        RegExp(
+          r'#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*'
+          r'let register_device = "N";',
+        ),
+      ),
+    );
+    expect(
+      rendezvous,
+      contains('no_register_device: Config::no_register_device()'),
+    );
+  });
+
   test('iOS broadcast requires a fresh rendezvous confirmation before ready',
       () {
     final native = File('../src/ios_broadcast.rs').readAsStringSync();
@@ -91,8 +119,8 @@ void main() {
     final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
     final migrationStart =
         delegate.indexOf('private func prepareBroadcastConfigDirectory');
-    final migrationEnd =
-        delegate.indexOf('private func migrateBroadcastConfiguration', migrationStart);
+    final migrationEnd = delegate.indexOf(
+        'private func migrateBroadcastConfiguration', migrationStart);
 
     expect(migrationStart, greaterThanOrEqualTo(0));
     expect(migrationEnd, greaterThan(migrationStart));
@@ -112,7 +140,9 @@ void main() {
             "invokeMethod<Map<dynamic, dynamic>>('get_broadcast_status')"));
     expect(page, contains('Timer.periodic'));
     expect(page, contains('addPostFrameCallback'));
-    expect(page, contains('_openBroadcastPickerWhenNeeded'));
+    expect(page, contains('_broadcastPickerPresentedThisSession'));
+    expect(page, contains('_openBroadcastPickerOnFirstEntry'));
+    expect(page, isNot(contains('_openBroadcastPickerWhenNeeded')));
     expect(page, contains('等待系统确认'));
     expect(page, contains('可连接'));
     expect(page, isNot(contains("zhCn: '启动'")));
@@ -146,6 +176,8 @@ void main() {
     expect(broadcastPage, contains('ServerInfo('));
     expect(broadcastPage, contains('connectionStatusTextOverride'));
     expect(broadcastPage, contains('_connectionAvailabilityText'));
-    expect(broadcastPage, contains('屏幕共享'));
+    expect(broadcastPage, contains('sharingActionLabel:'));
+    expect(broadcastPage, contains('onSharingAction:'));
+    expect(broadcastPage, isNot(contains('PaddingCard(')));
   });
 }

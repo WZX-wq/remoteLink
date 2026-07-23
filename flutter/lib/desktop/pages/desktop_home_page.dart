@@ -3423,10 +3423,6 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
       }
 
       void selectPlatform(String value) {
-        if (value != kPeerPlatformWindows && value != kPeerPlatformAndroid) {
-          showToast(_kqHomeText('暂不支持，待开发中', 'Not supported yet'));
-          return;
-        }
         setState(() => platform = value);
       }
 
@@ -3528,7 +3524,7 @@ class _KqDesignerDevicesPaneState extends State<_KqDesignerDevicesPane> {
                   platformMenuItem(kPeerPlatformMacOS, 'macOS'),
                   platformMenuItem(kPeerPlatformLinux, 'Linux'),
                   platformMenuItem(kPeerPlatformAndroid, 'Android'),
-                  platformMenuItem('iOS', 'iOS'),
+                  platformMenuItem(kPeerPlatformIOS, 'iOS'),
                 ],
                 builder: (context, controller, child) => InkWell(
                   onTap: submitting
@@ -4189,7 +4185,8 @@ String _kqDesignerDeviceSystem(Peer peer) {
       platform.contains('android')) {
     return 'Android';
   }
-  if (platform.contains('ios') ||
+  if (platform == kPeerPlatformIOS.toLowerCase() ||
+      platform.contains('ios') ||
       platform.contains('iphone') ||
       platform.contains('ipad')) {
     return 'iOS';
@@ -4215,7 +4212,8 @@ IconData _kqDesignerDeviceIcon(Peer peer) {
       platform.contains('android')) {
     return Icons.android_rounded;
   }
-  if (platform.contains('ios') ||
+  if (platform == kPeerPlatformIOS.toLowerCase() ||
+      platform.contains('ios') ||
       platform.contains('iphone') ||
       platform.contains('ipad')) {
     return Icons.phone_iphone_rounded;

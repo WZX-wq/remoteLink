@@ -68,10 +68,9 @@ class _KqIosMembershipPurchasePageState
         return _text('会员权益已更新。', 'Membership benefits have been updated.');
       case KqIosMembershipPurchasePhase.failed:
         if (_controller.hasUnavailableProducts) {
-          final productIds = _controller.unavailableProductIdsText;
           return _text(
-            'Apple 未返回商品（$productIds）。请确认 App Store Connect 商品 ID 和上架状态。',
-            'Apple did not return this product ($productIds). Check its App Store Connect ID and availability.',
+            '当前暂时无法购买会员，请稍后重试。',
+            'Membership is temporarily unavailable. Please try again later.',
           );
         }
         return _text('暂时无法完成 Apple 会员服务，请稍后重试。',

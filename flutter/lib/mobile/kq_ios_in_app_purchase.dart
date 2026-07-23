@@ -228,6 +228,12 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
               .map((product) => MapEntry(product.id, product)),
         );
       _notFoundProductIds = response.notFoundIDs.toSet();
+      if (_notFoundProductIds.isNotEmpty) {
+        debugPrint(
+          'StoreKit did not return configured product IDs: '
+          '${_notFoundProductIds.join(', ')}',
+        );
+      }
       if (response.error != null) {
         _setFailure('Unable to load Apple membership products.');
         return;
