@@ -87,6 +87,21 @@ void main() {
     expect(delegate, contains('"registrationState"'));
   });
 
+  test('iOS broadcast always merges legacy rendezvous configuration', () {
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final migrationStart =
+        delegate.indexOf('private func prepareBroadcastConfigDirectory');
+    final migrationEnd =
+        delegate.indexOf('private func migrateBroadcastConfiguration', migrationStart);
+
+    expect(migrationStart, greaterThanOrEqualTo(0));
+    expect(migrationEnd, greaterThan(migrationStart));
+
+    final preparation = delegate.substring(migrationStart, migrationEnd);
+    expect(preparation, contains('try migrateBroadcastConfiguration('));
+    expect(preparation, isNot(contains('existing.isEmpty')));
+  });
+
   test('iOS UI keeps the broadcast entry compact and user-facing', () {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
 

@@ -316,12 +316,7 @@ import AVFoundation
         at: destination,
         withIntermediateDirectories: true
       )
-      let existing = try fileManager.contentsOfDirectory(
-        at: destination,
-        includingPropertiesForKeys: nil
-      )
-      if existing.isEmpty,
-         let values = arguments as? [String: Any],
+      if let values = arguments as? [String: Any],
          let legacyPath = values["legacyDir"] as? String,
          !legacyPath.isEmpty {
         try migrateBroadcastConfiguration(
