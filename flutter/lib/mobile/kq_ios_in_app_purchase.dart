@@ -177,6 +177,11 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   bool get isReady => phase == KqIosMembershipPurchasePhase.ready;
 
+  bool get hasUnavailableProducts => _notFoundProductIds.isNotEmpty;
+
+  Set<String> get unavailableProductIds =>
+      Set<String>.unmodifiable(_notFoundProductIds);
+
   bool isPackageAvailable(String packageId) {
     final productId = config.productForPackage(packageId);
     return productId != null && _productsByStoreId.containsKey(productId);
@@ -223,6 +228,10 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       _notFoundProductIds = response.notFoundIDs.toSet();
       if (response.error != null) {
         _setFailure('Unable to load Apple membership products.');
+        return;
+      }
+      if (_productsByStoreId.isEmpty) {
+        _setFailure('Apple membership products are unavailable.');
         return;
       }
       phase = KqIosMembershipPurchasePhase.ready;

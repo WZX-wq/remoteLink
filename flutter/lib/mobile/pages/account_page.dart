@@ -521,7 +521,7 @@ class _AccountPageState extends State<AccountPage> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              translate('Upgrade Kunqiong Membership'),
+                              _mineText('Upgrade Kunqiong Membership'),
                               style: TextStyle(
                                 color: q.ink,
                                 fontSize: 18,
@@ -954,12 +954,12 @@ class _MembershipBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = isMember
-        ? translate('Membership benefits unlocked')
-        : translate('Upgrade Kunqiong Membership');
+        ? _mineText('Membership benefits unlocked')
+        : _mineText('Upgrade Kunqiong Membership');
     final formattedExpireAt = _formatMembershipExpireAt(expireAt);
     final subtitle = isMember && formattedExpireAt.isNotEmpty
-        ? '${translate('Membership valid until')} $formattedExpireAt'
-        : translate(
+        ? '${_mineText('Membership valid until')} $formattedExpireAt'
+        : _mineText(
             'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.');
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -1064,7 +1064,7 @@ class _MembershipBanner extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        translate(isMember ? 'Renew membership' : 'Upgrade'),
+                        _mineText(isMember ? 'Renew membership' : 'Upgrade'),
                         style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
@@ -2307,6 +2307,11 @@ const _mineZh = {
   'Notifications': '通知',
   'No notifications': '暂无通知',
   'Free plan': '免费版',
+  'Membership benefits unlocked': '会员权益已开通',
+  'Upgrade Kunqiong Membership': '开通鲲穹会员',
+  'Membership valid until': '会员有效期至',
+  'Renew membership': '续费会员',
+  'Upgrade': '开通会员',
   'Unlimited': '永久有效',
   'Remote quality and FPS': '画质与帧率',
   'General settings': '通用设置',
@@ -2343,6 +2348,11 @@ const _mineTw = {
   'Delete account': '註銷帳號',
   'Remove your account and data': '刪除帳號及相關資料',
   'Not set': '未設定',
+  'Membership benefits unlocked': '會員權益已開通',
+  'Upgrade Kunqiong Membership': '開通鯤穹會員',
+  'Membership valid until': '會員有效期至',
+  'Renew membership': '續費會員',
+  'Upgrade': '開通會員',
   'Unlimited': '永久有效',
   'Pay now': '立即支付',
   'Opening payment app...': '正在拉起支付...',

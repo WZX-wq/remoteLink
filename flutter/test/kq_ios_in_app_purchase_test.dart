@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_hbb/mobile/kq_ios_in_app_purchase.dart';
+import 'package:flutter_hbb/mobile/pages/ios_membership_purchase_page.dart';
+import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -68,6 +70,25 @@ void main() {
 
     expect(source, contains('purchase.pendingCompletePurchase &&'));
     expect(source, contains('!await _completePurchase(purchase)'));
+  });
+
+  test('iOS payment only presents mapped StoreKit plans and real prices', () {
+    final controller =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(controller, contains('if (_productsByStoreId.isEmpty)'));
+    expect(controller, contains('Apple membership products are unavailable.'));
+    expect(page, contains('final configuredPackages = widget.packages'));
+    expect(page, contains('final price = product?.price ?? text'));
+    expect(page, contains("text('暂不可用', 'Unavailable')"));
+    expect(page, isNot(contains('product!.description')));
+  });
+
+  test('iOS membership and screen sharing pages compile', () {
+    expect(KqIosMembershipPurchasePage, isNotNull);
+    expect(ServerInfo, isNotNull);
   });
 
   test('StoreKit dependency resolves with CI Flutter 3.44.5', () {

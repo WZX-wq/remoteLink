@@ -267,40 +267,8 @@ class _IOSScreenShareBroadcastMvp extends StatefulWidget {
 
 class _IOSScreenShareBroadcastMvpState
     extends State<_IOSScreenShareBroadcastMvp> {
-  Timer? _statusTimer;
-  Map<String, dynamic> _status = const {
-    'state': 'not_started',
-    'videoFrames': 0,
-    'appAudioFrames': 0,
-    'micAudioFrames': 0,
-    'width': 0,
-    'height': 0,
-    'updatedAt': 0.0,
-    'isFresh': false,
-    'transportState': 'not_started',
-    'remoteViewAvailable': false,
-    'remoteViewerCount': 0,
-    'audioSupported': false,
-    'viewOnly': true,
-    'errorCode': '',
-  };
   bool _opening = false;
   String? _errorText;
-
-  @override
-  void initState() {
-    super.initState();
-    _refreshStatus();
-    _statusTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      _refreshStatus();
-    });
-  }
-
-  @override
-  void dispose() {
-    _statusTimer?.cancel();
-    super.dispose();
-  }
 
   Future<void> _openBroadcastPicker() async {
     if (_opening) return;
@@ -312,10 +280,7 @@ class _IOSScreenShareBroadcastMvpState
       final opened = await _kqIOSBroadcastChannel
           .invokeMethod<bool>('show_broadcast_picker');
       if (!mounted) return;
-      if (opened == true) {
-        await Future<void>.delayed(const Duration(milliseconds: 800));
-        await _refreshStatus();
-      } else {
+      if (opened != true) {
         setState(() {
           _errorText = _iosShareText(
             zhCn: '未能打开系统屏幕共享面板，请确认安装包包含 Broadcast 扩展。',
@@ -343,89 +308,21 @@ class _IOSScreenShareBroadcastMvpState
     }
   }
 
-  Future<void> _refreshStatus() async {
-    try {
-      final raw =
-          await _kqIOSBroadcastChannel.invokeMethod('get_broadcast_status');
-      if (!mounted || raw is! Map) return;
-      setState(() {
-        _status = raw.map((key, value) => MapEntry(key.toString(), value));
-      });
-    } catch (e) {
-      debugPrint('Failed to read iOS broadcast status: $e');
-      if (!mounted) return;
-      setState(() {
-        _errorText = _iosShareText(
-          zhCn: '暂时无法读取屏幕共享状态，请稍后重试。',
-          zhTw: '暫時無法讀取螢幕分享狀態，請稍後重試。',
-          en: 'Screen sharing status is temporarily unavailable. Try again shortly.',
-        );
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
-    final state = (_status['state'] ?? 'not_started').toString();
-    final videoFrames = _statusInt('videoFrames');
-    final width = _statusInt('width');
-    final height = _statusInt('height');
-    final isFresh = _status['isFresh'] == true;
-    final remoteViewAvailable = _status['remoteViewAvailable'] == true;
-    final remoteViewerCount = _statusInt('remoteViewerCount');
-    final audioSupported = _status['audioSupported'] == true;
-    final transportState =
-        (_status['transportState'] ?? 'not_started').toString();
-    final errorCode = (_status['errorCode'] ?? '').toString();
-    final statusErrorText = _broadcastErrorText(errorCode);
-    final hasVideo = videoFrames > 0;
-    final stateColor = hasVideo && isFresh
-        ? q.online
-        : state == 'finished'
-            ? q.muted
-            : q.warning;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
       children: [
-        ServerInfo(),
-        PaddingCard(
-          title: _iosShareText(
-            zhCn: '电脑和手机连接方式',
-            zhTw: '電腦和手機連線方式',
-            en: 'How to connect from a computer',
-          ),
-          titleIcon: Icon(Icons.sync_alt_rounded, color: q.primary),
-          child: Column(
-            children: [
-              _IOSBroadcastConnectStep(
-                number: '1',
-                text: _iosShareText(
-                  zhCn: '在电脑端打开“远程协助”，选择连接远程设备。',
-                  zhTw: '在電腦端開啟「遠端協助」，選擇連線遠端裝置。',
-                  en: 'Open Remote Assistance on the computer and choose to connect to a remote device.',
-                ),
-              ),
-              _IOSBroadcastConnectStep(
-                number: '2',
-                text: _iosShareText(
-                  zhCn: '输入上方的设备识别码和验证码，发起连接。',
-                  zhTw: '輸入上方的裝置識別碼和驗證碼，發起連線。',
-                  en: 'Enter the device ID and verification code shown above, then start the connection.',
-                ),
-              ),
-              _IOSBroadcastConnectStep(
-                number: '3',
-                text: _iosShareText(
-                  zhCn: '回到 iPhone，打开系统广播面板，确认“鲲穹远程桌面”后点击“开始广播”。',
-                  zhTw: '回到 iPhone，開啟系統廣播面板，確認「鯤穹遠端桌面」後點擊「開始廣播」。',
-                  en: 'Return to iPhone, open the broadcast panel, select KQ Remote Link, then tap Start Broadcast.',
-                ),
-              ),
-            ],
+        ServerInfo(
+          connectionStatusTextOverride: _iosShareText(
+            zhCn: '正在接入鲲穹远程',
+            zhTw: '正在接入鯤穹遠端',
+            en: 'Connecting to Kunqiong Remote',
           ),
         ),
+        const SizedBox(height: 12),
         PaddingCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -448,9 +345,9 @@ class _IOSScreenShareBroadcastMvpState
                     children: [
                       Text(
                         _iosShareText(
-                          zhCn: 'iOS 屏幕广播',
-                          zhTw: 'iOS 螢幕廣播',
-                          en: 'iOS screen broadcast',
+                          zhCn: '开始共享屏幕',
+                          zhTw: '開始分享螢幕',
+                          en: 'Start screen sharing',
                         ),
                         style: TextStyle(
                           color: q.ink,
@@ -461,9 +358,9 @@ class _IOSScreenShareBroadcastMvpState
                       const SizedBox(height: 6),
                       Text(
                         _iosShareText(
-                          zhCn: '使用 ReplayKit 安全共享本机画面；广播启动后，其他设备可发起连接请求。',
-                          zhTw: '使用 ReplayKit 安全分享本機畫面，其他裝置可以連線觀看。',
-                          en: 'Share this screen securely with ReplayKit for viewing from another device.',
+                          zhCn: '在系统广播面板中选择“鲲穹远程桌面”，然后开始广播。',
+                          zhTw: '在系統廣播面板中選擇「鯤穹遠端桌面」，然後開始廣播。',
+                          en: 'Choose KQ Remote Link in the system broadcast panel, then start broadcasting.',
                         ),
                         style: TextStyle(
                           color: q.muted,
@@ -498,9 +395,9 @@ class _IOSScreenShareBroadcastMvpState
                           en: 'Opening...',
                         )
                       : _iosShareText(
-                          zhCn: '打开系统广播面板',
-                          zhTw: '開啟系統廣播面板',
-                          en: 'Open broadcast panel',
+                          zhCn: '打开系统广播',
+                          zhTw: '開啟系統廣播',
+                          en: 'Open system broadcast',
                         )),
                 ),
               ),
@@ -511,364 +408,11 @@ class _IOSScreenShareBroadcastMvpState
             ],
           ),
         ),
-        PaddingCard(
-          title: _iosShareText(
-            zhCn: '采集状态',
-            zhTw: '擷取狀態',
-            en: 'Capture status',
-          ),
-          titleIcon: Icon(Icons.sensors_rounded, color: stateColor),
-          child: Column(
-            children: [
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '状态',
-                  zhTw: '狀態',
-                  en: 'State',
-                ),
-                value: _statusLabel(state, hasVideo, isFresh),
-                color: stateColor,
-              ),
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '视频帧',
-                  zhTw: '影片幀',
-                  en: 'Video frames',
-                ),
-                value: '$videoFrames',
-              ),
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '分辨率',
-                  zhTw: '解析度',
-                  en: 'Resolution',
-                ),
-                value: width > 0 && height > 0 ? '${width}x$height' : '--',
-              ),
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '连接状态',
-                  zhTw: '連線狀態',
-                  en: 'Connection status',
-                ),
-                value: _remoteViewingLabel(
-                  state,
-                  transportState,
-                  remoteViewAvailable,
-                  remoteViewerCount,
-                ),
-                color: remoteViewAvailable ? q.online : q.warning,
-              ),
-              _IOSBroadcastStatusRow(
-                label: _iosShareText(
-                  zhCn: '传输模式',
-                  zhTw: '傳輸模式',
-                  en: 'Transport mode',
-                ),
-                value: _transportLabel(transportState),
-              ),
-            ],
-          ),
-        ),
-        if (!audioSupported)
-          PaddingCard(
-            child: _IOSShareRequirementNotice(
-              text: _iosShareText(
-                zhCn: '正在等待应用声音。需要语音通话时，请使用远程协助中的语音通话。',
-                zhTw: '正在等待應用程式聲音。需要語音通話時，請使用遠端協助中的語音通話。',
-                en: 'Waiting for application audio. Use the remote-assistance voice call for microphone audio.',
-              ),
-            ),
-          )
-        else
-          PaddingCard(
-            child: _IOSShareRequirementNotice(
-              text: _iosShareText(
-                zhCn: '正在传输画面和应用声音。麦克风请继续使用远程协助中的语音通话。',
-                zhTw: '正在傳輸畫面與應用程式聲音。麥克風請繼續使用遠端協助中的語音通話。',
-                en: 'Sharing video and application audio. Use the remote-assistance voice call for microphone audio.',
-              ),
-            ),
-          ),
-        if (statusErrorText != null)
-          PaddingCard(
-            child: _IOSShareRequirementNotice(text: statusErrorText),
-          ),
-        PaddingCard(
-          child: _IOSShareRequirementNotice(
-            text: _iosShareText(
-              zhCn: 'iOS 屏幕广播仅支持观看，不接收系统级远程鼠标、键盘或触控操作。',
-              zhTw: 'iOS 螢幕廣播僅支援觀看，不接收系統級遠端滑鼠、鍵盤或觸控操作。',
-              en: 'iOS screen broadcasting is view-only and does not accept system-level remote mouse, keyboard, or touch input.',
-            ),
-          ),
-        ),
+        if (_errorText != null) ...[
+          const SizedBox(height: 12),
+          _IOSShareRequirementNotice(text: _errorText!),
+        ],
       ],
-    );
-  }
-
-  int _statusInt(String key) {
-    final value = _status[key];
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
-  String _remoteViewingLabel(
-    String state,
-    String transportState,
-    bool remoteViewAvailable,
-    int remoteViewerCount,
-  ) {
-    if (state == 'failed' || transportState == 'failed') {
-      return _iosShareText(
-        zhCn: '启动失败',
-        zhTw: '啟動失敗',
-        en: 'Could not start',
-      );
-    }
-    if (transportState == 'waiting_for_frame') {
-      return _iosShareText(
-        zhCn: '等待画面',
-        zhTw: '等待畫面',
-        en: 'Waiting for video',
-      );
-    }
-    if (remoteViewAvailable) {
-      return _iosShareText(
-        zhCn: remoteViewerCount > 1
-            ? '已有 $remoteViewerCount 台设备正在观看'
-            : '已有设备正在观看',
-        zhTw: remoteViewerCount > 1
-            ? '已有 $remoteViewerCount 台装置正在观看'
-            : '已有装置正在观看',
-        en: remoteViewerCount > 1
-            ? '$remoteViewerCount devices are viewing'
-            : 'A device is viewing',
-      );
-    }
-    if (transportState == 'ready' || transportState == 'streaming') {
-      return _iosShareText(
-        zhCn: '共享已启动，等待其他设备连接',
-        zhTw: '分享已啟動，等待其他裝置連線',
-        en: 'Sharing started, waiting for another device',
-      );
-    }
-    return _iosShareText(
-      zhCn: '尚未开始',
-      zhTw: '尚未開始',
-      en: 'Not started',
-    );
-  }
-
-  String _transportLabel(String state) {
-    switch (state) {
-      case 'waiting_for_frame':
-        return _iosShareText(
-          zhCn: '等待画面',
-          zhTw: '等待畫面',
-          en: 'Waiting for video',
-        );
-      case 'starting':
-      case 'registering':
-        return _iosShareText(
-          zhCn: '正在准备',
-          zhTw: '正在準備',
-          en: 'Preparing',
-        );
-      case 'ready':
-      case 'streaming':
-        return _iosShareText(
-          zhCn: '传输已就绪',
-          zhTw: '傳輸已就緒',
-          en: 'Ready',
-        );
-      case 'paused':
-        return _iosShareText(
-          zhCn: '已暂停',
-          zhTw: '已暫停',
-          en: 'Paused',
-        );
-      case 'stopped':
-        return _iosShareText(
-          zhCn: '已结束',
-          zhTw: '已結束',
-          en: 'Stopped',
-        );
-      case 'failed':
-        return _iosShareText(
-          zhCn: '启动失败',
-          zhTw: '啟動失敗',
-          en: 'Could not start',
-        );
-      default:
-        return _iosShareText(
-          zhCn: '尚未开始',
-          zhTw: '尚未開始',
-          en: 'Not started',
-        );
-    }
-  }
-
-  String? _broadcastErrorText(String code) {
-    if (code.isEmpty) return null;
-    if (code == 'app_group_unavailable' || code == 'config_migration_failed') {
-      return _iosShareText(
-        zhCn: '屏幕共享配置不可用，请重新安装或重新打开应用后再试。',
-        zhTw: '螢幕分享設定不可用，請重新安裝或重新開啟應用程式後再試。',
-        en: 'Screen sharing configuration is unavailable. Reinstall or reopen the app and try again.',
-      );
-    }
-    if (code == 'unsupported_pixel_format') {
-      return _iosShareText(
-        zhCn: '当前设备暂时无法处理屏幕画面，请更新系统后重试。',
-        zhTw: '目前裝置暫時無法處理螢幕畫面，請更新系統後重試。',
-        en: 'This device cannot process the screen video. Update iOS and try again.',
-      );
-    }
-    return _iosShareText(
-      zhCn: '屏幕共享启动失败，请停止系统广播后重新开始。',
-      zhTw: '螢幕分享啟動失敗，請停止系統廣播後重新開始。',
-      en: 'Screen sharing could not start. Stop the system broadcast and try again.',
-    );
-  }
-
-  String _statusLabel(String state, bool hasVideo, bool isFresh) {
-    if (hasVideo && isFresh) {
-      return _iosShareText(
-        zhCn: '正在采集',
-        zhTw: '正在擷取',
-        en: 'Capturing',
-      );
-    }
-    if (state == 'finished') {
-      return _iosShareText(
-        zhCn: '已结束',
-        zhTw: '已結束',
-        en: 'Finished',
-      );
-    }
-    if (state == 'paused') {
-      return _iosShareText(
-        zhCn: '已暂停',
-        zhTw: '已暫停',
-        en: 'Paused',
-      );
-    }
-    if (state == 'started' || state == 'resumed' || state == 'capturing') {
-      return _iosShareText(
-        zhCn: '已开启，等待画面',
-        zhTw: '已開啟，等待畫面',
-        en: 'Started, waiting for video',
-      );
-    }
-    if (hasVideo) {
-      return _iosShareText(
-        zhCn: '等待新画面',
-        zhTw: '等待新畫面',
-        en: 'Waiting for new frames',
-      );
-    }
-    return _iosShareText(
-      zhCn: '未开始',
-      zhTw: '未開始',
-      en: 'Not started',
-    );
-  }
-}
-
-class _IOSBroadcastConnectStep extends StatelessWidget {
-  const _IOSBroadcastConnectStep({
-    required this.number,
-    required this.text,
-  });
-
-  final String number;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 22,
-          height: 22,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: q.primary.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: q.primary.withOpacity(0.22)),
-          ),
-          child: Text(
-            number,
-            style: TextStyle(
-              color: q.primary,
-              fontSize: 12,
-              height: 1,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              color: q.ink,
-              fontSize: 13,
-              height: 1.38,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-class _IOSBroadcastStatusRow extends StatelessWidget {
-  const _IOSBroadcastStatusRow({
-    required this.label,
-    required this.value,
-    this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: q.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Flexible(
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color ?? q.ink,
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-      ]),
     );
   }
 }
@@ -1261,10 +805,11 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
 }
 
 class ServerInfo extends StatelessWidget {
+  ServerInfo({Key? key, this.connectionStatusTextOverride}) : super(key: key);
+
   final model = gFFI.serverModel;
   final emptyController = TextEditingController(text: "-");
-
-  ServerInfo({Key? key}) : super(key: key);
+  final String? connectionStatusTextOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -1280,7 +825,11 @@ class ServerInfo extends StatelessWidget {
       final Color color;
       final IconData icon;
       final String text;
-      if (serverModel.connectStatus == -1) {
+      if (connectionStatusTextOverride != null) {
+        color = q.warning;
+        icon = Icons.sync_rounded;
+        text = connectionStatusTextOverride!;
+      } else if (serverModel.connectStatus == -1) {
         color = q.offline;
         icon = Icons.warning_amber_rounded;
         text = translate('not_ready_status');

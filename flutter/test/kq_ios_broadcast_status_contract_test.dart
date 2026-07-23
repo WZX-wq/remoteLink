@@ -51,27 +51,21 @@ void main() {
     expect(delegate, contains('"errorCode"'));
   });
 
-  test('iOS UI reports real view-only transport without internal errors', () {
+  test('iOS UI keeps the broadcast entry compact and user-facing', () {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
 
-    expect(page, contains("_status['remoteViewAvailable']"));
-    expect(page, contains("_statusInt('remoteViewerCount')"));
-    expect(page, contains("_status['errorCode']"));
-    expect(page, contains('共享已启动，等待其他设备连接'));
-    expect(page, contains('已有设备正在观看'));
-    expect(page, isNot(contains('可以连接观看')));
-    expect(page, contains('仅支持观看'));
-    expect(page, contains('打开系统广播面板'));
-    expect(page, contains('正在传输画面和应用声音'));
-    expect(page, isNot(contains('远程观看服务尚未接入')));
-    expect(page, isNot(contains('Service not connected')));
-    expect(page, isNot(contains('capture_only')));
+    expect(page, contains("invokeMethod<bool>('show_broadcast_picker')"));
+    expect(page, contains('正在接入鲲穹远程'));
+    expect(page, contains('打开系统广播'));
+    expect(page, contains('在系统广播面板中选择“鲲穹远程桌面”'));
+    expect(page, isNot(contains('电脑和手机连接方式')));
+    expect(page, isNot(contains('采集状态')));
+    expect(page, isNot(contains('视频帧')));
+    expect(page, isNot(contains('传输模式')));
     expect(page, isNot(contains('当前版本先验证采集链路')));
-    expect(page, isNot(contains('开始屏幕共享')));
   });
 
-  test('iOS broadcast keeps device credentials and explains computer viewing',
-      () {
+  test('iOS broadcast keeps the standard device credentials card', () {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
     final iosStart = page
         .indexOf('if (mobilePlatformCapabilities.canHostViewOnlyBroadcast)');
@@ -79,7 +73,7 @@ void main() {
     final broadcastStart =
         page.indexOf('class _IOSScreenShareBroadcastMvpState');
     final broadcastEnd =
-        page.indexOf('class _IOSBroadcastStatusRow', broadcastStart);
+        page.indexOf('class _IOSScreenShareUnavailable', broadcastStart);
 
     expect(iosStart, greaterThanOrEqualTo(0));
     expect(iosEnd, greaterThan(iosStart));
@@ -90,10 +84,9 @@ void main() {
     final broadcastPage = page.substring(broadcastStart, broadcastEnd);
     expect(iosBranch, contains('ChangeNotifierProvider.value'));
     expect(iosBranch, contains('child: const _IOSScreenShareBroadcastMvp()'));
-    expect(broadcastPage, contains('ServerInfo(),'));
-    expect(broadcastPage, contains('在电脑端打开“远程协助”'));
-    expect(broadcastPage, contains('输入上方的设备识别码和验证码'));
-    expect(broadcastPage, contains('确认“鲲穹远程桌面”后点击“开始广播”'));
-    expect(broadcastPage, contains('已开启，等待画面'));
+    expect(broadcastPage, contains('ServerInfo('));
+    expect(broadcastPage, contains('connectionStatusTextOverride'));
+    expect(broadcastPage, contains('正在接入鲲穹远程'));
+    expect(broadcastPage, contains('开始共享屏幕'));
   });
 }

@@ -47,6 +47,15 @@ void main() {
     );
     expect(source, contains('基础版使用 720p / 30 FPS，会员可使用 1080p / 60 FPS。'));
     expect(source, contains('基礎版使用 720p / 30 FPS，會員可使用 1080p / 60 FPS。'));
+    expect(source, contains("'Upgrade Kunqiong Membership': '开通鲲穹会员'"));
+    expect(source, contains("'Membership benefits unlocked': '会员权益已开通'"));
+    expect(source, contains("'Membership valid until': '会员有效期至'"));
+
+    final bannerStart = source.indexOf('class _MembershipBanner');
+    final bannerEnd = source.indexOf('String _priceLabel', bannerStart);
+    final banner = source.substring(bannerStart, bannerEnd);
+    expect(banner, contains("_mineText('Membership benefits unlocked')"));
+    expect(banner, contains("_mineText('Upgrade Kunqiong Membership')"));
   });
 
   test('iOS declares all native permission descriptions used by the app', () {

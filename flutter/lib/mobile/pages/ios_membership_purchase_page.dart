@@ -67,6 +67,12 @@ class _KqIosMembershipPurchasePageState
       case KqIosMembershipPurchasePhase.completed:
         return _text('会员权益已更新。', 'Membership benefits have been updated.');
       case KqIosMembershipPurchasePhase.failed:
+        if (_controller.hasUnavailableProducts) {
+          return _text(
+            'Apple 暂未返回已配置的会员套餐，暂时无法购买。',
+            'Apple has not made the configured membership product available yet.',
+          );
+        }
         return _text('暂时无法完成 Apple 会员服务，请稍后重试。',
             'Apple membership service is temporarily unavailable. Please try again.');
       case KqIosMembershipPurchasePhase.ready:
@@ -78,115 +84,135 @@ class _KqIosMembershipPurchasePageState
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
     final configured = _controller.config.isConfigured;
+    final configuredPackages = widget.packages
+        .where(
+          (package) =>
+              _controller.config.productForPackage(package.id.toString()) !=
+              null,
+        )
+        .toList(growable: false);
     return Scaffold(
       backgroundColor: q.surface,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: q.pageGradient,
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _IosMembershipHeader(
-                title: _text('开通会员', 'Upgrade membership'),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
-                  children: [
-                    _IosMembershipIntro(
-                      title: _text('会员解锁 1080p / 60 FPS',
-                          'Membership unlocks 1080p / 60 FPS'),
-                      subtitle: _text(
-                        '基础版使用 720p / 30 FPS，付款和恢复购买由 Apple 处理。',
-                        'Basic uses 720p / 30 FPS. Apple handles payment and purchase restoration.',
-                      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _IosMembershipHeader(
+              title: _text('开通会员', 'Upgrade membership'),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+                children: [
+                  _IosMembershipIntro(
+                    title: _text('会员解锁 1080p / 60 FPS',
+                        'Membership unlocks 1080p / 60 FPS'),
+                    subtitle: _text(
+                      '基础版使用 720p / 30 FPS，付款和恢复购买由 Apple 处理。',
+                      'Basic uses 720p / 30 FPS. Apple handles payment and purchase restoration.',
                     ),
-                    const SizedBox(height: 14),
-                    if (!configured)
-                      _IosMembershipNotice(
-                        icon: Icons.info_outline_rounded,
-                        color: q.warning,
-                        message: _text(
-                          '此构建尚未配置 Apple 会员商品和权益验证服务，暂时不能购买。',
-                          'This build has not configured Apple membership products and entitlement verification yet.',
-                        ),
-                      )
-                    else ...[
-                      if (_controller.isBusy)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                      for (final package in widget.packages) ...[
-                        _IosMembershipPackageTile(
-                          package: package,
-                          product: _controller.productForPackage(
-                            package.id.toString(),
-                          ),
-                          unavailable: _controller.isProductMissing(
-                            package.id.toString(),
-                          ),
-                          enabled: _controller.isReady &&
-                              _controller.isPackageAvailable(
-                                package.id.toString(),
-                              ),
-                          onBuy: () => _controller.buy(package.id.toString()),
-                          text: _text,
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ],
-                    const SizedBox(height: 14),
+                  ),
+                  const SizedBox(height: 14),
+                  if (!configured)
                     _IosMembershipNotice(
-                      icon: _controller.phase ==
-                              KqIosMembershipPurchasePhase.failed
-                          ? Icons.error_outline_rounded
-                          : Icons.verified_user_outlined,
-                      color: _controller.phase ==
-                              KqIosMembershipPurchasePhase.failed
-                          ? q.offline
-                          : q.primary,
-                      message: _statusText(),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      height: 46,
-                      child: OutlinedButton.icon(
-                        onPressed: configured && !_controller.isBusy
-                            ? _controller.restorePurchases
-                            : null,
-                        icon: const Icon(Icons.restore_rounded),
-                        label: Text(
-                            _text('恢复 Apple 购买', 'Restore Apple purchases')),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: q.primary,
-                          side: BorderSide(color: q.primary.withOpacity(0.55)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                      icon: Icons.info_outline_rounded,
+                      color: q.warning,
+                      message: _text(
+                        '此构建尚未配置 Apple 会员商品和权益验证服务，暂时不能购买。',
+                        'This build has not configured Apple membership products and entitlement verification yet.',
+                      ),
+                    )
+                  else if (configuredPackages.isEmpty)
+                    _IosMembershipNotice(
+                      icon: Icons.info_outline_rounded,
+                      color: q.warning,
+                      message: _text(
+                        '当前会员套餐尚未配置对应的 Apple 商品，暂时不能购买。',
+                        'The current membership plan is not mapped to an Apple product yet.',
+                      ),
+                    )
+                  else ...[
+                    if (_controller.isBusy)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    for (final package in configuredPackages) ...[
+                      _IosMembershipPackageTile(
+                        package: package,
+                        product: _controller.productForPackage(
+                          package.id.toString(),
                         ),
+                        unavailable: _controller.isProductMissing(
+                          package.id.toString(),
+                        ),
+                        enabled: _controller.isReady &&
+                            _controller.isPackageAvailable(
+                              package.id.toString(),
+                            ),
+                        onBuy: () => _controller.buy(package.id.toString()),
+                        text: _text,
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      _text(
-                        '会员权益将在服务端验证 Apple 交易后生效。',
-                        'Membership benefits activate after the server verifies the Apple transaction.',
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                  const SizedBox(height: 14),
+                  _IosMembershipNotice(
+                    icon:
+                        _controller.phase == KqIosMembershipPurchasePhase.failed
+                            ? Icons.error_outline_rounded
+                            : Icons.verified_user_outlined,
+                    color:
+                        _controller.phase == KqIosMembershipPurchasePhase.failed
+                            ? q.offline
+                            : q.primary,
+                    message: _statusText(),
+                  ),
+                  if (configured && _controller.hasUnavailableProducts) ...[
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _controller.isBusy
+                            ? null
+                            : () => unawaited(_controller.initialize()),
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: Text(_text('重新获取套餐', 'Reload plans')),
                       ),
-                      style:
-                          TextStyle(color: q.muted, fontSize: 12, height: 1.45),
-                      textAlign: TextAlign.center,
                     ),
                   ],
-                ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 46,
+                    child: OutlinedButton.icon(
+                      onPressed: configured && !_controller.isBusy
+                          ? _controller.restorePurchases
+                          : null,
+                      icon: const Icon(Icons.restore_rounded),
+                      label:
+                          Text(_text('恢复 Apple 购买', 'Restore Apple purchases')),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: q.primary,
+                        side: BorderSide(color: q.primary.withOpacity(0.55)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _text(
+                      '会员权益将在服务端验证 Apple 交易后生效。',
+                      'Membership benefits activate after the server verifies the Apple transaction.',
+                    ),
+                    style:
+                        TextStyle(color: q.muted, fontSize: 12, height: 1.45),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -304,13 +330,14 @@ class _IosMembershipPackageTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
-    final price = product?.price ?? package.priceLabel;
+    final price = product?.price ?? text('暂不可用', 'Unavailable');
     final subtitle = unavailable
-        ? text('该套餐尚未在 App Store 上架。',
-            'This plan is not available in the App Store.')
-        : product?.description.trim().isNotEmpty == true
-            ? product!.description
-            : package.displayBenefitText;
+        ? text('Apple 暂未返回此套餐，请稍后重新获取。',
+            'Apple has not made this plan available yet. Reload later.')
+        : text(
+            '开通后可使用 1080p / 60 FPS 远程控制。',
+            'Unlock 1080p / 60 FPS remote control.',
+          );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
