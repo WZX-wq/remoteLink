@@ -51,6 +51,21 @@ void main() {
     expect(delegate, contains('"errorCode"'));
   });
 
+  test('iOS starts rendezvous registration when the broadcast starts', () {
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final broadcastStart = handler.indexOf('override func broadcastStarted');
+    final broadcastPause = handler.indexOf('override func broadcastPaused');
+
+    expect(broadcastStart, greaterThanOrEqualTo(0));
+    expect(broadcastPause, greaterThan(broadcastStart));
+
+    final startHandler = handler.substring(broadcastStart, broadcastPause);
+    expect(startHandler, contains('guard startTransportIfNeeded() else'));
+    expect(startHandler, contains('transportState: "registering"'));
+    expect(handler, contains('private func startTransportIfNeeded() -> Bool'));
+  });
+
   test('iOS UI keeps the broadcast entry compact and user-facing', () {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
 

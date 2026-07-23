@@ -36,11 +36,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
     transportStarted = false
     audioForwardingActive = false
     audioConverters.removeAll()
+    guard startTransportIfNeeded() else {
+      return
+    }
     publishStatus(
       state: "started",
       width: 0,
       height: 0,
-      transportState: "waiting_for_frame"
+      transportState: "registering"
     )
   }
 
@@ -74,12 +77,40 @@ final class SampleHandler: RPBroadcastSampleHandler {
     publishStatus(state: "finished", transportState: "stopped")
   }
 
+  private func startTransportIfNeeded() -> Bool {
+    if transportStarted {
+      return true
+    }
+    guard let configDirectory = sharedConfigDirectory() else {
+      publishFailure(code: "app_group_unavailable")
+      return false
+    }
+    let startResult = configDirectory.utf8CString.withUnsafeBufferPointer { buffer in
+      guard let baseAddress = buffer.baseAddress else {
+        return Int32(1)
+      }
+      return kq_ios_broadcast_start(
+        UnsafeRawPointer(baseAddress).assumingMemoryBound(to: UInt8.self),
+        UInt(max(0, buffer.count - 1))
+      )
+    }
+    guard startResult == 0 else {
+      publishFailure(code: "transport_start_\(startResult)")
+      return false
+    }
+    transportStarted = true
+    return true
+  }
+
   override func processSampleBuffer(
     _ sampleBuffer: CMSampleBuffer,
     with sampleBufferType: RPSampleBufferType
   ) {
     switch sampleBufferType {
     case .video:
+      guard startTransportIfNeeded() else {
+        return
+      }
       videoFrameCount += 1
       guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
         publishFailure(code: "missing_pixel_buffer")
@@ -118,27 +149,6 @@ final class SampleHandler: RPBroadcastSampleHandler {
       guard pushResult == 0 else {
         publishFailure(code: "frame_submit_\(pushResult)")
         return
-      }
-
-      if !transportStarted {
-        guard let configDirectory = sharedConfigDirectory() else {
-          publishFailure(code: "app_group_unavailable")
-          return
-        }
-        let startResult = configDirectory.utf8CString.withUnsafeBufferPointer { buffer in
-          guard let baseAddress = buffer.baseAddress else {
-            return Int32(1)
-          }
-          return kq_ios_broadcast_start(
-            UnsafeRawPointer(baseAddress).assumingMemoryBound(to: UInt8.self),
-            UInt(max(0, buffer.count - 1))
-          )
-        }
-        guard startResult == 0 else {
-          publishFailure(code: "transport_start_\(startResult)")
-          return
-        }
-        transportStarted = true
       }
 
       if videoFrameCount == 1 || videoFrameCount % 30 == 0 {
