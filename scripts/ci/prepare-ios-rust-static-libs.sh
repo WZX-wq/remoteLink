@@ -16,6 +16,10 @@ fi
 # static archive and remove dylib outputs from the search path used by Xcode.
 rm -f "$target_dir/liblibrustdesk.dylib"
 rm -rf "$target_dir/liblibrustdesk.dylib.dSYM"
+if find "$target_dir" -maxdepth 1 -name 'liblibrustdesk*.dylib*' -print -quit | grep -q .; then
+  echo "::error::Rust iOS dylib outputs remain in $target_dir; ReplayKit must link Rust statically." >&2
+  exit 1
+fi
 
 if [ -z "$vcpkg_installed_root" ] && [ -n "${VCPKG_ROOT:-}" ]; then
   vcpkg_installed_root="$VCPKG_ROOT/installed"
