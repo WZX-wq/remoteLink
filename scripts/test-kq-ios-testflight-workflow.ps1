@@ -55,6 +55,8 @@ Assert-Contains $content 'api-key-id:\s*\$\{\{ secrets\.APPSTORE_API_KEY_ID \}\}
     'TestFlight workflow must use the App Store Connect API key ID secret.'
 Assert-Contains $content 'api-private-key:\s*\$\{\{ secrets\.APPSTORE_API_PRIVATE_KEY \}\}' `
     'TestFlight workflow must use the App Store Connect private key secret.'
+Assert-Contains $content "wait-for-processing:\s*'false'" `
+    'TestFlight workflow must not fail the upload after Apple accepts the IPA but delays build processing visibility.'
 Assert-Contains $content 'GITHUB_RUN_ID[\s\S]*GITHUB_RUN_ATTEMPT' `
     'TestFlight workflow must generate a unique build number for reruns.'
 Assert-Contains $content 'KQ_IOS_INTERNAL_DIRECT_PAYMENT:\s*"false"' `
