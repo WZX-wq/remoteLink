@@ -196,6 +196,7 @@ void main() {
 
   test('iOS broadcast keeps the standard device credentials card', () {
     final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
     final iosStart = page
         .indexOf('if (mobilePlatformCapabilities.canHostViewOnlyBroadcast)');
     final iosEnd = page.indexOf('    checkService();', iosStart);
@@ -223,5 +224,17 @@ void main() {
         broadcastPage, isNot(contains('_broadcastPickerPresentedThisSession')));
     expect(broadcastPage, isNot(contains('_openBroadcastPickerOnFirstEntry')));
     expect(broadcastPage, isNot(contains('PaddingCard(')));
+    expect(delegate, contains('private var broadcastPicker: RPSystemBroadcastPickerView?'));
+    expect(delegate, contains('broadcastPicker = picker'));
+    expect(delegate, isNot(contains('DispatchQueue.main.asyncAfter')));
+  });
+
+  test('iOS broadcast emits native lifecycle diagnostics', () {
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+
+    expect(handler, contains('NSLog("[KQBroadcast] broadcast started"'));
+    expect(handler, contains('NSLog("[KQBroadcast] app group is unavailable"'));
+    expect(handler, contains('NSLog("[KQBroadcast] transport start result='));
   });
 }

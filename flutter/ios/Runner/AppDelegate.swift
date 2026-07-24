@@ -18,6 +18,9 @@ import AVFoundation
   private var voiceAudioSamples = [Float]()
   private var voiceAudioReadIndex = 0
   private var voiceTapInstalled = false
+  // ReplayKit may defer starting the upload extension until after its system
+  // confirmation UI closes. Keep this picker attached for that handoff.
+  private var broadcastPicker: RPSystemBroadcastPickerView?
 
   override func application(
     _ application: UIApplication,
@@ -226,25 +229,27 @@ import AVFoundation
       return
     }
 
+    broadcastPicker?.removeFromSuperview()
     let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
     picker.preferredExtension = broadcastExtensionBundleId
     picker.showsMicrophoneButton = false
     picker.alpha = 0.01
     picker.isAccessibilityElement = false
+    broadcastPicker = picker
     rootView.addSubview(picker)
 
     for subview in picker.subviews {
       if let button = subview as? UIButton {
         button.sendActions(for: .touchUpInside)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-          picker.removeFromSuperview()
-        }
         result(true)
         return
       }
     }
 
     picker.removeFromSuperview()
+    if broadcastPicker === picker {
+      broadcastPicker = nil
+    }
     result(false)
   }
 

@@ -37,6 +37,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
+    NSLog("[KQBroadcast] broadcast started")
     videoFrameCount = 0
     appAudioFrameCount = 0
     micAudioFrameCount = 0
@@ -116,6 +117,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         UInt(max(0, buffer.count - 1))
       )
     }
+    NSLog("[KQBroadcast] transport start result=\(startResult)")
     guard startResult == 0 else {
       publishFailure(code: "transport_start_\(startResult)")
       return false
@@ -273,7 +275,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private func writeBroadcastStatusFile(_ status: [String: Any]) {
     guard let container = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupId
-    ), JSONSerialization.isValidJSONObject(status) else {
+    ) else {
+      NSLog("[KQBroadcast] app group is unavailable")
+      return
+    }
+    guard JSONSerialization.isValidJSONObject(status) else {
+      NSLog("[KQBroadcast] broadcast status is not serializable")
       return
     }
     do {
@@ -524,6 +531,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     guard let container = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupId
     ) else {
+      NSLog("[KQBroadcast] app group is unavailable")
       return nil
     }
     let directory = container.appendingPathComponent(
@@ -537,6 +545,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       )
       return directory.path
     } catch {
+      NSLog("[KQBroadcast] failed to prepare config directory: \(error)")
       return nil
     }
   }
