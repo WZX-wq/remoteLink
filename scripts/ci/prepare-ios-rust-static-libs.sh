@@ -10,6 +10,13 @@ if [ ! -f "$target_dir/liblibrustdesk.a" ]; then
   exit 1
 fi
 
+# The Rust crate also emits a cdylib for desktop/mobile Flutter embedding.
+# ReplayKit extensions cannot carry that runtime dependency: iOS kills the
+# extension before broadcastStarted can register the screen-share ID. Keep the
+# static archive and remove dylib outputs from the search path used by Xcode.
+rm -f "$target_dir/liblibrustdesk.dylib"
+rm -rf "$target_dir/liblibrustdesk.dylib.dSYM"
+
 if [ -z "$vcpkg_installed_root" ] && [ -n "${VCPKG_ROOT:-}" ]; then
   vcpkg_installed_root="$VCPKG_ROOT/installed"
 fi

@@ -311,11 +311,17 @@ void main() {
         File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
     final workflow =
         File('../.github/workflows/ios-testflight-build.yml').readAsStringSync();
+    final staticPrepScript =
+        File('../scripts/ci/prepare-ios-rust-static-libs.sh').readAsStringSync();
 
     final staticRustLink = RegExp(
       r'"-force_load",\s*"\$\(PROJECT_DIR\)/\.\./\.\./target/aarch64-apple-ios/release/liblibrustdesk\.a",',
     );
     expect(staticRustLink.allMatches(project).length, 3);
+    expect(staticPrepScript,
+        contains(r'rm -f "$target_dir/liblibrustdesk.dylib"'));
+    expect(staticPrepScript,
+        contains(r'rm -rf "$target_dir/liblibrustdesk.dylib.dSYM"'));
     expect(workflow, contains(r'otool -L "$extension/KQScreenBroadcast"'));
     expect(
       workflow,

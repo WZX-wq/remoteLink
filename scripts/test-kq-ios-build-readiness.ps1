@@ -66,6 +66,12 @@ Assert-Contains `
     -Pattern 'FLUTTER_BUILD_NUMBER:-4073[\s\S]*cargo build --features flutter,hwcodec --release --target "\$CARGO_TARGET" --lib[\s\S]*prepare-ios-rust-static-libs\.sh[\s\S]*flutter build ios[\s\S]*--no-codesign' `
     -Message 'iOS build script must build the Rust library before producing the unsigned Flutter app.'
 
+$staticPrepScript = Join-Path $Root 'scripts/ci/prepare-ios-rust-static-libs.sh'
+Assert-Contains `
+    -Path $staticPrepScript `
+    -Pattern 'rm -f "\$target_dir/liblibrustdesk\.dylib"[\s\S]*rm -rf "\$target_dir/liblibrustdesk\.dylib\.dSYM"' `
+    -Message 'The iOS Rust static-library preparation script must remove dylib outputs before Xcode archives ReplayKit.'
+
 Assert-Contains `
     -Path $codemagic `
     -Pattern '(?s)kq-remote-link-ios-nosign:.*FLUTTER_BUILD_NUMBER:\s*4073' `
