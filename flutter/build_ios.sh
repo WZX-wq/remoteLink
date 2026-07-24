@@ -21,7 +21,8 @@ cd "$SCRIPT_DIR/ios"
 pod install
 
 cd "$REPO_DIR"
-cargo build --features flutter --release --target "$CARGO_TARGET" --lib
+cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
+bash "$REPO_DIR/scripts/ci/prepare-ios-rust-static-libs.sh" "target/$CARGO_TARGET/release"
 
 cd "$SCRIPT_DIR"
 case "$BUILD_MODE" in

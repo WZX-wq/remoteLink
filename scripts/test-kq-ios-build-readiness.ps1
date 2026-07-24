@@ -63,7 +63,7 @@ Assert-Contains `
 
 Assert-Contains `
     -Path $buildScript `
-    -Pattern 'FLUTTER_BUILD_NUMBER:-4073[\s\S]*cargo build --features flutter --release --target "\$CARGO_TARGET" --lib[\s\S]*flutter build ios[\s\S]*--no-codesign' `
+    -Pattern 'FLUTTER_BUILD_NUMBER:-4073[\s\S]*cargo build --features flutter,hwcodec --release --target "\$CARGO_TARGET" --lib[\s\S]*prepare-ios-rust-static-libs\.sh[\s\S]*flutter build ios[\s\S]*--no-codesign' `
     -Message 'iOS build script must build the Rust library before producing the unsigned Flutter app.'
 
 Assert-Contains `

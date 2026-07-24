@@ -230,6 +230,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     let registrationState = transportStarted
       ? Int(kq_ios_broadcast_registration_state())
       : 0
+    let effectiveTransportState = transportState ?? registrationTransportState()
+    defaults?.set(effectiveTransportState, forKey: "kq_broadcast_transport_state")
     let viewerCount = transportStarted
       ? Int(kq_ios_broadcast_active_viewer_count())
       : 0
@@ -242,7 +244,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "width": capturedWidth,
       "height": capturedHeight,
       "updatedAt": timestamp,
-      "transportState": transportState ?? registrationTransportState(),
+      "transportState": effectiveTransportState,
       "registrationState": registrationState,
       "remoteViewAvailable": viewerCount > 0,
       "remoteViewerCount": viewerCount,
@@ -261,10 +263,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(capturedWidth, forKey: "kq_broadcast_width")
     defaults.set(capturedHeight, forKey: "kq_broadcast_height")
     defaults.set(timestamp, forKey: "kq_broadcast_updated_at")
-    defaults.set(status["transportState"], forKey: "kq_broadcast_transport_state")
     defaults.set(registrationState, forKey: "kq_broadcast_registration_state")
-    defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
+    defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(status["deviceId"], forKey: "kq_broadcast_device_id")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")

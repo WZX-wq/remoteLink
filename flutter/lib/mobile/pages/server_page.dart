@@ -317,6 +317,16 @@ class _IOSScreenShareBroadcastMvpState
     }.contains(status['state']);
   }
 
+  bool _remoteViewAvailable() {
+    final remoteViewAvailable = _broadcastStatus?['remoteViewAvailable'];
+    return remoteViewAvailable == true;
+  }
+
+  bool _broadcastAudioSupported() {
+    final audioSupported = _broadcastStatus?['audioSupported'];
+    return audioSupported == true;
+  }
+
   String? _broadcastDeviceId() {
     final value = _broadcastStatus?['deviceId'];
     if (value is! String) return null;
@@ -381,6 +391,13 @@ class _IOSScreenShareBroadcastMvpState
               en: 'Waiting to start',
             );
     }
+    if (_remoteViewAvailable()) {
+      return _iosShareText(
+        zhCn: '正在共享',
+        zhTw: '正在分享',
+        en: 'Sharing',
+      );
+    }
     final registrationState = status['registrationState'];
     if (registrationState is num) {
       switch (registrationState.toInt()) {
@@ -388,7 +405,7 @@ class _IOSScreenShareBroadcastMvpState
           return _iosShareText(
             zhCn: '可连接',
             zhTw: '可連線',
-            en: 'Ready to connect',
+            en: 'Sharing started, waiting for another device',
           );
         case 3:
           return _iosShareText(
@@ -454,24 +471,38 @@ class _IOSScreenShareBroadcastMvpState
   Widget build(BuildContext context) {
     final connectionAvailabilityText = _connectionAvailabilityText();
     final broadcastActive = _hasBroadcastHeartbeat();
+    final remoteViewAvailable = _remoteViewAvailable();
+    final audioSupported = _broadcastAudioSupported();
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
-      children: [
-        ServerInfo(
-          connectionStatusTextOverride: connectionAvailabilityText,
-          serverIdOverride: broadcastActive ? _broadcastDeviceId() : null,
-          sharingActionLabel: broadcastActive
-              ? _iosShareText(zhCn: '直播已开启', zhTw: '直播已開啟', en: 'Live')
-              : _iosShareText(zhCn: '开启直播', zhTw: '開啟直播', en: 'Start live'),
-          sharingActionIcon: broadcastActive
-              ? Icons.check_circle_outline_rounded
-              : Icons.play_circle_outline_rounded,
-          onSharingAction:
-              _opening || broadcastActive ? null : _openBroadcastPicker,
-          sharingErrorText: _broadcastFailureText() ?? _errorText,
-        ),
-      ],
+    return Semantics(
+      label:
+          'view-only audioSupported=$audioSupported remoteViewAvailable=$remoteViewAvailable',
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
+        children: [
+          ServerInfo(
+            connectionStatusTextOverride: connectionAvailabilityText,
+            serverIdOverride: broadcastActive ? _broadcastDeviceId() : null,
+            sharingActionLabel: broadcastActive
+                ? _iosShareText(
+                    zhCn: remoteViewAvailable ? '正在共享' : '直播已开启',
+                    zhTw: remoteViewAvailable ? '正在分享' : '直播已開啟',
+                    en: remoteViewAvailable ? 'Sharing' : 'Live',
+                  )
+                : _iosShareText(
+                    zhCn: '开启直播',
+                    zhTw: '開啟直播',
+                    en: 'Start live',
+                  ),
+            sharingActionIcon: broadcastActive
+                ? Icons.check_circle_outline_rounded
+                : Icons.play_circle_outline_rounded,
+            onSharingAction:
+                _opening || broadcastActive ? null : _openBroadcastPicker,
+            sharingErrorText: _broadcastFailureText() ?? _errorText,
+          ),
+        ],
+      ),
     );
   }
 }

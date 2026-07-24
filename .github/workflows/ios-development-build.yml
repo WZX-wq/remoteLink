@@ -213,6 +213,7 @@ jobs:
           popd
 
           cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+          bash scripts/ci/prepare-ios-rust-static-libs.sh target/aarch64-apple-ios/release
 
           pushd flutter
           flutter build ipa --release \

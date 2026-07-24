@@ -82,7 +82,8 @@ workflows:
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-          cargo build --features flutter --release --target "$CARGO_TARGET" --lib
+          cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
+          bash "$CM_BUILD_DIR/scripts/ci/prepare-ios-rust-static-libs.sh" "target/$CARGO_TARGET/release"
       - name: Build unsigned iOS app
         script: |
           cd "$CM_BUILD_DIR/flutter"
@@ -189,7 +190,8 @@ workflows:
           export VCPKG_DEFAULT_TRIPLET="$VCPKG_TRIPLET"
           export VCPKG_DEFAULT_HOST_TRIPLET="$VCPKG_HOST_TRIPLET"
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-          cargo build --features flutter --release --target "$CARGO_TARGET" --lib
+          cargo build --features flutter,hwcodec --release --target "$CARGO_TARGET" --lib
+          bash "$CM_BUILD_DIR/scripts/ci/prepare-ios-rust-static-libs.sh" "target/$CARGO_TARGET/release"
       - name: Set up keychain
         script: |
           keychain initialize

@@ -83,6 +83,7 @@ pub async fn discover() -> ResultType<()> {
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn send_wol(id: String) {
     let interfaces = default_net::get_interfaces();
     for peer in &config::LanPeers::load().peers {
@@ -103,6 +104,9 @@ pub fn send_wol(id: String) {
         }
     }
 }
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn send_wol(_id: String) {}
 
 #[inline]
 fn get_broadcast_port() -> u16 {

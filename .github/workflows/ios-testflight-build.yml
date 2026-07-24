@@ -254,7 +254,10 @@ jobs:
 
       - name: Build Rust iOS library
         shell: bash
-        run: cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+        run: |
+          set -euo pipefail
+          cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+          bash scripts/ci/prepare-ios-rust-static-libs.sh target/aarch64-apple-ios/release
 
       - name: Create App Store export options
         shell: bash

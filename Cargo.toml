@@ -66,7 +66,6 @@ clap = "4.2"
 rpassword = "7.2"
 num_cpus = "1.15"
 bytes = { version = "1.4", features = ["serde"] }
-default-net = "0.14"
 wol-rs = "1.0"
 flutter_rust_bridge = { version = "=1.80", features = ["uuid"], optional = true}
 errno = "0.3"
@@ -88,6 +87,9 @@ reqwest = { version = "0.12", features = ["blocking", "socks", "json", "rustls-t
 # https://github.com/rustdesk/rustdesk/discussions/10197, not use cpal on linux
 cpal = { git = "https://github.com/rustdesk-org/cpal", branch = "osx-screencapturekit" }
 ringbuf = "0.3"
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+default-net = "0.14"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 reqwest = { version = "0.12", features = ["native-tls"], default-features=false }

@@ -189,7 +189,11 @@ jobs:
           prefix-key: ios-preflight-aarch64-apple-ios
 
       - name: Build Rust iOS library
-        run: cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+          bash scripts/ci/prepare-ios-rust-static-libs.sh target/aarch64-apple-ios/release
 
       - name: Build Flutter IPA without codesign
         working-directory: flutter
