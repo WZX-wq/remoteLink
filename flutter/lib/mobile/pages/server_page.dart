@@ -267,8 +267,6 @@ class _IOSScreenShareBroadcastMvp extends StatefulWidget {
 
 class _IOSScreenShareBroadcastMvpState
     extends State<_IOSScreenShareBroadcastMvp> {
-  static bool _broadcastPickerPresentedThisSession = false;
-
   bool _opening = false;
   String? _errorText;
   Timer? _broadcastStatusTimer;
@@ -282,9 +280,6 @@ class _IOSScreenShareBroadcastMvpState
       const Duration(seconds: 1),
       (_) => _refreshBroadcastStatus(),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_openBroadcastPickerOnFirstEntry());
-    });
   }
 
   @override
@@ -310,24 +305,28 @@ class _IOSScreenShareBroadcastMvpState
     }
   }
 
-  bool _isBroadcastActive() {
+  bool _hasBroadcastHeartbeat() {
     final status = _broadcastStatus;
     if (status == null || status['isFresh'] != true) return false;
-    return const <String>{'started', 'capturing', 'paused', 'resumed'}
-        .contains(status['state']);
+    return const <String>{
+      'starting',
+      'started',
+      'capturing',
+      'paused',
+      'resumed'
+    }.contains(status['state']);
   }
 
-  Future<void> _openBroadcastPickerOnFirstEntry() async {
-    await _refreshBroadcastStatus();
-    if (!mounted || _isBroadcastActive()) return;
-    if (_broadcastPickerPresentedThisSession) return;
-    _broadcastPickerPresentedThisSession = true;
-    await _openBroadcastPicker();
+  String? _broadcastDeviceId() {
+    final value = _broadcastStatus?['deviceId'];
+    if (value is! String) return null;
+    final id = value.trim();
+    return id.isEmpty ? null : id;
   }
 
   String _connectionAvailabilityText() {
     final status = _broadcastStatus;
-    if (status == null || !_isBroadcastActive()) {
+    if (status == null || !_hasBroadcastHeartbeat()) {
       return _opening
           ? _iosShareText(
               zhCn: '等待系统确认',
@@ -419,20 +418,22 @@ class _IOSScreenShareBroadcastMvpState
   @override
   Widget build(BuildContext context) {
     final connectionAvailabilityText = _connectionAvailabilityText();
-    final broadcastActive = _isBroadcastActive();
+    final broadcastActive = _hasBroadcastHeartbeat();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
       children: [
         ServerInfo(
           connectionStatusTextOverride: connectionAvailabilityText,
+          serverIdOverride: broadcastActive ? _broadcastDeviceId() : null,
           sharingActionLabel: broadcastActive
-              ? _iosShareText(zhCn: '关闭', zhTw: '關閉', en: 'Stop')
-              : _iosShareText(zhCn: '开启', zhTw: '開啟', en: 'Start'),
+              ? _iosShareText(zhCn: '直播已开启', zhTw: '直播已開啟', en: 'Live')
+              : _iosShareText(zhCn: '开启直播', zhTw: '開啟直播', en: 'Start live'),
           sharingActionIcon: broadcastActive
-              ? Icons.stop_circle_outlined
+              ? Icons.check_circle_outline_rounded
               : Icons.play_circle_outline_rounded,
-          onSharingAction: _opening ? null : _openBroadcastPicker,
+          onSharingAction:
+              _opening || broadcastActive ? null : _openBroadcastPicker,
           sharingErrorText: _errorText,
         ),
       ],
@@ -831,6 +832,7 @@ class ServerInfo extends StatelessWidget {
   ServerInfo({
     Key? key,
     this.connectionStatusTextOverride,
+    this.serverIdOverride,
     this.sharingActionLabel,
     this.sharingActionIcon,
     this.onSharingAction,
@@ -840,6 +842,7 @@ class ServerInfo extends StatelessWidget {
   final model = gFFI.serverModel;
   final emptyController = TextEditingController(text: "-");
   final String? connectionStatusTextOverride;
+  final String? serverIdOverride;
   final String? sharingActionLabel;
   final IconData? sharingActionIcon;
   final VoidCallback? onSharingAction;
@@ -952,9 +955,11 @@ class ServerInfo extends StatelessWidget {
         const SizedBox(height: 16),
         _DeviceSecretTile(
           label: translate('ID'),
-          value: model.serverId.value.text,
+          value: serverIdOverride ?? model.serverId.value.text,
           icon: Icons.perm_identity_rounded,
-          onCopy: () => copyToClipboard(model.serverId.value.text.trim()),
+          onCopy: () => copyToClipboard(
+            (serverIdOverride ?? model.serverId.value.text).trim(),
+          ),
         ),
         const SizedBox(height: 10),
         _DevicePasswordTile(

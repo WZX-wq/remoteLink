@@ -283,6 +283,7 @@ import AVFoundation
       "registrationState": defaults.integer(forKey: "kq_broadcast_registration_state"),
       "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
       "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
+      "deviceId": defaults.string(forKey: "kq_broadcast_device_id") ?? "",
       "audioSupported": defaults.bool(forKey: "kq_broadcast_audio_supported"),
       "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
         ? true

@@ -9,6 +9,10 @@ int32_t kq_ios_broadcast_start(
 
 int32_t kq_ios_broadcast_registration_state(void);
 
+uintptr_t kq_ios_broadcast_copy_device_id(
+    uint8_t *buffer,
+    uintptr_t buffer_len);
+
 int32_t kq_ios_broadcast_push_bgra(
     const void *data,
     uintptr_t data_len,

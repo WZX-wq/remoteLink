@@ -81,6 +81,23 @@ pub extern "C" fn kq_ios_broadcast_registration_state() -> i32 {
     REGISTRATION_PENDING
 }
 
+/// Copies the ID used by the ReplayKit extension's Rust process into a caller
+/// supplied buffer. The main app uses this to display the ID that the
+/// rendezvous service actually registered, rather than a stale sandbox value.
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_copy_device_id(buffer: *mut u8, buffer_len: usize) -> usize {
+    let id = Config::get_id();
+    let bytes = id.as_bytes();
+    if !buffer.is_null() && buffer_len > 0 {
+        let copied = bytes.len().min(buffer_len.saturating_sub(1));
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, copied);
+            *buffer.add(copied) = 0;
+        }
+    }
+    bytes.len()
+}
+
 #[no_mangle]
 pub extern "C" fn kq_ios_broadcast_push_bgra(
     data: *const c_void,

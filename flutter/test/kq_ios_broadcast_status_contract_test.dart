@@ -61,9 +61,26 @@ void main() {
     expect(broadcastPause, greaterThan(broadcastStart));
 
     final startHandler = handler.substring(broadcastStart, broadcastPause);
+    expect(startHandler, contains('state: "starting"'));
     expect(startHandler, contains('guard startTransportIfNeeded() else'));
     expect(startHandler, contains('transportState: "registering"'));
     expect(handler, contains('private func startTransportIfNeeded() -> Bool'));
+  });
+
+  test('iOS shares the broadcast process device ID with the main app', () {
+    final native = File('../src/ios_broadcast.rs').readAsStringSync();
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final bridge =
+        File('ios/KQScreenBroadcast/KQBroadcastBridge.h').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+
+    expect(native, contains('kq_ios_broadcast_copy_device_id'));
+    expect(bridge, contains('kq_ios_broadcast_copy_device_id'));
+    expect(handler, contains('kq_broadcast_device_id'));
+    expect(delegate, contains('"deviceId"'));
+    expect(page, contains('serverIdOverride'));
   });
 
   test('iOS advertises its displayed ID as a registerable device', () {
@@ -139,13 +156,9 @@ void main() {
         contains(
             "invokeMethod<Map<dynamic, dynamic>>('get_broadcast_status')"));
     expect(page, contains('Timer.periodic'));
-    expect(page, contains('addPostFrameCallback'));
-    expect(page, contains('_broadcastPickerPresentedThisSession'));
-    expect(page, contains('_openBroadcastPickerOnFirstEntry'));
-    expect(page, isNot(contains('_openBroadcastPickerWhenNeeded')));
     expect(page, contains('等待系统确认'));
     expect(page, contains('可连接'));
-    expect(page, isNot(contains("zhCn: '启动'")));
+    expect(page, contains("zhCn: '开启直播'"));
     expect(page, isNot(contains('打开系统广播')));
     expect(page, isNot(contains('电脑和手机连接方式')));
     expect(page, isNot(contains('采集状态')));
@@ -178,6 +191,10 @@ void main() {
     expect(broadcastPage, contains('_connectionAvailabilityText'));
     expect(broadcastPage, contains('sharingActionLabel:'));
     expect(broadcastPage, contains('onSharingAction:'));
+    expect(broadcastPage, isNot(contains('addPostFrameCallback')));
+    expect(
+        broadcastPage, isNot(contains('_broadcastPickerPresentedThisSession')));
+    expect(broadcastPage, isNot(contains('_openBroadcastPickerOnFirstEntry')));
     expect(broadcastPage, isNot(contains('PaddingCard(')));
   });
 }

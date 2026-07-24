@@ -36,6 +36,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
     transportStarted = false
     audioForwardingActive = false
     audioConverters.removeAll()
+    publishStatus(
+      state: "starting",
+      width: 0,
+      height: 0,
+      transportState: "registering"
+    )
     guard startTransportIfNeeded() else {
       return
     }
@@ -222,6 +228,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       : 0
     defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
+    defaults.set(broadcastDeviceId(), forKey: "kq_broadcast_device_id")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")
     defaults.set(
@@ -246,6 +253,21 @@ final class SampleHandler: RPBroadcastSampleHandler {
     default:
       return transportStarted ? "registering" : "waiting_for_frame"
     }
+  }
+
+  private func broadcastDeviceId() -> String {
+    var bytes = [UInt8](repeating: 0, count: 64)
+    let length = bytes.withUnsafeMutableBufferPointer { buffer in
+      kq_ios_broadcast_copy_device_id(
+        buffer.baseAddress,
+        UInt(buffer.count)
+      )
+    }
+    let count = min(Int(length), bytes.count - 1)
+    guard count > 0 else {
+      return ""
+    }
+    return String(bytes: bytes.prefix(count), encoding: .utf8) ?? ""
   }
 
   private func registrationErrorCode(for registrationState: Int) -> String? {
