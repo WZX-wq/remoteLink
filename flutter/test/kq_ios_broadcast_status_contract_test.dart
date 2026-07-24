@@ -65,6 +65,31 @@ void main() {
     expect(startHandler, contains('guard startTransportIfNeeded() else'));
     expect(startHandler, contains('transportState: "registering"'));
     expect(handler, contains('private func startTransportIfNeeded() -> Bool'));
+    expect(handler, contains('finishBroadcastWithError'));
+  });
+
+  test('iOS shares a durable broadcast status between the app and extension',
+      () {
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(handler, contains('kq-broadcast-status.json'));
+    expect(handler, contains('options: .atomic'));
+    expect(delegate, contains('kq-broadcast-status.json'));
+    expect(delegate, contains('loadBroadcastStatusFile'));
+  });
+
+  test('iOS converts ReplayKit video buffers to BGRA before sending frames',
+      () {
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+
+    expect(handler, contains('import CoreImage'));
+    expect(handler, contains('private func bgraPixelBuffer'));
+    expect(handler, contains('CIContext'));
+    expect(handler, contains('kCVPixelFormatType_32BGRA'));
+    expect(handler, isNot(contains('unsupported_pixel_format')));
   });
 
   test('iOS shares the broadcast process device ID with the main app', () {
@@ -159,6 +184,8 @@ void main() {
     expect(page, contains('等待系统确认'));
     expect(page, contains('可连接'));
     expect(page, contains("zhCn: '开启直播'"));
+    expect(page, contains('屏幕共享启动失败'));
+    expect(page, contains('_broadcastFailureText'));
     expect(page, isNot(contains('打开系统广播')));
     expect(page, isNot(contains('电脑和手机连接方式')));
     expect(page, isNot(contains('采集状态')));

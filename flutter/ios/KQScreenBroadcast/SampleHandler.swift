@@ -1,5 +1,6 @@
 import Accelerate
 import AVFoundation
+import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -8,6 +9,7 @@ import ReplayKit
 final class SampleHandler: RPBroadcastSampleHandler {
   private let appGroupId = "group.com.kunqiong.remotelink"
   private let configDirectoryName = "remoteLink-config"
+  private let statusFileName = "kq-broadcast-status.json"
   private let maxLongEdge = 1920
   private let defaults: UserDefaults?
   private var videoFrameCount = 0
@@ -17,6 +19,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var audioForwardingActive = false
   private var scaledFrame = [UInt8]()
   private var audioConverters = [String: AVAudioConverter]()
+  private var convertedPixelBuffer: CVPixelBuffer?
+  private var convertedPixelBufferSize = (width: 0, height: 0)
+  private var capturedWidth = 0
+  private var capturedHeight = 0
+  private let imageContext = CIContext(options: nil)
   private let outputAudioFormat = AVAudioFormat(
     commonFormat: .pcmFormatFloat32,
     sampleRate: 48_000,
@@ -36,6 +43,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     transportStarted = false
     audioForwardingActive = false
     audioConverters.removeAll()
+    capturedWidth = 0
+    capturedHeight = 0
     publishStatus(
       state: "starting",
       width: 0,
@@ -43,6 +52,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
       transportState: "registering"
     )
     guard startTransportIfNeeded() else {
+      finishBroadcastWithError(NSError(
+        domain: "com.kunqiong.remotelink.broadcast",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "屏幕共享启动失败，请返回应用查看原因。"]
+      ))
       return
     }
     publishStatus(
@@ -120,14 +134,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
         return
       }
       videoFrameCount += 1
-      guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+      guard let sourcePixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
         publishFailure(code: "missing_pixel_buffer")
         return
       }
-
-      let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-      guard pixelFormat == kCVPixelFormatType_32BGRA else {
-        publishFailure(code: "unsupported_pixel_format")
+      guard let pixelBuffer = bgraPixelBuffer(from: sourcePixelBuffer) else {
+        publishFailure(code: "pixel_buffer_conversion_failed")
         return
       }
 
@@ -207,41 +219,72 @@ final class SampleHandler: RPBroadcastSampleHandler {
     transportState: String? = nil,
     errorCode: String? = nil
   ) {
-    guard let defaults = defaults else {
-      return
+    if let width = width {
+      capturedWidth = width
     }
+    if let height = height {
+      capturedHeight = height
+    }
+    let registrationState = transportStarted
+      ? Int(kq_ios_broadcast_registration_state())
+      : 0
+    let viewerCount = transportStarted
+      ? Int(kq_ios_broadcast_active_viewer_count())
+      : 0
+    let timestamp = Date().timeIntervalSince1970
+    let status: [String: Any] = [
+      "state": state,
+      "videoFrames": videoFrameCount,
+      "appAudioFrames": appAudioFrameCount,
+      "micAudioFrames": micAudioFrameCount,
+      "width": capturedWidth,
+      "height": capturedHeight,
+      "updatedAt": timestamp,
+      "transportState": transportState ?? registrationTransportState(),
+      "registrationState": registrationState,
+      "remoteViewAvailable": viewerCount > 0,
+      "remoteViewerCount": viewerCount,
+      "deviceId": broadcastDeviceId(),
+      "audioSupported": audioForwardingActive,
+      "viewOnly": true,
+      "errorCode": errorCode ?? registrationErrorCode(for: registrationState) ?? "",
+    ]
+    writeBroadcastStatusFile(status)
+
+    guard let defaults = defaults else { return }
     defaults.set(state, forKey: "kq_broadcast_state")
     defaults.set(videoFrameCount, forKey: "kq_broadcast_video_frames")
     defaults.set(appAudioFrameCount, forKey: "kq_broadcast_app_audio_frames")
     defaults.set(micAudioFrameCount, forKey: "kq_broadcast_mic_audio_frames")
-    defaults.set(Date().timeIntervalSince1970, forKey: "kq_broadcast_updated_at")
-    let registrationState = transportStarted
-      ? Int(kq_ios_broadcast_registration_state())
-      : 0
+    defaults.set(capturedWidth, forKey: "kq_broadcast_width")
+    defaults.set(capturedHeight, forKey: "kq_broadcast_height")
+    defaults.set(timestamp, forKey: "kq_broadcast_updated_at")
+    defaults.set(status["transportState"], forKey: "kq_broadcast_transport_state")
     defaults.set(registrationState, forKey: "kq_broadcast_registration_state")
-    defaults.set(
-      transportState ?? registrationTransportState(),
-      forKey: "kq_broadcast_transport_state"
-    )
-    let viewerCount = transportStarted
-      ? Int(kq_ios_broadcast_active_viewer_count())
-      : 0
-    defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
-    defaults.set(broadcastDeviceId(), forKey: "kq_broadcast_device_id")
+    defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
+    defaults.set(status["deviceId"], forKey: "kq_broadcast_device_id")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(true, forKey: "kq_broadcast_view_only")
-    defaults.set(
-      errorCode ?? registrationErrorCode(for: registrationState) ?? "",
-      forKey: "kq_broadcast_error_code"
-    )
-    if let width = width {
-      defaults.set(width, forKey: "kq_broadcast_width")
-    }
-    if let height = height {
-      defaults.set(height, forKey: "kq_broadcast_height")
-    }
+    defaults.set(status["errorCode"], forKey: "kq_broadcast_error_code")
     defaults.synchronize()
+  }
+
+  private func writeBroadcastStatusFile(_ status: [String: Any]) {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupId
+    ), JSONSerialization.isValidJSONObject(status) else {
+      return
+    }
+    do {
+      let data = try JSONSerialization.data(withJSONObject: status)
+      try data.write(
+        to: container.appendingPathComponent(statusFileName),
+        options: .atomic
+      )
+    } catch {
+      NSLog("Failed to write broadcast status: \(error)")
+    }
   }
 
   private func registrationTransportState() -> String {
@@ -272,6 +315,48 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
   private func registrationErrorCode(for registrationState: Int) -> String? {
     registrationState == 3 ? "server_registration_required" : nil
+  }
+
+  private func bgraPixelBuffer(from source: CVPixelBuffer) -> CVPixelBuffer? {
+    if CVPixelBufferGetPixelFormatType(source) == kCVPixelFormatType_32BGRA {
+      return source
+    }
+    let width = CVPixelBufferGetWidth(source)
+    let height = CVPixelBufferGetHeight(source)
+    guard width > 0, height > 0 else { return nil }
+
+    if convertedPixelBuffer == nil ||
+      convertedPixelBufferSize.width != width ||
+      convertedPixelBufferSize.height != height {
+      var output: CVPixelBuffer?
+      let attributes: [CFString: Any] = [
+        kCVPixelBufferCGImageCompatibilityKey: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+        kCVPixelBufferIOSurfacePropertiesKey: [:],
+      ]
+      let result = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width,
+        height,
+        kCVPixelFormatType_32BGRA,
+        attributes as CFDictionary,
+        &output
+      )
+      guard result == kCVReturnSuccess, let output = output else {
+        return nil
+      }
+      convertedPixelBuffer = output
+      convertedPixelBufferSize = (width, height)
+    }
+    guard let output = convertedPixelBuffer else { return nil }
+    let image = CIImage(cvPixelBuffer: source)
+    imageContext.render(
+      image,
+      to: output,
+      bounds: image.extent,
+      colorSpace: CGColorSpaceCreateDeviceRGB()
+    )
+    return output
   }
 
   private func submitVideoFrame(

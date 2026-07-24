@@ -156,9 +156,14 @@ jobs:
             application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
             team_identifier="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
             get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist" 2>/dev/null || echo false)"
+            app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$profile_plist" 2>/dev/null || true)"
 
             if [ "$team_identifier" != "$APPLE_TEAM_ID" ] || [ "$get_task_allow" = "true" ]; then
               echo "::error::A supplied profile is not an App Store distribution profile for team $APPLE_TEAM_ID."
+              exit 1
+            fi
+            if [ "$app_group" != "group.com.kunqiong.remotelink" ]; then
+              echo "::error::The supplied profile must include the App Group group.com.kunqiong.remotelink. Regenerate both App Store profiles after enabling the capability."
               exit 1
             fi
 
@@ -304,6 +309,30 @@ jobs:
             mv "$ipa_path" build/ios/ipa/KQRemoteLink.ipa
           fi
           popd
+
+      - name: Validate final IPA entitlements
+        shell: bash
+        run: |
+          set -euo pipefail
+          inspect_dir="$RUNNER_TEMP/ios-ipa-entitlements"
+          rm -rf "$inspect_dir"
+          mkdir -p "$inspect_dir"
+          unzip -q flutter/build/ios/ipa/KQRemoteLink.ipa -d "$inspect_dir"
+          main_app="$(find "$inspect_dir/Payload" -maxdepth 1 -name '*.app' -print -quit)"
+          extension="$main_app/PlugIns/KQScreenBroadcast.appex"
+          if [ -z "$main_app" ] || [ ! -d "$extension" ]; then
+            echo "::error::The exported IPA is missing the main app or KQScreenBroadcast.appex."
+            exit 1
+          fi
+          for target in "$main_app" "$extension"; do
+            entitlements="$inspect_dir/$(basename "$target").entitlements.plist"
+            codesign -d --entitlements :- "$target" > "$entitlements"
+            app_group="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$entitlements" 2>/dev/null || true)"
+            if [ "$app_group" != "group.com.kunqiong.remotelink" ]; then
+              echo "::error::Signed target $target is missing App Group group.com.kunqiong.remotelink."
+              exit 1
+            fi
+          done
 
       - name: Validate App Store Connect upload credentials
         shell: bash

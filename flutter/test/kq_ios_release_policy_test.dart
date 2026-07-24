@@ -119,6 +119,17 @@ void main() {
     expect('extended_text: 14.0.0'.allMatches(workflow), isEmpty);
   });
 
+  test('TestFlight signing verifies the App Group for both signed targets', () {
+    final workflow = File('../.github/workflows/ios-testflight-build.yml')
+        .readAsStringSync();
+
+    expect(workflow, contains('com.apple.security.application-groups'));
+    expect(workflow, contains('group.com.kunqiong.remotelink'));
+    expect(workflow, contains('Validate final IPA entitlements'));
+    expect(workflow, contains('KQScreenBroadcast.appex'));
+    expect(workflow, contains('codesign -d --entitlements :-'));
+  });
+
   test(
       'GitHub iOS preflight does not require artifact storage for bridge handoff',
       () {

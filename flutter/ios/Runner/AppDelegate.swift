@@ -8,6 +8,7 @@ import AVFoundation
   private let broadcastExtensionBundleId = "com.kunqiong.remotelink.broadcast"
   private let broadcastAppGroupId = "group.com.kunqiong.remotelink"
   private let broadcastConfigDirectoryName = "remoteLink-config"
+  private let broadcastStatusFileName = "kq-broadcast-status.json"
   private let voiceAudioEngine = AVAudioEngine()
   private let voiceAudioQueue = DispatchQueue(
     label: "com.kunqiong.remotelink.voice-audio",
@@ -248,8 +249,69 @@ import AVFoundation
   }
 
   private func getBroadcastStatus(result: @escaping FlutterResult) {
+    let defaultsStatus = broadcastStatusFromDefaults()
+    let fileStatus = loadBroadcastStatusFile()
+    let selectedStatus = selectNewestBroadcastStatus(
+      defaultsStatus,
+      fileStatus
+    )
+    result(normalizeBroadcastStatus(selectedStatus))
+  }
+
+  private func broadcastStatusFromDefaults() -> [String: Any]? {
     guard let defaults = UserDefaults(suiteName: broadcastAppGroupId) else {
-      result([
+      return nil
+    }
+    return [
+      "state": defaults.string(forKey: "kq_broadcast_state") ?? "not_started",
+      "videoFrames": defaults.integer(forKey: "kq_broadcast_video_frames"),
+      "appAudioFrames": defaults.integer(forKey: "kq_broadcast_app_audio_frames"),
+      "micAudioFrames": defaults.integer(forKey: "kq_broadcast_mic_audio_frames"),
+      "width": defaults.integer(forKey: "kq_broadcast_width"),
+      "height": defaults.integer(forKey: "kq_broadcast_height"),
+      "updatedAt": defaults.double(forKey: "kq_broadcast_updated_at"),
+      "transportState": defaults.string(forKey: "kq_broadcast_transport_state") ?? "not_started",
+      "registrationState": defaults.integer(forKey: "kq_broadcast_registration_state"),
+      "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
+      "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
+      "deviceId": defaults.string(forKey: "kq_broadcast_device_id") ?? "",
+      "audioSupported": defaults.bool(forKey: "kq_broadcast_audio_supported"),
+      "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
+        ? true
+        : defaults.bool(forKey: "kq_broadcast_view_only"),
+      "errorCode": defaults.string(forKey: "kq_broadcast_error_code") ?? "",
+    ]
+  }
+
+  private func loadBroadcastStatusFile() -> [String: Any]? {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: broadcastAppGroupId
+    ) else {
+      return nil
+    }
+    let url = container.appendingPathComponent(broadcastStatusFileName)
+    guard let data = try? Data(contentsOf: url),
+          let object = try? JSONSerialization.jsonObject(with: data),
+          let status = object as? [String: Any] else {
+      return nil
+    }
+    return status
+  }
+
+  private func selectNewestBroadcastStatus(
+    _ defaultsStatus: [String: Any]?,
+    _ fileStatus: [String: Any]?
+  ) -> [String: Any]? {
+    guard let defaultsStatus = defaultsStatus else { return fileStatus }
+    guard let fileStatus = fileStatus else { return defaultsStatus }
+    let defaultsUpdatedAt = defaultsStatus["updatedAt"] as? Double ?? 0
+    let fileUpdatedAt = fileStatus["updatedAt"] as? Double ?? 0
+    return fileUpdatedAt > defaultsUpdatedAt ? fileStatus : defaultsStatus
+  }
+
+  private func normalizeBroadcastStatus(_ status: [String: Any]?) -> [String: Any] {
+    guard let status = status else {
+      return [
         "state": "unavailable",
         "videoFrames": 0,
         "appAudioFrames": 0,
@@ -262,34 +324,17 @@ import AVFoundation
         "registrationState": 0,
         "remoteViewAvailable": false,
         "remoteViewerCount": 0,
+        "deviceId": "",
         "audioSupported": false,
         "viewOnly": true,
         "errorCode": "app_group_unavailable",
-      ])
-      return
+      ]
     }
-
-    let updatedAt = defaults.double(forKey: "kq_broadcast_updated_at")
-    result([
-      "state": defaults.string(forKey: "kq_broadcast_state") ?? "not_started",
-      "videoFrames": defaults.integer(forKey: "kq_broadcast_video_frames"),
-      "appAudioFrames": defaults.integer(forKey: "kq_broadcast_app_audio_frames"),
-      "micAudioFrames": defaults.integer(forKey: "kq_broadcast_mic_audio_frames"),
-      "width": defaults.integer(forKey: "kq_broadcast_width"),
-      "height": defaults.integer(forKey: "kq_broadcast_height"),
-      "updatedAt": updatedAt,
-      "isFresh": updatedAt > 0 && Date().timeIntervalSince1970 - updatedAt < 5.0,
-      "transportState": defaults.string(forKey: "kq_broadcast_transport_state") ?? "not_started",
-      "registrationState": defaults.integer(forKey: "kq_broadcast_registration_state"),
-      "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
-      "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
-      "deviceId": defaults.string(forKey: "kq_broadcast_device_id") ?? "",
-      "audioSupported": defaults.bool(forKey: "kq_broadcast_audio_supported"),
-      "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
-        ? true
-        : defaults.bool(forKey: "kq_broadcast_view_only"),
-      "errorCode": defaults.string(forKey: "kq_broadcast_error_code") ?? "",
-    ])
+    let updatedAt = status["updatedAt"] as? Double ?? 0
+    var normalized = status
+    normalized["isFresh"] = updatedAt > 0 &&
+      Date().timeIntervalSince1970 - updatedAt < 5.0
+    return normalized
   }
 
   private func prepareBroadcastConfigDirectory(

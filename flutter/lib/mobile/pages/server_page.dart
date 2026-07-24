@@ -324,8 +324,50 @@ class _IOSScreenShareBroadcastMvpState
     return id.isEmpty ? null : id;
   }
 
+  String? _broadcastFailureText() {
+    final status = _broadcastStatus;
+    if (status == null) return null;
+    final errorCode = (status['errorCode'] as String? ?? '').trim();
+    final failed = status['state'] == 'failed' || errorCode.isNotEmpty;
+    if (!failed) return null;
+
+    switch (errorCode) {
+      case 'app_group_unavailable':
+        return _iosShareText(
+          zhCn: '屏幕共享启动失败，请重新安装最新版本后再试。',
+          zhTw: '螢幕分享啟動失敗，請重新安裝最新版本後再試。',
+          en: 'Screen sharing could not start. Reinstall the latest build and try again.',
+        );
+      case 'server_registration_required':
+        return _iosShareText(
+          zhCn: '设备暂未完成服务注册，请关闭直播后重新开启。',
+          zhTw: '裝置尚未完成服務註冊，請停止直播後重新開啟。',
+          en: 'The device has not completed service registration. Stop and start the broadcast again.',
+        );
+      case 'pixel_buffer_conversion_failed':
+        return _iosShareText(
+          zhCn: '屏幕画面初始化失败，请重新开启直播。',
+          zhTw: '螢幕畫面初始化失敗，請重新開啟直播。',
+          en: 'Screen capture could not initialize. Start the broadcast again.',
+        );
+      default:
+        return _iosShareText(
+          zhCn: '屏幕共享启动失败，请关闭直播后重新开启。',
+          zhTw: '螢幕分享啟動失敗，請停止直播後重新開啟。',
+          en: 'Screen sharing could not start. Stop and start the broadcast again.',
+        );
+    }
+  }
+
   String _connectionAvailabilityText() {
     final status = _broadcastStatus;
+    if (_broadcastFailureText() != null) {
+      return _iosShareText(
+        zhCn: '暂不可连接',
+        zhTw: '暫不可連線',
+        en: 'Not available',
+      );
+    }
     if (status == null || !_hasBroadcastHeartbeat()) {
       return _opening
           ? _iosShareText(
@@ -361,13 +403,6 @@ class _IOSScreenShareBroadcastMvpState
             en: 'Connecting to Kunqiong Remote',
           );
       }
-    }
-    if (status['state'] == 'failed') {
-      return _iosShareText(
-        zhCn: '暂不可连接',
-        zhTw: '暫不可連線',
-        en: 'Not available',
-      );
     }
     return _iosShareText(
       zhCn: '正在接入鲲穹远程',
@@ -434,7 +469,7 @@ class _IOSScreenShareBroadcastMvpState
               : Icons.play_circle_outline_rounded,
           onSharingAction:
               _opening || broadcastActive ? null : _openBroadcastPicker,
-          sharingErrorText: _errorText,
+          sharingErrorText: _broadcastFailureText() ?? _errorText,
         ),
       ],
     );
