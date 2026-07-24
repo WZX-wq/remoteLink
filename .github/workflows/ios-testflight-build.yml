@@ -334,6 +334,14 @@ jobs:
             fi
           done
 
+          # The ReplayKit extension must carry the Rust static library in its
+          # executable. A runtime liblibrustdesk.dylib dependency crashes it
+          # before broadcastStarted can register the device ID.
+          if otool -L "$extension/KQScreenBroadcast" | grep -Fq '@rpath/liblibrustdesk.dylib'; then
+            echo '::error::KQScreenBroadcast must not load @rpath/liblibrustdesk.dylib at runtime.'
+            exit 1
+          fi
+
       - name: Validate App Store Connect upload credentials
         shell: bash
         env:

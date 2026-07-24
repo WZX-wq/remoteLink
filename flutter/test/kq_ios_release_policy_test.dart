@@ -306,6 +306,23 @@ void main() {
     }
   });
 
+  test('iOS broadcast extension statically links Rust before TestFlight upload', () {
+    final project =
+        File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+    final workflow =
+        File('../.github/workflows/ios-testflight-build.yml').readAsStringSync();
+
+    final staticRustLink = RegExp(
+      r'"-force_load",\s*"\$\(PROJECT_DIR\)/\.\./\.\./target/aarch64-apple-ios/release/liblibrustdesk\.a",',
+    );
+    expect(staticRustLink.allMatches(project).length, 3);
+    expect(workflow, contains(r'otool -L "$extension/KQScreenBroadcast"'));
+    expect(
+      workflow,
+      contains('must not load @rpath/liblibrustdesk.dylib'),
+    );
+  });
+
   test('iOS Rust host keeps mobile-safe server symbols available', () {
     final platform = File('../src/platform/mod.rs').readAsStringSync();
     final flutter = File('../src/flutter.rs').readAsStringSync();
