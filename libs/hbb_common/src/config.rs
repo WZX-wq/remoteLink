@@ -544,6 +544,7 @@ impl Config2 {
         config.unlock_pin = unlock_pin;
         store |= store2;
         for opt in [
+            keys::OPTION_TEMPORARY_PASSWORD,
             keys::OPTION_KQ_DAILY_PASSWORD,
             keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
         ] {
@@ -573,6 +574,7 @@ impl Config2 {
         config.unlock_pin =
             encrypt_str_or_original(&config.unlock_pin, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
         for opt in [
+            keys::OPTION_TEMPORARY_PASSWORD,
             keys::OPTION_KQ_DAILY_PASSWORD,
             keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
         ] {
@@ -621,11 +623,24 @@ pub fn store_path<T: serde::Serialize>(path: PathBuf, cfg: T) -> crate::ResultTy
     #[cfg(not(windows))]
     {
         use std::os::unix::fs::PermissionsExt;
-        Ok(confy::store_path_perms(
-            path,
+        confy::store_path_perms(
+            &path,
             cfg,
             fs::Permissions::from_mode(0o600),
-        )?)
+        )?;
+        // On iOS, force sync to disk to ensure broadcast extension sees the update
+        #[cfg(target_os = "ios")]
+        {
+            if let Ok(file) = std::fs::File::open(&path) {
+                let _ = file.sync_all();
+                // Additional filesystem sync for iOS App Group
+                unsafe {
+                    libc::sync();
+                }
+            }
+            log::info!("iOS config stored and synced: {:?}", path);
+        }
+        Ok(())
     }
     #[cfg(windows)]
     {
@@ -678,6 +693,14 @@ impl Config {
         }
         if !id_valid {
             log::warn!("ID is invalid, generating new one");
+            #[cfg(target_os = "ios")]
+            log::error!(
+                "iOS config has invalid ID - enc_id: '{}', id: '{}', keypair_len: ({}, {})",
+                if config.enc_id.is_empty() { "empty" } else { "present" },
+                if config.id.is_empty() { "empty" } else { "present" },
+                config.key_pair.0.len(),
+                config.key_pair.1.len()
+            );
             for _ in 0..3 {
                 if let Some(id) = Config::gen_id() {
                     config.id = id;
@@ -688,10 +711,43 @@ impl Config {
                 }
             }
         }
+        #[cfg(target_os = "ios")]
+        log::info!(
+            "iOS config loaded - id: {}, keypair: ({}, {})",
+            &config.id[..config.id.len().min(8)],
+            config.key_pair.0.len(),
+            config.key_pair.1.len()
+        );
         if store {
             config.store();
         }
         config
+    }
+
+    pub fn reload_password_credentials_from_file() {
+        let loaded = Config::load();
+        {
+            let mut config = CONFIG.write().unwrap();
+            config.password = loaded.password;
+            config.salt = loaded.salt;
+        }
+
+        let loaded2 = Config2::load();
+        let mut config2 = CONFIG2.write().unwrap();
+        for key in [
+            keys::OPTION_TEMPORARY_PASSWORD,
+            keys::OPTION_KQ_DAILY_PASSWORD,
+            keys::OPTION_KQ_DAILY_PASSWORD_DATE,
+            keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
+            keys::OPTION_VERIFICATION_METHOD,
+            keys::OPTION_APPROVE_MODE,
+        ] {
+            if let Some(value) = loaded2.options.get(key) {
+                config2.options.insert(key.to_owned(), value.to_owned());
+            } else {
+                config2.options.remove(key);
+            }
+        }
     }
 
     fn migrate_permanent_password_to_hashed_storage(config: &mut Config) -> bool {
@@ -2891,6 +2947,7 @@ pub mod keys {
     pub const OPTION_ENABLE_HWCODEC: &str = "enable-hwcodec";
     pub const OPTION_APPROVE_MODE: &str = "approve-mode";
     pub const OPTION_VERIFICATION_METHOD: &str = "verification-method";
+    pub const OPTION_TEMPORARY_PASSWORD: &str = "temporary-password";
     pub const OPTION_TEMPORARY_PASSWORD_LENGTH: &str = "temporary-password-length";
     pub const OPTION_KQ_DAILY_PASSWORD: &str = "kq-daily-password";
     pub const OPTION_KQ_DAILY_PASSWORD_DATE: &str = "kq-daily-password-date";

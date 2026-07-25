@@ -31,6 +31,13 @@ fn bytes_to_string(ptr: *const u8, len: usize) -> Option<String> {
     String::from_utf8(bytes.to_vec()).ok()
 }
 
+fn seed_temporary_password_from_config() {
+    let password = Config::get_option("temporary-password");
+    if !password.trim().is_empty() {
+        hbb_common::password_security::set_temporary_password(password.trim());
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: usize) -> i32 {
     let Some(config_dir) = bytes_to_string(config_dir, config_dir_len) else {
@@ -40,12 +47,32 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
         return ERR_INVALID_CONFIG_DIR;
     }
 
-    *config::APP_DIR.write().unwrap() = config_dir;
+    *config::APP_DIR.write().unwrap() = config_dir.clone();
     INITIALIZE.call_once(|| {
         crate::load_custom_client();
         let _ = crate::common::global_init();
     });
 
+    // Verify config file exists before starting
+    let config_names = ["RustDesk.toml", "鲲穹远程桌面.toml"];
+    let mut config_found = false;
+    for name in &config_names {
+        let path = std::path::Path::new(&config_dir).join(name);
+        if path.exists() {
+            log::info!("iOS broadcast found config: {:?}", path);
+            config_found = true;
+            break;
+        }
+    }
+    if !config_found {
+        log::error!(
+            "iOS broadcast config missing in {}, ID and keypair will be regenerated",
+            config_dir
+        );
+        // Continue anyway, but this will cause ID mismatch
+    }
+
+    seed_temporary_password_from_config();
     Config::set_option("stop-service".to_owned(), String::new());
     // A previous app process may have left a cached confirmation behind. The
     // broadcast extension must prove this session is registered before it can

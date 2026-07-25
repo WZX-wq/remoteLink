@@ -224,33 +224,82 @@ import AVFoundation
   }
 
   private func showBroadcastPicker(result: @escaping FlutterResult) {
-    guard let rootView = window?.rootViewController?.view else {
-      result(false)
-      return
-    }
-
-    broadcastPicker?.removeFromSuperview()
-    let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-    picker.preferredExtension = broadcastExtensionBundleId
-    picker.showsMicrophoneButton = false
-    picker.alpha = 0.01
-    picker.isAccessibilityElement = false
-    broadcastPicker = picker
-    rootView.addSubview(picker)
-
-    for subview in picker.subviews {
-      if let button = subview as? UIButton {
-        button.sendActions(for: .touchUpInside)
-        result(true)
+#if targetEnvironment(simulator)
+    result(FlutterError(
+      code: "ios_simulator_unavailable",
+      message: "ReplayKit broadcast picker is unavailable in iOS Simulator.",
+      details: nil
+    ))
+#else
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, let rootView = self.window?.rootViewController?.view else {
+        result(false)
         return
       }
-    }
 
+      self.broadcastPicker?.removeFromSuperview()
+      let picker = RPSystemBroadcastPickerView(frame: .zero)
+      picker.preferredExtension = self.broadcastExtensionBundleId
+      picker.showsMicrophoneButton = false
+      picker.isAccessibilityElement = false
+      picker.translatesAutoresizingMaskIntoConstraints = false
+      self.broadcastPicker = picker
+      rootView.addSubview(picker)
+      rootView.bringSubviewToFront(picker)
+      NSLayoutConstraint.activate([
+        picker.widthAnchor.constraint(equalToConstant: 44),
+        picker.heightAnchor.constraint(equalToConstant: 44),
+        picker.trailingAnchor.constraint(
+          equalTo: rootView.safeAreaLayoutGuide.trailingAnchor,
+          constant: -24
+        ),
+        picker.topAnchor.constraint(
+          equalTo: rootView.safeAreaLayoutGuide.topAnchor,
+          constant: 12
+        ),
+      ])
+      rootView.layoutIfNeeded()
+
+      DispatchQueue.main.async { [weak self, weak picker] in
+        guard let self = self, let picker = picker else {
+          result(false)
+          return
+        }
+        guard let button = self.findBroadcastPickerButton(in: picker) else {
+          self.removeBroadcastPicker(picker)
+          result(false)
+          return
+        }
+
+        button.sendActions(for: .allTouchEvents)
+        result(true)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self, weak picker] in
+          guard let self = self, let picker = picker else { return }
+          self.removeBroadcastPicker(picker)
+        }
+      }
+    }
+#endif
+  }
+
+  private func findBroadcastPickerButton(in view: UIView) -> UIButton? {
+    if let button = view as? UIButton {
+      return button
+    }
+    for subview in view.subviews {
+      if let button = findBroadcastPickerButton(in: subview) {
+        return button
+      }
+    }
+    return nil
+  }
+
+  private func removeBroadcastPicker(_ picker: RPSystemBroadcastPickerView) {
     picker.removeFromSuperview()
     if broadcastPicker === picker {
       broadcastPicker = nil
     }
-    result(false)
   }
 
   private func getBroadcastStatus(result: @escaping FlutterResult) {
@@ -391,15 +440,33 @@ import AVFoundation
     guard fileManager.fileExists(atPath: source.path) else {
       return
     }
+    let credentialConfigFileNames: Set<String> = [
+      "RustDesk.toml",
+      "RustDesk2.toml",
+      "鲲穹远程桌面.toml",
+      "鲲穹远程桌面2.toml",
+    ]
     for item in try fileManager.contentsOfDirectory(
       at: source,
       includingPropertiesForKeys: nil
     ) {
       let target = destination.appendingPathComponent(item.lastPathComponent)
-      guard !fileManager.fileExists(atPath: target.path) else {
-        continue
+
+      // 强制覆盖关键配置文件，确保主应用的配置优先
+      if credentialConfigFileNames.contains(item.lastPathComponent) {
+        if fileManager.fileExists(atPath: target.path) {
+          try fileManager.removeItem(at: target)
+        }
+        try fileManager.copyItem(at: item, to: target)
+        NSLog("[Config Migration] Migrated \(item.lastPathComponent)")
+      } else if !fileManager.fileExists(atPath: target.path) {
+        try fileManager.copyItem(at: item, to: target)
       }
-      try fileManager.copyItem(at: item, to: target)
+    }
+
+    // 迁移完成后强制同步到磁盘
+    if #available(iOS 13.0, *) {
+      try? (destination as NSURL).setResourceValue(true, forKey: .isUbiquitousItemKey)
     }
   }
 

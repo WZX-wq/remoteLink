@@ -30,6 +30,18 @@ enum KqPasswordKind {
   permanent,
 }
 
+const kqVerificationCodeLength = 6;
+
+String kqNormalizeVerificationCode(String password) {
+  // Keep the displayed code, copied code, and remote-login code identical.
+  return password
+      .replaceAll(RegExp(r'\s+'), '')
+      .toLowerCase()
+      .characters
+      .take(kqVerificationCodeLength)
+      .join();
+}
+
 String kqPasswordTextForDisplay({
   required bool isVisible,
   required String rawText,
@@ -254,15 +266,13 @@ class ServerModel with ChangeNotifier {
     return '${now.year}-$month-$day';
   }
 
-  String _generatePassword({String? length, bool? numeric}) {
-    final len = int.tryParse(length ?? temporaryPasswordLength) ?? 6;
-    final count = len.clamp(6, bind.mainMaxEncryptLen()).toInt();
+  String _generatePassword({bool? numeric}) {
     final charset = (numeric ?? _allowNumericOneTimePassword)
         ? '0123456789'
         : '23456789abcdefghijkmnopqrstuvwxyz';
     final random = Random.secure();
     return List.generate(
-      count,
+      kqVerificationCodeLength,
       (_) => charset[random.nextInt(charset.length)],
     ).join();
   }
@@ -272,12 +282,10 @@ class ServerModel with ChangeNotifier {
   }
 
   String _normalizeVerificationCode(String password) {
-    // kq-v226-verification-code-normalize-lowercase
-    return password.trim().toLowerCase();
+    return kqNormalizeVerificationCode(password);
   }
 
   Future<String> _ensureDailyPassword({
-    String? length,
     bool? numeric,
   }) async {
     final today = _todayPasswordDate();
@@ -286,7 +294,7 @@ class ServerModel with ChangeNotifier {
         await bind.mainGetOption(key: kOptionKqDailyPassword);
     var password = _normalizeVerificationCode(storedPassword);
     if (date != today || password.isEmpty) {
-      password = _generatePassword(length: length, numeric: numeric);
+      password = _generatePassword(numeric: numeric);
       await bind.mainSetOption(key: kOptionKqDailyPassword, value: password);
       await bind.mainSetOption(key: kOptionKqDailyPasswordDate, value: today);
     } else if (password != storedPassword.trim()) {
@@ -337,6 +345,7 @@ class ServerModel with ChangeNotifier {
   Future<void> setDailyPassword(String password) async {
     final value = _normalizeVerificationCode(password);
     await bind.mainSetOption(key: kOptionKqDailyPassword, value: value);
+    await bind.mainSetOption(key: kKqTemporaryPasswordControlKey, value: value);
     await bind.mainSetOption(
       key: kOptionKqDailyPasswordDate,
       value: _todayPasswordDate(),
@@ -567,14 +576,10 @@ class ServerModel with ChangeNotifier {
     final numericOneTimePassword =
         await mainGetBoolOption(kOptionAllowNumericOneTimePassword);
     final dailyPassword = await _ensureDailyPassword(
-      length: temporaryPasswordLength,
       numeric: numericOneTimePassword,
     );
     if (temporaryPassword.isEmpty) {
-      temporaryPassword = _generatePassword(
-        length: temporaryPasswordLength,
-        numeric: numericOneTimePassword,
-      );
+      temporaryPassword = _generatePassword(numeric: numericOneTimePassword);
       await bind.mainSetOption(
         key: kKqTemporaryPasswordControlKey,
         value: temporaryPassword,
@@ -591,14 +596,20 @@ class ServerModel with ChangeNotifier {
         (await bind.mainGetCommon(key: "permanent-password-set")) == "true";
     final stopped = await mainGetBoolOption(kOptionStopService);
     if (permanentPasswordPreview != rawPermanentPasswordPreview.trim()) {
+      // 先更新实际密码hash，成功后再更新预览
+      if (localPermanentPasswordSet && !isChangePermanentPasswordDisabled()) {
+        final ok = await bind.mainSetPermanentPasswordWithResult(
+            password: permanentPasswordPreview);
+        if (!ok) {
+          // 密码更新失败，不修改预览，避免UI与实际不一致
+          return;
+        }
+      }
+      // 密码更新成功或无需更新，现在更新预览
       await bind.mainSetOption(
         key: kOptionKqPermanentPasswordPreview,
         value: permanentPasswordPreview,
       );
-      if (localPermanentPasswordSet && !isChangePermanentPasswordDisabled()) {
-        await bind.mainSetPermanentPasswordWithResult(
-            password: permanentPasswordPreview);
-      }
     }
     if ((permanentPasswordSet ||
             _selectedPasswordKind == KqPasswordKind.permanent) &&
@@ -606,10 +617,7 @@ class ServerModel with ChangeNotifier {
         !_permanentPreviewAutofillAttempted &&
         !isChangePermanentPasswordDisabled()) {
       _permanentPreviewAutofillAttempted = true;
-      final generated = _generatePassword(
-        length: temporaryPasswordLength,
-        numeric: numericOneTimePassword,
-      );
+      final generated = _generatePassword(numeric: numericOneTimePassword);
       final ok =
           await bind.mainSetPermanentPasswordWithResult(password: generated);
       if (ok) {

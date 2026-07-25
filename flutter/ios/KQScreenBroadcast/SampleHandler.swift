@@ -108,6 +108,25 @@ final class SampleHandler: RPBroadcastSampleHandler {
       publishFailure(code: "app_group_unavailable")
       return false
     }
+
+    // 验证关键配置文件是否存在
+    let configFiles = ["RustDesk.toml", "鲲穹远程桌面.toml"]
+    var configExists = false
+    for fileName in configFiles {
+      let configPath = URL(fileURLWithPath: configDirectory).appendingPathComponent(fileName)
+      if FileManager.default.fileExists(atPath: configPath.path) {
+        configExists = true
+        NSLog("[KQBroadcast] Found config: \(fileName)")
+        break
+      }
+    }
+
+    if !configExists {
+      NSLog("[KQBroadcast] No config file found in \(configDirectory), may generate new ID and keypair")
+      publishFailure(code: "config_missing_please_restart_main_app")
+      return false
+    }
+
     let startResult = configDirectory.utf8CString.withUnsafeBufferPointer { buffer in
       guard let baseAddress = buffer.baseAddress else {
         return Int32(1)
