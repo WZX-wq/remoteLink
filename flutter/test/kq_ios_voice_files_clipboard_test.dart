@@ -34,12 +34,10 @@ void main() {
   });
 
   test('iOS remote page requests microphone permission before calling', () {
-    final source =
-        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
     expect(source, contains("MethodChannel('mChannel')"));
     expect(source, contains("'request_microphone_permission'"));
-    expect(source,
-        contains('isIOS || (isAndroid && isSupportVoiceCall)'));
+    expect(source, contains('isIOS || (isAndroid && isSupportVoiceCall)'));
     expect(
       source.indexOf('await _ensureMobileVoicePermission()'),
       lessThan(source.indexOf('bind.sessionRequestVoiceCall')),
@@ -56,6 +54,24 @@ void main() {
     expect(source, contains('kq_ios_voice_call_audio('));
     expect(source, contains('voiceAudioQueue.async'));
     expect(source, isNot(contains('NSLock()')));
+  });
+
+  test('iOS voice call responder confirms microphone access before accepting',
+      () {
+    final native = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final responseStart = native.indexOf('private func respondToIOSVoiceCall');
+    final responseEnd = native.indexOf('private func getIOSVoiceCallState');
+
+    expect(responseStart, greaterThanOrEqualTo(0));
+    expect(responseEnd, greaterThan(responseStart));
+    expect(
+      native.substring(responseStart, responseEnd),
+      contains('withMicrophonePermission'),
+    );
+    expect(native, contains('startIOSVoiceCallInvitationMonitor'));
+    expect(native, contains('monitorIOSVoiceCallInvitation'));
+    expect(page, isNot(contains('_checkPendingIOSVoiceCall')));
   });
 
   test('Rust reports voice start failure, rejection, and remote hangup', () {

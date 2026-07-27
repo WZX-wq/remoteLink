@@ -92,7 +92,8 @@ void main() {
     expect(handler, isNot(contains('unsupported_pixel_format')));
   });
 
-  test('iOS shares the broadcast process device ID with the main app', () {
+  test('iOS displays the registered broadcast ID while the broadcast runs',
+      () {
     final native = File('../src/ios_broadcast.rs').readAsStringSync();
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
@@ -105,7 +106,113 @@ void main() {
     expect(bridge, contains('kq_ios_broadcast_copy_device_id'));
     expect(handler, contains('kq_broadcast_device_id'));
     expect(delegate, contains('"deviceId"'));
-    expect(page, contains('serverIdOverride'));
+    expect(page, contains('String? _registeredBroadcastDeviceId()'));
+    expect(page, contains('registeredDeviceId: registeredDeviceId'));
+    expect(page,
+        contains('final displayedDeviceId = registeredDeviceId ?? model.serverId.value.text;'));
+    expect(page, isNot(contains('serverIdOverride')));
+  });
+
+  test('iOS keeps one persistent ID when the main app and extension restart',
+      () {
+    final config = File('../libs/hbb_common/src/config.rs').readAsStringSync();
+    final rendezvous = File('../src/rendezvous_mediator.rs').readAsStringSync();
+    final ffi = File('../src/flutter_ffi.rs').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(config, contains('const IOS_SHARED_DEVICE_ID_FILE'));
+    expect(config, contains('fn get_or_create_ios_shared_device_id'));
+    expect(config, contains('fn set_ios_shared_device_id'));
+    expect(config, contains('get_or_create_ios_shared_device_id(&config.id)'));
+    expect(config, contains('set_ios_shared_device_id(id);'));
+    expect(config, contains('fn rotate_ios_id_after_uuid_mismatch'));
+    expect(config, contains('fn sync_ios_shared_device_id'));
+    expect(config, contains('kq-ios-uuid-mismatch-recovery'));
+    expect(ffi, contains('config::Config::sync_ios_shared_device_id();'));
+    expect(delegate, contains('sharedDeviceIdFileName'));
+    expect(delegate, contains('synchronizeSharedIdentityFiles'));
+    expect(
+      config.indexOf('get_or_create_ios_shared_device_id(&config.id)'),
+      lessThan(config.indexOf('if !id_valid {')),
+    );
+    final iosMismatchStart = rendezvous.indexOf(
+        '#[cfg(target_os = "ios")]\n    async fn handle_uuid_mismatch');
+    final nonIosMismatchStart = rendezvous.indexOf(
+        '#[cfg(not(target_os = "ios"))]\n    async fn handle_uuid_mismatch');
+    expect(iosMismatchStart, greaterThanOrEqualTo(0));
+    expect(nonIosMismatchStart, greaterThan(iosMismatchStart));
+    final iosMismatch = rendezvous.substring(iosMismatchStart, nonIosMismatchStart);
+    expect(iosMismatch, contains('Config::rotate_ios_id_after_uuid_mismatch'));
+    expect(iosMismatch, contains('self.register_pk(socket).await'));
+    expect(iosMismatch, isNot(contains('NEEDS_DEPLOY.store(true')));
+  });
+
+  test('iOS binds the App Group before starting global Rust events', () {
+    final nativeModel = File('lib/models/native_model.dart').readAsStringSync();
+    final prepareConfig = nativeModel.indexOf('prepare_broadcast_config_dir');
+    final bindAppGroup = nativeModel.indexOf('mainGetDataDirIos(appDir: _dir)');
+    final initialize = nativeModel.indexOf('await _ffiBind.mainInit(');
+    final startEvents = nativeModel.indexOf('_startListenEvent(_ffiBind)');
+
+    expect(prepareConfig, greaterThanOrEqualTo(0));
+    expect(bindAppGroup, greaterThan(prepareConfig));
+    expect(initialize, greaterThan(bindAppGroup));
+    expect(startEvents, greaterThan(initialize));
+  });
+
+  test('iOS broadcast bridges voice invitations through App Group storage', () {
+    final serverConnection =
+        File('../src/server/connection.rs').readAsStringSync();
+    final voiceBridge = File('../src/ios_voice_call.rs').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final serverPage =
+        File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final desktopToolbar =
+        File('lib/desktop/widgets/remote_toolbar.dart').readAsStringSync();
+
+    expect(serverConnection, contains('publish_incoming_voice_call'));
+    expect(serverConnection, contains('take_voice_call_response'));
+    expect(serverConnection, contains('append_playback_audio'));
+    expect(voiceBridge, contains('REQUEST_FILE_NAME'));
+    expect(voiceBridge, contains('RESPONSE_FILE_NAME'));
+    expect(voiceBridge, contains('MAX_AUDIO_FILE_BYTES'));
+    expect(delegate, contains('get_pending_ios_voice_call'));
+    expect(delegate, contains('respond_to_ios_voice_call'));
+    expect(delegate, contains('startIOSVoicePlayback'));
+    expect(delegate, contains('startIOSVoiceCallInvitationMonitor'));
+    expect(delegate, contains('monitorIOSVoiceCallInvitation'));
+    expect(serverPage, isNot(contains('_checkPendingIOSVoiceCall')));
+    expect(remotePage,
+        isNot(contains('gFFI.ffiModel.pi.platform != kPeerPlatformIOS')));
+    expect(
+        desktopToolbar,
+        isNot(contains(
+            'if (widget.ffi.ffiModel.pi.platform != kPeerPlatformIOS)')));
+  });
+
+  test(
+      'iOS voice calls return host microphone audio and expose a hangup action',
+      () {
+    final serverConnection =
+        File('../src/server/connection.rs').readAsStringSync();
+    final voiceBridge = File('../src/ios_voice_call.rs').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final serverPage =
+        File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final ffi = File('../src/flutter_ffi.rs').readAsStringSync();
+
+    expect(serverConnection, contains('send_ios_host_voice_call_audio'));
+    expect(serverConnection, contains('bind_host_voice_call_sender'));
+    expect(voiceBridge, contains('send_host_voice_call_audio'));
+    expect(voiceBridge, contains('close_host_voice_call_from_ui'));
+    expect(delegate, contains('kq_ios_host_voice_call_audio'));
+    expect(delegate, contains('get_ios_voice_call_state'));
+    expect(delegate, contains('end_ios_voice_call'));
+    expect(serverPage, contains('_refreshIOSVoiceCallState'));
+    expect(serverPage, contains('_endIOSVoiceCall'));
+    expect(ffi, contains('kq_ios_host_voice_call_end'));
   });
 
   test('iOS advertises its displayed ID as a registerable device', () {
@@ -116,7 +223,7 @@ void main() {
       defaults,
       contains(
         RegExp(
-          r'#\[cfg\(any\(target_os = "android", target_os = "ios"\)\)\]\s*'
+          r'#\[cfg\(target_os = "android"\)\]\s*'
           r'let register_device = "Y";',
         ),
       ),
@@ -125,7 +232,7 @@ void main() {
       defaults,
       contains(
         RegExp(
-          r'#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*'
+          r'#\[cfg\(not\(target_os = "android"\)\)\]\s*'
           r'let register_device = "N";',
         ),
       ),
@@ -134,6 +241,7 @@ void main() {
       rendezvous,
       contains('no_register_device: Config::no_register_device()'),
     );
+    expect(rendezvous, isNot(contains('clear_ios_uuid_mismatch_recovery')));
   });
 
   test('iOS broadcast requires a fresh rendezvous confirmation before ready',
@@ -170,6 +278,127 @@ void main() {
     final preparation = delegate.substring(migrationStart, migrationEnd);
     expect(preparation, contains('try migrateBroadcastConfiguration('));
     expect(preparation, isNot(contains('existing.isEmpty')));
+  });
+
+  test('iOS migration unifies legacy App Group config profiles once', () {
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final migrationStart =
+        delegate.indexOf('private func migrateBroadcastConfiguration');
+    final migrationEnd =
+        delegate.indexOf('public func dummyMethodToEnforceBundling');
+
+    expect(migrationStart, greaterThanOrEqualTo(0));
+    expect(migrationEnd, greaterThan(migrationStart));
+
+    final migration = delegate.substring(migrationStart, migrationEnd);
+    expect(migration, contains('let canonicalConfig'));
+    expect(migration, contains('configProfileMigrationMarkerFileName'));
+    expect(migration, contains('defaultConfigFileName'));
+    expect(migration, contains('defaultConfig2FileName'));
+    expect(migration, contains('Unified iOS config profile'));
+    expect(migration, contains('BroadcastConfigSource'));
+    expect(migration, contains('first(where: { candidate in'));
+    expect(migration, contains('broadcastUuidFileName'));
+    expect(migration, isNot(contains('credentialConfigFileNames')));
+  });
+
+  test('iOS broadcast seeds temporary password from shared config', () {
+    final native = File('../src/ios_broadcast.rs').readAsStringSync();
+    final start = native.indexOf('pub extern "C" fn kq_ios_broadcast_start');
+    final stop =
+        native.indexOf('pub extern "C" fn kq_ios_broadcast_registration_state');
+
+    expect(start, greaterThanOrEqualTo(0));
+    expect(stop, greaterThan(start));
+
+    final startBody = native.substring(start, stop);
+    expect(native, contains('fn seed_temporary_password_from_config()'));
+    expect(startBody, contains('seed_temporary_password_from_config();'));
+    expect(
+      native,
+      contains('hbb_common::password_security::set_temporary_password'),
+    );
+  });
+
+  test('mobile temporary password is persisted for the iOS extension', () {
+    final uiInterface = File('../src/ui_interface.rs').readAsStringSync();
+
+    expect(uiInterface, contains('fn persist_mobile_temporary_password'));
+    expect(uiInterface, contains('Config::set_option("temporary-password"'));
+    expect(uiInterface, contains('persist_mobile_temporary_password(&value);'));
+    expect(uiInterface,
+        contains('persist_mobile_temporary_password(&temporary_password());'));
+  });
+
+  test('iOS broadcast snapshots verification codes before sending its salt',
+      () {
+    final config = File('../libs/hbb_common/src/config.rs').readAsStringSync();
+    final passwordSecurity =
+        File('../libs/hbb_common/src/password_security.rs').readAsStringSync();
+    final connection = File('../src/server/connection.rs').readAsStringSync();
+    final start = connection.indexOf('pub async fn start(');
+    final validateStart = connection.indexOf('fn validate_password(');
+    final validateEnd =
+        connection.indexOf('fn is_recent_session', validateStart);
+
+    expect(start, greaterThanOrEqualTo(0));
+    expect(validateStart, greaterThanOrEqualTo(0));
+    expect(validateEnd, greaterThan(validateStart));
+    final validateBody = connection.substring(validateStart, validateEnd);
+
+    expect(config, contains('pub fn reload_password_credentials_from_file'));
+    expect(config, contains('OPTION_TEMPORARY_PASSWORD'));
+    expect(config, contains('OPTION_KQ_DAILY_PASSWORD'));
+    expect(config, contains('OPTION_KQ_DAILY_PASSWORD_DATE'));
+    expect(config, contains('OPTION_VERIFICATION_METHOD'));
+    expect(passwordSecurity,
+        contains('pub fn reload_current_password_credentials_from_config'));
+    expect(passwordSecurity,
+        contains('pub fn snapshot_current_password_credentials_from_config'));
+    expect(passwordSecurity, contains('pub struct IosPasswordCredentials'));
+    expect(passwordSecurity, contains('fn normalize_ios_verification_code'));
+    expect(passwordSecurity, contains('KQ_IOS_VERIFICATION_CODE_LEN'));
+    expect(
+        connection.substring(start, validateStart),
+        contains(
+            'password::snapshot_current_password_credentials_from_config();'));
+    expect(validateBody, contains('return self.validate_ios_password'));
+    expect(connection,
+        contains('ios_password_credentials: password::IosPasswordCredentials'));
+  });
+
+  test('iOS uses one canonical App Group configuration identity', () {
+    final native = File('../src/ios_broadcast.rs').readAsStringSync();
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(native, contains('let config_path = Config::file();'));
+    expect(native, contains('return ERR_CONFIG_MISSING;'));
+    expect(native, isNot(contains('config_names = ["RustDesk.toml"')));
+    expect(handler, contains('private let configFileName = "鲲穹远程桌面.toml"'));
+    expect(handler, isNot(contains('let configFiles = ["RustDesk.toml"')));
+    expect(delegate,
+        contains('private let broadcastConfigFileName = "鲲穹远程桌面.toml"'));
+    expect(delegate,
+        contains('private let defaultConfigFileName = "鲲穹远程桌面_default.toml"'));
+    expect(delegate, contains('configProfileMigrationMarkerFileName'));
+    expect(delegate, isNot(contains('credentialConfigFileNames')));
+  });
+
+  test('iOS fixes the config profile name after loading custom client data',
+      () {
+    final common = File('../src/common.rs').readAsStringSync();
+
+    expect(
+        common,
+        contains(
+            'The main app and ReplayKit extension are separate executables.'));
+    expect(common, contains('#[cfg(target_os = "ios")]'));
+    expect(
+        common,
+        contains(
+            '*config::APP_NAME.write().unwrap() = KQ_APP_NAME.to_owned();'));
   });
 
   test('iOS UI keeps the broadcast entry compact and user-facing', () {
@@ -224,9 +453,10 @@ void main() {
         broadcastPage, isNot(contains('_broadcastPickerPresentedThisSession')));
     expect(broadcastPage, isNot(contains('_openBroadcastPickerOnFirstEntry')));
     expect(broadcastPage, isNot(contains('PaddingCard(')));
-    expect(delegate, contains('private var broadcastPicker: RPSystemBroadcastPickerView?'));
+    expect(delegate,
+        contains('private var broadcastPicker: RPSystemBroadcastPickerView?'));
     expect(delegate, contains('broadcastPicker = picker'));
-    expect(delegate, isNot(contains('DispatchQueue.main.asyncAfter')));
+    expect(delegate, contains('DispatchQueue.main.asyncAfter'));
   });
 
   test('iOS broadcast emits native lifecycle diagnostics', () {
@@ -236,5 +466,51 @@ void main() {
     expect(handler, contains('NSLog("[KQBroadcast] broadcast started"'));
     expect(handler, contains('NSLog("[KQBroadcast] app group is unavailable"'));
     expect(handler, contains('NSLog("[KQBroadcast] transport start result='));
+  });
+
+  test('iOS main app and broadcast extension share the same native UUID', () {
+    final common = File('../libs/hbb_common/src/lib.rs').readAsStringSync();
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+
+    expect(common, contains('fn get_ios_shared_uuid()'));
+    expect(common, contains('kq-ios-device-uuid'));
+    expect(common, contains('Config::get_existing_key_pair()'));
+    expect(delegate, contains('remoteLink-config'));
+    expect(handler, contains('remoteLink-config'));
+  });
+
+  test(
+      'iOS password checks tolerate legacy keypair encryption and rotate visibly',
+      () {
+    final passwordSecurity =
+        File('../libs/hbb_common/src/password_security.rs').readAsStringSync();
+    final connection = File('../src/server/connection.rs').readAsStringSync();
+
+    expect(passwordSecurity, contains('#[cfg(not(target_os = "android"))]'));
+    expect(passwordSecurity, contains('Config::get_existing_key_pair()'));
+    expect(connection, contains('Config::set_option('));
+    expect(connection, contains('keys::OPTION_TEMPORARY_PASSWORD.to_owned()'));
+  });
+
+  test(
+      'iOS discards unreadable verification ciphertext and exposes its outcome',
+      () {
+    final config = File('../libs/hbb_common/src/config.rs').readAsStringSync();
+    final native = File('../src/ios_broadcast.rs').readAsStringSync();
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final bridge =
+        File('ios/KQScreenBroadcast/KQBroadcastBridge.h').readAsStringSync();
+
+    expect(config, contains('VERIFICATION_CODE_OPTION_KEYS'));
+    expect(config,
+        contains('Discarded unreadable legacy iOS verification setting'));
+    expect(config, contains('#[cfg(not(target_os = "ios"))]'));
+    expect(native, contains('kq_ios_broadcast_last_auth_result'));
+    expect(native, contains('AUTH_RESULT_REJECTED'));
+    expect(handler, contains('"lastAuthResult": authenticationResult()'));
+    expect(bridge, contains('kq_ios_broadcast_last_auth_result'));
   });
 }

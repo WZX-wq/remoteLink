@@ -5,19 +5,62 @@ import AVFoundation
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  private struct BroadcastConfigSource {
+    let directory: URL
+    let configFileName: String
+    let config2FileName: String
+  }
+
+  private enum VoiceCaptureDestination {
+    case remoteSession(String)
+    case broadcastHost
+  }
+
   private let broadcastExtensionBundleId = "com.kunqiong.remotelink.broadcast"
   private let broadcastAppGroupId = "group.com.kunqiong.remotelink"
   private let broadcastConfigDirectoryName = "remoteLink-config"
+  private let broadcastConfigFileName = "鲲穹远程桌面.toml"
+  private let broadcastConfig2FileName = "鲲穹远程桌面2.toml"
+  private let defaultConfigFileName = "鲲穹远程桌面_default.toml"
+  private let defaultConfig2FileName = "鲲穹远程桌面_default2.toml"
+  private let legacyConfigFileName = "RustDesk.toml"
+  private let legacyConfig2FileName = "RustDesk2.toml"
+  private let broadcastUuidFileName = "kq-ios-device-uuid"
+  private let sharedDeviceIdFileName = "kq-ios-device-id"
+  private let configProfileMigrationMarkerFileName =
+    "kq-ios-config-profile-migration-v1"
   private let broadcastStatusFileName = "kq-broadcast-status.json"
+  private let voiceCallRequestFileName = "kq-ios-voice-call-request.json"
+  private let voiceCallResponseFileName = "kq-ios-voice-call-response.json"
+  private let voiceCallStateFileName = "kq-ios-voice-call-state.json"
+  private let voiceCallAudioFileName = "kq-ios-voice-call-audio.bin"
+  private let voiceCallAudioRecordMagic: UInt32 = 0x4156514B
+  private let voiceCallAudioHeaderSize = 16
+  private let voiceCallAudioMaxSamples = 11_520
   private let voiceAudioEngine = AVAudioEngine()
   private let voiceAudioQueue = DispatchQueue(
     label: "com.kunqiong.remotelink.voice-audio",
     qos: .userInitiated
   )
-  private var voiceSessionId: String?
+  private var voiceCaptureDestination: VoiceCaptureDestination?
   private var voiceAudioSamples = [Float]()
   private var voiceAudioReadIndex = 0
   private var voiceTapInstalled = false
+  private let voicePlaybackEngine = AVAudioEngine()
+  private let voicePlaybackNode = AVAudioPlayerNode()
+  private let voicePlaybackQueue = DispatchQueue(
+    label: "com.kunqiong.remotelink.voice-playback",
+    qos: .userInitiated
+  )
+  private var voicePlaybackTimer: DispatchSourceTimer?
+  private var voicePlaybackRequestId: String?
+  private var voicePlaybackOffset: UInt64 = 0
+  private var voicePlaybackPending = Data()
+  private var voicePlaybackStartedAt: Date?
+  private var voicePlaybackNodeAttached = false
+  private var voiceBroadcastCaptureRequestId: String?
+  private var voiceInvitationTimer: Timer?
+  private var voiceInvitationRequestId: String?
   // ReplayKit may defer starting the upload extension until after its system
   // confirmation UI closes. Keep this picker attached for that handoff.
   private var broadcastPicker: RPSystemBroadcastPickerView?
@@ -28,6 +71,7 @@ import AVFoundation
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     registerNativeChannel()
+    startIOSVoiceCallInvitationMonitor()
     dummyMethodToEnforceBundling();
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -59,6 +103,14 @@ import AVFoundation
       case "stop_ios_voice_capture":
         self.stopIOSVoiceCapture()
         result(true)
+      case "get_pending_ios_voice_call":
+        self.getPendingIOSVoiceCall(result: result)
+      case "respond_to_ios_voice_call":
+        self.respondToIOSVoiceCall(arguments: call.arguments, result: result)
+      case "get_ios_voice_call_state":
+        self.getIOSVoiceCallState(result: result)
+      case "end_ios_voice_call":
+        self.endIOSVoiceCall(result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -66,20 +118,31 @@ import AVFoundation
   }
 
   private func requestMicrophonePermission(result: @escaping FlutterResult) {
+    withMicrophonePermission { granted in
+      result(granted)
+    }
+  }
+
+  private func withMicrophonePermission(
+    completion: @escaping (Bool) -> Void
+  ) {
     let session = AVAudioSession.sharedInstance()
+    let complete: (Bool) -> Void = { granted in
+      DispatchQueue.main.async {
+        completion(granted)
+      }
+    }
     switch session.recordPermission {
     case .granted:
-      result(true)
+      complete(true)
     case .denied:
-      result(false)
+      complete(false)
     case .undetermined:
       session.requestRecordPermission { granted in
-        DispatchQueue.main.async {
-          result(granted)
-        }
+        complete(granted)
       }
     @unknown default:
-      result(false)
+      complete(false)
     }
   }
 
@@ -88,14 +151,21 @@ import AVFoundation
     guard !normalizedSessionId.isEmpty else {
       return false
     }
+    return startIOSVoiceCapture(destination: .remoteSession(normalizedSessionId))
+  }
 
-    stopIOSVoiceCapture()
+  private func startIOSBroadcastHostVoiceCapture() -> Bool {
+    startIOSVoiceCapture(destination: .broadcastHost)
+  }
+
+  private func startIOSVoiceCapture(destination: VoiceCaptureDestination) -> Bool {
+    stopIOSVoiceCapture(deactivateAudioSession: false)
     do {
       let audioSession = AVAudioSession.sharedInstance()
       try audioSession.setCategory(
         .playAndRecord,
         mode: .voiceChat,
-        options: [.defaultToSpeaker, .allowBluetooth]
+        options: [.defaultToSpeaker, .allowBluetoothHFP]
       )
       try audioSession.setPreferredSampleRate(48_000)
       try audioSession.setActive(true)
@@ -108,7 +178,7 @@ import AVFoundation
       }
 
       voiceAudioQueue.sync {
-        voiceSessionId = normalizedSessionId
+        voiceCaptureDestination = destination
         voiceAudioSamples.removeAll(keepingCapacity: true)
         voiceAudioReadIndex = 0
       }
@@ -131,21 +201,23 @@ import AVFoundation
     }
   }
 
-  private func stopIOSVoiceCapture() {
+  private func stopIOSVoiceCapture(deactivateAudioSession: Bool = true) {
     if voiceTapInstalled {
       voiceAudioEngine.inputNode.removeTap(onBus: 0)
       voiceTapInstalled = false
     }
     voiceAudioEngine.stop()
     voiceAudioQueue.sync {
-      voiceSessionId = nil
+      voiceCaptureDestination = nil
       voiceAudioSamples.removeAll(keepingCapacity: false)
       voiceAudioReadIndex = 0
     }
-    try? AVAudioSession.sharedInstance().setActive(
-      false,
-      options: .notifyOthersOnDeactivation
-    )
+    if deactivateAudioSession {
+      try? AVAudioSession.sharedInstance().setActive(
+        false,
+        options: .notifyOthersOnDeactivation
+      )
+    }
   }
 
   private func enqueueIOSVoiceBuffer(
@@ -193,7 +265,7 @@ import AVFoundation
       }
     }
 
-    guard let sessionId = voiceSessionId else {
+    guard let destination = voiceCaptureDestination else {
       return
     }
     voiceAudioSamples.append(contentsOf: normalized)
@@ -201,7 +273,12 @@ import AVFoundation
       let endIndex = voiceAudioReadIndex + 960
       let frame = Array(voiceAudioSamples[voiceAudioReadIndex..<endIndex])
       voiceAudioReadIndex = endIndex
-      sendIOSVoiceFrame(frame, sessionId: sessionId)
+      switch destination {
+      case .remoteSession(let sessionId):
+        sendIOSVoiceFrame(frame, sessionId: sessionId)
+      case .broadcastHost:
+        sendIOSHostVoiceFrame(frame)
+      }
     }
     if voiceAudioReadIndex >= 9_600 {
       voiceAudioSamples.removeFirst(voiceAudioReadIndex)
@@ -220,6 +297,435 @@ import AVFoundation
           UInt(framePointer.count)
         )
       }
+    }
+  }
+
+  private func sendIOSHostVoiceFrame(_ frame: [Float]) {
+    frame.withUnsafeBufferPointer { framePointer in
+      kq_ios_host_voice_call_audio(
+        framePointer.baseAddress,
+        UInt(framePointer.count)
+      )
+    }
+  }
+
+  private func voiceCallDirectory() -> URL? {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: broadcastAppGroupId
+    ) else {
+      return nil
+    }
+    return container.appendingPathComponent(
+      broadcastConfigDirectoryName,
+      isDirectory: true
+    )
+  }
+
+  private func voiceCallFileURL(_ fileName: String) -> URL? {
+    voiceCallDirectory()?.appendingPathComponent(fileName)
+  }
+
+  private func readVoiceCallJSON(_ fileName: String) -> [String: Any]? {
+    guard let url = voiceCallFileURL(fileName),
+          let data = try? Data(contentsOf: url),
+          let object = try? JSONSerialization.jsonObject(with: data),
+          let value = object as? [String: Any] else {
+      return nil
+    }
+    return value
+  }
+
+  private func writeVoiceCallJSON(_ value: [String: Any], fileName: String) throws {
+    guard let directory = voiceCallDirectory(),
+          let url = voiceCallFileURL(fileName) else {
+      throw NSError(
+        domain: "com.kunqiong.remotelink.voice-call",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "App Group is unavailable"]
+      )
+    }
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    let data = try JSONSerialization.data(withJSONObject: value)
+    try data.write(to: url, options: .atomic)
+  }
+
+  private func voiceCallNumber(_ value: Any?) -> Double? {
+    (value as? NSNumber)?.doubleValue
+  }
+
+  private func pendingIOSVoiceCall() -> [String: Any]? {
+    guard let request = readVoiceCallJSON(voiceCallRequestFileName),
+          let requestId = request["requestId"] as? String,
+          let expiresAt = voiceCallNumber(request["expiresAt"]),
+          !requestId.isEmpty else {
+      return nil
+    }
+    if expiresAt <= Date().timeIntervalSince1970 {
+      if let url = voiceCallFileURL(voiceCallRequestFileName) {
+        try? FileManager.default.removeItem(at: url)
+      }
+      return nil
+    }
+    if let response = readVoiceCallJSON(voiceCallResponseFileName),
+       response["requestId"] as? String == requestId {
+      return nil
+    }
+    return [
+      "requestId": requestId,
+      "expiresAt": expiresAt,
+    ]
+  }
+
+  private func getPendingIOSVoiceCall(result: @escaping FlutterResult) {
+    result(pendingIOSVoiceCall())
+  }
+
+  private func startIOSVoiceCallInvitationMonitor() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleApplicationDidBecomeActive),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
+    monitorIOSVoiceCallInvitation()
+    let timer = Timer(
+      timeInterval: 1.0,
+      target: self,
+      selector: #selector(monitorIOSVoiceCallInvitation),
+      userInfo: nil,
+      repeats: true
+    )
+    voiceInvitationTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  @objc private func handleApplicationDidBecomeActive() {
+    monitorIOSVoiceCallInvitation()
+  }
+
+  @objc private func monitorIOSVoiceCallInvitation() {
+    guard UIApplication.shared.applicationState == .active,
+          voiceInvitationRequestId == nil,
+          let pending = pendingIOSVoiceCall(),
+          let requestId = pending["requestId"] as? String,
+          let presenter = voiceInvitationPresenter(),
+          presenter.presentedViewController == nil else {
+      return
+    }
+
+    voiceInvitationRequestId = requestId
+    let alert = UIAlertController(
+      title: "语音通话",
+      message: "已连接设备请求发起语音通话。",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "拒绝", style: .cancel) { [weak self] _ in
+      self?.respondToNativeIOSVoiceCall(requestId: requestId, accepted: false)
+    })
+    alert.addAction(UIAlertAction(title: "接听", style: .default) { [weak self] _ in
+      self?.respondToNativeIOSVoiceCall(requestId: requestId, accepted: true)
+    })
+    presenter.present(alert, animated: true)
+  }
+
+  private func voiceInvitationPresenter() -> UIViewController? {
+    guard let controller = window?.rootViewController,
+          controller.viewIfLoaded?.window != nil else {
+      return nil
+    }
+    return controller
+  }
+
+  private func respondToNativeIOSVoiceCall(requestId: String, accepted: Bool) {
+    respondToIOSVoiceCall(
+      arguments: ["requestId": requestId, "accepted": accepted],
+      result: { [weak self] value in
+        DispatchQueue.main.async {
+          guard let self = self else { return }
+          self.voiceInvitationRequestId = nil
+          if value as? Bool != true {
+            NSLog("Failed to respond to iOS voice call invitation")
+          }
+        }
+      }
+    )
+  }
+
+  private func respondToIOSVoiceCall(arguments: Any?, result: @escaping FlutterResult) {
+    guard let arguments = arguments as? [String: Any],
+          let requestId = arguments["requestId"] as? String,
+          let accepted = arguments["accepted"] as? Bool,
+          isPendingIOSVoiceCallRequest(requestId) else {
+      result(false)
+      return
+    }
+
+    guard accepted else {
+      finishIOSVoiceCallResponse(
+        requestId: requestId,
+        accepted: false,
+        result: result
+      )
+      return
+    }
+
+    // The responder is the side that needs the microphone. Request permission
+    // here as well as in Flutter so direct native calls cannot establish a
+    // silent one-way voice call.
+    withMicrophonePermission { [weak self] granted in
+      guard let self = self else {
+        result(false)
+        return
+      }
+      self.finishIOSVoiceCallResponse(
+        requestId: requestId,
+        accepted: granted,
+        result: result
+      )
+    }
+  }
+
+  private func isPendingIOSVoiceCallRequest(_ requestId: String) -> Bool {
+    guard let request = readVoiceCallJSON(voiceCallRequestFileName),
+          request["requestId"] as? String == requestId,
+          let expiresAt = voiceCallNumber(request["expiresAt"]) else {
+      return false
+    }
+    return expiresAt > Date().timeIntervalSince1970
+  }
+
+  private func finishIOSVoiceCallResponse(
+    requestId: String,
+    accepted: Bool,
+    result: @escaping FlutterResult
+  ) {
+    guard isPendingIOSVoiceCallRequest(requestId) else {
+      result(false)
+      return
+    }
+    do {
+      try writeVoiceCallJSON([
+        "requestId": requestId,
+        "accepted": accepted,
+        "respondedAt": Date().timeIntervalSince1970,
+      ], fileName: voiceCallResponseFileName)
+      if accepted {
+        startIOSVoicePlayback(requestId: requestId)
+      } else {
+        stopIOSVoicePlayback()
+      }
+      result(true)
+    } catch {
+      NSLog("Failed to write iOS voice call response: \(error)")
+      result(false)
+    }
+  }
+
+  private func getIOSVoiceCallState(result: @escaping FlutterResult) {
+    guard let state = readVoiceCallJSON(voiceCallStateFileName),
+          state["active"] as? Bool == true,
+          let requestId = state["requestId"] as? String,
+          !requestId.isEmpty else {
+      result(false)
+      return
+    }
+    result(true)
+  }
+
+  private func endIOSVoiceCall(result: @escaping FlutterResult) {
+    voicePlaybackQueue.async { [weak self] in
+      guard let self = self,
+            let state = self.readVoiceCallJSON(self.voiceCallStateFileName),
+            state["active"] as? Bool == true else {
+        DispatchQueue.main.async { result(false) }
+        return
+      }
+      self.stopIOSVoicePlaybackLocked(deactivateAudioSession: true)
+      let ended = kq_ios_host_voice_call_end()
+      DispatchQueue.main.async { result(ended) }
+    }
+  }
+
+  private func startIOSVoicePlayback(requestId: String) {
+    voicePlaybackQueue.async { [weak self] in
+      guard let self = self else { return }
+      self.stopIOSVoicePlaybackLocked(deactivateAudioSession: false)
+      do {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        try session.setActive(true)
+        if !self.voicePlaybackNodeAttached {
+          self.voicePlaybackEngine.attach(self.voicePlaybackNode)
+          self.voicePlaybackEngine.connect(
+            self.voicePlaybackNode,
+            to: self.voicePlaybackEngine.mainMixerNode,
+            format: nil
+          )
+          self.voicePlaybackNodeAttached = true
+        }
+        self.voicePlaybackEngine.prepare()
+        try self.voicePlaybackEngine.start()
+      } catch {
+        NSLog("Failed to start iOS voice playback: \(error)")
+        return
+      }
+      self.voicePlaybackRequestId = requestId
+      self.voicePlaybackOffset = 0
+      self.voicePlaybackPending.removeAll(keepingCapacity: true)
+      self.voicePlaybackStartedAt = Date()
+      let timer = DispatchSource.makeTimerSource(queue: self.voicePlaybackQueue)
+      timer.schedule(deadline: .now(), repeating: .milliseconds(20))
+      timer.setEventHandler { [weak self] in
+        self?.drainIOSVoicePlaybackAudio()
+      }
+      self.voicePlaybackTimer = timer
+      timer.resume()
+    }
+  }
+
+  private func stopIOSVoicePlayback() {
+    voicePlaybackQueue.async { [weak self] in
+      self?.stopIOSVoicePlaybackLocked(deactivateAudioSession: true)
+    }
+  }
+
+  private func stopIOSVoicePlaybackLocked(deactivateAudioSession: Bool) {
+    voicePlaybackTimer?.setEventHandler {}
+    voicePlaybackTimer?.cancel()
+    voicePlaybackTimer = nil
+    voicePlaybackNode.stop()
+    voicePlaybackEngine.stop()
+    voicePlaybackRequestId = nil
+    voicePlaybackOffset = 0
+    voicePlaybackPending.removeAll(keepingCapacity: false)
+    voicePlaybackStartedAt = nil
+    if voiceBroadcastCaptureRequestId != nil {
+      stopIOSVoiceCapture(deactivateAudioSession: false)
+      voiceBroadcastCaptureRequestId = nil
+    }
+    if deactivateAudioSession {
+      try? AVAudioSession.sharedInstance().setActive(
+        false,
+        options: .notifyOthersOnDeactivation
+      )
+    }
+  }
+
+  private func drainIOSVoicePlaybackAudio() {
+    guard let requestId = voicePlaybackRequestId else {
+      return
+    }
+    if let state = readVoiceCallJSON(voiceCallStateFileName),
+       state["requestId"] as? String == requestId,
+       state["active"] as? Bool == true {
+      if voiceBroadcastCaptureRequestId != requestId,
+         startIOSBroadcastHostVoiceCapture() {
+        voiceBroadcastCaptureRequestId = requestId
+      }
+    } else if let state = readVoiceCallJSON(voiceCallStateFileName),
+              state["requestId"] as? String == requestId,
+              state["active"] as? Bool == false {
+      stopIOSVoicePlaybackLocked(deactivateAudioSession: true)
+      return
+    }
+    if let startedAt = voicePlaybackStartedAt,
+       Date().timeIntervalSince(startedAt) > 10,
+       readVoiceCallJSON(voiceCallStateFileName) == nil {
+      stopIOSVoicePlaybackLocked(deactivateAudioSession: true)
+      return
+    }
+    guard let audioURL = voiceCallFileURL(voiceCallAudioFileName),
+          let data = try? Data(contentsOf: audioURL) else {
+      return
+    }
+    if UInt64(data.count) < voicePlaybackOffset {
+      voicePlaybackOffset = 0
+      voicePlaybackPending.removeAll(keepingCapacity: true)
+    }
+    if UInt64(data.count) > voicePlaybackOffset {
+      voicePlaybackPending.append(
+        data.subdata(in: Int(voicePlaybackOffset)..<data.count)
+      )
+      voicePlaybackOffset = UInt64(data.count)
+    }
+    while voicePlaybackPending.count >= voiceCallAudioHeaderSize {
+      let magic = readVoiceCallUInt32(voicePlaybackPending, offset: 0)
+      let sampleRate = readVoiceCallUInt32(voicePlaybackPending, offset: 4)
+      let channels = Int(readVoiceCallUInt16(voicePlaybackPending, offset: 8))
+      let sampleCount = Int(readVoiceCallUInt32(voicePlaybackPending, offset: 12))
+      guard magic == voiceCallAudioRecordMagic,
+            sampleRate > 0,
+            channels >= 1,
+            channels <= 2,
+            sampleCount > 0,
+            sampleCount <= voiceCallAudioMaxSamples,
+            sampleCount % channels == 0 else {
+        voicePlaybackPending.removeAll(keepingCapacity: true)
+        return
+      }
+      let byteCount = sampleCount * MemoryLayout<UInt32>.size
+      let recordLength = voiceCallAudioHeaderSize + byteCount
+      guard voicePlaybackPending.count >= recordLength else {
+        return
+      }
+      var samples = [Float]()
+      samples.reserveCapacity(sampleCount)
+      for index in 0..<sampleCount {
+        let offset = voiceCallAudioHeaderSize + index * MemoryLayout<UInt32>.size
+        samples.append(Float(bitPattern: readVoiceCallUInt32(voicePlaybackPending, offset: offset)))
+      }
+      voicePlaybackPending.removeSubrange(0..<recordLength)
+      scheduleIOSVoicePlayback(
+        samples: samples,
+        sampleRate: Double(sampleRate),
+        channels: channels
+      )
+    }
+  }
+
+  private func readVoiceCallUInt32(_ data: Data, offset: Int) -> UInt32 {
+    UInt32(data[offset]) |
+      UInt32(data[offset + 1]) << 8 |
+      UInt32(data[offset + 2]) << 16 |
+      UInt32(data[offset + 3]) << 24
+  }
+
+  private func readVoiceCallUInt16(_ data: Data, offset: Int) -> UInt16 {
+    UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
+  }
+
+  private func scheduleIOSVoicePlayback(
+    samples: [Float],
+    sampleRate: Double,
+    channels: Int
+  ) {
+    let frameCount = samples.count / channels
+    guard frameCount > 0,
+          let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: AVAudioChannelCount(channels),
+            interleaved: false
+          ),
+          let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(frameCount)
+          ),
+          let channelData = buffer.floatChannelData else {
+      return
+    }
+    buffer.frameLength = AVAudioFrameCount(frameCount)
+    for frame in 0..<frameCount {
+      for channel in 0..<channels {
+        channelData[channel][frame] = samples[frame * channels + channel]
+      }
+    }
+    voicePlaybackNode.scheduleBuffer(buffer)
+    if !voicePlaybackNode.isPlaying {
+      voicePlaybackNode.play()
     }
   }
 
@@ -416,14 +922,15 @@ import AVFoundation
         at: destination,
         withIntermediateDirectories: true
       )
+      let legacyDirectory: URL?
       if let values = arguments as? [String: Any],
          let legacyPath = values["legacyDir"] as? String,
          !legacyPath.isEmpty {
-        try migrateBroadcastConfiguration(
-          from: URL(fileURLWithPath: legacyPath, isDirectory: true),
-          to: destination
-        )
+        legacyDirectory = URL(fileURLWithPath: legacyPath, isDirectory: true)
+      } else {
+        legacyDirectory = nil
       }
+      try migrateBroadcastConfiguration(from: legacyDirectory, to: destination)
       result(destination.path)
     } catch {
       NSLog("Failed to prepare broadcast config directory: \(error)")
@@ -435,38 +942,113 @@ import AVFoundation
     }
   }
 
-  private func migrateBroadcastConfiguration(from source: URL, to destination: URL) throws {
+  private func migrateBroadcastConfiguration(from source: URL?, to destination: URL) throws {
     let fileManager = FileManager.default
-    guard fileManager.fileExists(atPath: source.path) else {
+    let canonicalConfig = destination.appendingPathComponent(broadcastConfigFileName)
+    let migrationMarker = destination.appendingPathComponent(
+      configProfileMigrationMarkerFileName
+    )
+    guard !fileManager.fileExists(atPath: migrationMarker.path) else {
+      try synchronizeSharedIdentityFiles(from: source, to: destination)
       return
     }
-    let credentialConfigFileNames: Set<String> = [
-      "RustDesk.toml",
-      "RustDesk2.toml",
-      "鲲穹远程桌面.toml",
-      "鲲穹远程桌面2.toml",
-    ]
-    for item in try fileManager.contentsOfDirectory(
-      at: source,
-      includingPropertiesForKeys: nil
-    ) {
-      let target = destination.appendingPathComponent(item.lastPathComponent)
 
-      // 强制覆盖关键配置文件，确保主应用的配置优先
-      if credentialConfigFileNames.contains(item.lastPathComponent) {
-        if fileManager.fileExists(atPath: target.path) {
-          try fileManager.removeItem(at: target)
-        }
-        try fileManager.copyItem(at: item, to: target)
-        NSLog("[Config Migration] Migrated \(item.lastPathComponent)")
-      } else if !fileManager.fileExists(atPath: target.path) {
-        try fileManager.copyItem(at: item, to: target)
+    var candidates = [BroadcastConfigSource]()
+    // Existing versions can leave the main app on this custom-client profile
+    // while ReplayKit uses the unsuffixed profile. Prefer the active main-app
+    // profile once, then use the stable unsuffixed name in both processes.
+    candidates.append(BroadcastConfigSource(
+      directory: destination,
+      configFileName: defaultConfigFileName,
+      config2FileName: defaultConfig2FileName
+    ))
+    if let source,
+       source.path != destination.path {
+      candidates.append(BroadcastConfigSource(
+        directory: source,
+        configFileName: defaultConfigFileName,
+        config2FileName: defaultConfig2FileName
+      ))
+      candidates.append(BroadcastConfigSource(
+        directory: source,
+        configFileName: broadcastConfigFileName,
+        config2FileName: broadcastConfig2FileName
+      ))
+      candidates.append(BroadcastConfigSource(
+        directory: source,
+        configFileName: legacyConfigFileName,
+        config2FileName: legacyConfig2FileName
+      ))
+    }
+    candidates.append(BroadcastConfigSource(
+      directory: destination,
+      configFileName: legacyConfigFileName,
+      config2FileName: legacyConfig2FileName
+    ))
+
+    guard let selected = candidates.first(where: { candidate in
+      fileManager.fileExists(
+        atPath: candidate.directory
+          .appendingPathComponent(candidate.configFileName)
+          .path
+      )
+    }) else {
+      if fileManager.fileExists(atPath: canonicalConfig.path) {
+        try synchronizeSharedIdentityFiles(from: source, to: destination)
+        try Data("1".utf8).write(to: migrationMarker, options: .atomic)
       }
+      return
     }
 
-    // 迁移完成后强制同步到磁盘
-    if #available(iOS 13.0, *) {
-      try? (destination as NSURL).setResourceValue(true, forKey: .isUbiquitousItemKey)
+    func copy(_ sourceName: String, to destinationName: String, required: Bool) throws -> Bool {
+      let sourceFile = selected.directory.appendingPathComponent(sourceName)
+      let destinationFile = destination.appendingPathComponent(destinationName)
+      if sourceFile.path == destinationFile.path {
+        return true
+      }
+      if fileManager.fileExists(atPath: sourceFile.path) {
+        if fileManager.fileExists(atPath: destinationFile.path) {
+          try fileManager.removeItem(at: destinationFile)
+        }
+        try fileManager.copyItem(at: sourceFile, to: destinationFile)
+        return true
+      }
+      if required {
+        return false
+      }
+      if destinationName == broadcastConfig2FileName,
+         fileManager.fileExists(atPath: destinationFile.path) {
+        try fileManager.removeItem(at: destinationFile)
+      }
+      return true
+    }
+
+    guard try copy(selected.configFileName, to: broadcastConfigFileName, required: true) else {
+      return
+    }
+    _ = try copy(selected.config2FileName, to: broadcastConfig2FileName, required: false)
+    _ = try copy(broadcastUuidFileName, to: broadcastUuidFileName, required: false)
+    _ = try copy(sharedDeviceIdFileName, to: sharedDeviceIdFileName, required: false)
+    try synchronizeSharedIdentityFiles(from: source, to: destination)
+    try Data("1".utf8).write(to: migrationMarker, options: .atomic)
+    NSLog("[Config Migration] Unified iOS config profile from \(selected.configFileName)")
+  }
+
+  private func synchronizeSharedIdentityFiles(from source: URL?, to destination: URL) throws {
+    guard let source, source.path != destination.path else {
+      return
+    }
+    let fileManager = FileManager.default
+    for fileName in [broadcastUuidFileName, sharedDeviceIdFileName] {
+      let target = destination.appendingPathComponent(fileName)
+      guard !fileManager.fileExists(atPath: target.path) else {
+        continue
+      }
+      let legacy = source.appendingPathComponent(fileName)
+      guard fileManager.fileExists(atPath: legacy.path) else {
+        continue
+      }
+      try fileManager.copyItem(at: legacy, to: target)
     }
   }
 

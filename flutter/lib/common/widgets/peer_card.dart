@@ -1,5 +1,6 @@
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:flutter_hbb/common/widgets/dialog.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
@@ -19,6 +20,7 @@ import 'dart:math' as math;
 
 typedef PopupMenuEntryBuilder = Future<List<mod_menu.PopupMenuEntry<String>>>
     Function(BuildContext);
+typedef MobilePeerActionSheetBuilder = Future<void> Function(BuildContext);
 
 enum PeerUiType { grid, tile, list }
 
@@ -55,12 +57,14 @@ class _PeerCard extends StatefulWidget {
   final PeerTabIndex tab;
   final Function(BuildContext, String) connect;
   final PopupMenuEntryBuilder popupMenuEntryBuilder;
+  final MobilePeerActionSheetBuilder? mobileActionSheetBuilder;
 
   const _PeerCard(
       {required this.peer,
       required this.tab,
       required this.connect,
       required this.popupMenuEntryBuilder,
+      this.mobileActionSheetBuilder,
       Key? key})
       : super(key: key);
 
@@ -1010,6 +1014,12 @@ class _PeerCardState extends State<_PeerCard>
   /// Show the peer menu and handle user's choice.
   /// User might remove the peer or send a file to the peer.
   void _showPeerMenu(String id) async {
+    if (isMobile &&
+        stateGlobal.isPortrait.isTrue &&
+        widget.mobileActionSheetBuilder != null) {
+      await widget.mobileActionSheetBuilder!(context);
+      return;
+    }
     await mod_menu.showMenu(
       context: context,
       position: _menuPos,
@@ -1020,6 +1030,68 @@ class _PeerCardState extends State<_PeerCard>
 
   @override
   bool get wantKeepAlive => true;
+}
+
+class _MobilePeerActionTile extends StatelessWidget {
+  const _MobilePeerActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.primary = false,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool primary;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final color = destructive ? q.offline : q.primary;
+    final background = destructive
+        ? q.offline.withValues(alpha: q.isDark ? 0.16 : 0.1)
+        : q.primary.withValues(alpha: primary ? (q.isDark ? 0.2 : 0.12) : 0.08);
+    return Tooltip(
+      message: label,
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          height: primary ? 58 : 52,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: primary ? 21 : 19),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: primary ? 14 : 12,
+                    fontWeight: FontWeight.w800,
+                    height: 1.05,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 abstract class BasePeerCard extends StatelessWidget {
@@ -1039,6 +1111,8 @@ abstract class BasePeerCard extends StatelessWidget {
       connect: (BuildContext context, String id) =>
           connectInPeerTab(context, peer, tab),
       popupMenuEntryBuilder: _buildPopupMenuEntry,
+      mobileActionSheetBuilder:
+          tab == PeerTabIndex.recent ? _showMobilePeerActionSheet : null,
     );
   }
 
@@ -1056,6 +1130,168 @@ abstract class BasePeerCard extends StatelessWidget {
 
   @protected
   Future<List<MenuEntryBase<String>>> _buildMenuItems(BuildContext context);
+
+  Future<void> _showMobilePeerActionSheet(BuildContext context) async {
+    final canForgetPassword = await bind.mainPeerHasPassword(id: peer.id);
+    if (!context.mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: KqTheme.of(context).panelStrong,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        final q = KqTheme.of(sheetContext);
+        final title = peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
+        final secondaryActions = [
+          _MobilePeerActionTile(
+            icon: Icons.drive_file_rename_outline_rounded,
+            label: translate('Rename'),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _renamePeer(peer.id);
+            },
+          ),
+          if (canForgetPassword)
+            _MobilePeerActionTile(
+              icon: Icons.key_off_rounded,
+              label: translate('Forget Password'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _forgetPassword(peer.id);
+              },
+            ),
+        ];
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color:
+                            q.primary.withValues(alpha: q.isDark ? 0.16 : 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(
+                        child: getPlatformImage(peer.platform, size: 26),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: q.ink,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              height: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            peer.onlineStateKnown
+                                ? _kqPeerStatusText(peer.online)
+                                : _kqPeerCardText('Checking'),
+                            style: TextStyle(
+                              color: q.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MobilePeerActionTile(
+                        icon: Icons.near_me_rounded,
+                        label: translate('Connect'),
+                        primary: true,
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          connectInPeerTab(context, peer, tab);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MobilePeerActionTile(
+                        icon: Icons.folder_copy_outlined,
+                        label: translate('Transfer file'),
+                        primary: true,
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          connectInPeerTab(
+                            context,
+                            peer,
+                            tab,
+                            isFileTransfer: true,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                if (secondaryActions.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = math.min(secondaryActions.length, 3);
+                      final gap = 8 * (columns - 1);
+                      final itemWidth = (constraints.maxWidth - gap) / columns;
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final action in secondaryActions)
+                            SizedBox(width: itemWidth, child: action),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: _MobilePeerActionTile(
+                    icon: Icons.delete_outline_rounded,
+                    label: translate('Delete'),
+                    destructive: true,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      deleteConfirmDialog(
+                        () => _deletePeer(peer.id),
+                        '${translate('Delete')} "$title"?',
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   MenuEntryBase<String> _connectCommonAction(
     BuildContext context,
@@ -1185,26 +1421,28 @@ abstract class BasePeerCard extends StatelessWidget {
         translate('Rename'),
         style: style,
       ),
-      proc: () async {
-        String oldName = await _getAlias(id);
-        renameDialog(
-            oldName: oldName,
-            onSubmit: (String newName) async {
-              if (newName != oldName) {
-                if (tab == PeerTabIndex.ab) {
-                  await gFFI.abModel.changeAlias(id: id, alias: newName);
-                  await bind.mainSetPeerAlias(id: id, alias: newName);
-                } else {
-                  await bind.mainSetPeerAlias(id: id, alias: newName);
-                  showToast(translate('Successful'));
-                  _update();
-                }
-              }
-            });
-      },
+      proc: () => _renamePeer(id),
       padding: menuPadding,
       dismissOnClicked: true,
     );
+  }
+
+  Future<void> _renamePeer(String id) async {
+    String oldName = await _getAlias(id);
+    renameDialog(
+        oldName: oldName,
+        onSubmit: (String newName) async {
+          if (newName != oldName) {
+            if (tab == PeerTabIndex.ab) {
+              await gFFI.abModel.changeAlias(id: id, alias: newName);
+              await bind.mainSetPeerAlias(id: id, alias: newName);
+            } else {
+              await bind.mainSetPeerAlias(id: id, alias: newName);
+              showToast(translate('Successful'));
+              _update();
+            }
+          }
+        });
   }
 
   @protected
@@ -1228,31 +1466,7 @@ abstract class BasePeerCard extends StatelessWidget {
       ),
       proc: () {
         onSubmit() async {
-          switch (tab) {
-            case PeerTabIndex.recent:
-              await deleteKqRecentPeer(id);
-              bind.mainLoadRecentPeers();
-              break;
-            case PeerTabIndex.fav:
-              final favs = (await bind.mainGetFav()).toList();
-              if (favs.remove(id)) {
-                await bind.mainStoreFav(favs: favs);
-                bind.mainLoadFavPeers();
-              }
-              break;
-            case PeerTabIndex.lan:
-              await bind.mainRemoveDiscovered(id: id);
-              bind.mainLoadLanPeers();
-              break;
-            case PeerTabIndex.ab:
-              await gFFI.abModel.deletePeers([id]);
-              break;
-            case PeerTabIndex.group:
-              break;
-          }
-          if (tab != PeerTabIndex.ab) {
-            showToast(translate('Successful'));
-          }
+          await _deletePeer(id);
         }
 
         deleteConfirmDialog(onSubmit,
@@ -1263,6 +1477,36 @@ abstract class BasePeerCard extends StatelessWidget {
     );
   }
 
+  Future<void> _deletePeer(String id) async {
+    switch (tab) {
+      case PeerTabIndex.recent:
+        await deleteKqRecentPeer(id);
+        KqProjectApi.markAccountDeviceHidden(peer);
+        gFFI.recentPeersModel.removePeerById(id, notifyIfMissing: true);
+        bind.mainLoadRecentPeers();
+        break;
+      case PeerTabIndex.fav:
+        final favs = (await bind.mainGetFav()).toList();
+        if (favs.remove(id)) {
+          await bind.mainStoreFav(favs: favs);
+          bind.mainLoadFavPeers();
+        }
+        break;
+      case PeerTabIndex.lan:
+        await bind.mainRemoveDiscovered(id: id);
+        bind.mainLoadLanPeers();
+        break;
+      case PeerTabIndex.ab:
+        await gFFI.abModel.deletePeers([id]);
+        break;
+      case PeerTabIndex.group:
+        break;
+    }
+    if (tab != PeerTabIndex.ab) {
+      showToast(translate('Successful'));
+    }
+  }
+
   @protected
   MenuEntryBase<String> _unrememberPasswordAction(String id) {
     return MenuEntryButton<String>(
@@ -1270,21 +1514,22 @@ abstract class BasePeerCard extends StatelessWidget {
         translate('Forget Password'),
         style: style,
       ),
-      proc: () async {
-        bool succ = await gFFI.abModel.changePersonalHashPassword(id, '');
-        await bind.mainForgetPassword(id: id);
-        if (succ) {
-          showToast(translate('Successful'));
-        } else {
-          if (tab.index == PeerTabIndex.ab.index) {
-            BotToast.showText(
-                contentColor: Colors.red, text: translate("Failed"));
-          }
-        }
-      },
+      proc: () => _forgetPassword(id),
       padding: menuPadding,
       dismissOnClicked: true,
     );
+  }
+
+  Future<void> _forgetPassword(String id) async {
+    bool succ = await gFFI.abModel.changePersonalHashPassword(id, '');
+    await bind.mainForgetPassword(id: id);
+    if (succ) {
+      showToast(translate('Successful'));
+    } else {
+      if (tab.index == PeerTabIndex.ab.index) {
+        BotToast.showText(contentColor: Colors.red, text: translate("Failed"));
+      }
+    }
   }
 
   @protected

@@ -326,6 +326,23 @@ class Peers extends ChangeNotifier {
     return peers.length;
   }
 
+  bool removePeerById(String id, {bool notifyIfMissing = false}) {
+    final peerId = kqNormalizePeerId(id);
+    if (peerId.isEmpty) {
+      return false;
+    }
+    final before = peers.length;
+    peers.removeWhere((peer) => kqNormalizePeerId(peer.id) == peerId);
+    restPeerIds.removeWhere((id) => kqNormalizePeerId(id) == peerId);
+    final removed = peers.length != before;
+    if (removed || notifyIfMissing) {
+      event = UpdateEvent.load;
+      loadGeneration += 1;
+      notifyListeners();
+    }
+    return removed;
+  }
+
   void _updateOnlineState(Map<String, dynamic> evt) {
     int changedCount = 0;
     final onlineSet = (evt['onlines'] as String)

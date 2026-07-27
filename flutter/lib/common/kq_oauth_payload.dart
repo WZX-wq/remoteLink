@@ -65,7 +65,7 @@ Uri buildKqDesktopLoginUri({
 
 Map<String, dynamic> extractKqApiData(Map<String, dynamic> body,
     {String fallbackMessage = 'Kunqiong API request failed'}) {
-  if (!_isSuccessCode(body['code'])) {
+  if (!isKqSuccessCode(body['code'])) {
     final message = (body['msg'] ?? body['message'])?.toString();
     throw FormatException(
         message == null || message.isEmpty ? fallbackMessage : message);
@@ -91,7 +91,7 @@ String extractKqWebLoginUrl(Map<String, dynamic> body) {
 }
 
 String? extractKqDesktopTokenIfReady(Map<String, dynamic> body) {
-  if (!_isSuccessCode(body['code'])) {
+  if (!isKqSuccessCode(body['code'])) {
     return null;
   }
   final data = body['data'];
@@ -157,7 +157,7 @@ bool kqLooksLikeJwtToken(String token) {
 }
 
 bool parseKqCheckLoginResult(Map<String, dynamic> body) =>
-    _isSuccessCode(body['code']);
+    isKqSuccessCode(body['code']);
 
 KqOauthLoginPayload parseKqOauthLoginPayload({
   required String token,
@@ -173,10 +173,24 @@ KqOauthLoginPayload parseKqOauthLoginPayload({
   return KqOauthLoginPayload(accessToken: token.trim(), user: user);
 }
 
-bool _isSuccessCode(dynamic value) {
-  if (value is int) return value == 1;
-  if (value is String) return int.tryParse(value) == 1;
-  return false;
+bool isKqSuccessCode(dynamic value) {
+  final code = value is int ? value : int.tryParse(value.toString().trim());
+  return code == 1 || code == 200;
+}
+
+bool _isValidKqPhone(String value) {
+  return RegExp(r'^1[3-9]\d{9}$').hasMatch(value);
+}
+
+String normalizeKqAccountInput(String value) {
+  final trimmed = value.trim();
+  final withoutCountryPrefix =
+      trimmed.startsWith('+86') ? trimmed.substring(3) : trimmed;
+  final compact = withoutCountryPrefix.replaceAll(RegExp(r'[\s-]+'), '');
+  if (_isValidKqPhone(compact)) {
+    return compact;
+  }
+  return trimmed;
 }
 
 Map<String, dynamic>? normalizeKqOauthUser(dynamic value) {

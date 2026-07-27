@@ -24,6 +24,8 @@ const _desktopTokenPath = '/user/desktop_get_token';
 const _checkLoginPath = '/user/check_login';
 const _userInfoPath = '/soft_desktop/get_user_info';
 const _logoutPath = '/logout';
+const _serviceUnavailableMessage =
+    'Kunqiong service is temporarily unavailable. Please try again later.';
 
 class KqOauthException implements Exception {
   final String message;
@@ -276,7 +278,7 @@ class KqOauth {
       'Content-Type': 'application/x-www-form-urlencoded',
       ...?headers,
     };
-    final resp = await http.post(
+    final resp = await _postOrThrow(
       Uri.parse('$_apiBaseUrl$path'),
       headers: requestHeaders,
       body: body == null ? null : Uri(queryParameters: body).query,
@@ -299,7 +301,7 @@ class KqOauth {
     String path,
     Map<String, String> body,
   ) async {
-    final resp = await http.post(
+    final resp = await _postOrThrow(
       Uri.parse('$_loginBaseUrl$path'),
       headers: {
         'Content-Type': 'application/json',
@@ -312,13 +314,24 @@ class KqOauth {
     if (decoded is! Map<String, dynamic>) {
       throw KqOauthException('Invalid Kunqiong login response.');
     }
-    final code = int.tryParse((decoded['code'] ?? '').toString());
     if (resp.statusCode < 200 ||
         resp.statusCode >= 300 ||
-        (code != null && code != 200)) {
+        (decoded.containsKey('code') && !isKqSuccessCode(decoded['code']))) {
       throw KqOauthException(_extractLoginErrorMessage(decoded));
     }
     return decoded;
+  }
+
+  static Future<http.Response> _postOrThrow(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    try {
+      return await http.post(uri, headers: headers, body: body);
+    } catch (_) {
+      throw KqOauthException(_serviceUnavailableMessage);
+    }
   }
 
   static String _extractLoginErrorMessage(Map<String, dynamic> decoded) {

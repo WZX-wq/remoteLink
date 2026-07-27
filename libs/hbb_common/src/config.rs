@@ -45,6 +45,11 @@ pub const ENCRYPT_MAX_LEN: usize = 128; // used for password, pin, etc, not for 
 const PERMANENT_PASSWORD_HASH_PREFIX: &str = "01";
 const PERMANENT_PASSWORD_H1_LEN: usize = 32;
 const DEFAULT_SALT_LEN: usize = 32;
+const VERIFICATION_CODE_OPTION_KEYS: [&str; 3] = [
+    keys::OPTION_TEMPORARY_PASSWORD,
+    keys::OPTION_KQ_DAILY_PASSWORD,
+    keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
+];
 
 fn is_permanent_password_hashed_storage(v: &str) -> bool {
     decode_permanent_password_h1_from_storage(v).is_some()
@@ -129,6 +134,113 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref APP_DIR: RwLock<String> = Default::default();
+}
+
+#[cfg(target_os = "ios")]
+const IOS_SHARED_DEVICE_ID_FILE: &str = "kq-ios-device-id";
+#[cfg(target_os = "ios")]
+const IOS_UUID_MISMATCH_RECOVERY_FILE: &str = "kq-ios-uuid-mismatch-recovery";
+
+#[cfg(target_os = "ios")]
+fn read_ios_shared_device_id(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty() && id.len() <= 128)
+}
+
+#[cfg(target_os = "ios")]
+fn write_ios_shared_device_id(path: &Path, id: &str, replace: bool) -> std::io::Result<()> {
+    let Some(parent) = path.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "iOS shared device ID has no parent directory",
+        ));
+    };
+    std::fs::create_dir_all(parent)?;
+
+    if !replace {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(id.as_bytes())?;
+        file.sync_all()?;
+        return Ok(());
+    }
+
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(id.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(temporary, path)?;
+    Ok(())
+}
+
+#[cfg(target_os = "ios")]
+fn read_ios_uuid_mismatch_recovery(path: &Path) -> Option<(String, String)> {
+    let value = std::fs::read_to_string(path).ok()?;
+    let (host, id) = value.split_once('\n')?;
+    let host = host.trim();
+    let id = id.trim();
+    (!host.is_empty() && !id.is_empty()).then(|| (host.to_owned(), id.to_owned()))
+}
+
+#[cfg(target_os = "ios")]
+fn write_ios_uuid_mismatch_recovery(path: &Path, host: &str, id: &str) -> std::io::Result<()> {
+    let Some(parent) = path.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "iOS UUID mismatch recovery has no parent directory",
+        ));
+    };
+    std::fs::create_dir_all(parent)?;
+
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(format!("{host}\n{id}\n").as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(temporary, path)
+}
+
+/// iOS runs the main app and the ReplayKit extension in separate processes.
+/// Keep the user-facing ID in App Group storage so a config decryption fallback
+/// in either process cannot silently create a different endpoint ID.
+#[cfg(target_os = "ios")]
+fn get_or_create_ios_shared_device_id(preferred: &str) -> Option<String> {
+    let path = Config::path(IOS_SHARED_DEVICE_ID_FILE);
+    if let Some(id) = read_ios_shared_device_id(&path) {
+        return Some(id);
+    }
+
+    let id = if preferred.trim().is_empty() {
+        Config::get_auto_id()?
+    } else {
+        preferred.trim().to_owned()
+    };
+    match write_ios_shared_device_id(&path, &id, false) {
+        Ok(()) => Some(id),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Another process won the first-launch race. Its value is canonical.
+            read_ios_shared_device_id(&path)
+        }
+        Err(err) => {
+            log::error!("Failed to persist iOS shared device ID: {err}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn set_ios_shared_device_id(id: &str) {
+    let id = id.trim();
+    if id.is_empty() || id.len() > 128 {
+        return;
+    }
+    let path = Config::path(IOS_SHARED_DEVICE_ID_FILE);
+    if let Err(err) = write_ios_shared_device_id(&path, id, true) {
+        log::error!("Failed to update iOS shared device ID: {err}");
+    }
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -543,15 +655,33 @@ impl Config2 {
             decrypt_str_or_original(&config.unlock_pin, PASSWORD_ENC_VERSION);
         config.unlock_pin = unlock_pin;
         store |= store2;
-        for opt in [
-            keys::OPTION_TEMPORARY_PASSWORD,
-            keys::OPTION_KQ_DAILY_PASSWORD,
-            keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
-        ] {
-            if let Some(v) = config.options.get_mut(opt) {
-                let (decrypted, _, store2) = decrypt_str_or_original(v, PASSWORD_ENC_VERSION);
-                *v = decrypted;
-                store |= store2;
+        for opt in VERIFICATION_CODE_OPTION_KEYS {
+            let Some(value) = config.options.get(opt).cloned() else {
+                continue;
+            };
+            let (decrypted, decrypted_ok, store2) =
+                decrypt_str_or_original(&value, PASSWORD_ENC_VERSION);
+
+            // Older iOS builds encrypted these values using process-derived
+            // material. A stale main-app or ReplayKit keypair leaves ciphertext
+            // that looks like a six-character code to the UI. Do not let that
+            // ciphertext overwrite the actual permanent-password hash.
+            #[cfg(target_os = "ios")]
+            if !decrypted_ok && !store2 && !value.is_empty() {
+                config.options.remove(opt);
+                store = true;
+                log::warn!("Discarded unreadable legacy iOS verification setting: {opt}");
+                continue;
+            }
+
+            config.options.insert(opt.to_owned(), decrypted);
+            store |= store2;
+            // The shared App Group already provides the iOS process boundary.
+            // Keep verification values process-independent so ReplayKit cannot
+            // fail to decrypt a code after an identity migration.
+            #[cfg(target_os = "ios")]
+            if decrypted_ok {
+                store = true;
             }
         }
         if store {
@@ -573,11 +703,8 @@ impl Config2 {
         }
         config.unlock_pin =
             encrypt_str_or_original(&config.unlock_pin, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
-        for opt in [
-            keys::OPTION_TEMPORARY_PASSWORD,
-            keys::OPTION_KQ_DAILY_PASSWORD,
-            keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
-        ] {
+        #[cfg(not(target_os = "ios"))]
+        for opt in VERIFICATION_CODE_OPTION_KEYS {
             if let Some(v) = config.options.get_mut(opt) {
                 *v = encrypt_str_or_original(v, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
             }
@@ -691,6 +818,14 @@ impl Config {
             id_valid = true;
             store = true;
         }
+        #[cfg(target_os = "ios")]
+        if let Some(id) = get_or_create_ios_shared_device_id(&config.id) {
+            if config.id != id {
+                config.id = id;
+                store = true;
+            }
+            id_valid = true;
+        }
         if !id_valid {
             log::warn!("ID is invalid, generating new one");
             #[cfg(target_os = "ios")]
@@ -725,11 +860,16 @@ impl Config {
     }
 
     pub fn reload_password_credentials_from_file() {
-        let loaded = Config::load();
+        let mut loaded = Config::load_::<Config>("");
+        let migrated = Self::migrate_permanent_password_to_hashed_storage(&mut loaded);
         {
             let mut config = CONFIG.write().unwrap();
+            let changed = config.password != loaded.password || config.salt != loaded.salt;
             config.password = loaded.password;
             config.salt = loaded.salt;
+            if migrated || changed {
+                config.store();
+            }
         }
 
         let loaded2 = Config2::load();
@@ -1044,12 +1184,71 @@ impl Config {
     }
 
     pub fn set_id(id: &str) {
+        #[cfg(target_os = "ios")]
+        set_ios_shared_device_id(id);
         let mut config = CONFIG.write().unwrap();
         if id == config.id {
             return;
         }
         config.id = id.into();
         config.store();
+    }
+
+    /// A UUID mismatch can mean the rendezvous service still has an identity
+    /// from an older iOS installation. Migrate at most once and persist the
+    /// result in App Group storage. Keeping the marker after a successful
+    /// registration prevents a later ReplayKit restart from silently changing
+    /// the user-facing ID again.
+    #[cfg(target_os = "ios")]
+    pub fn rotate_ios_id_after_uuid_mismatch(host: &str) -> bool {
+        let marker_path = Self::path(IOS_UUID_MISMATCH_RECOVERY_FILE);
+        if let Some((recovered_host, recovered_id)) = read_ios_uuid_mismatch_recovery(&marker_path)
+        {
+            if recovered_host == host && recovered_id == Self::get_id() {
+                log::warn!(
+                    "iOS UUID mismatch recovery already attempted for rendezvous host {host}"
+                );
+                return false;
+            }
+        }
+
+        let current_id = Self::get_id();
+        let Some(new_id) = Self::get_auto_id() else {
+            log::error!("Failed to generate an iOS recovery ID after UUID mismatch");
+            return false;
+        };
+        if new_id == current_id {
+            log::error!("Generated the existing iOS ID during UUID mismatch recovery");
+            return false;
+        }
+
+        Self::set_id(&new_id);
+        if let Err(err) = write_ios_uuid_mismatch_recovery(&marker_path, host, &new_id) {
+            log::error!("Failed to persist iOS UUID mismatch recovery marker: {err}");
+        }
+        log::info!("Migrated iOS identity after UUID mismatch for rendezvous host {host}");
+        true
+    }
+
+    /// The main app and ReplayKit extension have independent Rust statics. Pull
+    /// an identity migration performed by the extension into the foreground app
+    /// before it displays or registers the local ID.
+    #[cfg(target_os = "ios")]
+    pub fn sync_ios_shared_device_id() -> bool {
+        let path = Self::path(IOS_SHARED_DEVICE_ID_FILE);
+        let Some(id) = read_ios_shared_device_id(&path) else {
+            return false;
+        };
+
+        let mut config = CONFIG.write().unwrap();
+        if config.id == id {
+            return false;
+        }
+        config.id = id;
+        config.key_confirmed = false;
+        config.keys_confirmed = Default::default();
+        config.store();
+        true
     }
 
     pub fn set_nat_type(nat_type: i32) {
@@ -1335,12 +1534,23 @@ impl Config {
     }
 
     pub fn update_id() {
-        // to-do: how about if one ip register a lot of ids?
-        let id = Self::get_id();
-        let mut rng = rand::thread_rng();
-        let new_id = rng.gen_range(1_000_000_000..2_000_000_000).to_string();
-        Config::set_id(&new_id);
-        log::info!("id updated from {} to {}", id, new_id);
+        #[cfg(target_os = "ios")]
+        {
+            // The main app and ReplayKit extension use a durable App Group ID.
+            // A server-side UUID mismatch must trigger re-registration, never a
+            // fresh user-facing ID in one of the two processes.
+            log::warn!("Ignoring automatic ID update on iOS");
+            return;
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            // to-do: how about if one ip register a lot of ids?
+            let id = Self::get_id();
+            let mut rng = rand::thread_rng();
+            let new_id = rng.gen_range(1_000_000_000..2_000_000_000).to_string();
+            Config::set_id(&new_id);
+            log::info!("id updated from {} to {}", id, new_id);
+        }
     }
 
     pub fn set_permanent_password(password: &str) {
@@ -1682,10 +1892,10 @@ impl Config {
         *lock = cfg;
         lock.store();
         // Drop CONFIG lock before acquiring KEY_PAIR lock to avoid potential deadlock.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
         let new_key_pair = lock.key_pair.clone();
         drop(lock);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
         Self::invalidate_key_pair_cache_if_changed(&new_key_pair);
         true
     }
@@ -1695,7 +1905,7 @@ impl Config {
     /// If we use Some with an empty key_pair, get_key_pair() would always return
     /// the empty key_pair from cache without regenerating.
     /// By clearing the cache, get_key_pair() will reload and regenerate if needed.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
     fn invalidate_key_pair_cache_if_changed(new_key_pair: &KeyPair) {
         let mut key_pair_cache = KEY_PAIR.lock().unwrap();
         if let Some(cached) = key_pair_cache.as_ref() {

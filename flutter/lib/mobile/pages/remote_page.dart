@@ -204,13 +204,14 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   void _refreshIOSRemoteVideo(String reason) {
     if (!isIOS ||
-        !mounted || _wasBackgrounded || gFFI.closed ||
+        !mounted ||
+        _wasBackgrounded ||
+        gFFI.closed ||
         gFFI.ffiModel.pi.isSet.isFalse) {
       return;
     }
     final display = gFFI.ffiModel.pi.currentDisplay;
-    platformFFI.logRgbaStage(
-        sessionId, 'ios-video-refresh-$reason', display);
+    platformFFI.logRgbaStage(sessionId, 'ios-video-refresh-$reason', display);
     gFFI.imageModel.requestRepaint();
     unawaited(() async {
       try {
@@ -226,7 +227,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     if (_currentOrientation == orientation) return;
     _currentOrientation = orientation;
     _orientationRefreshTimer?.cancel();
-    _orientationRefreshTimer = Timer(const Duration(milliseconds: 200), () async {
+    _orientationRefreshTimer =
+        Timer(const Duration(milliseconds: 200), () async {
       if (!mounted || gFFI.closed) return;
       gFFI.dialogManager.resetMobileActionsOverlay(ffi: gFFI);
       await gFFI.canvasModel.updateViewStyle();
@@ -1248,7 +1250,8 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
 class ImagePaint extends StatelessWidget {
   final FfiModel ffiModel;
   final ValueChanged<ImageModel>? onPaint;
-  ImagePaint({Key? key, required this.ffiModel, this.onPaint}) : super(key: key);
+  ImagePaint({Key? key, required this.ffiModel, this.onPaint})
+      : super(key: key);
 
   FilterQuality _remoteImageFilterQuality(double scale) {
     if (scale < 1.0) {

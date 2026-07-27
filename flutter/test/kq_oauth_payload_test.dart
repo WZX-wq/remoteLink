@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_hbb/common/kq_oauth_payload.dart';
@@ -60,6 +61,22 @@ void main() {
   });
 
   group('Kunqiong API response parsing', () {
+    test('accepts success codes used by both Kunqiong login APIs', () {
+      expect(isKqSuccessCode(1), isTrue);
+      expect(isKqSuccessCode('1'), isTrue);
+      expect(isKqSuccessCode(200), isTrue);
+      expect(isKqSuccessCode('200'), isTrue);
+      expect(isKqSuccessCode(0), isFalse);
+      expect(isKqSuccessCode(400), isFalse);
+    });
+
+    test('native login JSON uses the shared success-code parser', () {
+      final source = File('lib/common/kq_oauth_io.dart').readAsStringSync();
+
+      expect(source, contains("!isKqSuccessCode(decoded['code'])"));
+      expect(source, isNot(contains('code != 200')));
+    });
+
     test('extracts web login URL from documented response', () {
       expect(
         extractKqWebLoginUrl({

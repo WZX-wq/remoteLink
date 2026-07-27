@@ -2672,6 +2672,10 @@ pub fn load_custom_client() {
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
+        #[cfg(target_os = "ios")]
+        {
+            *config::APP_NAME.write().unwrap() = KQ_APP_NAME.to_owned();
+        }
         return;
     }
     let Some(path) = std::env::current_exe().map_or(None, |x| x.parent().map(|x| x.to_path_buf()))
@@ -2687,6 +2691,12 @@ pub fn load_custom_client() {
             return;
         };
         read_custom_client(&data.trim());
+    }
+    // The main app and ReplayKit extension are separate executables. A custom
+    // app name would make them derive different config file names in App Group.
+    #[cfg(target_os = "ios")]
+    {
+        *config::APP_NAME.write().unwrap() = KQ_APP_NAME.to_owned();
     }
 }
 
@@ -2737,9 +2747,13 @@ fn apply_kq_remote_link_defaults() {
         .unwrap()
         .insert(keys::OPTION_VIEW_STYLE.to_owned(), "adaptive".to_owned());
 
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    // The public RustDesk server accepts iOS screen-sharing endpoints as
+    // unmanaged peers. Requiring managed-device deployment here leaves the
+    // iOS client permanently offline because this deployment does not expose
+    // a RustDesk management API.
+    #[cfg(target_os = "android")]
     let register_device = "Y";
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "android"))]
     let register_device = "N";
     config::BUILTIN_SETTINGS.write().unwrap().insert(
         keys::OPTION_REGISTER_DEVICE.to_owned(),

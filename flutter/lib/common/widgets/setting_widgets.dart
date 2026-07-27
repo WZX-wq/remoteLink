@@ -31,14 +31,12 @@ customImageQualityWidget(
 
   return Column(
     children: [
-        Obx(() => Row(
+      Obx(() => Row(
             children: [
               Builder(builder: (context) {
                 final sliderMax = effectiveMaxQuality;
                 final sliderDivisions =
-                    (((sliderMax - kMinQuality) / 5)
-                            .round()
-                            .clamp(1, 1000))
+                    (((sliderMax - kMinQuality) / 5).round().clamp(1, 1000))
                         .toInt();
                 return Expanded(
                   flex: 3,
@@ -184,7 +182,6 @@ List<Widget> ServerConfigImportExportWidgets(
             apiServer: controllers[2].text.trim(),
             key: controllers[3].text.trim())
         .encode();
-    debugPrint("ServerConfig export: $text");
     Clipboard.setData(ClipboardData(text: text));
     showToast(translate('Export server configuration successfully'));
   }

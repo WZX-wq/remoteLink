@@ -1387,6 +1387,8 @@ pub fn main_clip_cursor(
 }
 
 pub fn main_get_my_id() -> String {
+    #[cfg(target_os = "ios")]
+    config::Config::sync_ios_shared_device_id();
     get_id()
 }
 
@@ -1763,6 +1765,23 @@ unsafe extern "C" fn kq_ios_voice_call_audio(
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         session.send_ios_voice_call_audio(samples);
     }
+}
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+unsafe extern "C" fn kq_ios_host_voice_call_audio(samples: *const f32, sample_len: usize) {
+    if samples.is_null() || sample_len == 0 {
+        return;
+    }
+    crate::ios_voice_call::send_host_voice_call_audio(
+        std::slice::from_raw_parts(samples, sample_len).to_vec(),
+    );
+}
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+extern "C" fn kq_ios_host_voice_call_end() -> bool {
+    crate::ios_voice_call::close_host_voice_call_from_ui()
 }
 
 pub fn session_get_conn_token(session_id: SessionID) -> SyncReturn<Option<String>> {

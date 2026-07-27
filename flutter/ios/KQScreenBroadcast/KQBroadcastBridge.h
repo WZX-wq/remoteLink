@@ -9,6 +9,8 @@ int32_t kq_ios_broadcast_start(
 
 int32_t kq_ios_broadcast_registration_state(void);
 
+int32_t kq_ios_broadcast_last_auth_result(void);
+
 uintptr_t kq_ios_broadcast_copy_device_id(
     uint8_t *buffer,
     uintptr_t buffer_len);

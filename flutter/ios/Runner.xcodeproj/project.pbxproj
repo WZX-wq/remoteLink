@@ -19,6 +19,7 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		C5678348E08E565F424B13A5 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25E069BDBEF2890938537ABB /* Pods_Runner.framework */; };
+		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -82,6 +83,7 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C66E40D850585BD073A0EF7D /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
+		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +99,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				C5678348E08E565F424B13A5 /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -119,6 +122,7 @@
 		9740EEB11CF90186004384FC /* Flutter */ = {
 			isa = PBXGroup;
 			children = (
+				78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */,
 				3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */,
 				9740EEB21CF90195004384FC /* Debug.xcconfig */,
 				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
@@ -205,6 +209,9 @@
 			productType = "com.apple.product-type.app-extension";
 		};
 		97C146ED1CF9000F007C117D /* Runner */ = {
+			packageProductDependencies = (
+				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
+			);
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
@@ -232,6 +239,9 @@
 
 /* Begin PBXProject section */
 		97C146E61CF9000F007C117D /* Project object */ = {
+			packageReferences = (
+				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
+			);
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1510;
@@ -412,12 +422,13 @@
 /* Begin XCBuildConfiguration section */
 		A1B2C3D4000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
 			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = KQScreenBroadcast/KQScreenBroadcast.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = G4C3ADW2F4;
+					APPLICATION_EXTENSION_API_ONLY = YES;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_ENTITLEMENTS = KQScreenBroadcast/KQScreenBroadcast.entitlements;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = G4C3ADW2F4;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = KQScreenBroadcast/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
@@ -456,11 +467,11 @@
 					"VideoToolbox",
 				);
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
-				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
+					PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
+					PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SDKROOT = iphoneos;
+					SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_OBJC_BRIDGING_HEADER = KQScreenBroadcast/KQBroadcastBridge.h;
 				SWIFT_VERSION = 5.0;
@@ -470,12 +481,15 @@
 		};
 		A1B2C3D4000000000000000F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
 			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = KQScreenBroadcast/KQScreenBroadcast.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = G4C3ADW2F4;
+					APPLICATION_EXTENSION_API_ONLY = YES;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_ENTITLEMENTS = KQScreenBroadcast/KQScreenBroadcast.entitlements;
+					"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+					CODE_SIGN_STYLE = Manual;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = G4C3ADW2F4;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = KQScreenBroadcast/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
@@ -513,11 +527,12 @@
 					"-framework",
 					"VideoToolbox",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
-				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
+					PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink.broadcast;
+					PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					PROVISIONING_PROFILE_SPECIFIER = "RemoteLink Broadcast App Store 20260722";
+					SDKROOT = iphoneos;
+					SKIP_INSTALL = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_OBJC_BRIDGING_HEADER = KQScreenBroadcast/KQBroadcastBridge.h;
@@ -529,6 +544,7 @@
 		};
 		A1B2C3D40000000000000010 /* Profile */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
@@ -641,11 +657,11 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = G4C3ADW2F4;
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = G4C3ADW2F4;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -682,9 +698,9 @@
 					"-framework",
 					"\"UIKit\"",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRIP_STYLE = "non-global";
+					PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					STRIP_STYLE = "non-global";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -800,15 +816,15 @@
 			};
 			name = Release;
 		};
-		97C147061CF9000F007C117D /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = G4C3ADW2F4;
+			97C147061CF9000F007C117D /* Debug */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = G4C3ADW2F4;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -844,10 +860,10 @@
 					"\"QuartzCore\"",
 					"-framework",
 					"\"UIKit\"",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRIP_STYLE = "non-global";
+					);
+					PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					STRIP_STYLE = "non-global";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -855,15 +871,17 @@
 			};
 			name = Debug;
 		};
-		97C147071CF9000F007C117D /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = G4C3ADW2F4;
+			97C147071CF9000F007C117D /* Release */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+					"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+					CODE_SIGN_STYLE = Manual;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = G4C3ADW2F4;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -899,10 +917,11 @@
 					"\"QuartzCore\"",
 					"-framework",
 					"\"UIKit\"",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRIP_STYLE = "non-global";
+					);
+					PRODUCT_BUNDLE_IDENTIFIER = com.kunqiong.remotelink;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					PROVISIONING_PROFILE_SPECIFIER = "RemoteLink Main App Store 20260722";
+					STRIP_STYLE = "non-global";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -943,6 +962,18 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+/* Begin XCLocalSwiftPackageReference section */
+		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+/* Begin XCSwiftPackageProductDependency section */
+		78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FlutterGeneratedPluginSwiftPackage;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 97C146E61CF9000F007C117D /* Project object */;
 }

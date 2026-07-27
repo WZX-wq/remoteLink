@@ -10,6 +10,10 @@ use crate::clipboard::try_empty_clipboard_files;
 use crate::clipboard::{update_clipboard, ClipboardSide};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use crate::clipboard_file::*;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+use crate::common::DEVICE_NAME;
+#[cfg(target_os = "android")]
+use crate::flutter::connection_manager::start_channel;
 #[cfg(target_os = "android")]
 use crate::keyboard::client::map_key_to_control_key;
 #[cfg(target_os = "linux")]
@@ -24,10 +28,6 @@ use crate::{
     },
     display_service, ipc, privacy_mode, video_service, VERSION,
 };
-#[cfg(any(target_os = "android", target_os = "ios"))]
-use crate::common::DEVICE_NAME;
-#[cfg(target_os = "android")]
-use crate::flutter::connection_manager::start_channel;
 use cidr_utils::cidr::IpCidr;
 #[cfg(target_os = "android")]
 use hbb_common::protobuf::EnumOrUnknown;
@@ -48,6 +48,8 @@ use hbb_common::{
     },
     tokio_util::codec::{BytesCodec, Framed},
 };
+#[cfg(target_os = "ios")]
+use magnum_opus::{Application::Voip, Channels, Channels::Mono, Decoder as AudioDecoder, Encoder};
 #[cfg(target_os = "android")]
 use scrap::android::{call_main_service_key_event, call_main_service_pointer_input};
 use scrap::camera;
@@ -363,6 +365,8 @@ pub struct Connection {
     stream: super::Stream,
     server: super::ServerPtrWeak,
     hash: Hash,
+    #[cfg(target_os = "ios")]
+    ios_password_credentials: password::IosPasswordCredentials,
     read_jobs: Vec<fs::TransferJob>,
     timer: crate::RustDeskInterval,
     file_timer: crate::RustDeskInterval,
@@ -418,8 +422,18 @@ pub struct Connection {
     portable: PortableState,
     from_switch: bool,
     voice_call_request_timestamp: Option<NonZeroI64>,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_request_id: Option<String>,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_tx: mpsc::UnboundedSender<ipc::Data>,
     voice_calling: bool,
     voice_call_audio_frames_to_cm: u64,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_decoder: Option<(AudioDecoder, u32, u32)>,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_encoder: Option<Encoder>,
+    #[cfg(target_os = "ios")]
+    ios_voice_call_format_sent: bool,
     options_in_login: Option<OptionMessage>,
     #[cfg(not(any(target_os = "ios")))]
     pressed_modifiers: HashSet<rdev::Key>,
@@ -523,8 +537,15 @@ impl Connection {
         let _raii_id = raii::ConnectionID::new(id);
         let _raii_control_permissions_id =
             raii::ControlPermissionsID::new(id, &control_permissions);
+        #[cfg(target_os = "ios")]
+        let ios_password_credentials =
+            password::snapshot_current_password_credentials_from_config();
+        #[cfg(target_os = "ios")]
+        let hash_salt = ios_password_credentials.salt.clone();
+        #[cfg(not(target_os = "ios"))]
+        let hash_salt = Config::get_salt();
         let hash = Hash {
-            salt: Config::get_salt(),
+            salt: hash_salt,
             challenge: Config::get_auto_password(6),
             ..Default::default()
         };
@@ -563,6 +584,8 @@ impl Connection {
             stream,
             server,
             hash,
+            #[cfg(target_os = "ios")]
+            ios_password_credentials,
             read_jobs: Vec::new(),
             timer: crate::rustdesk_interval(time::interval(SEC30)),
             file_timer: crate::rustdesk_interval(time::interval(SEC30)),
@@ -612,8 +635,18 @@ impl Connection {
             from_switch: false,
             audio_sender: None,
             voice_call_request_timestamp: None,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_request_id: None,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_tx: tx_from_cm.clone(),
             voice_calling: false,
             voice_call_audio_frames_to_cm: 0,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_decoder: None,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_encoder: None,
+            #[cfg(target_os = "ios")]
+            ios_voice_call_format_sent: false,
             options_in_login: None,
             #[cfg(not(any(target_os = "ios")))]
             pressed_modifiers: Default::default(),
@@ -947,6 +980,10 @@ impl Connection {
                             let msg = new_voice_call_request(false);
                             conn.send(msg).await;
                         }
+                        #[cfg(target_os = "ios")]
+                        ipc::Data::IOSVoiceCallAudio(samples) => {
+                            conn.send_ios_host_voice_call_audio(samples).await;
+                        }
                         ipc::Data::ReadJobInitResult { id, file_num, include_hidden, conn_id, result } => {
                             if conn_id == conn.inner.id() {
                                 conn.handle_read_job_init_result(id, file_num, include_hidden, result).await;
@@ -1120,6 +1157,15 @@ impl Connection {
                     }
                 }
                 _ = second_timer.tick() => {
+                    #[cfg(target_os = "ios")]
+                    if let Some(request_id) = conn.ios_voice_call_request_id.clone() {
+                        if let Some(accepted) = crate::ios_voice_call::take_voice_call_response(&request_id) {
+                            conn.handle_voice_call(accepted).await;
+                        } else if crate::ios_voice_call::request_expired(&request_id) {
+                            log::info!("iOS voice call invitation {} timed out", request_id);
+                            conn.handle_voice_call(false).await;
+                        }
+                    }
                     #[cfg(windows)]
                     conn.portable_check();
                     #[cfg(target_os = "windows")]
@@ -2436,6 +2482,11 @@ impl Connection {
 
         password::update_temporary_password();
         let new_password = password::temporary_password();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        Config::set_option(
+            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
+            new_password.clone(),
+        );
         log::warn!(
             "Temporary password rotated after too many consecutive wrong attempts: failures={}, ip={}",
             state.failures,
@@ -2445,44 +2496,43 @@ impl Connection {
         state.failures = 0;
     }
 
-    fn validate_password(&mut self, allow_permanent_password: bool) -> bool {
-        if password::temporary_enabled() {
-            let password = password::temporary_password();
-            if self.validate_password_plain(&password) {
-                raii::AuthedConnID::update_or_insert_session(
-                    self.session_key(),
-                    Some(password),
-                    Some(false),
-                );
-                self.check_update_temporary_password(true);
-                return true;
-            }
-        }
-        let daily_password = password::kq_daily_password();
-        if self.validate_password_plain(&daily_password) {
+    #[cfg(target_os = "ios")]
+    fn validate_ios_password(&mut self, allow_permanent_password: bool) -> bool {
+        let credentials = self.ios_password_credentials.clone();
+        if credentials.temporary_enabled
+            && self.validate_password_plain(&credentials.temporary_password)
+        {
+            crate::ios_broadcast::set_last_auth_result(crate::ios_broadcast::AUTH_RESULT_TEMPORARY);
             raii::AuthedConnID::update_or_insert_session(
                 self.session_key(),
-                Some(daily_password),
+                Some(credentials.temporary_password),
+                Some(false),
+            );
+            self.check_update_temporary_password(true);
+            return true;
+        }
+        if self.validate_password_plain(&credentials.daily_password) {
+            crate::ios_broadcast::set_last_auth_result(crate::ios_broadcast::AUTH_RESULT_DAILY);
+            raii::AuthedConnID::update_or_insert_session(
+                self.session_key(),
+                Some(credentials.daily_password),
                 Some(false),
             );
             return true;
         }
-        if password::permanent_enabled() || allow_permanent_password {
-            let print_fallback = || {
-                if allow_permanent_password && !password::permanent_enabled() {
+        if credentials.permanent_enabled || allow_permanent_password {
+            if !credentials.permanent_password_storage.is_empty()
+                && self.validate_password_storage(&credentials.permanent_password_storage)
+            {
+                crate::ios_broadcast::set_last_auth_result(
+                    crate::ios_broadcast::AUTH_RESULT_PERMANENT,
+                );
+                if allow_permanent_password && !credentials.permanent_enabled {
                     log::info!("Permanent password accepted via logon-screen fallback");
                 }
-            };
-            // Since hashed storage uses a prefix-based encoding, a hard plaintext that
-            // happens to look like hashed storage could be mis-detected. Validate local storage
-            // and hard/preset plaintext via separate paths to avoid that ambiguity.
-            let (local_storage, _) = Config::get_local_permanent_password_storage_and_salt();
-            if !local_storage.is_empty() {
-                if self.validate_password_storage(&local_storage) {
-                    print_fallback();
-                    return true;
-                }
-            } else {
+                return true;
+            }
+            if credentials.permanent_password_storage.is_empty() {
                 let hard = config::HARD_SETTINGS
                     .read()
                     .unwrap()
@@ -2490,12 +2540,85 @@ impl Connection {
                     .cloned()
                     .unwrap_or_default();
                 if !hard.is_empty() && self.validate_password_plain(&hard) {
-                    print_fallback();
+                    crate::ios_broadcast::set_last_auth_result(
+                        crate::ios_broadcast::AUTH_RESULT_PERMANENT,
+                    );
+                    if allow_permanent_password && !credentials.permanent_enabled {
+                        log::info!("Permanent password accepted via logon-screen fallback");
+                    }
                     return true;
                 }
             }
         }
+        log::warn!(
+            "iOS verification rejected: no code in the handshake snapshot matched (temporary={}, daily={}, permanent={})",
+            credentials.temporary_enabled && !credentials.temporary_password.is_empty(),
+            !credentials.daily_password.is_empty(),
+            credentials.permanent_enabled && !credentials.permanent_password_storage.is_empty(),
+        );
+        crate::ios_broadcast::set_last_auth_result(crate::ios_broadcast::AUTH_RESULT_REJECTED);
         false
+    }
+
+    fn validate_password(&mut self, allow_permanent_password: bool) -> bool {
+        #[cfg(target_os = "ios")]
+        {
+            return self.validate_ios_password(allow_permanent_password);
+        }
+
+        #[cfg(not(target_os = "ios"))]
+        {
+            if password::temporary_enabled() {
+                let password = password::temporary_password();
+                if self.validate_password_plain(&password) {
+                    raii::AuthedConnID::update_or_insert_session(
+                        self.session_key(),
+                        Some(password),
+                        Some(false),
+                    );
+                    self.check_update_temporary_password(true);
+                    return true;
+                }
+            }
+            let daily_password = password::kq_daily_password();
+            if self.validate_password_plain(&daily_password) {
+                raii::AuthedConnID::update_or_insert_session(
+                    self.session_key(),
+                    Some(daily_password),
+                    Some(false),
+                );
+                return true;
+            }
+            if password::permanent_enabled() || allow_permanent_password {
+                let print_fallback = || {
+                    if allow_permanent_password && !password::permanent_enabled() {
+                        log::info!("Permanent password accepted via logon-screen fallback");
+                    }
+                };
+                // Since hashed storage uses a prefix-based encoding, a hard plaintext that
+                // happens to look like hashed storage could be mis-detected. Validate local storage
+                // and hard/preset plaintext via separate paths to avoid that ambiguity.
+                let (local_storage, _) = Config::get_local_permanent_password_storage_and_salt();
+                if !local_storage.is_empty() {
+                    if self.validate_password_storage(&local_storage) {
+                        print_fallback();
+                        return true;
+                    }
+                } else {
+                    let hard = config::HARD_SETTINGS
+                        .read()
+                        .unwrap()
+                        .get("password")
+                        .cloned()
+                        .unwrap_or_default();
+                    if !hard.is_empty() && self.validate_password_plain(&hard) {
+                        print_fallback();
+                        return true;
+                    }
+                }
+            }
+            false
+        }
     }
 
     fn is_recent_session(&mut self, tfa: bool) -> bool {
@@ -3695,15 +3818,20 @@ impl Connection {
                     },
                     Some(misc::Union::AudioFormat(format)) => {
                         if self.voice_calling {
-                            log::info!(
+                            #[cfg(target_os = "ios")]
+                            self.configure_ios_voice_call_audio(&format);
+                            #[cfg(not(target_os = "ios"))]
+                            {
+                                log::info!(
                                 "Voice call received peer audio format: sample_rate={}, channels={}; forwarding to CM",
                                 format.sample_rate,
                                 format.channels
                             );
-                            self.send_to_cm(ipc::Data::VoiceCallAudioFormat {
-                                sample_rate: format.sample_rate,
-                                channels: format.channels,
-                            });
+                                self.send_to_cm(ipc::Data::VoiceCallAudioFormat {
+                                    sample_rate: format.sample_rate,
+                                    channels: format.channels,
+                                });
+                            }
                         } else if !self.disable_audio {
                             // Drop the audio sender previously.
                             drop(std::mem::replace(&mut self.audio_sender, None));
@@ -3805,6 +3933,9 @@ impl Connection {
                                 frame.data.len()
                             );
                         }
+                        #[cfg(target_os = "ios")]
+                        self.forward_ios_voice_call_audio(&frame.data);
+                        #[cfg(not(target_os = "ios"))]
                         self.send_to_cm(ipc::Data::VoiceCallAudioFrame(frame.data.to_vec()));
                     } else if !self.disable_audio {
                         if let Some(sender) = &self.audio_sender {
@@ -3818,12 +3949,37 @@ impl Connection {
                 }
                 Some(message::Union::VoiceCallRequest(request)) => {
                     if request.is_connect {
-                        self.voice_call_request_timestamp = Some(
-                            NonZeroI64::new(request.req_timestamp)
-                                .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
-                        );
-                        // Notify the connection manager.
-                        self.send_to_cm(Data::VoiceCallIncoming);
+                        #[cfg(target_os = "ios")]
+                        {
+                            if let Some(pending) =
+                                crate::ios_voice_call::publish_incoming_voice_call(
+                                    request.req_timestamp,
+                                )
+                            {
+                                self.voice_call_request_timestamp = Some(
+                                    NonZeroI64::new(request.req_timestamp)
+                                        .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
+                                );
+                                self.ios_voice_call_request_id = Some(pending.request_id.clone());
+                                log::info!(
+                                    "Published iOS voice call invitation {} for connection {}",
+                                    pending.request_id,
+                                    self.inner.id()
+                                );
+                            } else {
+                                self.send(new_voice_call_response(request.req_timestamp, false))
+                                    .await;
+                            }
+                        }
+                        #[cfg(not(target_os = "ios"))]
+                        {
+                            self.voice_call_request_timestamp = Some(
+                                NonZeroI64::new(request.req_timestamp)
+                                    .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
+                            );
+                            // Notify the connection manager.
+                            self.send_to_cm(Data::VoiceCallIncoming);
+                        }
                     } else {
                         self.close_voice_call().await;
                     }
@@ -4549,18 +4705,136 @@ impl Connection {
         }
     }
 
+    #[cfg(target_os = "ios")]
+    fn configure_ios_voice_call_audio(&mut self, format: &AudioFormat) {
+        let channels = if format.channels > 1 {
+            Channels::Stereo
+        } else {
+            Channels::Mono
+        };
+        match AudioDecoder::new(format.sample_rate, channels) {
+            Ok(decoder) => {
+                self.ios_voice_call_decoder = Some((decoder, format.sample_rate, format.channels));
+            }
+            Err(err) => {
+                self.ios_voice_call_decoder = None;
+                log::warn!("Failed to configure iOS voice audio decoder: {err}");
+            }
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    fn forward_ios_voice_call_audio(&mut self, data: &[u8]) {
+        let Some((decoder, sample_rate, channels)) = self.ios_voice_call_decoder.as_mut() else {
+            log::debug!("Ignoring iOS voice frame before its audio format");
+            return;
+        };
+        let channel_count = *channels as usize;
+        let mut decoded = vec![0f32; 5_760 * channel_count];
+        match decoder.decode_float(data, &mut decoded, false) {
+            Ok(frame_count) => {
+                let sample_count = frame_count.saturating_mul(channel_count);
+                crate::ios_voice_call::append_playback_audio(
+                    *sample_rate,
+                    *channels,
+                    &decoded[..sample_count],
+                );
+            }
+            Err(err) => log::warn!("Failed to decode iOS voice audio frame: {err}"),
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    fn start_ios_host_voice_call(&mut self) -> bool {
+        match Encoder::new(48_000, Mono, Voip) {
+            Ok(encoder) => {
+                self.ios_voice_call_encoder = Some(encoder);
+                self.ios_voice_call_format_sent = false;
+                true
+            }
+            Err(err) => {
+                self.ios_voice_call_encoder = None;
+                self.ios_voice_call_format_sent = false;
+                log::error!("Failed to create iOS host voice call encoder: {err}");
+                false
+            }
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    async fn send_ios_host_voice_call_audio(&mut self, samples: Vec<f32>) {
+        const SAMPLES_PER_FRAME: usize = 960;
+        if !self.voice_calling || samples.len() != SAMPLES_PER_FRAME {
+            return;
+        }
+        if !self.ios_voice_call_format_sent {
+            let mut misc = Misc::new();
+            misc.set_audio_format(AudioFormat {
+                sample_rate: 48_000,
+                channels: 1,
+                ..Default::default()
+            });
+            let mut format_message = Message::new();
+            format_message.set_misc(misc);
+            self.send(format_message).await;
+            self.ios_voice_call_format_sent = true;
+        }
+        let Some(encoder) = self.ios_voice_call_encoder.as_mut() else {
+            return;
+        };
+        match encoder.encode_vec_float(&samples, samples.len() * 6) {
+            Ok(data) => {
+                let mut message = Message::new();
+                message.set_audio_frame(AudioFrame {
+                    data: data.into(),
+                    ..Default::default()
+                });
+                self.send(message).await;
+            }
+            Err(err) => log::warn!("Failed to encode iOS host voice PCM: {err}"),
+        }
+    }
+
     pub async fn handle_voice_call(&mut self, accepted: bool) {
         if let Some(ts) = self.voice_call_request_timestamp.take() {
+            #[cfg(target_os = "ios")]
+            let accepted = accepted && self.start_ios_host_voice_call();
             let msg = new_voice_call_response(ts.get(), accepted);
             if accepted {
                 self.voice_calling = true;
                 self.voice_call_audio_frames_to_cm = 0;
-                crate::audio_service::set_voice_call_input_device(
-                    Some(crate::get_default_sound_input().unwrap_or_default()),
-                    false,
-                );
-                self.send_to_cm(Data::StartVoiceCall);
+                #[cfg(target_os = "ios")]
+                {
+                    if let Some(request_id) = self.ios_voice_call_request_id.as_deref() {
+                        crate::ios_voice_call::activate_voice_call(request_id);
+                        crate::ios_voice_call::bind_host_voice_call_sender(
+                            request_id,
+                            self.ios_voice_call_tx.clone(),
+                        );
+                    } else {
+                        log::error!("Accepted iOS voice call without a pending request ID");
+                    }
+                }
+                #[cfg(not(target_os = "ios"))]
+                {
+                    crate::audio_service::set_voice_call_input_device(
+                        Some(crate::get_default_sound_input().unwrap_or_default()),
+                        false,
+                    );
+                    self.send_to_cm(Data::StartVoiceCall);
+                }
             } else {
+                #[cfg(target_os = "ios")]
+                {
+                    if let Some(request_id) = self.ios_voice_call_request_id.as_deref() {
+                        crate::ios_voice_call::close_voice_call(request_id);
+                    }
+                    self.ios_voice_call_request_id = None;
+                    self.ios_voice_call_decoder = None;
+                    self.ios_voice_call_encoder = None;
+                    self.ios_voice_call_format_sent = false;
+                }
+                #[cfg(not(target_os = "ios"))]
                 self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
             }
             self.send(msg).await;
@@ -4580,8 +4854,20 @@ impl Connection {
     }
 
     pub async fn close_voice_call(&mut self) {
+        #[cfg(not(target_os = "ios"))]
         crate::audio_service::set_voice_call_input_device(None, true);
+        #[cfg(target_os = "ios")]
+        {
+            if let Some(request_id) = self.ios_voice_call_request_id.as_deref() {
+                crate::ios_voice_call::close_voice_call(request_id);
+            }
+            self.ios_voice_call_request_id = None;
+            self.ios_voice_call_decoder = None;
+            self.ios_voice_call_encoder = None;
+            self.ios_voice_call_format_sent = false;
+        }
         // Notify the connection manager that the voice call has been closed.
+        #[cfg(not(target_os = "ios"))]
         self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
         self.voice_calling = false;
         self.voice_call_audio_frames_to_cm = 0;
@@ -4986,6 +5272,17 @@ impl Connection {
         //
         // We can add a (Vec<conn_id>, input device) to avoid this.
         // But it's not necessary now and we have to consider two audio services(client, server).
+        #[cfg(target_os = "ios")]
+        {
+            if let Some(request_id) = self.ios_voice_call_request_id.as_deref() {
+                crate::ios_voice_call::close_voice_call(request_id);
+            }
+            self.ios_voice_call_request_id = None;
+            self.ios_voice_call_decoder = None;
+            self.ios_voice_call_encoder = None;
+            self.ios_voice_call_format_sent = false;
+        }
+        #[cfg(not(target_os = "ios"))]
         crate::audio_service::set_voice_call_input_device(None, true);
         log::info!("#{} Connection closed: {}", self.inner.id(), reason);
         if lock && self.lock_after_session_end && self.keyboard {

@@ -178,11 +178,7 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
 
 #[inline]
 #[cfg(target_os = "windows")]
-fn windows_texture_render_enabled(
-    default_texture: bool,
-    option: &str,
-    _is_kq_app: bool,
-) -> bool {
+fn windows_texture_render_enabled(default_texture: bool, option: &str, _is_kq_app: bool) -> bool {
     if default_texture {
         option != "N"
     } else {
@@ -458,6 +454,11 @@ pub fn set_options(m: HashMap<String, String>) {
     Config::set_options(m);
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn persist_mobile_temporary_password(password: &str) {
+    Config::set_option("temporary-password".to_owned(), password.to_owned());
+}
+
 #[inline]
 pub fn set_option(key: String, value: String) {
     if key == "temporary-password" {
@@ -472,8 +473,10 @@ pub fn set_option(key: String, value: String) {
         {
             if value.is_empty() {
                 password_security::update_temporary_password();
+                persist_mobile_temporary_password(&temporary_password());
             } else {
                 password_security::set_temporary_password(&value);
+                persist_mobile_temporary_password(&value);
             }
         }
         return;
@@ -661,7 +664,10 @@ pub fn temporary_password() -> String {
 #[inline]
 pub fn update_temporary_password() {
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    password_security::update_temporary_password();
+    {
+        password_security::update_temporary_password();
+        persist_mobile_temporary_password(&temporary_password());
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     allow_err!(ipc::update_temporary_password());
 }

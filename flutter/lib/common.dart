@@ -212,7 +212,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     shadow: Colors.black,
     errorBannerBg: Color(0xFFFDEEEB),
     me: Colors.green,
-    toastBg: Colors.black.withOpacity(0.6),
+    toastBg: const Color(0xE6000000),
     toastText: Colors.white,
     divider: Colors.black38,
   );
@@ -226,8 +226,8 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF470F2D),
     me: Colors.greenAccent,
-    toastBg: Colors.white.withOpacity(0.6),
-    toastText: Colors.black,
+    toastBg: const Color(0xF2FFFFFF),
+    toastText: const Color(0xFF111827),
     divider: Colors.white38,
   );
 
@@ -789,7 +789,7 @@ Future<void> windowOnTop(int? id) async {
   }
 }
 
-typedef DialogBuilder = CustomAlertDialog Function(
+typedef DialogBuilder = Widget Function(
     StateSetter setState, void Function([dynamic]) close, BuildContext context);
 
 class Dialog<T> {
@@ -1064,27 +1064,44 @@ void showToast(String text,
   final overlayState = globalKey.currentState?.overlay;
   if (overlayState == null) return;
   final entry = OverlayEntry(builder: (context) {
+    final screenWidth = MediaQuery.maybeOf(context)?.size.width ?? 480;
+    final maxWidth =
+        (screenWidth - (isMobile ? 64 : 160)).clamp(220.0, 560.0).toDouble();
     return IgnorePointer(
-        child: Align(
-            alignment: alignment,
-            child: Container(
-              decoration: BoxDecoration(
-                color: MyTheme.color(context).toastBg,
-                borderRadius: const BorderRadius.all(
-                  Radius.circular(20),
-                ),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-              child: Text(
-                text,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    decoration: TextDecoration.none,
-                    fontWeight: FontWeight.w300,
-                    fontSize: 18,
-                    color: MyTheme.color(context).toastText),
-              ),
-            )));
+        child: SafeArea(
+            minimum: EdgeInsets.only(bottom: isMobile ? 16 : 0),
+            child: Align(
+                alignment: alignment,
+                child: Container(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  decoration: BoxDecoration(
+                    color: MyTheme.color(context).toastBg,
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(20),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 16 : 20,
+                    vertical: isMobile ? 8 : 7,
+                  ),
+                  child: Text(
+                    text,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        decoration: TextDecoration.none,
+                        fontWeight: FontWeight.w700,
+                        fontSize: isMobile ? 14 : 16,
+                        height: 1.25,
+                        color: MyTheme.color(context).toastText),
+                  ),
+                ))));
   });
   overlayState.insert(entry);
   Future.delayed(timeout, () {
@@ -4005,12 +4022,23 @@ const Map<String, String> _kqLanguageChineseHints = {
   'gu': '古吉拉特语 / 印度',
 };
 
-String kqLanguageDisplayName(String key, String nativeName) {
+({String title, String? subtitle}) kqLanguageDisplayParts(
+    String key, String nativeName) {
+  final title = nativeName.trim().isEmpty ? key.trim() : nativeName.trim();
   final hint = _kqLanguageChineseHints[key.trim().toLowerCase()];
-  if (hint == null || nativeName.contains(hint)) {
-    return nativeName;
+  if (hint == null || title.contains(hint)) {
+    return (title: title, subtitle: null);
   }
-  return '$nativeName（$hint）';
+  return (title: title, subtitle: hint);
+}
+
+String kqLanguageDisplayName(String key, String nativeName) {
+  final parts = kqLanguageDisplayParts(key, nativeName);
+  final subtitle = parts.subtitle;
+  if (subtitle == null) {
+    return parts.title;
+  }
+  return '${parts.title}（$subtitle）';
 }
 
 // ignore: must_be_immutable

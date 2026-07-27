@@ -68,6 +68,9 @@ class MobilePlatformCapabilities {
   final bool canTransferFiles;
   final bool canSyncClipboardInForeground;
   final bool canSyncClipboardInBackground;
+
+  bool get canShowScreenSharingSettings =>
+      canReceiveRemoteInput || canHostViewOnlyBroadcast;
 }
 
 MobilePlatformCapabilities get mobilePlatformCapabilities {

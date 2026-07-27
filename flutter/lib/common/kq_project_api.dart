@@ -17,6 +17,7 @@ class KqProjectApi {
   static const _deletedRecentPeerOptionKey =
       'kq_deleted_connection_history_peers';
   static const _cachedAccountDevicesOptionKey = 'kq_cached_account_devices';
+  static const _hiddenAccountDevicesOptionKey = 'kq_hidden_account_devices';
   static const _deletedRecentPeerTtl = Duration(days: 30);
 
   static DateTime? _lastSyncAt;
@@ -166,11 +167,12 @@ class KqProjectApi {
               : null
           : decoded;
       if (items is! List) return [];
-      return items
+      final peers = items
           .whereType<Map>()
           .map((item) => Peer.fromJson(Map<String, dynamic>.from(item)))
           .where((peer) => peer.id.isNotEmpty)
           .toList();
+      return filterHiddenAccountDevices(peers);
     } catch (e) {
       debugPrint('KQ project API load cached account devices failed: $e');
       return [];
@@ -180,12 +182,13 @@ class KqProjectApi {
   static void cacheAccountDevices(List<Peer> peers) {
     final scope = _accountDeviceCacheScope();
     if (scope.isEmpty) return;
+    final visiblePeers = filterHiddenAccountDevices(peers);
     try {
       bind.setLocalFlutterOption(
         k: _cachedAccountDevicesOptionKey,
         v: jsonEncode({
           'scope': scope,
-          'items': peers.map(_accountDeviceToCacheJson).toList(),
+          'items': visiblePeers.map(_accountDeviceToCacheJson).toList(),
         }),
       );
     } catch (e) {
@@ -215,15 +218,33 @@ class KqProjectApi {
             'KQ project API tryFetchAccountDevices failed: invalid body');
         return null;
       }
-      return (body['items'] as List)
+      final peers = (body['items'] as List)
           .whereType<Map>()
           .map((item) => Peer.fromJson(Map<String, dynamic>.from(item)))
           .where((peer) => peer.id.isNotEmpty)
           .toList();
+      return filterHiddenAccountDevices(peers);
     } catch (e) {
       debugPrint('KQ project API tryFetchAccountDevices failed: $e');
       return null;
     }
+  }
+
+  static void markAccountDeviceHidden(Peer peer) {
+    final keys = _accountDeviceHiddenKeys(peer);
+    if (keys.isEmpty) return;
+    final hidden = _loadHiddenAccountDeviceKeys();
+    hidden.addAll(keys);
+    _storeHiddenAccountDeviceKeys(hidden);
+  }
+
+  static List<Peer> filterHiddenAccountDevices(List<Peer> peers) {
+    final hidden = _loadHiddenAccountDeviceKeys();
+    if (hidden.isEmpty) return peers;
+    return peers
+        .where((peer) =>
+            !_accountDeviceHiddenKeys(peer).any((key) => hidden.contains(key)))
+        .toList();
   }
 
   static Future<void> deleteConnectionHistory(String peerId) async {
@@ -343,6 +364,19 @@ class KqProjectApi {
   static String _normalizePeerId(String id) =>
       id.replaceAll(RegExp(r'\s+'), '').trim();
 
+  static Set<String> _accountDeviceHiddenKeys(Peer peer) {
+    final keys = <String>{};
+    final id = _normalizePeerId(peer.id);
+    if (id.isNotEmpty) {
+      keys.add('id:$id');
+    }
+    final deviceKey = _normalizePeerId(peer.accountDeviceKey);
+    if (deviceKey.isNotEmpty) {
+      keys.add('device:$deviceKey');
+    }
+    return keys;
+  }
+
   static String _accountDeviceCacheScope() {
     final userInfo = UserModel.getLocalUserInfo();
     if (userInfo != null) {
@@ -358,6 +392,44 @@ class KqProjectApi {
       hash = ((hash * 31) + codeUnit) & 0x1fffffff;
     }
     return 'token:${token.length}:$hash';
+  }
+
+  static Set<String> _loadHiddenAccountDeviceKeys() {
+    final scope = _accountDeviceCacheScope();
+    if (scope.isEmpty) return {};
+    try {
+      final raw = bind.getLocalFlutterOption(k: _hiddenAccountDevicesOptionKey);
+      final decoded = raw.isEmpty ? null : jsonDecode(raw);
+      final items = decoded is Map && decoded['scope'] == scope
+          ? decoded['items']
+          : decoded is List
+              ? decoded
+              : null;
+      if (items is! List) return {};
+      return items
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toSet();
+    } catch (e) {
+      debugPrint('KQ project API load hidden account devices failed: $e');
+      return {};
+    }
+  }
+
+  static void _storeHiddenAccountDeviceKeys(Set<String> keys) {
+    final scope = _accountDeviceCacheScope();
+    if (scope.isEmpty) return;
+    try {
+      bind.setLocalFlutterOption(
+        k: _hiddenAccountDevicesOptionKey,
+        v: jsonEncode({
+          'scope': scope,
+          'items': keys.toList()..sort(),
+        }),
+      );
+    } catch (e) {
+      debugPrint('KQ project API store hidden account devices failed: $e');
+    }
   }
 
   static Map<String, DateTime> _loadDeletedRecentPeers() {

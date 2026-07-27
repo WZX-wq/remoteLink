@@ -29,9 +29,37 @@ const kOpSvgList = [
 bool _isKqOauthCancellation(Object err) =>
     err is KqOauthException && err.message == 'Authorization canceled.';
 
+const _kqNativeLoginAccountKey = 'kq-native-login-account';
+
 String _kqLoginText(String key) {
   if (kqUiPrefersChinese()) return _kqLoginZh[key] ?? translate(key);
   return translate(key);
+}
+
+String _initialKqLoginAccount() {
+  final remembered =
+      bind.mainGetLocalOption(key: _kqNativeLoginAccountKey).trim();
+  if (remembered.isNotEmpty) {
+    return remembered;
+  }
+  final userInfo = UserModel.getLocalUserInfo();
+  final email = (userInfo?['email'] ?? '').toString().trim();
+  if (email.isNotEmpty) {
+    return email;
+  }
+  final id = (userInfo?['id'] ?? '').toString().trim();
+  if (RegExp(r'^1[3-9]\d{9}$').hasMatch(id) || id.contains('@')) {
+    return id;
+  }
+  return '';
+}
+
+Future<void> _rememberKqNativeLoginAccount(String account) async {
+  final value = account.trim();
+  if (value.isEmpty) {
+    return;
+  }
+  await bind.mainSetLocalOption(key: _kqNativeLoginAccountKey, value: value);
 }
 
 const _kqLoginZh = {
@@ -80,6 +108,8 @@ const _kqLoginZh = {
   'Passwords do not match': '两次输入的密码不一致',
   'Registration completed': '注册成功',
   'Password reset completed': '密码重置成功',
+  'Kunqiong service is temporarily unavailable. Please try again later.':
+      '鲲穹服务暂时无法连接，请稍后重试。',
 };
 
 enum _KqAccountFlow {
@@ -580,7 +610,7 @@ class _KqNativeMobileLoginPage extends StatefulWidget {
 
 class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
   final _accountController =
-      TextEditingController(text: UserModel.getLocalUserInfo()?['name'] ?? '');
+      TextEditingController(text: _initialKqLoginAccount());
   final _passwordController = TextEditingController();
   final _phoneController = TextEditingController();
   final _smsCodeController = TextEditingController();
@@ -626,6 +656,7 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
     setState(() => _errorText = null);
 
     final account = _accountController.text.trim();
+    final normalizedAccount = _normalizeAccountInput(account);
     final password = _passwordController.text;
     final phone = _phoneController.text.trim();
     final code = _smsCodeController.text.trim();
@@ -656,9 +687,10 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
       final resp = _useSms
           ? await KqOauth.loginWithSms(phone: phone, code: code)
           : await KqOauth.loginWithPassword(
-              username: _normalizeAccountInput(account),
+              username: normalizedAccount,
               password: password,
             );
+      await _rememberKqNativeLoginAccount(_useSms ? phone : normalizedAccount);
       await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
       await UserModel.updateOtherModels();
       if (!mounted) return;
@@ -721,9 +753,11 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
 
   String _normalizeAccountInput(String value) {
     final trimmed = value.trim();
-    if (trimmed.startsWith('+86')) {
-      final phone = trimmed.substring(3).replaceAll(RegExp(r'\s+'), '');
-      if (_isValidPhone(phone)) return phone;
+    final withoutCountryPrefix =
+        trimmed.startsWith('+86') ? trimmed.substring(3) : trimmed;
+    final compact = withoutCountryPrefix.replaceAll(RegExp(r'[\s-]+'), '');
+    if (_isValidPhone(compact)) {
+      return compact;
     }
     return trimmed;
   }
@@ -1428,6 +1462,7 @@ class _KqAccountFlowPageState extends State<_KqAccountFlowPage> {
               code: _smsCodeController.text.trim(),
               password: _passwordController.text,
             );
+      await _rememberKqNativeLoginAccount(_phoneController.text.trim());
       await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
       await UserModel.updateOtherModels();
       if (!mounted) return;
@@ -1805,8 +1840,7 @@ Future<bool?> loginDialog() async {
     );
   }
 
-  var username =
-      TextEditingController(text: UserModel.getLocalUserInfo()?['name'] ?? '');
+  var username = TextEditingController(text: _initialKqLoginAccount());
   var password = TextEditingController();
   final userFocusNode = FocusNode()..requestFocus();
   Timer(Duration(milliseconds: 100), () => userFocusNode..requestFocus());

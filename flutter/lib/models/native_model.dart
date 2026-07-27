@@ -173,7 +173,6 @@ class PlatformFFI {
         // Start ipc service for uri links.
         _ffiBind.mainStartIpcUrlServer();
       }
-      _startListenEvent(_ffiBind); // global event
       try {
         if (isAndroid) {
           // only support for android
@@ -246,6 +245,9 @@ class PlatformFFI {
         appDir: _dir,
         customClientConfig: '',
       );
+      // On iOS, mainGetDataDirIos above binds Rust to the App Group before
+      // any global FFI work can initialize configuration state.
+      _startListenEvent(_ffiBind); // global event
     } catch (e) {
       debugPrintStack(label: 'initialize failed: $e');
     }

@@ -62,7 +62,8 @@ void showServerSettings(OverlayDialogManager dialogManager,
     print("Invalid server config: $e");
   }
   showServerSettingsWithValue(
-      ServerConfig.fromOptions(options), dialogManager, setState);
+      ServerConfig.fromOptions(options), dialogManager, setState,
+      protectExistingValues: true);
 }
 
 String _managedServerSummary() {
@@ -100,9 +101,20 @@ ServerConfig _buildinServerConfig() {
   );
 }
 
-bool _serverSettingsUsesManagedSummary(ServerConfig serverConfig) {
+bool _hasServerConfigValue(ServerConfig serverConfig) {
+  return serverConfig.idServer.isNotEmpty ||
+      serverConfig.relayServer.isNotEmpty ||
+      serverConfig.apiServer.isNotEmpty ||
+      serverConfig.key.isNotEmpty;
+}
+
+bool _serverSettingsUsesManagedSummary(ServerConfig serverConfig,
+    {required bool protectExistingValues}) {
   if (!isMobile || isWeb) {
     return false;
+  }
+  if (protectExistingValues && _hasServerConfigValue(serverConfig)) {
+    return true;
   }
   final buildinConfig = _buildinServerConfig();
   final hasBuildinServerConfig = buildinConfig.idServer.isNotEmpty ||
@@ -145,11 +157,11 @@ ServerConfig _editableServerConfig(ServerConfig serverConfig) {
   );
 }
 
-void showServerSettingsWithValue(
-    ServerConfig serverConfig,
-    OverlayDialogManager dialogManager,
-    void Function(VoidCallback)? upSetState) async {
-  if (_serverSettingsUsesManagedSummary(serverConfig)) {
+void showServerSettingsWithValue(ServerConfig serverConfig,
+    OverlayDialogManager dialogManager, void Function(VoidCallback)? upSetState,
+    {bool protectExistingValues = false}) async {
+  if (_serverSettingsUsesManagedSummary(serverConfig,
+      protectExistingValues: protectExistingValues)) {
     dialogManager.show((setState, close, context) {
       return CustomAlertDialog(
         title: Text(translate('ID/Relay Server')),
@@ -206,6 +218,7 @@ void showServerSettingsWithValue(
   final relayCtrl = TextEditingController(text: initialRelayServer);
   final apiCtrl = TextEditingController(text: initialApiServer);
   final keyCtrl = TextEditingController(text: initialKey);
+  final keyObscure = true.obs;
 
   RxString idServerMsg = ''.obs;
   RxString relayServerMsg = ''.obs;
@@ -239,7 +252,10 @@ void showServerSettingsWithValue(
 
     Widget buildField(
         String label, TextEditingController controller, String errorMsg,
-        {String? Function(String?)? validator, bool autofocus = false}) {
+        {String? Function(String?)? validator,
+        bool autofocus = false,
+        bool obscureText = false,
+        Widget? suffixIcon}) {
       if (isDesktop || isWeb) {
         return Row(
           children: [
@@ -251,8 +267,12 @@ void showServerSettingsWithValue(
             Expanded(
               child: TextFormField(
                 controller: controller,
+                obscureText: obscureText,
+                enableSuggestions: !obscureText,
+                autocorrect: !obscureText,
                 decoration: InputDecoration(
                   errorText: errorMsg.isEmpty ? null : errorMsg,
+                  suffixIcon: suffixIcon,
                   contentPadding:
                       EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                 ),
@@ -269,7 +289,11 @@ void showServerSettingsWithValue(
         decoration: InputDecoration(
           labelText: label,
           errorText: errorMsg.isEmpty ? null : errorMsg,
+          suffixIcon: suffixIcon,
         ),
+        obscureText: obscureText,
+        enableSuggestions: !obscureText,
+        autocorrect: !obscureText,
         validator: validator,
       ).workaroundFreezeLinuxMint();
     }
@@ -310,7 +334,21 @@ void showServerSettingsWithValue(
                     },
                   ),
                   SizedBox(height: 8),
-                  buildField(translate('Key'), keyCtrl, ''),
+                  buildField(
+                    translate('Key'),
+                    keyCtrl,
+                    '',
+                    obscureText: keyObscure.value,
+                    suffixIcon: IconButton(
+                      tooltip: keyObscure.value
+                          ? translate('Show')
+                          : translate('Hide'),
+                      onPressed: () => keyObscure.value = !keyObscure.value,
+                      icon: Icon(keyObscure.value
+                          ? Icons.visibility_off
+                          : Icons.visibility),
+                    ),
+                  ),
                   if (isInProgress)
                     Padding(
                       padding: EdgeInsets.only(top: 8),

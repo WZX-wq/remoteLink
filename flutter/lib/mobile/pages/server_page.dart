@@ -17,6 +17,7 @@ import '../../models/server_model.dart';
 import 'page_shape.dart';
 
 const _kqIOSBroadcastChannel = MethodChannel('mChannel');
+const _kqMobileManualVerificationCodeLength = 6;
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
@@ -271,6 +272,7 @@ class _IOSScreenShareBroadcastMvpState
   String? _errorText;
   Timer? _broadcastStatusTimer;
   Map<String, dynamic>? _broadcastStatus;
+  bool _voiceCallActive = false;
 
   @override
   void initState() {
@@ -292,16 +294,53 @@ class _IOSScreenShareBroadcastMvpState
     try {
       final response = await _kqIOSBroadcastChannel
           .invokeMethod<Map<dynamic, dynamic>>('get_broadcast_status');
-      if (!mounted || response == null) return;
-      setState(() {
-        _broadcastStatus = Map<String, dynamic>.fromEntries(
+      if (mounted && response != null) {
+        final status = Map<String, dynamic>.fromEntries(
           response.entries.map(
             (entry) => MapEntry(entry.key.toString(), entry.value),
           ),
         );
-      });
+        setState(() {
+          _broadcastStatus = status;
+        });
+        if (_registeredBroadcastDeviceId() != null) {
+          await gFFI.serverModel.fetchID();
+        }
+      }
     } catch (e) {
       debugPrint('Failed to read iOS broadcast status: $e');
+    } finally {
+      if (mounted) {
+        await _refreshIOSVoiceCallState();
+      }
+    }
+  }
+
+  Future<void> _refreshIOSVoiceCallState() async {
+    try {
+      final active = await _kqIOSBroadcastChannel
+              .invokeMethod<bool>('get_ios_voice_call_state') ??
+          false;
+      if (mounted && _voiceCallActive != active) {
+        setState(() => _voiceCallActive = active);
+      }
+    } on PlatformException catch (error) {
+      debugPrint('Failed to read iOS voice call state: $error');
+    }
+  }
+
+  Future<void> _endIOSVoiceCall() async {
+    final ended =
+        await _kqIOSBroadcastChannel.invokeMethod<bool>('end_ios_voice_call') ??
+            false;
+    if (!mounted) return;
+    if (ended) {
+      setState(() => _voiceCallActive = false);
+    } else {
+      showToast(kqLocaleText(
+        zhCn: '语音通话已结束。',
+        en: 'The voice call has ended.',
+      ));
     }
   }
 
@@ -327,11 +366,18 @@ class _IOSScreenShareBroadcastMvpState
     return audioSupported == true;
   }
 
-  String? _broadcastDeviceId() {
-    final value = _broadcastStatus?['deviceId'];
-    if (value is! String) return null;
-    final id = value.trim();
-    return id.isEmpty ? null : id;
+  String? _registeredBroadcastDeviceId() {
+    final status = _broadcastStatus;
+    if (status == null || !_hasBroadcastHeartbeat()) return null;
+    final registrationState = status['registrationState'];
+    if (registrationState is! num || registrationState.toInt() != 2) {
+      return null;
+    }
+    final deviceId = (status['deviceId'] as String? ?? '').trim();
+    if (deviceId.isEmpty || deviceId.length > 128 || deviceId.contains('\n')) {
+      return null;
+    }
+    return deviceId;
   }
 
   String? _broadcastFailureText() {
@@ -447,6 +493,22 @@ class _IOSScreenShareBroadcastMvpState
           );
         });
       }
+    } on PlatformException catch (e) {
+      debugPrint('Failed to open iOS broadcast picker: $e');
+      if (!mounted) return;
+      setState(() {
+        _errorText = e.code == 'ios_simulator_unavailable'
+            ? _iosShareText(
+                zhCn: 'iOS 模拟器不支持系统屏幕直播，请连接真机测试。',
+                zhTw: 'iOS 模擬器不支援系統螢幕直播，請連接真機測試。',
+                en: 'iOS Simulator cannot start system screen sharing. Test on a real iPhone.',
+              )
+            : _iosShareText(
+                zhCn: '暂时无法打开屏幕共享，请重新打开应用后再试。',
+                zhTw: '暫時無法開啟螢幕分享，請重新開啟應用程式後再試。',
+                en: 'Screen sharing could not be opened. Reopen the app and try again.',
+              );
+      });
     } catch (e) {
       debugPrint('Failed to open iOS broadcast picker: $e');
       if (!mounted) return;
@@ -471,6 +533,7 @@ class _IOSScreenShareBroadcastMvpState
   Widget build(BuildContext context) {
     final connectionAvailabilityText = _connectionAvailabilityText();
     final broadcastActive = _hasBroadcastHeartbeat();
+    final registeredDeviceId = _registeredBroadcastDeviceId();
     final remoteViewAvailable = _remoteViewAvailable();
     final audioSupported = _broadcastAudioSupported();
 
@@ -482,7 +545,7 @@ class _IOSScreenShareBroadcastMvpState
         children: [
           ServerInfo(
             connectionStatusTextOverride: connectionAvailabilityText,
-            serverIdOverride: broadcastActive ? _broadcastDeviceId() : null,
+            registeredDeviceId: registeredDeviceId,
             sharingActionLabel: broadcastActive
                 ? _iosShareText(
                     zhCn: remoteViewAvailable ? '正在共享' : '直播已开启',
@@ -501,6 +564,20 @@ class _IOSScreenShareBroadcastMvpState
                 _opening || broadcastActive ? null : _openBroadcastPicker,
             sharingErrorText: _broadcastFailureText() ?? _errorText,
           ),
+          if (_voiceCallActive) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: _endIOSVoiceCall,
+                icon: const Icon(Icons.call_end_rounded),
+                label: Text(kqLocaleText(
+                  zhCn: '结束语音通话',
+                  en: 'End voice call',
+                )),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -898,7 +975,7 @@ class ServerInfo extends StatelessWidget {
   ServerInfo({
     Key? key,
     this.connectionStatusTextOverride,
-    this.serverIdOverride,
+    this.registeredDeviceId,
     this.sharingActionLabel,
     this.sharingActionIcon,
     this.onSharingAction,
@@ -908,7 +985,7 @@ class ServerInfo extends StatelessWidget {
   final model = gFFI.serverModel;
   final emptyController = TextEditingController(text: "-");
   final String? connectionStatusTextOverride;
-  final String? serverIdOverride;
+  final String? registeredDeviceId;
   final String? sharingActionLabel;
   final IconData? sharingActionIcon;
   final VoidCallback? onSharingAction;
@@ -918,6 +995,7 @@ class ServerInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final q = KqTheme.of(context);
+    final displayedDeviceId = registeredDeviceId ?? model.serverId.value.text;
 
     void copyToClipboard(String value) {
       Clipboard.setData(ClipboardData(text: value));
@@ -971,93 +1049,131 @@ class ServerInfo extends StatelessWidget {
       );
     }
 
-    return PaddingCard(
-        child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: q.primary.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(17),
-                border: Border.all(color: q.primary.withOpacity(0.2)),
-              ),
-              child: Image.asset('assets/logo.png', fit: BoxFit.contain),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    translate('Your Device'),
-                    style: TextStyle(
-                      color: q.ink,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      height: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    translate('Share screen'),
-                    style: TextStyle(
-                      color: q.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(child: ConnectionStateNotification()),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _DeviceSecretTile(
-          label: translate('ID'),
-          value: serverIdOverride ?? model.serverId.value.text,
-          icon: Icons.perm_identity_rounded,
-          onCopy: () => copyToClipboard(
-            (serverIdOverride ?? model.serverId.value.text).trim(),
-          ),
-        ),
-        const SizedBox(height: 10),
-        _DevicePasswordTile(
-          serverModel: serverModel,
-          onCopy: serverModel.selectedPasswordCanCopy
-              ? () => copyToClipboard(serverModel.selectedPasswordText.trim())
-              : null,
-          onRefresh: serverModel.selectedPasswordCanRefresh
-              ? () => serverModel.refreshSelectedPassword()
-              : null,
-          onEdit: bind.isDisableSettings()
-              ? null
-              : () => _showMobileKqPasswordDialog(serverModel),
-        ),
-        if (sharingActionLabel != null) ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              icon:
-                  Icon(sharingActionIcon ?? Icons.mobile_screen_share_rounded),
-              label: Text(sharingActionLabel!),
-              onPressed: onSharingAction,
-            ),
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+      decoration: BoxDecoration(
+        color: q.panelStrong.withOpacity(q.isDark ? 0.8 : 0.95),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: q.line),
+        boxShadow: [
+          BoxShadow(
+            color: q.shadow.withOpacity(q.isDark ? 0.92 : 0.78),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
-        if (sharingErrorText != null) ...[
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: q.primary.withOpacity(q.isDark ? 0.18 : 0.1),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: q.primary.withOpacity(0.22)),
+                ),
+                child: Icon(
+                  Icons.mobile_screen_share_rounded,
+                  color: q.primary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      translate('Your Device'),
+                      style: TextStyle(
+                        color: q.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        height: 1.08,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      translate('Share screen'),
+                      style: TextStyle(
+                        color: q.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(child: ConnectionStateNotification()),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _DeviceSecretTile(
+            label: translate('ID'),
+            value: displayedDeviceId,
+            icon: Icons.perm_identity_rounded,
+            onCopy: () => copyToClipboard(displayedDeviceId.trim()),
+          ),
           const SizedBox(height: 10),
-          _IOSShareRequirementNotice(text: sharingErrorText!),
+          _DevicePasswordTile(
+            serverModel: serverModel,
+            onCopy: serverModel.selectedPasswordCanCopy
+                ? () => copyToClipboard(serverModel.selectedPasswordText.trim())
+                : null,
+            onRefresh: serverModel.selectedPasswordCanRefresh
+                ? () => serverModel.refreshSelectedPassword()
+                : null,
+            onEdit: bind.isDisableSettings()
+                ? null
+                : () => _showMobileKqPasswordDialog(serverModel),
+          ),
+          if (sharingActionLabel != null) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                icon: Icon(
+                  sharingActionIcon ?? Icons.mobile_screen_share_rounded,
+                  size: 21,
+                ),
+                label: Text(
+                  sharingActionLabel!,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  elevation: onSharingAction == null ? 0 : 3,
+                  shadowColor: q.primary.withOpacity(0.26),
+                  backgroundColor: onSharingAction == null ? q.line : q.primary,
+                  foregroundColor:
+                      onSharingAction == null ? q.muted : Colors.white,
+                  disabledBackgroundColor: q.line.withOpacity(0.72),
+                  disabledForegroundColor: q.muted,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: onSharingAction,
+              ),
+            ),
+          ],
+          if (sharingErrorText != null) ...[
+            const SizedBox(height: 10),
+            _IOSShareRequirementNotice(text: sharingErrorText!),
+          ],
         ],
-      ],
-    ));
+      ),
+    );
   }
 }
 
@@ -1085,40 +1201,40 @@ class _DevicePasswordTileState extends State<_DevicePasswordTile> {
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
     final serverModel = widget.serverModel;
-
-    Widget actionButton({
-      required IconData icon,
-      required String tooltip,
-      required VoidCallback? onPressed,
-    }) {
-      return IconButton(
-        tooltip: tooltip,
-        visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-        padding: EdgeInsets.zero,
-        icon: Icon(icon, color: onPressed == null ? q.muted : q.primary),
-        onPressed: onPressed,
-      );
-    }
+    final actions = [
+      _MobilePasswordActionData(
+        tooltip: _revealPassword ? '隐藏验证码' : '显示验证码',
+        icon: _revealPassword
+            ? Icons.visibility_off_outlined
+            : Icons.visibility_outlined,
+        onPressed: () => setState(() => _revealPassword = !_revealPassword),
+      ),
+      _MobilePasswordActionData(
+        tooltip: translate('Refresh Password'),
+        icon: Icons.refresh_rounded,
+        onPressed: widget.onRefresh,
+      ),
+      if (widget.onEdit != null)
+        _MobilePasswordActionData(
+          tooltip: translate('Change Password'),
+          icon: Icons.edit_rounded,
+          onPressed: widget.onEdit,
+        ),
+      _MobilePasswordActionData(
+        tooltip: translate('Copy'),
+        icon: Icons.copy_outlined,
+        onPressed: widget.onCopy,
+      ),
+    ];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(13, 11, 8, 11),
+      padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
       decoration: BoxDecoration(
-        color: q.surfaceSoft.withOpacity(q.isDark ? 0.62 : 0.86),
+        color: q.field.withOpacity(q.isDark ? 0.72 : 0.98),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: q.line),
       ),
       child: Row(children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: q.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(13),
-          ),
-          child: Icon(Icons.lock_outline_rounded, color: q.primary, size: 20),
-        ),
-        const SizedBox(width: 11),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1167,6 +1283,9 @@ class _DevicePasswordTileState extends State<_DevicePasswordTile> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Icon(Icons.lock_outline_rounded,
+                          size: 14, color: q.muted),
+                      const SizedBox(width: 4),
                       Flexible(
                         child: Text(
                           serverModel.selectedPasswordLabel,
@@ -1181,12 +1300,12 @@ class _DevicePasswordTileState extends State<_DevicePasswordTile> {
                       ),
                       const SizedBox(width: 2),
                       Icon(Icons.keyboard_arrow_down_rounded,
-                          size: 17, color: q.muted),
+                          size: 16, color: q.muted),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 5),
               AnimatedBuilder(
                 animation: serverModel.selectedPasswordController,
                 builder: (context, _) => Text(
@@ -1198,7 +1317,7 @@ class _DevicePasswordTileState extends State<_DevicePasswordTile> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: q.ink,
-                    fontSize: 22,
+                    fontSize: 21,
                     fontWeight: FontWeight.w900,
                     height: 1.05,
                     letterSpacing: 0,
@@ -1208,30 +1327,75 @@ class _DevicePasswordTileState extends State<_DevicePasswordTile> {
             ],
           ),
         ),
-        actionButton(
-          tooltip: _revealPassword ? '隐藏验证码' : '显示验证码',
-          icon: _revealPassword
-              ? Icons.visibility_off_outlined
-              : Icons.visibility_outlined,
-          onPressed: () => setState(() => _revealPassword = !_revealPassword),
-        ),
-        actionButton(
-          tooltip: translate('Refresh Password'),
-          icon: Icons.refresh_rounded,
-          onPressed: widget.onRefresh,
-        ),
-        if (widget.onEdit != null)
-          actionButton(
-            tooltip: translate('Change Password'),
-            icon: Icons.edit_rounded,
-            onPressed: widget.onEdit,
-          ),
-        actionButton(
-          tooltip: translate('Copy'),
-          icon: Icons.copy_outlined,
-          onPressed: widget.onCopy,
-        ),
+        const SizedBox(width: 8),
+        _MobilePasswordActionGrid(actions: actions),
       ]),
+    );
+  }
+}
+
+class _MobilePasswordActionData {
+  const _MobilePasswordActionData({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+}
+
+class _MobilePasswordActionGrid extends StatelessWidget {
+  const _MobilePasswordActionGrid({required this.actions});
+
+  final List<_MobilePasswordActionData> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final enabledBackground = q.panelStrong.withOpacity(q.isDark ? 0.78 : 0.94);
+    final disabledBackground = q.line.withOpacity(q.isDark ? 0.18 : 0.36);
+    final disabledColor = q.muted.withOpacity(0.5);
+
+    Widget buildButton(_MobilePasswordActionData action) {
+      return Container(
+        decoration: BoxDecoration(
+          color:
+              action.onPressed == null ? disabledBackground : enabledBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: action.onPressed == null
+                ? Colors.transparent
+                : q.line.withOpacity(0.86),
+          ),
+        ),
+        child: IconButton(
+          tooltip: action.tooltip,
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          padding: EdgeInsets.zero,
+          style: IconButton.styleFrom(
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          icon: Icon(
+            action.icon,
+            color: action.onPressed == null ? disabledColor : q.primary,
+            size: 19,
+          ),
+          onPressed: action.onPressed,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < actions.length; i++) ...[
+          if (i > 0) const SizedBox(width: 6),
+          buildButton(actions[i]),
+        ],
+      ],
     );
   }
 }
@@ -1247,188 +1411,253 @@ String _mobileKqPasswordKindLabel(KqPasswordKind kind) {
   }
 }
 
+Future<void> _setMobilePasswordDialogPortraitOrientation({
+  required bool locked,
+}) async {
+  if (!isIOS) {
+    return;
+  }
+  try {
+    await SystemChrome.setPreferredOrientations(
+      locked ? const [DeviceOrientation.portraitUp] : const [],
+    );
+  } catch (e) {
+    debugPrint('Failed to update password dialog orientation: $e');
+  }
+}
+
 void _showMobileKqPasswordDialog(ServerModel model) {
   final editingKind = model.selectedPasswordKind;
+  final isPermanent = editingKind == KqPasswordKind.permanent;
+  final lockPortrait = isIOS && isPermanent;
   final title = _mobileKqPasswordKindLabel(editingKind);
+  final maxLength = _kqMobileManualVerificationCodeLength;
+  final initialPasswordText = model.selectedPasswordCanCopy
+      ? model.selectedPasswordText.trim().characters.take(maxLength).join()
+      : '';
+  final lengthLimiter = LengthLimitingTextInputFormatter(maxLength);
   final controller = TextEditingController(
-    text: model.selectedPasswordCanCopy ? model.selectedPasswordText : '',
+    text: initialPasswordText,
   );
   final confirmController = TextEditingController(text: '');
-  final maxLength = bind.mainMaxEncryptLen();
   var errMsg = '';
   var confirmErrMsg = '';
   var submitting = false;
 
-  gFFI.dialogManager.show((setState, close, context) {
-    final q = KqTheme.of(context);
-    final isPermanent = editingKind == KqPasswordKind.permanent;
-    final canRemovePermanent =
-        isPermanent && model.localPermanentPasswordSet && !submitting;
-    final canRandomGenerate =
-        kqPasswordKindSupportsRandomGenerate(editingKind) && !submitting;
-
-    fillRandomPassword() {
-      final value = model.generateVerificationCodePreview();
-      controller.text = value;
-      if (isPermanent) {
-        confirmController.text = value;
-      }
-      setState(() {
-        errMsg = '';
-        confirmErrMsg = '';
-      });
+  showDialog() async {
+    if (lockPortrait) {
+      await _setMobilePasswordDialogPortraitOrientation(locked: true);
     }
+    try {
+      await gFFI.dialogManager.show((setState, close, context) {
+        final q = KqTheme.of(context);
 
-    submit() async {
-      if (submitting) {
-        return;
-      }
-      setState(() {
-        errMsg = '';
-        confirmErrMsg = '';
-        submitting = true;
-      });
-      final value = controller.text.trim();
-      if (value.isEmpty) {
-        setState(() {
-          errMsg = '验证码不能为空';
-          submitting = false;
-        });
-        return;
-      }
-      if (isPermanent && confirmController.text.trim() != value) {
-        setState(() {
-          confirmErrMsg = translate("The confirmation is not identical.");
-          submitting = false;
-        });
-        return;
-      }
-      var ok = true;
-      if (editingKind == KqPasswordKind.oneTime) {
-        await model.setOneTimePassword(value);
-      } else if (editingKind == KqPasswordKind.daily) {
-        await model.setDailyPassword(value);
-      } else {
-        ok = await model.setPermanentPasswordPreview(value);
-      }
-      if (!ok) {
-        setState(() {
-          errMsg = translate("Failed");
-          submitting = false;
-        });
-        return;
-      }
-      showToast('已更新$title');
-      close();
-    }
+        submit() async {
+          if (submitting) {
+            return;
+          }
+          setState(() {
+            errMsg = '';
+            confirmErrMsg = '';
+            submitting = true;
+          });
+          final value = controller.text.trim();
+          if (value.isEmpty) {
+            setState(() {
+              errMsg = '验证码不能为空';
+              submitting = false;
+            });
+            return;
+          }
+          if (isPermanent && confirmController.text.trim() != value) {
+            setState(() {
+              confirmErrMsg = translate("The confirmation is not identical.");
+              submitting = false;
+            });
+            return;
+          }
+          var ok = true;
+          if (editingKind == KqPasswordKind.oneTime) {
+            await model.setOneTimePassword(value);
+          } else if (editingKind == KqPasswordKind.daily) {
+            await model.setDailyPassword(value);
+          } else {
+            ok = await model.setPermanentPasswordPreview(value);
+          }
+          if (!ok) {
+            setState(() {
+              errMsg = translate("Failed");
+              submitting = false;
+            });
+            return;
+          }
+          showToast('已更新$title');
+          close();
+        }
 
-    removePermanent() async {
-      if (submitting) {
-        return;
-      }
-      setState(() {
-        errMsg = '';
-        confirmErrMsg = '';
-        submitting = true;
-      });
-      final ok = await model.removePermanentPassword();
-      if (!ok) {
-        setState(() {
-          errMsg = translate("Failed");
-          submitting = false;
-        });
-        return;
-      }
-      showToast('已移除$title');
-      close();
-    }
-
-    return CustomAlertDialog(
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.key_rounded, color: q.primary),
-          Text('修改$title').paddingOnly(left: 10),
-        ],
-      ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              autofocus: true,
-              obscureText: false,
-              decoration: InputDecoration(
-                labelText: title,
-                errorText: errMsg.isEmpty ? null : errMsg,
-              ),
-              enabled: !submitting,
-              maxLength: maxLength,
-              onChanged: (_) {
-                if (errMsg.isNotEmpty) {
-                  setState(() => errMsg = '');
-                }
-              },
-            ).workaroundFreezeLinuxMint(),
-            if (isPermanent) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: confirmController,
-                obscureText: false,
-                decoration: InputDecoration(
-                  labelText: translate('Confirmation'),
-                  errorText: confirmErrMsg.isEmpty ? null : confirmErrMsg,
-                ),
-                enabled: !submitting,
-                maxLength: maxLength,
-                onChanged: (_) {
-                  if (confirmErrMsg.isNotEmpty) {
-                    setState(() => confirmErrMsg = '');
-                  }
-                },
-              ).workaroundFreezeLinuxMint(),
-              const SizedBox(height: 4),
-              Text(
-                '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
-                style: TextStyle(
-                  color: q.muted,
-                  fontSize: 12,
-                  height: 1.25,
-                ),
-              ),
-            ],
-            if (submitting) const LinearProgressIndicator().marginOnly(top: 12),
-          ],
-        ),
-      ),
-      actions: [
-        dialogButton("Cancel", onPressed: close, isOutline: true),
-        if (canRemovePermanent)
-          dialogButton(
-            "Remove",
-            icon: const Icon(Icons.delete_outline_rounded),
-            onPressed: removePermanent,
-            isOutline: true,
+        return CustomAlertDialog(
+          title: _MobileKqPasswordDialogHeader(
+            title: title,
+            onCancel: close,
           ),
-        dialogButton(
-          '随机验证码',
-          icon: const Icon(Icons.casino_outlined),
-          onPressed: canRandomGenerate ? fillRandomPassword : null,
-          isOutline: true,
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  obscureText: false,
+                  decoration: InputDecoration(
+                    labelText: title,
+                    errorText: errMsg.isEmpty ? null : errMsg,
+                  ),
+                  enabled: !submitting,
+                  maxLength: maxLength,
+                  inputFormatters: [lengthLimiter],
+                  onChanged: (_) {
+                    if (errMsg.isNotEmpty) {
+                      setState(() => errMsg = '');
+                    }
+                  },
+                ).workaroundFreezeLinuxMint(),
+                if (isPermanent) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: confirmController,
+                    obscureText: false,
+                    decoration: InputDecoration(
+                      labelText: translate('Confirmation'),
+                      errorText: confirmErrMsg.isEmpty ? null : confirmErrMsg,
+                    ),
+                    enabled: !submitting,
+                    maxLength: maxLength,
+                    inputFormatters: [lengthLimiter],
+                    onChanged: (_) {
+                      if (confirmErrMsg.isNotEmpty) {
+                        setState(() => confirmErrMsg = '');
+                      }
+                    },
+                  ).workaroundFreezeLinuxMint(),
+                  const SizedBox(height: 4),
+                  Text(
+                    '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                    style: TextStyle(
+                      color: q.muted,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+                if (submitting)
+                  const LinearProgressIndicator().marginOnly(top: 12),
+              ],
+            ),
+          ),
+          actions: [
+            _MobileKqPasswordDialogActions(
+              submitting: submitting,
+              onSubmit: submit,
+            ),
+          ],
+          onSubmit: submitting ? null : submit,
+          onCancel: close,
+        );
+      });
+    } finally {
+      if (lockPortrait) {
+        await _setMobilePasswordDialogPortraitOrientation(locked: false);
+      }
+    }
+  }
+
+  unawaited(showDialog());
+}
+
+class _MobileKqPasswordDialogHeader extends StatelessWidget {
+  const _MobileKqPasswordDialogHeader({
+    required this.title,
+    required this.onCancel,
+  });
+
+  final String title;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    Widget compactIconButton({
+      required String tooltip,
+      required IconData icon,
+      required Color color,
+      required VoidCallback? onPressed,
+    }) {
+      return IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        iconSize: 22,
+        icon: Icon(icon, color: color),
+        onPressed: onPressed,
+      );
+    }
+
+    return Row(
+      children: [
+        Icon(Icons.key_rounded, color: q.primary, size: 22),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '修改$title',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: q.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ),
-        dialogButton(
-          "OK",
-          icon: const Icon(Icons.done_rounded),
-          onPressed: submitting ? null : submit,
+        compactIconButton(
+          tooltip: translate('Close'),
+          icon: Icons.close_rounded,
+          color: q.muted,
+          onPressed: onCancel,
         ),
       ],
-      onSubmit: submitting ? null : submit,
-      onCancel: close,
     );
+  }
+}
+
+class _MobileKqPasswordDialogActions extends StatelessWidget {
+  const _MobileKqPasswordDialogActions({
+    required this.submitting,
+    required this.onSubmit,
   });
+
+  final bool submitting;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          dialogButton(
+            "OK",
+            icon: const Icon(Icons.done_rounded),
+            onPressed: submitting ? null : onSubmit,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DeviceSecretTile extends StatelessWidget {
@@ -1448,9 +1677,9 @@ class _DeviceSecretTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(13, 11, 8, 11),
+      padding: const EdgeInsets.fromLTRB(13, 12, 9, 12),
       decoration: BoxDecoration(
-        color: q.surfaceSoft.withOpacity(q.isDark ? 0.62 : 0.86),
+        color: q.field.withOpacity(q.isDark ? 0.72 : 0.98),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: q.line),
       ),
@@ -1493,11 +1722,21 @@ class _DeviceSecretTile extends StatelessWidget {
             ],
           ),
         ),
-        IconButton(
-          tooltip: translate('Copy'),
-          visualDensity: VisualDensity.compact,
-          icon: Icon(Icons.copy_outlined, color: q.primary),
-          onPressed: onCopy,
+        Container(
+          decoration: BoxDecoration(
+            color: q.primary.withOpacity(q.isDark ? 0.16 : 0.08),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: IconButton(
+            tooltip: translate('Copy'),
+            constraints: const BoxConstraints.tightFor(width: 42, height: 42),
+            padding: EdgeInsets.zero,
+            style: IconButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            icon: Icon(Icons.copy_outlined, color: q.primary, size: 20),
+            onPressed: onCopy,
+          ),
         ),
       ]),
     );

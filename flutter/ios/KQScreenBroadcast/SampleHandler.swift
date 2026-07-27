@@ -9,6 +9,7 @@ import ReplayKit
 final class SampleHandler: RPBroadcastSampleHandler {
   private let appGroupId = "group.com.kunqiong.remotelink"
   private let configDirectoryName = "remoteLink-config"
+  private let configFileName = "鲲穹远程桌面.toml"
   private let statusFileName = "kq-broadcast-status.json"
   private let maxLongEdge = 1920
   private let defaults: UserDefaults?
@@ -109,23 +110,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
       return false
     }
 
-    // 验证关键配置文件是否存在
-    let configFiles = ["RustDesk.toml", "鲲穹远程桌面.toml"]
-    var configExists = false
-    for fileName in configFiles {
-      let configPath = URL(fileURLWithPath: configDirectory).appendingPathComponent(fileName)
-      if FileManager.default.fileExists(atPath: configPath.path) {
-        configExists = true
-        NSLog("[KQBroadcast] Found config: \(fileName)")
-        break
-      }
-    }
-
-    if !configExists {
-      NSLog("[KQBroadcast] No config file found in \(configDirectory), may generate new ID and keypair")
+    let configPath = URL(fileURLWithPath: configDirectory)
+      .appendingPathComponent(configFileName)
+    guard FileManager.default.fileExists(atPath: configPath.path) else {
+      NSLog("[KQBroadcast] Canonical config is missing: \(configPath.path)")
       publishFailure(code: "config_missing_please_restart_main_app")
       return false
     }
+    NSLog("[KQBroadcast] Using canonical config: \(configFileName)")
 
     let startResult = configDirectory.utf8CString.withUnsafeBufferPointer { buffer in
       guard let baseAddress = buffer.baseAddress else {
@@ -265,6 +257,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "updatedAt": timestamp,
       "transportState": effectiveTransportState,
       "registrationState": registrationState,
+      "lastAuthResult": authenticationResult(),
       "remoteViewAvailable": viewerCount > 0,
       "remoteViewerCount": viewerCount,
       "deviceId": broadcastDeviceId(),
@@ -283,6 +276,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(capturedHeight, forKey: "kq_broadcast_height")
     defaults.set(timestamp, forKey: "kq_broadcast_updated_at")
     defaults.set(registrationState, forKey: "kq_broadcast_registration_state")
+    defaults.set(status["lastAuthResult"], forKey: "kq_broadcast_last_auth_result")
     defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(status["deviceId"], forKey: "kq_broadcast_device_id")
@@ -322,6 +316,21 @@ final class SampleHandler: RPBroadcastSampleHandler {
       return "registration_required"
     default:
       return transportStarted ? "registering" : "waiting_for_frame"
+    }
+  }
+
+  private func authenticationResult() -> String {
+    switch kq_ios_broadcast_last_auth_result() {
+    case 1:
+      return "temporary"
+    case 2:
+      return "daily"
+    case 3:
+      return "permanent"
+    case 4:
+      return "rejected"
+    default:
+      return "none"
     }
   }
 

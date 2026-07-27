@@ -7,3 +7,9 @@ void kq_ios_voice_call_audio(
     uintptr_t session_id_len,
     const float *samples,
     uintptr_t sample_len);
+
+void kq_ios_host_voice_call_audio(
+    const float *samples,
+    uintptr_t sample_len);
+
+bool kq_ios_host_voice_call_end(void);

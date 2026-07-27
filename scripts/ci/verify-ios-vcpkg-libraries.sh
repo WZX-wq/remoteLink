@@ -60,9 +60,13 @@ check_archive_platform() {
 
   file "$obj"
   local otool_out="$tmp/otool.txt"
-  otool -l "$obj" | tee "$otool_out"
+  otool -l "$obj" > "$otool_out"
   if grep -Eq 'LC_VERSION_MIN_MACOSX|platform MACOS' "$otool_out"; then
-    echo "Archive $archive contains a macOS object ($member), not an iOS object." >&2
+    echo "Archive $archive contains a macOS object ($member), not an iOS device object." >&2
+    exit 1
+  fi
+  if grep -Eq 'platform 7|platform IOSSIMULATOR' "$otool_out"; then
+    echo "Archive $archive contains an iOS simulator object ($member), not an iOS device object." >&2
     exit 1
   fi
   if grep -Eq 'LC_VERSION_MIN_IPHONEOS|platform IOS' "$otool_out"; then

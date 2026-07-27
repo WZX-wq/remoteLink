@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:settings_ui/settings_ui.dart';
@@ -19,9 +18,11 @@ import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/mobile_platform_capability_policy.dart';
-import '../widgets/dialog.dart';
 import 'page_shape.dart';
 import 'scan_page.dart';
+
+const kqMobileSettingsGroupAppearance = 'Appearance';
+const kqMobileSettingsGroupRemoteAccess = 'Remote Access';
 
 class SettingsPage extends StatefulWidget implements PageShape {
   SettingsPage({
@@ -89,69 +90,35 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _showTerminalExtraKeys = false;
   var _floatingWindowDisabled = false;
   var _keepScreenOn = KeepScreenOn.duringControlled; // relay on floating window
-  var _enableAbr = false;
   var _denyLANDiscovery = false;
   var _onlyWhiteList = false;
-  var _enableDirectIPAccess = false;
   var _enableRecordSession = false;
   var _enableHardwareCodec = false;
-  var _allowWebSocket = false;
   var _autoRecordIncomingSession = false;
   var _autoRecordOutgoingSession = false;
   var _allowAutoDisconnect = false;
-  var _localIP = "";
-  var _directAccessPort = "";
   var _fingerprint = "";
   var _buildDate = "";
   var _autoDisconnectTimeout = "";
-  var _hideServer = false;
-  var _hideProxy = false;
-  var _hideNetwork = false;
-  var _hideWebSocket = false;
-  var _enableUdpPunch = false;
-  var _allowInsecureTlsFallback = false;
-  var _disableUdp = false;
-  var _enableIpv6Punch = false;
-  var _isUsingPublicServer = false;
   var _allowAskForNoteAtEndOfConnection = false;
   var _preventSleepWhileConnected = true;
 
   _SettingsState() {
-    _enableAbr = option2bool(
-        kOptionEnableAbr, bind.mainGetOptionSync(key: kOptionEnableAbr));
     _denyLANDiscovery = !option2bool(kOptionEnableLanDiscovery,
         bind.mainGetOptionSync(key: kOptionEnableLanDiscovery));
     _onlyWhiteList = whitelistNotEmpty();
-    _enableDirectIPAccess = option2bool(
-        kOptionDirectServer, bind.mainGetOptionSync(key: kOptionDirectServer));
     _enableRecordSession = option2bool(kOptionEnableRecordSession,
         bind.mainGetOptionSync(key: kOptionEnableRecordSession));
     _enableHardwareCodec = option2bool(kOptionEnableHwcodec,
         bind.mainGetOptionSync(key: kOptionEnableHwcodec));
-    _allowWebSocket = mainGetBoolOptionSync(kOptionAllowWebSocket);
-    _allowInsecureTlsFallback =
-        mainGetBoolOptionSync(kOptionAllowInsecureTLSFallback);
-    _disableUdp = bind.mainGetOptionSync(key: kOptionDisableUdp) == 'Y';
     _autoRecordIncomingSession = option2bool(kOptionAllowAutoRecordIncoming,
         bind.mainGetOptionSync(key: kOptionAllowAutoRecordIncoming));
     _autoRecordOutgoingSession = option2bool(kOptionAllowAutoRecordOutgoing,
         bind.mainGetLocalOption(key: kOptionAllowAutoRecordOutgoing));
-    _localIP = bind.mainGetOptionSync(key: 'local-ip-addr');
-    _directAccessPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
     _allowAutoDisconnect = option2bool(kOptionAllowAutoDisconnect,
         bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
     _autoDisconnectTimeout =
         bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
-    _hideServer =
-        bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
-    _hideProxy = bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
-    _hideNetwork =
-        bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) == 'Y';
-    _hideWebSocket =
-        bind.mainGetBuildinOption(key: kOptionHideWebSocketSetting) == 'Y' ||
-            isWeb;
-    _enableUdpPunch = mainGetLocalBoolOptionSync(kOptionEnableUdpPunch);
-    _enableIpv6Punch = mainGetLocalBoolOptionSync(kOptionEnableIpv6Punch);
     _allowAskForNoteAtEndOfConnection =
         mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection);
     _preventSleepWhileConnected =
@@ -227,12 +194,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       if (_buildDate != buildDate) {
         update = true;
         _buildDate = buildDate;
-      }
-
-      final isUsingPublicServer = await bind.mainIsUsingPublicServer();
-      if (_isUsingPublicServer != isUsingPublicServer) {
-        update = true;
-        _isUsingPublicServer = isUsingPublicServer;
       }
 
       if (update) {
@@ -346,19 +307,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           },
         ),
         SettingsTile.switchTile(
-          title: Text(_settingsText('Adaptive bitrate')),
-          initialValue: _enableAbr,
-          onToggle: isOptionFixed(kOptionEnableAbr)
-              ? null
-              : (v) async {
-                  await mainSetBoolOption(kOptionEnableAbr, v);
-                  final newValue = await mainGetBoolOption(kOptionEnableAbr);
-                  setState(() {
-                    _enableAbr = newValue;
-                  });
-                },
-        ),
-        SettingsTile.switchTile(
           title: Text(_settingsText('Enable recording session')),
           initialValue: _enableRecordSession,
           onToggle: isOptionFixed(kOptionEnableRecordSession)
@@ -370,53 +318,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   setState(() {
                     _enableRecordSession = newValue;
                   });
-                },
-        ),
-        SettingsTile.switchTile(
-          title: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text(_settingsText("Direct IP Access")),
-                      Offstage(
-                          offstage: !_enableDirectIPAccess,
-                          child: Text(
-                            '${_settingsText("Local Address")}: $_localIP${_directAccessPort.isEmpty ? "" : ":$_directAccessPort"}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          )),
-                    ])),
-                Offstage(
-                    offstage: !_enableDirectIPAccess,
-                    child: IconButton(
-                        padding: EdgeInsets.zero,
-                        icon: Icon(
-                          Icons.edit,
-                          size: 20,
-                        ),
-                        onPressed: isOptionFixed(kOptionDirectAccessPort)
-                            ? null
-                            : () async {
-                                final port = await changeDirectAccessPort(
-                                    _localIP, _directAccessPort);
-                                setState(() {
-                                  _directAccessPort = port;
-                                });
-                              }))
-              ]),
-          initialValue: _enableDirectIPAccess,
-          onToggle: isOptionFixed(kOptionDirectServer)
-              ? null
-              : (_) async {
-                  _enableDirectIPAccess = !_enableDirectIPAccess;
-                  String value =
-                      bool2option(kOptionDirectServer, _enableDirectIPAccess);
-                  await bind.mainSetOption(
-                      key: kOptionDirectServer, value: value);
-                  setState(() {});
                 },
         ),
         SettingsTile.switchTile(
@@ -721,109 +622,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ]),
       ];
 
-      final connectionSections = <AbstractSettingsSection>[
-        SettingsSection(
-            title: Text(widget.singleGroupOnly
-                ? (widget.detailTitle ?? _settingsText("Servers and network"))
-                : _settingsText("Servers and network")),
-            tiles: [
-              if (!disabledSettings && !_hideNetwork && !_hideServer)
-                SettingsTile(
-                    title: Text(_settingsText('ID/Relay Server')),
-                    leading: Icon(Icons.cloud_rounded),
-                    onPressed: (context) {
-                      showServerSettings(gFFI.dialogManager, (callback) async {
-                        _isUsingPublicServer =
-                            await bind.mainIsUsingPublicServer();
-                        setState(callback);
-                      });
-                    }),
-              if (!_hideNetwork && !_hideProxy)
-                SettingsTile(
-                    title: Text(_settingsText('Socks5/Http(s) Proxy')),
-                    leading: Icon(Icons.network_ping_rounded),
-                    onPressed: (context) {
-                      changeSocks5Proxy();
-                    }),
-              if (!disabledSettings && !_hideNetwork && !_hideWebSocket)
-                SettingsTile.switchTile(
-                  title: Text(_settingsText('Use WebSocket')),
-                  initialValue: _allowWebSocket,
-                  onToggle: isOptionFixed(kOptionAllowWebSocket)
-                      ? null
-                      : (v) async {
-                          await mainSetBoolOption(kOptionAllowWebSocket, v);
-                          final newValue =
-                              await mainGetBoolOption(kOptionAllowWebSocket);
-                          setState(() {
-                            _allowWebSocket = newValue;
-                          });
-                        },
-                ),
-              if (!_isUsingPublicServer)
-                SettingsTile.switchTile(
-                  title: Text(_settingsText('Allow insecure TLS fallback')),
-                  initialValue: _allowInsecureTlsFallback,
-                  onToggle: isOptionFixed(kOptionAllowInsecureTLSFallback)
-                      ? null
-                      : (v) async {
-                          await mainSetBoolOption(
-                              kOptionAllowInsecureTLSFallback, v);
-                          final newValue = mainGetBoolOptionSync(
-                              kOptionAllowInsecureTLSFallback);
-                          setState(() {
-                            _allowInsecureTlsFallback = newValue;
-                          });
-                        },
-                ),
-              if (isAndroid && !outgoingOnly && !_isUsingPublicServer)
-                SettingsTile.switchTile(
-                  title: Text(_settingsText('Disable UDP')),
-                  initialValue: _disableUdp,
-                  onToggle: isOptionFixed(kOptionDisableUdp)
-                      ? null
-                      : (v) async {
-                          await bind.mainSetOption(
-                              key: kOptionDisableUdp, value: v ? 'Y' : 'N');
-                          final newValue =
-                              bind.mainGetOptionSync(key: kOptionDisableUdp) ==
-                                  'Y';
-                          setState(() {
-                            _disableUdp = newValue;
-                          });
-                        },
-                ),
-              if (!incomingOnly)
-                SettingsTile.switchTile(
-                  title: Text(_settingsText('Enable UDP hole punching')),
-                  initialValue: _enableUdpPunch,
-                  onToggle: (v) async {
-                    await mainSetLocalBoolOption(kOptionEnableUdpPunch, v);
-                    final newValue =
-                        mainGetLocalBoolOptionSync(kOptionEnableUdpPunch);
-                    setState(() {
-                      _enableUdpPunch = newValue;
-                    });
-                  },
-                ),
-              if (!incomingOnly)
-                SettingsTile.switchTile(
-                  title: Text(_settingsText('Enable IPv6 P2P connection')),
-                  initialValue: _enableIpv6Punch,
-                  onToggle: (v) async {
-                    await mainSetLocalBoolOption(kOptionEnableIpv6Punch, v);
-                    final newValue =
-                        mainGetLocalBoolOptionSync(kOptionEnableIpv6Punch);
-                    setState(() {
-                      _enableIpv6Punch = newValue;
-                    });
-                  },
-                ),
-            ]),
-      ];
-
       final remoteAccessSections = <AbstractSettingsSection>[
-        if (mobilePlatformCapabilities.canReceiveRemoteInput &&
+        if (mobilePlatformCapabilities.canShowScreenSharingSettings &&
             !disabledSettings &&
             !outgoingOnly &&
             !hideSecuritySettings)
@@ -972,25 +772,16 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             sections: accountSections,
           ),
         _SettingsGroupData(
-          key: 'Appearance',
+          key: kqMobileSettingsGroupAppearance,
           title: _settingsText('Appearance'),
           subtitle: Text(_settingsText('Language, theme, and app behavior')),
           icon: Icons.palette_rounded,
           color: KqTheme.of(context).primary,
           sections: appearanceSections,
         ),
-        _SettingsGroupData(
-          key: 'Connection & Network',
-          title: _settingsText('Connection & Network'),
-          subtitle:
-              Text(_settingsText('Servers, proxy, and direct connection')),
-          icon: Icons.hub_rounded,
-          color: KqTheme.of(context).online,
-          sections: connectionSections,
-        ),
         if (remoteAccessSections.isNotEmpty)
           _SettingsGroupData(
-            key: 'Remote Access',
+            key: kqMobileSettingsGroupRemoteAccess,
             title: _settingsText('Remote Access'),
             subtitle: Text(_settingsText('Security, permissions, and service')),
             icon: Icons.admin_panel_settings_rounded,
@@ -1089,11 +880,16 @@ class _MobileSettingsSingleGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
-    final group = groups.firstWhereOrNull((item) =>
-            item.key == groupKey ||
-            item.title == groupKey ||
-            _settingsText(item.key) == groupKey) ??
-        groups.first;
+    final requestedGroupKey = groupKey?.trim();
+    final group = requestedGroupKey == null || requestedGroupKey.isEmpty
+        ? (groups.isEmpty ? null : groups[0])
+        : groups.firstWhereOrNull((item) =>
+            item.key == requestedGroupKey ||
+            item.title == requestedGroupKey ||
+            _settingsText(item.key) == requestedGroupKey);
+    if (group == null) {
+      return const SizedBox.shrink();
+    }
     return SafeArea(
       top: false,
       child: ListView(
@@ -1404,17 +1200,14 @@ const _settingsZh = {
   'Login': '登录',
   'Logout': '退出登录',
   'Appearance': '外观',
-  'Connection & Network': '网络与连接',
   'Remote Access': '远程访问',
   'Display & Performance': '显示与性能',
   'About & Support': '关于与支持',
   'General preferences': '常用偏好',
-  'Servers and network': '服务器与网络',
   'Background service': '后台服务',
   'Hardware Codec': '硬件编解码',
   'Recording': '录制',
   'Language, theme, and app behavior': '语言、主题和应用行为',
-  'Servers, proxy, and direct connection': '服务器、代理和直连',
   'Security, permissions, and service': '安全、权限和服务',
   'Image quality, codec, and recording': '画质、编码和录制',
   'Version, website, and privacy': '版本、官网和隐私',
@@ -1426,13 +1219,6 @@ const _settingsZh = {
   'Light': '明亮',
   'Dark': '黑暗',
   'Follow System': '跟随系统',
-  'ID/Relay Server': 'ID/中继服务器',
-  'Socks5/Http(s) Proxy': 'Socks5/Http(s) 代理',
-  'Use WebSocket': '使用 WebSocket',
-  'Allow insecure TLS fallback': '允许不安全的 TLS 降级',
-  'Disable UDP': '禁用 UDP',
-  'Enable UDP hole punching': '启用 UDP 打洞',
-  'Enable IPv6 P2P connection': '启用 IPv6 点对点连接',
   'Share screen': '共享屏幕',
   'Enable hardware codec': '启用硬件编解码',
   'Automatically record incoming sessions': '自动录制传入会话',
@@ -1467,10 +1253,7 @@ const _settingsZh = {
   'enable-trusted-devices-tip': '可信设备可减少重复验证',
   'Deny LAN discovery': '禁止局域网发现',
   'Use IP Whitelisting': '使用 IP 白名单',
-  'Adaptive bitrate': '自适应码率',
   'Enable recording session': '启用会话录制',
-  'Direct IP Access': '直连 IP 访问',
-  'Local Address': '本机地址',
   'auto_disconnect_option_tip': '空闲时自动断开连接',
   'Keep Kunqiong Remote Desktop background service': '保持鲲穹远程桌面后台服务',
   'Ignore Battery Optimizations': '忽略电池优化',
@@ -1499,6 +1282,7 @@ void showLanguageSettings(OverlayDialogManager dialogManager) async {
       if (!isWeb) await bind.mainChangeLanguage(lang: lang);
     }
     dialogManager.show((setState, close, context) {
+      final q = KqTheme.of(context);
       setLang(v) async {
         v = _kqNormalizeMobileLang(v);
         if (lang != v) {
@@ -1513,26 +1297,176 @@ void showLanguageSettings(OverlayDialogManager dialogManager) async {
       }
 
       final isOptFixed = isOptionFixed(kCommConfKeyLang);
-      return CustomAlertDialog(
-        content: Column(
-          children: [
-                if (isOptFixed && defaultOptionLang.isNotEmpty)
-                  getRadio(Text(_settingsText('Default')), defaultOptionLang,
-                      lang, null),
-                if (isOptFixed && defaultOptionLang.isNotEmpty)
-                  Divider(color: MyTheme.border),
-              ] +
-              langs.map((e) {
-                final key = e[0] as String;
-                final name = e[1] as String;
-                return getRadio(Text(kqLanguageDisplayName(key, name)), key,
-                    lang, isOptFixed ? null : setLang);
-              }).toList(),
+      final options = [
+        if (isOptFixed && defaultOptionLang.isNotEmpty)
+          (
+            key: defaultOptionLang,
+            title: _settingsText('Default'),
+            subtitle: null
+          ),
+        for (final e in langs)
+          (
+            key: e[0] as String,
+            title: kqLanguageDisplayParts(e[0] as String, e[1] as String).title,
+            subtitle:
+                kqLanguageDisplayParts(e[0] as String, e[1] as String).subtitle,
+          ),
+      ];
+      return SafeArea(
+        minimum: const EdgeInsets.fromLTRB(32, 14, 32, 24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 360,
+              maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+            ),
+            child: Material(
+              color: q.panelStrong.withOpacity(q.isDark ? 0.96 : 0.99),
+              borderRadius: BorderRadius.circular(18),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
+                    child: Row(
+                      children: [
+                        Icon(Icons.translate_rounded,
+                            color: q.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _settingsText('Language'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: q.ink,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              height: 1.15,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: translate('Close'),
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(Icons.close_rounded, color: q.muted),
+                          onPressed: close,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1, color: q.line),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      itemCount: options.length,
+                      itemBuilder: (context, index) {
+                        final option = options[index];
+                        return _KqLanguageOptionTile(
+                          value: option.key,
+                          title: option.title,
+                          subtitle: option.subtitle,
+                          selected: option.key == lang,
+                          enabled: !isOptFixed,
+                          onChanged: setLang,
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       );
     }, backDismiss: true, clickMaskDismiss: true);
   } catch (e) {
     //
+  }
+}
+
+class _KqLanguageOptionTile extends StatelessWidget {
+  const _KqLanguageOptionTile({
+    required this.value,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String value;
+  final String title;
+  final String? subtitle;
+  final bool selected;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final textColor = enabled ? q.ink : q.muted.withOpacity(0.58);
+    final selectedColor = enabled ? q.primary : q.muted.withOpacity(0.58);
+    return Material(
+      color: selected ? q.primary.withOpacity(q.isDark ? 0.16 : 0.08) : null,
+      child: InkWell(
+        onTap: enabled ? () => onChanged(value) : null,
+        child: SizedBox(
+          height: subtitle == null ? 44 : 52,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 14.5,
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w600,
+                          height: 1.15,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: q.muted,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.1,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: selected ? selectedColor : q.muted.withOpacity(0.72),
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

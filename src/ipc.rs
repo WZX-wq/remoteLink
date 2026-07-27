@@ -376,6 +376,8 @@ pub enum Data {
     StartVoiceCall,
     VoiceCallResponse(bool),
     CloseVoiceCall(String),
+    #[cfg(target_os = "ios")]
+    IOSVoiceCallAudio(Vec<f32>),
     VoiceCallAudioFormat {
         sample_rate: u32,
         channels: u32,

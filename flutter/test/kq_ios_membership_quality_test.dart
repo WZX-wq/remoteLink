@@ -49,13 +49,32 @@ void main() {
     expect(source, contains('基礎版使用 720p / 30 FPS，會員可使用 1080p / 60 FPS。'));
     expect(source, contains("'Upgrade Kunqiong Membership': '开通鲲穹会员'"));
     expect(source, contains("'Membership benefits unlocked': '会员权益已开通'"));
-    expect(source, contains("'Membership valid until': '会员有效期至'"));
+    expect(source, contains("'Membership benefits active': '会员权益已生效'"));
 
     final bannerStart = source.indexOf('class _MembershipBanner');
     final bannerEnd = source.indexOf('String _priceLabel', bannerStart);
     final banner = source.substring(bannerStart, bannerEnd);
     expect(banner, contains("_mineText('Membership benefits unlocked')"));
+    expect(banner, contains("_mineText('Membership benefits active')"));
     expect(banner, contains("_mineText('Upgrade Kunqiong Membership')"));
+    expect(banner, isNot(contains('Membership valid until')));
+  });
+
+  test('quality update toast uses a readable high contrast style', () {
+    final common = File('lib/common.dart').readAsStringSync();
+    final toastStart = common.indexOf('void showToast(String text');
+    final toastEnd = common.indexOf('// TODO', toastStart);
+    expect(toastStart, greaterThanOrEqualTo(0));
+    expect(toastEnd, greaterThan(toastStart));
+    final toast = common.substring(toastStart, toastEnd);
+
+    expect(toast, contains('maxWidth:'));
+    expect(toast, contains('FontWeight.w700'));
+    expect(toast, contains('fontSize: isMobile ? 14 : 16'));
+    expect(toast, contains('BoxShadow('));
+    expect(common, contains('toastBg: const Color(0xE6000000)'));
+    expect(common, contains('toastText: Colors.white'));
+    expect(common, isNot(contains('toastBg: Colors.black.withOpacity(0.6)')));
   });
 
   test('iOS declares all native permission descriptions used by the app', () {

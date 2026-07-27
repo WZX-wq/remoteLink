@@ -6,11 +6,31 @@ lazy_static::lazy_static! {
     pub static ref TEMPORARY_PASSWORD:Arc<RwLock<String>> = Arc::new(RwLock::new(get_auto_password()));
 }
 
+#[cfg(target_os = "ios")]
+const KQ_IOS_VERIFICATION_CODE_LEN: usize = 6;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VerificationMethod {
     OnlyUseTemporaryPassword,
     OnlyUsePermanentPassword,
     UseBothPasswords,
+}
+
+/// Credentials bound to a single iOS connection handshake.
+///
+/// The main application and ReplayKit extension are separate processes. Reading
+/// the App Group config again after the salt/challenge has been sent can mix a
+/// new credential with the old handshake salt, so callers must keep this
+/// snapshot for the whole connection attempt.
+#[cfg(target_os = "ios")]
+#[derive(Clone)]
+pub struct IosPasswordCredentials {
+    pub salt: String,
+    pub temporary_password: String,
+    pub daily_password: String,
+    pub permanent_password_storage: String,
+    pub temporary_enabled: bool,
+    pub permanent_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +68,54 @@ pub fn temporary_password() -> String {
     TEMPORARY_PASSWORD.read().unwrap().clone()
 }
 
+#[cfg(target_os = "ios")]
+fn normalize_ios_verification_code(password: &str) -> String {
+    password
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(|c| c.to_lowercase())
+        .take(KQ_IOS_VERIFICATION_CODE_LEN)
+        .collect()
+}
+
+#[cfg(target_os = "ios")]
+pub fn snapshot_current_password_credentials_from_config() -> IosPasswordCredentials {
+    Config::reload_password_credentials_from_file();
+
+    let temporary_password =
+        normalize_ios_verification_code(&Config::get_option(keys::OPTION_TEMPORARY_PASSWORD));
+    if !temporary_password.is_empty() {
+        set_temporary_password(&temporary_password);
+    }
+
+    let daily_password = kq_daily_password();
+    let (permanent_password_storage, _) = Config::get_local_permanent_password_storage_and_salt();
+    let credentials = IosPasswordCredentials {
+        salt: Config::get_salt(),
+        temporary_password,
+        daily_password,
+        permanent_password_storage,
+        temporary_enabled: temporary_enabled(),
+        permanent_enabled: permanent_enabled(),
+    };
+    log::info!(
+        "iOS password snapshot loaded: temporary={}, daily={}, permanent={}, temporary_enabled={}, permanent_enabled={}",
+        !credentials.temporary_password.is_empty(),
+        !credentials.daily_password.is_empty(),
+        !credentials.permanent_password_storage.is_empty(),
+        credentials.temporary_enabled,
+        credentials.permanent_enabled,
+    );
+    credentials
+}
+
+pub fn reload_current_password_credentials_from_config() {
+    #[cfg(target_os = "ios")]
+    {
+        let _ = snapshot_current_password_credentials_from_config();
+    }
+}
+
 pub fn kq_today_password_date() -> String {
     crate::chrono::Local::now().format("%Y-%m-%d").to_string()
 }
@@ -56,7 +124,11 @@ pub fn kq_daily_password() -> String {
     if Config::get_option(keys::OPTION_KQ_DAILY_PASSWORD_DATE) != kq_today_password_date() {
         return String::new();
     }
-    Config::get_option(keys::OPTION_KQ_DAILY_PASSWORD)
+    let password = Config::get_option(keys::OPTION_KQ_DAILY_PASSWORD);
+    #[cfg(target_os = "ios")]
+    return normalize_ios_verification_code(&password);
+    #[cfg(not(target_os = "ios"))]
+    return password;
 }
 
 fn verification_method() -> VerificationMethod {
@@ -71,13 +143,21 @@ fn verification_method() -> VerificationMethod {
 }
 
 pub fn temporary_password_length() -> usize {
-    let length = Config::get_option("temporary-password-length");
-    if length == "8" {
-        8
-    } else if length == "10" {
-        10
-    } else {
-        6 // default
+    #[cfg(target_os = "ios")]
+    {
+        KQ_IOS_VERIFICATION_CODE_LEN
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    {
+        let length = Config::get_option("temporary-password-length");
+        if length == "8" {
+            8
+        } else if length == "10" {
+            10
+        } else {
+            6 // default
+        }
     }
 }
 
@@ -242,7 +322,7 @@ pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
         Ok(secretbox::seal(data, &nonce, &key))
     } else {
         let res = secretbox::open(data, &nonce, &key);
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(not(target_os = "android"))]
         if res.is_err() {
             // Fallback: try pk if uuid decryption failed (in case encryption used pk due to machine_uid failure)
             if let Some(key_pair) = Config::get_existing_key_pair() {

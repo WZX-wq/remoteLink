@@ -2153,7 +2153,22 @@ impl<T: InvokeUiSession> Remote<T> {
                 }
                 Some(message::Union::VoiceCallRequest(request)) => {
                     if request.is_connect {
-                        // TODO: maybe we will do a voice call from the peer in the future.
+                        #[cfg(target_os = "ios")]
+                        {
+                            // iOS currently initiates voice calls but cannot
+                            // present and answer an incoming peer request in
+                            // this session type. Return a protocol response
+                            // instead of dropping the request.
+                            let response = crate::client::new_voice_call_response(
+                                request.req_timestamp,
+                                false,
+                            );
+                            allow_err!(peer.send(&response).await);
+                            self.handler
+                                .on_voice_call_closed("Voice call is unavailable on iOS");
+                        }
+                        #[cfg(not(target_os = "ios"))]
+                        self.handler.on_voice_call_incoming();
                     } else {
                         log::debug!("The remote has requested to close the voice call");
                         if self.stop_voice_call_sender.is_some() {

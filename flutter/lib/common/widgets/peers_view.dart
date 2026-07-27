@@ -671,7 +671,9 @@ class _PeersViewState extends State<_PeersView>
 
   List<Peer> _recentDeviceSectionSourcePeers(List<Peer> recentPeers) {
     final peersByKey = <String, Peer>{};
-    for (final peer in [...recentPeers, ..._accountDevicePeers]) {
+    final visibleAccountDevicePeers =
+        KqProjectApi.filterHiddenAccountDevices(_accountDevicePeers);
+    for (final peer in [...recentPeers, ...visibleAccountDevicePeers]) {
       final key = _recentDeviceSectionPeerKey(peer);
       if (key.isEmpty) continue;
       final existing = peersByKey[key];

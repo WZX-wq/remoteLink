@@ -19,6 +19,8 @@ pub mod ipc;
 #[cfg(target_os = "ios")]
 mod ios_broadcast;
 #[cfg(any(target_os = "ios", test))]
+mod ios_voice_call;
+#[cfg(any(target_os = "ios", test))]
 mod ios_broadcast_status;
 #[cfg(any(target_os = "ios", test))]
 mod ios_broadcast_audio;

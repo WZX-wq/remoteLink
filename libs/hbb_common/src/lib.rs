@@ -315,7 +315,100 @@ pub fn get_exe_time() -> SystemTime {
 /// Known cases where machine_uid::get() may fail:
 /// - Windows shutdown: "The media is write protected. (os error 19)"
 /// - macOS (hard to reproduce, reproduced at login screen): "No matching IOPlatformUUID in `ioreg -rd1 -c IOPlatformExpertDevice` command"
+#[cfg(target_os = "ios")]
+fn get_ios_shared_uuid() -> Option<Vec<u8>> {
+    static CACHED_IOS_UUID: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+    fn parse_stored_uuid(raw: &str) -> Option<Vec<u8>> {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        if let Some(encoded) = raw.strip_prefix("pk:") {
+            return sodiumoxide::base64::decode(
+                encoded.as_bytes(),
+                sodiumoxide::base64::Variant::Original,
+            )
+            .ok()
+            .filter(|v| !v.is_empty());
+        }
+        if let Some(uuid) = raw.strip_prefix("uuid:") {
+            return Some(uuid.as_bytes().to_vec()).filter(|v| !v.is_empty());
+        }
+        Some(raw.as_bytes().to_vec())
+    }
+
+    fn store_uuid(path: &std::path::Path, raw: &str, uuid: Vec<u8>) -> Option<Vec<u8>> {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(mut file) => {
+                if let Err(err) = std::io::Write::write_all(&mut file, raw.as_bytes()) {
+                    log::error!("Failed to write iOS shared uuid: {err}");
+                    return None;
+                }
+                let _ = file.sync_all();
+                Some(uuid)
+            }
+            Err(_) => {
+                let raw = std::fs::read_to_string(path).ok()?;
+                parse_stored_uuid(&raw)
+            }
+        }
+    }
+
+    if let Some(uuid) = CACHED_IOS_UUID.get() {
+        return Some(uuid.clone());
+    }
+
+    let app_dir = config::APP_DIR.read().unwrap().clone();
+    if app_dir.trim().is_empty() {
+        return None;
+    }
+
+    let path = std::path::PathBuf::from(app_dir).join("kq-ios-device-uuid");
+    if let Ok(raw) = std::fs::read_to_string(&path) {
+        if let Some(uuid) = parse_stored_uuid(&raw) {
+            let _ = CACHED_IOS_UUID.set(uuid.clone());
+            return Some(uuid);
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            log::error!("Failed to create iOS shared uuid directory: {err}");
+            return None;
+        }
+    }
+
+    if let Some(key_pair) = Config::get_existing_key_pair() {
+        if !key_pair.1.is_empty() {
+            let uuid = key_pair.1;
+            let raw = format!(
+                "pk:{}",
+                sodiumoxide::base64::encode(&uuid, sodiumoxide::base64::Variant::Original)
+            );
+            let uuid = store_uuid(&path, &raw, uuid)?;
+            let _ = CACHED_IOS_UUID.set(uuid.clone());
+            return Some(uuid);
+        }
+    }
+
+    let uuid = uuid::Uuid::new_v4().as_simple().to_string();
+    let raw = format!("uuid:{uuid}");
+    let uuid = store_uuid(&path, &raw, uuid.into_bytes())?;
+    let _ = CACHED_IOS_UUID.set(uuid.clone());
+    Some(uuid)
+}
+
 pub fn get_uuid() -> Vec<u8> {
+    #[cfg(target_os = "ios")]
+    if let Some(uuid) = get_ios_shared_uuid() {
+        return uuid;
+    }
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         use std::sync::atomic::{AtomicUsize, Ordering};

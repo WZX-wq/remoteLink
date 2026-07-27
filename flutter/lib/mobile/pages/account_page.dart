@@ -725,9 +725,9 @@ class _AccountPageState extends State<AccountPage> {
           const SizedBox(height: 22),
           _ProfileHeader(
             avatar: avatar,
-            title: isLogin ? user.displayNameOrUserName : translate('Login'),
+            title: isLogin ? _kqPrivacyDisplayName(user) : translate('Login'),
             subtitle: isLogin
-                ? user.accountLabelWithHandle
+                ? _kqPrivacyAccountLabel(user)
                 : translate(
                     'Sign in to unlock device sync and membership tools.'),
             badge: user.membershipName,
@@ -737,7 +737,6 @@ class _AccountPageState extends State<AccountPage> {
           const SizedBox(height: 16),
           _MembershipBanner(
             isMember: user.isMember.value,
-            expireAt: user.memberExpireAt.value,
             loading: user.isRefreshingMembership.value,
             onPrimaryTap: _openMembershipSheet,
             onRefreshTap: isLogin
@@ -758,21 +757,14 @@ class _AccountPageState extends State<AccountPage> {
                 title: _mineText('General settings'),
                 onTap: () => _openSettingsDetail(
                   title: 'General settings',
-                  groupTitle: 'Appearance',
+                  groupTitle: kqMobileSettingsGroupAppearance,
                 ),
               ),
               _MenuRow(
                 title: _mineText('Security settings'),
                 onTap: () => _openSettingsDetail(
                   title: 'Security settings',
-                  groupTitle: 'Remote Access',
-                ),
-              ),
-              _MenuRow(
-                title: _mineText('Mobile device management'),
-                onTap: () => _openSettingsDetail(
-                  title: 'Mobile device management',
-                  groupTitle: 'Connection & Network',
+                  groupTitle: kqMobileSettingsGroupRemoteAccess,
                 ),
               ),
               _MenuRow(
@@ -939,14 +931,12 @@ class _ProfileHeader extends StatelessWidget {
 class _MembershipBanner extends StatelessWidget {
   const _MembershipBanner({
     required this.isMember,
-    required this.expireAt,
     required this.loading,
     required this.onPrimaryTap,
     required this.onRefreshTap,
   });
 
   final bool isMember;
-  final String expireAt;
   final bool loading;
   final VoidCallback onPrimaryTap;
   final Future<void> Function()? onRefreshTap;
@@ -956,9 +946,8 @@ class _MembershipBanner extends StatelessWidget {
     final title = isMember
         ? _mineText('Membership benefits unlocked')
         : _mineText('Upgrade Kunqiong Membership');
-    final formattedExpireAt = _formatMembershipExpireAt(expireAt);
-    final subtitle = isMember && formattedExpireAt.isNotEmpty
-        ? '${_mineText('Membership valid until')} $formattedExpireAt'
+    final subtitle = isMember
+        ? _mineText('Membership benefits active')
         : _mineText(
             'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.');
     return Container(
@@ -1240,8 +1229,8 @@ class _PersonalCenterPage extends StatelessWidget {
                     children: [
                       _PersonalProfileCard(
                         avatar: avatar,
-                        title: user.displayNameOrUserName,
-                        subtitle: user.accountLabelWithHandle,
+                        title: _kqPrivacyDisplayName(user),
+                        subtitle: _kqPrivacyAccountLabel(user),
                         badge: user.membershipName,
                         isMember: user.isMember.value,
                       ),
@@ -1251,12 +1240,14 @@ class _PersonalCenterPage extends StatelessWidget {
                           _PersonalInfoRow(
                             icon: Icons.account_circle_rounded,
                             title: _mineText('Username'),
-                            value: user.userName.value.trim(),
+                            value: _kqMaskAccountIdentifier(
+                                user.userName.value.trim()),
                           ),
                           _PersonalInfoRow(
                             icon: Icons.phone_android_rounded,
                             title: _mineText('Phone number'),
-                            value: _localUserPhoneNumber(),
+                            value: _kqMaskAccountPhoneNumber(
+                                _localUserPhoneNumber()),
                           ),
                           _PersonalInfoRow(
                             icon: Icons.privacy_tip_outlined,
@@ -1301,6 +1292,62 @@ class _PersonalCenterPage extends StatelessWidget {
       );
     });
   }
+}
+
+String _kqPrivacyDisplayName(UserModel user) {
+  final displayName = user.displayName.value.trim();
+  final userName = user.userName.value.trim();
+  if (displayName.isNotEmpty && displayName != userName) {
+    return _kqMaskAccountIdentifier(displayName);
+  }
+  return _mineText('Kunqiong account');
+}
+
+String _kqPrivacyAccountLabel(UserModel user) {
+  final userName = user.userName.value.trim();
+  if (userName.isEmpty) {
+    return _mineText('Signed in');
+  }
+  return _kqMaskAccountIdentifier(userName);
+}
+
+String _kqMaskAccountIdentifier(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty || raw == _mineText('Not set')) return _mineText('Not set');
+  final compactPhone = raw.replaceAll(RegExp(r'[\s-]+'), '');
+  if (RegExp(r'^\+?\d{7,}$').hasMatch(compactPhone)) {
+    return _kqMaskAccountPhoneNumber(raw);
+  }
+  final at = raw.indexOf('@');
+  if (at > 0) {
+    final local = raw.substring(0, at);
+    final domain = raw.substring(at + 1);
+    final localPrefix = local.length <= 2 ? local[0] : local.substring(0, 2);
+    return '$localPrefix***@${_kqMaskDomain(domain)}';
+  }
+  if (raw.length <= 4) return '***';
+  if (raw.length <= 8) {
+    return '${raw.substring(0, 2)}***${raw.substring(raw.length - 2)}';
+  }
+  return '${raw.substring(0, 4)}***${raw.substring(raw.length - 4)}';
+}
+
+String _kqMaskDomain(String domain) {
+  final raw = domain.trim();
+  if (raw.isEmpty) return '***';
+  final dot = raw.lastIndexOf('.');
+  if (dot <= 1) return '***';
+  return '${raw.substring(0, 1)}***${raw.substring(dot)}';
+}
+
+String _kqMaskAccountPhoneNumber(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty || raw == _mineText('Not set')) return _mineText('Not set');
+  final digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits.length >= 7) {
+    return '${digits.substring(0, 3)}****${digits.substring(digits.length - 4)}';
+  }
+  return _kqMaskAccountIdentifier(raw);
 }
 
 String _localUserPhoneNumber() {
@@ -2277,18 +2324,6 @@ String _priceLabel(double price) {
   return '¥${price.toStringAsFixed(2)}';
 }
 
-String _formatMembershipExpireAt(String value) {
-  final raw = value.trim();
-  if (raw.isEmpty) return '';
-  if (raw.toLowerCase() == 'unlimited') return _mineText('Unlimited');
-  final dateMatch = RegExp(r'^\d{4}-\d{2}-\d{2}').firstMatch(raw);
-  if (dateMatch != null) return dateMatch.group(0)!;
-  final parsed = DateTime.tryParse(raw);
-  if (parsed == null) return raw;
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${parsed.year}-${two(parsed.month)}-${two(parsed.day)}';
-}
-
 String _mineText(String key) {
   if (kqUiPrefersSimplifiedChinese()) return _mineZh[key] ?? translate(key);
   if (kqUiPrefersChinese()) return _mineTw[key] ?? translate(key);
@@ -2308,15 +2343,16 @@ const _mineZh = {
   'No notifications': '暂无通知',
   'Free plan': '免费版',
   'Membership benefits unlocked': '会员权益已开通',
+  'Membership benefits active': '会员权益已生效',
   'Upgrade Kunqiong Membership': '开通鲲穹会员',
-  'Membership valid until': '会员有效期至',
   'Renew membership': '续费会员',
   'Upgrade': '开通会员',
   'Unlimited': '永久有效',
+  'Kunqiong account': '鲲穹账号',
+  'Signed in': '已登录',
   'Remote quality and FPS': '画质与帧率',
   'General settings': '通用设置',
   'Security settings': '安全设置',
-  'Mobile device management': '网络与连接',
   'Contact us': '联系我们',
   'Balanced quality': '均衡清晰',
   'HD quality': '高清画质',
@@ -2349,11 +2385,13 @@ const _mineTw = {
   'Remove your account and data': '刪除帳號及相關資料',
   'Not set': '未設定',
   'Membership benefits unlocked': '會員權益已開通',
+  'Membership benefits active': '會員權益已生效',
   'Upgrade Kunqiong Membership': '開通鯤穹會員',
-  'Membership valid until': '會員有效期至',
   'Renew membership': '續費會員',
   'Upgrade': '開通會員',
   'Unlimited': '永久有效',
+  'Kunqiong account': '鯤穹帳號',
+  'Signed in': '已登入',
   'Pay now': '立即支付',
   'Opening payment app...': '正在拉起支付...',
   'WeChat Pay': '微信支付',

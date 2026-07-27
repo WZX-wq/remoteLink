@@ -1,9 +1,12 @@
-use hbb_common::config::{self, Config};
+use hbb_common::{
+    config::{self, Config},
+    log,
+};
 use std::{
     ffi::c_void,
     slice,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
         Once,
     },
 };
@@ -12,16 +15,28 @@ const OK: i32 = 0;
 const ERR_INVALID_CONFIG_DIR: i32 = 1;
 const ERR_INVALID_FRAME: i32 = 2;
 const ERR_FRAME_TOO_LARGE: i32 = 3;
+const ERR_CONFIG_MISSING: i32 = 4;
 const ERR_PAUSED: i32 = crate::ios_broadcast_audio::ERR_PAUSED;
 const REGISTRATION_NOT_STARTED: i32 = 0;
 const REGISTRATION_PENDING: i32 = 1;
 const REGISTRATION_READY: i32 = 2;
 const REGISTRATION_REQUIRES_DEPLOYMENT: i32 = 3;
 
+pub(crate) const AUTH_RESULT_NONE: i32 = 0;
+pub(crate) const AUTH_RESULT_TEMPORARY: i32 = 1;
+pub(crate) const AUTH_RESULT_DAILY: i32 = 2;
+pub(crate) const AUTH_RESULT_PERMANENT: i32 = 3;
+pub(crate) const AUTH_RESULT_REJECTED: i32 = 4;
+
 static INITIALIZE: Once = Once::new();
 static HOST_THREAD_STARTED: AtomicBool = AtomicBool::new(false);
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static PAUSED: AtomicBool = AtomicBool::new(false);
+static LAST_AUTH_RESULT: AtomicI32 = AtomicI32::new(AUTH_RESULT_NONE);
+
+pub(crate) fn set_last_auth_result(result: i32) {
+    LAST_AUTH_RESULT.store(result, Ordering::Release);
+}
 
 fn bytes_to_string(ptr: *const u8, len: usize) -> Option<String> {
     if ptr.is_null() || len == 0 {
@@ -48,29 +63,22 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     }
 
     *config::APP_DIR.write().unwrap() = config_dir.clone();
+    crate::load_custom_client();
+    let config_path = Config::file();
+    if !config_path.is_file() {
+        log::error!(
+            "iOS broadcast canonical config is missing: {}",
+            config_path.display()
+        );
+        return ERR_CONFIG_MISSING;
+    }
+    log::info!(
+        "iOS broadcast using canonical config: {}",
+        config_path.display()
+    );
     INITIALIZE.call_once(|| {
-        crate::load_custom_client();
         let _ = crate::common::global_init();
     });
-
-    // Verify config file exists before starting
-    let config_names = ["RustDesk.toml", "鲲穹远程桌面.toml"];
-    let mut config_found = false;
-    for name in &config_names {
-        let path = std::path::Path::new(&config_dir).join(name);
-        if path.exists() {
-            log::info!("iOS broadcast found config: {:?}", path);
-            config_found = true;
-            break;
-        }
-    }
-    if !config_found {
-        log::error!(
-            "iOS broadcast config missing in {}, ID and keypair will be regenerated",
-            config_dir
-        );
-        // Continue anyway, but this will cause ID mismatch
-    }
 
     seed_temporary_password_from_config();
     Config::set_option("stop-service".to_owned(), String::new());
@@ -79,6 +87,8 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     // accept a remote connection.
     Config::set_key_confirmed(false);
     crate::rendezvous_mediator::NEEDS_DEPLOY.store(false, Ordering::Release);
+    set_last_auth_result(AUTH_RESULT_NONE);
+    crate::ios_voice_call::reset_voice_call();
     PAUSED.store(false, Ordering::Release);
     ACTIVE.store(true, Ordering::Release);
     crate::ios_broadcast_audio::start();
@@ -106,6 +116,13 @@ pub extern "C" fn kq_ios_broadcast_registration_state() -> i32 {
         return REGISTRATION_READY;
     }
     REGISTRATION_PENDING
+}
+
+/// Returns the outcome of the latest password check without exposing the
+/// password, hash, salt, or challenge.
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_last_auth_result() -> i32 {
+    LAST_AUTH_RESULT.load(Ordering::Acquire)
 }
 
 /// Copies the ID used by the ReplayKit extension's Rust process into a caller
@@ -197,6 +214,7 @@ pub extern "C" fn kq_ios_broadcast_resume() {
 pub extern "C" fn kq_ios_broadcast_stop() {
     ACTIVE.store(false, Ordering::Release);
     PAUSED.store(false, Ordering::Release);
+    crate::ios_voice_call::reset_voice_call();
     crate::ios_broadcast_audio::stop();
     scrap::clear_bgra_frames();
     Config::set_option("stop-service".to_owned(), "Y".to_owned());

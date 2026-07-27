@@ -26,6 +26,8 @@ cert.pfx
 *.bak-*
 /dist/
 /logs/
+/flutter/ios/build/
+KQRemoteLink_iOS_signing_assets_*/
 *png
 !flutter/assets/icon.png
 !server/public/assets/kq-icon.png
