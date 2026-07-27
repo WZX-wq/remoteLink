@@ -125,7 +125,7 @@ void main() {
     expect(config, contains('fn set_ios_shared_device_id'));
     expect(config, contains('get_or_create_ios_shared_device_id(&config.id)'));
     expect(config, contains('set_ios_shared_device_id(id);'));
-    expect(config, contains('fn rotate_ios_id_after_uuid_mismatch'));
+    expect(config, contains('fn recover_ios_id_after_uuid_mismatch'));
     expect(config, contains('fn sync_ios_shared_device_id'));
     expect(config, contains('kq-ios-uuid-mismatch-recovery'));
     expect(ffi, contains('config::Config::sync_ios_shared_device_id();'));
@@ -142,8 +142,9 @@ void main() {
     expect(iosMismatchStart, greaterThanOrEqualTo(0));
     expect(nonIosMismatchStart, greaterThan(iosMismatchStart));
     final iosMismatch = rendezvous.substring(iosMismatchStart, nonIosMismatchStart);
-    expect(iosMismatch, contains('Config::rotate_ios_id_after_uuid_mismatch'));
+    expect(iosMismatch, contains('Config::recover_ios_id_after_uuid_mismatch'));
     expect(iosMismatch, contains('self.register_pk(socket).await'));
+    expect(iosMismatch, contains('if !identity_changed'));
     expect(iosMismatch, isNot(contains('NEEDS_DEPLOY.store(true')));
   });
 

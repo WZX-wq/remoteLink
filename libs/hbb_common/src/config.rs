@@ -178,16 +178,19 @@ fn write_ios_shared_device_id(path: &Path, id: &str, replace: bool) -> std::io::
 }
 
 #[cfg(target_os = "ios")]
-fn read_ios_uuid_mismatch_recovery(path: &Path) -> Option<(String, String)> {
+fn read_ios_uuid_mismatch_recovery(path: &Path) -> Option<String> {
     let value = std::fs::read_to_string(path).ok()?;
-    let (host, id) = value.split_once('\n')?;
-    let host = host.trim();
-    let id = id.trim();
-    (!host.is_empty() && !id.is_empty()).then(|| (host.to_owned(), id.to_owned()))
+    let mut lines = value.lines().map(str::trim).filter(|line| !line.is_empty());
+    let _marker_version_or_host = lines.next()?;
+    // Releases before 1.4.6 (3008970547819) stored `<host>\n<id>`. Keep
+    // accepting that form so a device that has already recovered does not
+    // begin rotating its ID after an upgrade.
+    let id = lines.next()?;
+    (!id.is_empty() && id.len() <= 128).then(|| id.to_owned())
 }
 
 #[cfg(target_os = "ios")]
-fn write_ios_uuid_mismatch_recovery(path: &Path, host: &str, id: &str) -> std::io::Result<()> {
+fn write_ios_uuid_mismatch_recovery(path: &Path, id: &str) -> std::io::Result<()> {
     let Some(parent) = path.parent() else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -198,7 +201,7 @@ fn write_ios_uuid_mismatch_recovery(path: &Path, host: &str, id: &str) -> std::i
 
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     let mut file = std::fs::File::create(&temporary)?;
-    file.write_all(format!("{host}\n{id}\n").as_bytes())?;
+    file.write_all(format!("v2\n{id}\n").as_bytes())?;
     file.sync_all()?;
     std::fs::rename(temporary, path)
 }
@@ -1195,21 +1198,24 @@ impl Config {
     }
 
     /// A UUID mismatch can mean the rendezvous service still has an identity
-    /// from an older iOS installation. Migrate at most once and persist the
-    /// result in App Group storage. Keeping the marker after a successful
-    /// registration prevents a later ReplayKit restart from silently changing
-    /// the user-facing ID again.
+    /// from an older iOS installation. Migrate exactly once per App Group,
+    /// regardless of which rendezvous address reports the mismatch. The main
+    /// app and ReplayKit extension can register against differently formatted
+    /// addresses for the same service, so scoping this recovery to `host`
+    /// caused a new random ID to be generated on every broadcast restart.
     #[cfg(target_os = "ios")]
-    pub fn rotate_ios_id_after_uuid_mismatch(host: &str) -> bool {
+    pub fn recover_ios_id_after_uuid_mismatch() -> bool {
         let marker_path = Self::path(IOS_UUID_MISMATCH_RECOVERY_FILE);
-        if let Some((recovered_host, recovered_id)) = read_ios_uuid_mismatch_recovery(&marker_path)
-        {
-            if recovered_host == host && recovered_id == Self::get_id() {
-                log::warn!(
-                    "iOS UUID mismatch recovery already attempted for rendezvous host {host}"
-                );
-                return false;
+        if let Some(recovered_id) = read_ios_uuid_mismatch_recovery(&marker_path) {
+            if recovered_id != Self::get_id() {
+                // Upgrade an existing device to the last successfully chosen
+                // canonical ID before attempting one registration retry.
+                Self::set_id(&recovered_id);
+                log::info!("Restored the canonical iOS recovery ID after UUID mismatch");
+                return true;
             }
+            log::warn!("iOS UUID mismatch recovery was already attempted");
+            return false;
         }
 
         let current_id = Self::get_id();
@@ -1223,10 +1229,10 @@ impl Config {
         }
 
         Self::set_id(&new_id);
-        if let Err(err) = write_ios_uuid_mismatch_recovery(&marker_path, host, &new_id) {
+        if let Err(err) = write_ios_uuid_mismatch_recovery(&marker_path, &new_id) {
             log::error!("Failed to persist iOS UUID mismatch recovery marker: {err}");
         }
-        log::info!("Migrated iOS identity after UUID mismatch for rendezvous host {host}");
+        log::info!("Migrated iOS identity after UUID mismatch");
         true
     }
 

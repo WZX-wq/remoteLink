@@ -772,8 +772,11 @@ impl RendezvousMediator {
             log::info!("UUID_MISMATCH received from {}", self.host);
             Config::set_key_confirmed(false);
             Config::set_host_key_confirmed(&self.host_prefix, false);
-            Config::rotate_ios_id_after_uuid_mismatch(&self.host);
+            let identity_changed = Config::recover_ios_id_after_uuid_mismatch();
             *solving = self.host.clone();
+            if !identity_changed {
+                return Ok(());
+            }
         }
         self.register_pk(socket).await
     }

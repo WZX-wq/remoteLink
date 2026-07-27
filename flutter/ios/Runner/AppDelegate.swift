@@ -1000,7 +1000,12 @@ import AVFoundation
       return
     }
 
-    func copy(_ sourceName: String, to destinationName: String, required: Bool) throws -> Bool {
+    func copy(
+      _ sourceName: String,
+      to destinationName: String,
+      required: Bool,
+      preserveExisting: Bool = false
+    ) throws -> Bool {
       let sourceFile = selected.directory.appendingPathComponent(sourceName)
       let destinationFile = destination.appendingPathComponent(destinationName)
       if sourceFile.path == destinationFile.path {
@@ -1008,6 +1013,9 @@ import AVFoundation
       }
       if fileManager.fileExists(atPath: sourceFile.path) {
         if fileManager.fileExists(atPath: destinationFile.path) {
+          if preserveExisting {
+            return true
+          }
           try fileManager.removeItem(at: destinationFile)
         }
         try fileManager.copyItem(at: sourceFile, to: destinationFile)
@@ -1027,8 +1035,20 @@ import AVFoundation
       return
     }
     _ = try copy(selected.config2FileName, to: broadcastConfig2FileName, required: false)
-    _ = try copy(broadcastUuidFileName, to: broadcastUuidFileName, required: false)
-    _ = try copy(sharedDeviceIdFileName, to: sharedDeviceIdFileName, required: false)
+    // Once an App Group identity exists it is canonical. An old sandbox
+    // profile must never overwrite it during a later app update.
+    _ = try copy(
+      broadcastUuidFileName,
+      to: broadcastUuidFileName,
+      required: false,
+      preserveExisting: true
+    )
+    _ = try copy(
+      sharedDeviceIdFileName,
+      to: sharedDeviceIdFileName,
+      required: false,
+      preserveExisting: true
+    )
     try synchronizeSharedIdentityFiles(from: source, to: destination)
     try Data("1".utf8).write(to: migrationMarker, options: .atomic)
     NSLog("[Config Migration] Unified iOS config profile from \(selected.configFileName)")
