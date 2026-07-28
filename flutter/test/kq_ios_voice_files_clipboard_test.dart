@@ -89,6 +89,17 @@ void main() {
     expect(monitor, contains('Timed out presenting iOS voice call invitation'));
   });
 
+  test('iOS voice invitation expiry uses milliseconds on both sides', () {
+    final native = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final voiceBridge = File('../src/ios_voice_call.rs').readAsStringSync();
+
+    expect(voiceBridge, contains('const REQUEST_TTL_MILLIS: i64 = 45_000;'));
+    expect(
+      native,
+      contains('Date().timeIntervalSince1970 * 1_000'),
+    );
+  });
+
   test('iOS accepts independently of fallback capture and keeps two-way audio',
       () {
     final native = File('ios/Runner/AppDelegate.swift').readAsStringSync();
@@ -104,10 +115,8 @@ void main() {
     expect(response, contains('startIOSBroadcastHostVoiceCapture()'));
     expect(response, contains('"accepted": accepted'));
     expect(response, isNot(contains('"accepted": responseAccepted')));
-    expect(
-        response,
-        contains(
-            'iOS host recorder unavailable; using ReplayKit microphone'));
+    expect(response,
+        contains('iOS host recorder unavailable; using ReplayKit microphone'));
     expect(playbackStart, greaterThanOrEqualTo(0));
     expect(playbackEnd, greaterThan(playbackStart));
     final playback = native.substring(playbackStart, playbackEnd);

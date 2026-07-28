@@ -368,7 +368,7 @@ import AVFoundation
           !requestId.isEmpty else {
       return nil
     }
-    if expiresAt <= Date().timeIntervalSince1970 {
+    if expiresAt <= Date().timeIntervalSince1970 * 1_000 {
       if let url = voiceCallFileURL(voiceCallRequestFileName) {
         try? FileManager.default.removeItem(at: url)
       }
@@ -520,7 +520,7 @@ import AVFoundation
           let expiresAt = voiceCallNumber(request["expiresAt"]) else {
       return false
     }
-    return expiresAt > Date().timeIntervalSince1970
+    return expiresAt > Date().timeIntervalSince1970 * 1_000
   }
 
   private func finishIOSVoiceCallResponse(

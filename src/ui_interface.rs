@@ -675,7 +675,12 @@ pub fn get_connect_status() -> UiStatus {
 
 #[inline]
 pub fn temporary_password() -> String {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(target_os = "ios")]
+    {
+        password_security::refresh_temporary_password_from_config_if_changed();
+        return password_security::temporary_password();
+    }
+    #[cfg(target_os = "android")]
     return password_security::temporary_password();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     return TEMPORARY_PASSWD.lock().unwrap().clone();

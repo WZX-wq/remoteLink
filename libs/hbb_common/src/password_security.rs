@@ -2,8 +2,16 @@ use crate::config::{keys, Config};
 use sodiumoxide::base64;
 use std::sync::{Arc, RwLock};
 
+#[cfg(target_os = "ios")]
+use std::{sync::Mutex, time::SystemTime};
+
 lazy_static::lazy_static! {
     pub static ref TEMPORARY_PASSWORD:Arc<RwLock<String>> = Arc::new(RwLock::new(get_auto_password()));
+}
+
+#[cfg(target_os = "ios")]
+lazy_static::lazy_static! {
+    static ref IOS_PASSWORD_CONFIG_MODIFIED: Mutex<Option<SystemTime>> = Mutex::new(None);
 }
 
 #[cfg(target_os = "ios")]
@@ -16,18 +24,20 @@ enum VerificationMethod {
     UseBothPasswords,
 }
 
-/// Credentials bound to a single iOS connection handshake.
+/// Credentials associated with an iOS connection handshake.
 ///
 /// The main application and ReplayKit extension are separate processes. Reading
-/// the App Group config again after the salt/challenge has been sent can mix a
-/// new credential with the old handshake salt, so callers must keep this
-/// snapshot for the whole connection attempt.
+/// the App Group config again after the salt/challenge has been sent must keep
+/// permanent-password storage paired with the salt used by that handshake.
+/// Plaintext temporary and daily codes can be refreshed safely before validation
+/// because they are hashed against the already-sent handshake salt.
 #[cfg(target_os = "ios")]
 #[derive(Clone)]
 pub struct IosPasswordCredentials {
     pub salt: String,
     pub temporary_password: String,
     pub daily_password: String,
+    pub permanent_password: String,
     pub permanent_password_storage: String,
     pub temporary_enabled: bool,
     pub permanent_enabled: bool,
@@ -69,6 +79,25 @@ pub fn temporary_password() -> String {
 }
 
 #[cfg(target_os = "ios")]
+pub fn refresh_temporary_password_from_config_if_changed() {
+    let modified = Config::password_credentials_modified_time();
+    let Ok(mut previous) = IOS_PASSWORD_CONFIG_MODIFIED.lock() else {
+        return;
+    };
+    if *previous == modified {
+        return;
+    }
+
+    Config::reload_password_credentials_from_file();
+    let temporary_password =
+        normalize_ios_verification_code(&Config::get_option(keys::OPTION_TEMPORARY_PASSWORD));
+    if !temporary_password.is_empty() {
+        set_temporary_password(&temporary_password);
+    }
+    *previous = Config::password_credentials_modified_time();
+}
+
+#[cfg(target_os = "ios")]
 fn normalize_ios_verification_code(password: &str) -> String {
     password
         .chars()
@@ -90,18 +119,29 @@ pub fn snapshot_current_password_credentials_from_config() -> IosPasswordCredent
 
     let daily_password = kq_daily_password();
     let (permanent_password_storage, _) = Config::get_local_permanent_password_storage_and_salt();
+    let permanent_password = if !permanent_password_storage.is_empty()
+        && !Config::is_disable_change_permanent_password()
+    {
+        normalize_ios_verification_code(&Config::get_option(
+            keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
+        ))
+    } else {
+        String::new()
+    };
     let credentials = IosPasswordCredentials {
         salt: Config::get_salt(),
         temporary_password,
         daily_password,
+        permanent_password,
         permanent_password_storage,
         temporary_enabled: temporary_enabled(),
         permanent_enabled: permanent_enabled(),
     };
     log::info!(
-        "iOS password snapshot loaded: temporary={}, daily={}, permanent={}, temporary_enabled={}, permanent_enabled={}",
+        "iOS password snapshot loaded: temporary={}, daily={}, permanent_preview={}, permanent_storage={}, temporary_enabled={}, permanent_enabled={}",
         !credentials.temporary_password.is_empty(),
         !credentials.daily_password.is_empty(),
+        !credentials.permanent_password.is_empty(),
         !credentials.permanent_password_storage.is_empty(),
         credentials.temporary_enabled,
         credentials.permanent_enabled,

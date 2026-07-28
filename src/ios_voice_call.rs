@@ -20,7 +20,7 @@ const HOST_CAPTURE_DIRECTORY_NAME: &str = "kq-ios-voice-call-mic";
 const HOST_CLOSE_FILE_NAME: &str = "kq-ios-voice-call-close.json";
 const BROADCAST_MIC_ACTIVE_FILE_NAME: &str = "kq-ios-voice-call-replaykit-mic-active";
 
-const REQUEST_TTL_SECS: i64 = 45;
+const REQUEST_TTL_MILLIS: i64 = 45_000;
 const AUDIO_MAGIC: u32 = 0x4156_514B; // "KQVA" in little endian.
 const AUDIO_HEADER_LEN: usize = 16;
 const MAX_AUDIO_FILE_BYTES: u64 = 1_024 * 1_024;
@@ -173,16 +173,47 @@ fn make_audio_record(sample_rate: u32, channels: u32, samples: &[f32]) -> Vec<u8
     payload
 }
 
+fn is_duplicate_pending_request(
+    existing: &PendingVoiceCall,
+    request_timestamp: i64,
+    now: i64,
+) -> bool {
+    existing.expires_at > now && existing.request_timestamp == request_timestamp
+}
+
 pub(crate) fn publish_incoming_voice_call(request_timestamp: i64) -> Option<PendingVoiceCall> {
+    if VOICE_CALL_ACTIVE.load(Ordering::Acquire) {
+        log::warn!("Ignoring iOS voice call request while another call is active");
+        return None;
+    }
+
     if read_json::<VoiceCallState>(STATE_FILE_NAME)
         .map(|state| state.active)
         .unwrap_or(false)
     {
-        log::warn!("Ignoring iOS voice call request while another call is active");
-        return None;
+        log::warn!("Clearing stale iOS voice call state from a previous process");
+        if let Err(err) = write_json(
+            STATE_FILE_NAME,
+            &VoiceCallState {
+                request_id: String::new(),
+                active: false,
+                updated_at: get_time(),
+            },
+        ) {
+            log::warn!("Failed to clear stale iOS voice call state: {err}");
+        }
     }
+
+    let now = get_time();
     if let Some(existing) = read_json::<PendingVoiceCall>(REQUEST_FILE_NAME) {
-        if existing.expires_at > get_time() {
+        if is_duplicate_pending_request(&existing, request_timestamp, now) {
+            log::info!(
+                "Reusing pending iOS voice call invitation {} for duplicate request",
+                existing.request_id
+            );
+            return Some(existing);
+        }
+        if existing.expires_at > now {
             log::warn!(
                 "Ignoring iOS voice call request while {} is still pending",
                 existing.request_id
@@ -196,7 +227,7 @@ pub(crate) fn publish_incoming_voice_call(request_timestamp: i64) -> Option<Pend
     let request = PendingVoiceCall {
         request_id: uuid::Uuid::new_v4().to_string(),
         request_timestamp,
-        expires_at: get_time() + REQUEST_TTL_SECS,
+        expires_at: now + REQUEST_TTL_MILLIS,
     };
     match write_json(REQUEST_FILE_NAME, &request) {
         Ok(()) => Some(request),
@@ -596,5 +627,19 @@ mod tests {
             ERR_INVALID_VOICE_AUDIO
         );
         reset_broadcast_audio(false);
+    }
+
+    #[test]
+    fn duplicate_pending_voice_call_request_is_reused_until_expiry() {
+        assert_eq!(REQUEST_TTL_MILLIS, 45_000);
+        let request = PendingVoiceCall {
+            request_id: "request-1".to_owned(),
+            request_timestamp: 100,
+            expires_at: 145,
+        };
+
+        assert!(is_duplicate_pending_request(&request, 100, 120));
+        assert!(!is_duplicate_pending_request(&request, 101, 120));
+        assert!(!is_duplicate_pending_request(&request, 100, 145));
     }
 }

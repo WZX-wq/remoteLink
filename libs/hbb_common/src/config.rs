@@ -51,6 +51,102 @@ const VERIFICATION_CODE_OPTION_KEYS: [&str; 3] = [
     keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
 ];
 
+#[cfg(any(target_os = "ios", test))]
+const IOS_AUTH_OPTION_KEYS: [&str; 6] = [
+    keys::OPTION_TEMPORARY_PASSWORD,
+    keys::OPTION_KQ_DAILY_PASSWORD,
+    keys::OPTION_KQ_DAILY_PASSWORD_DATE,
+    keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW,
+    keys::OPTION_VERIFICATION_METHOD,
+    keys::OPTION_APPROVE_MODE,
+];
+
+#[cfg(target_os = "ios")]
+fn is_ios_auth_option_key(key: &str) -> bool {
+    IOS_AUTH_OPTION_KEYS.contains(&key)
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn preserve_latest_ios_auth_options(
+    latest: &Config2,
+    pending: &mut Config2,
+    overridden_keys: &[&str],
+) {
+    for key in IOS_AUTH_OPTION_KEYS {
+        if overridden_keys.contains(&key) {
+            continue;
+        }
+        if let Some(value) = latest.options.get(key) {
+            pending.options.insert(key.to_owned(), value.to_owned());
+        } else {
+            pending.options.remove(key);
+        }
+    }
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn preserve_latest_ios_password_credentials(latest: &Config, pending: &mut Config) {
+    pending.password = latest.password.clone();
+    pending.salt = latest.salt.clone();
+}
+
+#[cfg(target_os = "ios")]
+fn with_ios_config_write_lock(path: &Path, write: impl FnOnce()) -> bool {
+    use std::os::fd::AsRawFd;
+
+    let mut lock_name = path.as_os_str().to_os_string();
+    lock_name.push(".lock");
+    let lock_path = PathBuf::from(lock_name);
+    if let Some(parent) = lock_path.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            log::error!(
+                "Failed to create iOS config lock directory '{}': {err}",
+                parent.display()
+            );
+            return false;
+        }
+    }
+    let lock_file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&lock_path)
+    {
+        Ok(file) => file,
+        Err(err) => {
+            log::error!(
+                "Failed to open iOS config lock '{}': {err}",
+                lock_path.display()
+            );
+            return false;
+        }
+    };
+    if unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        log::error!(
+            "Failed to lock iOS config '{}': {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        );
+        return false;
+    }
+
+    write();
+
+    if unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_UN) } != 0 {
+        log::warn!(
+            "Failed to unlock iOS config '{}': {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        );
+    }
+    true
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_verification_value_requires_store(decrypted_ok: bool) -> bool {
+    decrypted_ok
+}
+
 fn is_permanent_password_hashed_storage(v: &str) -> bool {
     decode_permanent_password_h1_from_storage(v).is_some()
 }
@@ -653,6 +749,8 @@ impl Config2 {
             };
             let (decrypted, decrypted_ok, store2) =
                 decrypt_str_or_original(&value, PASSWORD_ENC_VERSION);
+            #[cfg(not(target_os = "ios"))]
+            let _ = decrypted_ok;
 
             // Older iOS builds encrypted these values using process-derived
             // material. A stale main-app or ReplayKit keypair leaves ciphertext
@@ -667,16 +765,24 @@ impl Config2 {
             }
 
             config.options.insert(opt.to_owned(), decrypted);
-            store |= store2;
+            #[cfg(not(target_os = "ios"))]
+            {
+                store |= store2;
+            }
             // The shared App Group already provides the iOS process boundary.
             // Keep verification values process-independent so ReplayKit cannot
-            // fail to decrypt a code after an identity migration.
+            // fail to decrypt a code after an identity migration. Plaintext is
+            // already the canonical iOS format, so loading it must not rewrite
+            // the whole Config2 file and race a main-app password update.
             #[cfg(target_os = "ios")]
-            if decrypted_ok {
+            if ios_verification_value_requires_store(decrypted_ok) {
                 store = true;
             }
         }
         if store {
+            #[cfg(target_os = "ios")]
+            config.store_with_auth_overrides(&VERIFICATION_CODE_OPTION_KEYS);
+            #[cfg(not(target_os = "ios"))]
             config.store();
         }
         config
@@ -686,7 +792,7 @@ impl Config2 {
         Config::file_("2")
     }
 
-    fn store(&self) {
+    fn store_unlocked(&self) {
         let mut config = self.clone();
         if let Some(mut socks) = config.socks {
             socks.password =
@@ -704,6 +810,30 @@ impl Config2 {
         Config::store_(&config, "2");
     }
 
+    fn store(&self) {
+        #[cfg(target_os = "ios")]
+        {
+            self.store_with_auth_overrides(&[]);
+            return;
+        }
+        #[cfg(not(target_os = "ios"))]
+        self.store_unlocked();
+    }
+
+    #[cfg(target_os = "ios")]
+    fn store_with_auth_overrides(&self, overridden_keys: &[&str]) {
+        let path = Config::file_("2");
+        let stored = with_ios_config_write_lock(&path, || {
+            let latest = Config::load_::<Config2>("2");
+            let mut merged = self.clone();
+            preserve_latest_ios_auth_options(&latest, &mut merged, overridden_keys);
+            merged.store_unlocked();
+        });
+        if !stored {
+            log::error!("Skipped iOS Config2 write because its cross-process lock failed");
+        }
+    }
+
     pub fn get() -> Config2 {
         return CONFIG2.read().unwrap().clone();
     }
@@ -714,6 +844,9 @@ impl Config2 {
             return false;
         }
         *lock = cfg;
+        #[cfg(target_os = "ios")]
+        lock.store_with_auth_overrides(&IOS_AUTH_OPTION_KEYS);
+        #[cfg(not(target_os = "ios"))]
         lock.store();
         true
     }
@@ -850,6 +983,9 @@ impl Config {
             config.key_pair.1.len()
         );
         if store {
+            #[cfg(target_os = "ios")]
+            config.store_with_password_override();
+            #[cfg(not(target_os = "ios"))]
             config.store();
         }
         config
@@ -860,9 +996,19 @@ impl Config {
         let migrated = Self::migrate_permanent_password_to_hashed_storage(&mut loaded);
         {
             let mut config = CONFIG.write().unwrap();
+            #[cfg(not(target_os = "ios"))]
             let changed = config.password != loaded.password || config.salt != loaded.salt;
             config.password = loaded.password;
             config.salt = loaded.salt;
+            // A changed in-memory value only means another iOS process updated
+            // the canonical App Group file. Writing the just-loaded snapshot
+            // back can overwrite a newer password update that lands between
+            // load and store. Persist only a real plaintext-to-hash migration.
+            #[cfg(target_os = "ios")]
+            if migrated {
+                config.store_with_password_override();
+            }
+            #[cfg(not(target_os = "ios"))]
             if migrated || changed {
                 config.store();
             }
@@ -884,6 +1030,13 @@ impl Config {
                 config2.options.remove(key);
             }
         }
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn password_credentials_modified_time() -> Option<SystemTime> {
+        fs::metadata(Config2::file())
+            .and_then(|metadata| metadata.modified())
+            .ok()
     }
 
     fn migrate_permanent_password_to_hashed_storage(config: &mut Config) -> bool {
@@ -921,12 +1074,42 @@ impl Config {
         true
     }
 
-    fn store(&self) {
+    fn store_unlocked(&self) {
         let mut config = self.clone();
         Self::migrate_permanent_password_to_hashed_storage(&mut config);
         config.enc_id = encrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
         config.id = "".to_owned();
         Config::store_(&config, "");
+    }
+
+    fn store(&self) {
+        #[cfg(target_os = "ios")]
+        {
+            let path = Config::file_("");
+            let stored = with_ios_config_write_lock(&path, || {
+                let latest = Config::load_::<Config>("");
+                let mut merged = self.clone();
+                preserve_latest_ios_password_credentials(&latest, &mut merged);
+                merged.store_unlocked();
+            });
+            if !stored {
+                log::error!("Skipped iOS Config write because its cross-process lock failed");
+            }
+            return;
+        }
+        #[cfg(not(target_os = "ios"))]
+        self.store_unlocked();
+    }
+
+    #[cfg(target_os = "ios")]
+    fn store_with_password_override(&self) {
+        let path = Config::file_("");
+        let stored = with_ios_config_write_lock(&path, || self.store_unlocked());
+        if !stored {
+            log::error!(
+                "Skipped iOS password credential write because its cross-process lock failed"
+            );
+        }
     }
 
     pub fn file() -> PathBuf {
@@ -1479,6 +1662,9 @@ impl Config {
             return;
         }
         config.options = v;
+        #[cfg(target_os = "ios")]
+        config.store_with_auth_overrides(&IOS_AUTH_OPTION_KEYS);
+        #[cfg(not(target_os = "ios"))]
         config.store();
     }
 
@@ -1500,6 +1686,13 @@ impl Config {
         if !is_option_can_save(&OVERWRITE_SETTINGS, &k, &DEFAULT_SETTINGS, &v) {
             let mut config = CONFIG2.write().unwrap();
             if config.options.remove(&k).is_some() {
+                #[cfg(target_os = "ios")]
+                if is_ios_auth_option_key(&k) {
+                    config.store_with_auth_overrides(&[k.as_str()]);
+                } else {
+                    config.store();
+                }
+                #[cfg(not(target_os = "ios"))]
                 config.store();
             }
             return;
@@ -1510,8 +1703,15 @@ impl Config {
             if v2.is_none() {
                 config.options.remove(&k);
             } else {
-                config.options.insert(k, v);
+                config.options.insert(k.clone(), v);
             }
+            #[cfg(target_os = "ios")]
+            if is_ios_auth_option_key(&k) {
+                config.store_with_auth_overrides(&[k.as_str()]);
+            } else {
+                config.store();
+            }
+            #[cfg(not(target_os = "ios"))]
             config.store();
         }
     }
@@ -1562,6 +1762,9 @@ impl Config {
             return;
         }
         config.password = stored;
+        #[cfg(target_os = "ios")]
+        config.store_with_password_override();
+        #[cfg(not(target_os = "ios"))]
         config.store();
         Self::clear_trusted_devices();
     }
@@ -1601,6 +1804,9 @@ impl Config {
 
         config.password = storage.to_owned();
         config.salt = salt.to_owned();
+        #[cfg(target_os = "ios")]
+        config.store_with_password_override();
+        #[cfg(not(target_os = "ios"))]
         config.store();
         Self::clear_trusted_devices();
         Ok(true)
@@ -1670,6 +1876,9 @@ impl Config {
             }
         }
         config.salt = salt.into();
+        #[cfg(target_os = "ios")]
+        config.store_with_password_override();
+        #[cfg(not(target_os = "ios"))]
         config.store();
     }
 
@@ -1873,6 +2082,9 @@ impl Config {
             return false;
         }
         *lock = cfg;
+        #[cfg(target_os = "ios")]
+        lock.store_with_password_override();
+        #[cfg(not(target_os = "ios"))]
         lock.store();
         // Drop CONFIG lock before acquiring KEY_PAIR lock to avoid potential deadlock.
         #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -3529,6 +3741,118 @@ mod tests {
         assert!(is_permanent_password_hashed_storage(&stored));
         let decoded = decode_permanent_password_h1_from_storage(&stored).unwrap();
         assert_eq!(&decoded[..], &h1[..]);
+    }
+
+    #[test]
+    fn test_ios_plaintext_verification_value_does_not_require_store() {
+        let (value, decrypted_ok, legacy_should_store) =
+            decrypt_str_or_original("abc123", PASSWORD_ENC_VERSION);
+
+        assert_eq!(value, "abc123");
+        assert!(!decrypted_ok);
+        assert!(legacy_should_store);
+        assert!(!ios_verification_value_requires_store(decrypted_ok));
+    }
+
+    #[test]
+    fn test_ios_stale_config_write_preserves_latest_auth_options() {
+        let mut latest = Config2::default();
+        latest.options.insert(
+            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
+            "new123".to_owned(),
+        );
+        latest.options.insert(
+            keys::OPTION_KQ_DAILY_PASSWORD.to_owned(),
+            "today1".to_owned(),
+        );
+        latest.options.insert(
+            keys::OPTION_KQ_DAILY_PASSWORD_DATE.to_owned(),
+            "2026-07-28".to_owned(),
+        );
+
+        let mut stale = Config2::default();
+        stale.options.insert(
+            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
+            "old123".to_owned(),
+        );
+        stale.options.insert(
+            keys::OPTION_KQ_DAILY_PASSWORD.to_owned(),
+            "oldday".to_owned(),
+        );
+        stale
+            .options
+            .insert("stop-service".to_owned(), "Y".to_owned());
+
+        preserve_latest_ios_auth_options(&latest, &mut stale, &[]);
+
+        assert_eq!(
+            stale.options.get(keys::OPTION_TEMPORARY_PASSWORD),
+            Some(&"new123".to_owned())
+        );
+        assert_eq!(
+            stale.options.get(keys::OPTION_KQ_DAILY_PASSWORD),
+            Some(&"today1".to_owned())
+        );
+        assert_eq!(
+            stale.options.get(keys::OPTION_KQ_DAILY_PASSWORD_DATE),
+            Some(&"2026-07-28".to_owned())
+        );
+        assert_eq!(stale.options.get("stop-service"), Some(&"Y".to_owned()));
+    }
+
+    #[test]
+    fn test_ios_explicit_auth_update_only_overrides_requested_key() {
+        let mut latest = Config2::default();
+        latest.options.insert(
+            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
+            "old123".to_owned(),
+        );
+        latest.options.insert(
+            keys::OPTION_KQ_DAILY_PASSWORD.to_owned(),
+            "today1".to_owned(),
+        );
+
+        let mut pending = Config2::default();
+        pending.options.insert(
+            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
+            "new123".to_owned(),
+        );
+        pending.options.insert(
+            keys::OPTION_KQ_DAILY_PASSWORD.to_owned(),
+            "stale1".to_owned(),
+        );
+
+        preserve_latest_ios_auth_options(&latest, &mut pending, &[keys::OPTION_TEMPORARY_PASSWORD]);
+
+        assert_eq!(
+            pending.options.get(keys::OPTION_TEMPORARY_PASSWORD),
+            Some(&"new123".to_owned())
+        );
+        assert_eq!(
+            pending.options.get(keys::OPTION_KQ_DAILY_PASSWORD),
+            Some(&"today1".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_ios_status_write_preserves_latest_password_credentials() {
+        let latest = Config {
+            password: "01latest".to_owned(),
+            salt: "latest-salt".to_owned(),
+            ..Default::default()
+        };
+        let mut stale = Config {
+            password: "01stale".to_owned(),
+            salt: "stale-salt".to_owned(),
+            key_confirmed: true,
+            ..Default::default()
+        };
+
+        preserve_latest_ios_password_credentials(&latest, &mut stale);
+
+        assert_eq!(stale.password, "01latest");
+        assert_eq!(stale.salt, "latest-salt");
+        assert!(stale.key_confirmed);
     }
 
     #[test]

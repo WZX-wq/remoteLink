@@ -2537,6 +2537,14 @@ impl Connection {
 
     #[cfg(target_os = "ios")]
     fn validate_ios_password(&mut self, allow_permanent_password: bool) -> bool {
+        let mut refreshed = password::snapshot_current_password_credentials_from_config();
+        if refreshed.salt != self.hash.salt {
+            log::warn!(
+                "iOS password salt changed after the challenge was sent; ignoring refreshed permanent-password storage for this attempt"
+            );
+            refreshed.permanent_password_storage.clear();
+        }
+        self.ios_password_credentials = refreshed;
         let credentials = self.ios_password_credentials.clone();
         if credentials.temporary_enabled
             && self.validate_password_plain(&credentials.temporary_password)
@@ -2560,7 +2568,16 @@ impl Connection {
             return true;
         }
         if credentials.permanent_enabled || allow_permanent_password {
-            if !credentials.permanent_password_storage.is_empty()
+            if !credentials.permanent_password.is_empty()
+                && self.validate_password_plain(&credentials.permanent_password)
+            {
+                crate::ios_broadcast::set_last_auth_result(
+                    crate::ios_broadcast::AUTH_RESULT_PERMANENT,
+                );
+                return true;
+            }
+            if credentials.permanent_password.is_empty()
+                && !credentials.permanent_password_storage.is_empty()
                 && self.validate_password_storage(&credentials.permanent_password_storage)
             {
                 crate::ios_broadcast::set_last_auth_result(
@@ -2571,7 +2588,9 @@ impl Connection {
                 }
                 return true;
             }
-            if credentials.permanent_password_storage.is_empty() {
+            if credentials.permanent_password.is_empty()
+                && credentials.permanent_password_storage.is_empty()
+            {
                 let hard = config::HARD_SETTINGS
                     .read()
                     .unwrap()
@@ -2590,10 +2609,12 @@ impl Connection {
             }
         }
         log::warn!(
-            "iOS verification rejected: no code in the handshake snapshot matched (temporary={}, daily={}, permanent={})",
+            "iOS verification rejected: no current code matched (temporary={}, daily={}, permanent={})",
             credentials.temporary_enabled && !credentials.temporary_password.is_empty(),
             !credentials.daily_password.is_empty(),
-            credentials.permanent_enabled && !credentials.permanent_password_storage.is_empty(),
+            credentials.permanent_enabled
+                && (!credentials.permanent_password.is_empty()
+                    || !credentials.permanent_password_storage.is_empty()),
         );
         crate::ios_broadcast::set_last_auth_result(crate::ios_broadcast::AUTH_RESULT_REJECTED);
         false
