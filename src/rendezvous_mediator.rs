@@ -767,6 +767,15 @@ impl RendezvousMediator {
         {
             let mut solving = SOLVING_PK_MISMATCH.lock().await;
             if !solving.is_empty() {
+                if *solving == self.host {
+                    log::error!(
+                        "The persisted iOS recovery ID was rejected by {}; server repair is required",
+                        self.host
+                    );
+                    NEEDS_DEPLOY.store(true, Ordering::SeqCst);
+                    Config::set_key_confirmed(false);
+                    Config::set_host_key_confirmed(&self.host_prefix, false);
+                }
                 return Ok(());
             }
             log::info!("UUID_MISMATCH received from {}", self.host);
@@ -775,6 +784,7 @@ impl RendezvousMediator {
             let identity_changed = Config::recover_ios_id_after_uuid_mismatch();
             *solving = self.host.clone();
             if !identity_changed {
+                NEEDS_DEPLOY.store(true, Ordering::SeqCst);
                 return Ok(());
             }
         }

@@ -17,6 +17,7 @@ import '../../common/widgets/login.dart';
 import '../../models/model.dart';
 import '../../models/mobile_platform_capability_policy.dart';
 import '../../models/platform_model.dart';
+import '../../models/remote_id_policy.dart';
 import 'page_shape.dart';
 
 /// Connection page for connecting to a remote peer.
@@ -38,6 +39,8 @@ class ConnectionPage extends StatefulWidget implements PageShape {
 
 /// State for the connection page.
 class _ConnectionPageState extends State<ConnectionPage> {
+  static const _queryOnlinesEvent = 'callback_query_onlines';
+
   /// Controller for the id input bar.
   final _idController = IDTextEditingController();
   final RxBool _idEmpty = true.obs;
@@ -47,6 +50,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final FocusNode _passwordFocusNode = FocusNode();
   final TextEditingController _passwordController = TextEditingController();
   bool _passwordVisible = false;
+  bool _checkingRemoteId = false;
+  String? _remoteIdError;
+  Completer<bool?>? _remoteOnlineCompleter;
+  String? _remoteOnlineQueryId;
+  late final String _remoteOnlineHandlerName;
 
   final AllPeersLoader _allPeersLoader = AllPeersLoader();
 
@@ -69,6 +77,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
     _allPeersLoader.init(setState);
     _idFocusNode.addListener(onFocusChanged);
     Get.put<TextEditingController>(_idEditingController);
+    _remoteOnlineHandlerName =
+        'connection-page-remote-id-${identityHashCode(this)}';
+    platformFFI.registerEventHandler(
+      _queryOnlinesEvent,
+      _remoteOnlineHandlerName,
+      _handleRemoteOnlineState,
+    );
     unawaited(_restoreLastConnection());
   }
 
@@ -106,13 +121,80 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// Connects to the selected peer.
   String get _remotePassword => _passwordController.text.trim();
 
-  bool _ensureRemoteId() {
-    if (_idController.id.trim().isNotEmpty) {
-      return true;
+  String? _validatedRemoteId() {
+    final input = kqNormalizeRemoteIdentifier(_idController.id);
+    if (input.isEmpty) {
+      _setRemoteIdError(translate('Please enter remote ID'));
+      _idFocusNode.requestFocus();
+      return null;
     }
-    showToast(translate('Please enter remote ID'));
-    _idFocusNode.requestFocus();
-    return false;
+
+    final lowerInput = input.toLowerCase();
+    final matchingPeer = _allPeersLoader.peers.firstWhereOrNull((peer) {
+      return peer.id.toLowerCase() == lowerInput ||
+          peer.alias.toLowerCase() == lowerInput ||
+          peer.username.toLowerCase() == lowerInput ||
+          peer.hostname.toLowerCase() == lowerInput;
+    });
+    final resolved = matchingPeer?.id ?? input;
+    if (!isValidKqRemoteIdentifierFormat(resolved)) {
+      _setRemoteIdError(kqLocaleText(
+        zhCn: '识别码格式不正确，请检查后重新输入。',
+        en: 'The device ID format is invalid. Check it and try again.',
+      ));
+      _idFocusNode.requestFocus();
+      return null;
+    }
+    return resolved;
+  }
+
+  void _setRemoteIdError(String? message) {
+    if (!mounted || _remoteIdError == message) return;
+    setState(() => _remoteIdError = message);
+    if (message != null) {
+      showToast(message);
+    }
+  }
+
+  Future<void> _handleRemoteOnlineState(Map<String, dynamic> event) async {
+    final completer = _remoteOnlineCompleter;
+    final queryId = _remoteOnlineQueryId;
+    if (completer == null || completer.isCompleted || queryId == null) return;
+
+    Set<String> idsFor(String key) => '${event[key] ?? ''}'
+        .split(',')
+        .map(kqNormalizePeerId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    if (idsFor('onlines').contains(queryId)) {
+      completer.complete(true);
+    } else if (idsFor('offlines').contains(queryId)) {
+      completer.complete(false);
+    }
+  }
+
+  Future<bool?> _queryRemoteOnline(String id) async {
+    if (!kqRemoteIdentifierSupportsOnlineLookup(id)) return null;
+    final normalized = kqNormalizePeerId(id);
+    final completer = Completer<bool?>();
+    _remoteOnlineQueryId = normalized;
+    _remoteOnlineCompleter = completer;
+    try {
+      await bind.queryOnlines(ids: [normalized]);
+      return await completer.future.timeout(
+        const Duration(milliseconds: 1800),
+        onTimeout: () => null,
+      );
+    } catch (error) {
+      debugPrint('Remote ID online preflight failed: $error');
+      return null;
+    } finally {
+      if (identical(_remoteOnlineCompleter, completer)) {
+        _remoteOnlineCompleter = null;
+        _remoteOnlineQueryId = null;
+      }
+    }
   }
 
   Future<bool> _ensureLoggedIn() async {
@@ -128,12 +210,39 @@ class _ConnectionPageState extends State<ConnectionPage> {
     return false;
   }
 
-  void onConnect() async {
+  void onConnect() => unawaited(_connectToRemote());
+
+  Future<void> _connectToRemote({bool isFileTransfer = false}) async {
+    if (_checkingRemoteId) return;
+    final remoteId = _validatedRemoteId();
+    if (remoteId == null) return;
     if (!await _ensureLoggedIn()) return;
-    if (!_ensureRemoteId()) return;
+    if (!mounted) return;
+    setState(() => _checkingRemoteId = true);
+    final supportsOnlineLookup =
+        kqRemoteIdentifierSupportsOnlineLookup(remoteId);
+    final online = await _queryRemoteOnline(remoteId);
+    if (!mounted) return;
+    setState(() => _checkingRemoteId = false);
+    if (online == false) {
+      _setRemoteIdError(kqLocaleText(
+        zhCn: '识别码不存在或设备当前不在线。',
+        en: 'The device ID does not exist or the device is offline.',
+      ));
+      return;
+    }
+    if (online == null && supportsOnlineLookup) {
+      _setRemoteIdError(kqLocaleText(
+        zhCn: '暂时无法核验识别码，请检查当前网络后重试。',
+        en: 'The device ID could not be verified. Check your network and try again.',
+      ));
+      return;
+    }
+    _setRemoteIdError(null);
     connect(
       context,
-      _idController.id,
+      remoteId,
+      isFileTransfer: isFileTransfer,
       password: _remotePassword,
       rememberPassword: _remotePassword.isNotEmpty,
     );
@@ -363,7 +472,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: onConnect,
+            onPressed: _checkingRemoteId ? null : onConnect,
             style: FilledButton.styleFrom(
               backgroundColor: q.primary,
               foregroundColor: Colors.white,
@@ -380,7 +489,17 @@ class _ConnectionPageState extends State<ConnectionPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.near_me_rounded),
+                if (_checkingRemoteId)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else
+                  const Icon(Icons.near_me_rounded),
                 const SizedBox(width: 8),
                 Text(translate('Connect')),
               ],
@@ -392,17 +511,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () async {
-                if (!await _ensureLoggedIn()) return;
-                if (!_ensureRemoteId()) return;
-                connect(
-                  context,
-                  _idController.id,
-                  isFileTransfer: true,
-                  password: _remotePassword,
-                  rememberPassword: _remotePassword.isNotEmpty,
-                );
-              },
+              onPressed: _checkingRemoteId
+                  ? null
+                  : () => unawaited(_connectToRemote(isFileTransfer: true)),
               icon: const Icon(Icons.folder_copy_outlined),
               label: Text(translate('Transfer file')),
               style: OutlinedButton.styleFrom(
@@ -561,6 +672,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           _idController.id = text;
                           _passwordController.text =
                               _rememberedPasswordFor(_idController.id);
+                          if (_remoteIdError != null) {
+                            setState(() => _remoteIdError = null);
+                          }
                         },
                         style: const TextStyle(
                           fontFamily: 'WorkSans',
@@ -665,7 +779,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 child: IconButton(
                   icon: Icon(Icons.arrow_forward_rounded,
                       color: KqTheme.of(context).primary, size: 30),
-                  onPressed: onConnect,
+                  onPressed: _checkingRemoteId ? null : onConnect,
                 ),
               ),
             ],
@@ -677,13 +791,33 @@ class _ConnectionPageState extends State<ConnectionPage> {
       if (isWebDesktop)
         getConnectionPageTitle(context, true)
             .marginOnly(bottom: 10, top: 15, left: 12),
-      w
+      w,
+      if (_remoteIdError != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 6, left: 4, right: 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _remoteIdError!,
+              style: const TextStyle(
+                color: Colors.redAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
     ]);
     return child;
   }
 
   @override
   void dispose() {
+    platformFFI.unregisterEventHandler(
+        _queryOnlinesEvent, _remoteOnlineHandlerName);
+    if (_remoteOnlineCompleter?.isCompleted == false) {
+      _remoteOnlineCompleter?.complete(null);
+    }
     _uniLinksSubscription?.cancel();
     _idController.dispose();
     _idFocusNode.removeListener(onFocusChanged);

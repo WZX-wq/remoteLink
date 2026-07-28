@@ -22,7 +22,7 @@ bool shouldCloseKqConnectionFailure({
     return false;
   }
   if (isMobilePlatform) {
-    return isIOSPlatform;
+    return true;
   }
   if (!isDesktopPlatform) {
     return false;

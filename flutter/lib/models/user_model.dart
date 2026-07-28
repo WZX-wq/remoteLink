@@ -405,6 +405,17 @@ class UserModel {
         key: remoteFpsKey, value: normalizedFps.toString());
     await bind.mainSetUserDefaultOption(key: remoteCodecKey, value: 'auto');
     await bind.mainSetUserDefaultOption(key: kOptionEnableHwcodec, value: 'Y');
+
+    // Account-page changes should affect an active remote session immediately,
+    // not only the next connection.
+    final sessionId = parent.target?.sessionId;
+    if (sessionId != null) {
+      await bind.sessionSetImageQuality(
+          sessionId: sessionId, value: kRemoteImageQualityCustom);
+      await bind.sessionSetCustomImageQuality(
+          sessionId: sessionId, value: customQuality);
+      await bind.sessionSetCustomFps(sessionId: sessionId, fps: normalizedFps);
+    }
   }
 
   Future<void> _setMemberStatus(

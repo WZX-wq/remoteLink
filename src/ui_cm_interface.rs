@@ -1338,19 +1338,39 @@ async fn handle_fs(
             data,
             compressed,
         } => {
-            if let Some(job) = fs::get_job(id, write_jobs) {
-                if let Err(err) = job
-                    .write(FileTransferBlock {
-                        id,
-                        file_num,
-                        data,
-                        compressed,
-                        ..Default::default()
-                    })
-                    .await
-                {
-                    send_raw(fs::new_error(id, err, file_num), &tx);
+            let write_error = if let Some(job) = fs::get_job(id, write_jobs) {
+                job.write(FileTransferBlock {
+                    id,
+                    file_num,
+                    data,
+                    compressed,
+                    ..Default::default()
+                })
+                .await
+                .err()
+                .map(|err| err.to_string())
+            } else {
+                None
+            };
+            if let Some(err) = write_error {
+                // Stop the failed receive job immediately. Leaving it in the
+                // table made subsequent blocks repeatedly fail and retained
+                // the partial download after disk or permission errors.
+                if let Some(job) = fs::remove_job(id, write_jobs) {
+                    job.remove_download_file();
+                    if let Some(tx_log) = tx_log {
+                        if let Err(log_error) =
+                            tx_log.send(serialize_transfer_job(&job, false, false, &err))
+                        {
+                            log::error!(
+                                "Failed to record a failed file transfer job {}: {}",
+                                id,
+                                log_error
+                            );
+                        }
+                    }
                 }
+                send_raw(fs::new_error(id, err, file_num), &tx);
             }
         }
         ipc::FS::CheckDigest {

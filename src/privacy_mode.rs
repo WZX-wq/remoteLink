@@ -92,19 +92,28 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_PRIVACY_MODE_IMPL: String = {
         #[cfg(windows)]
         {
-            if win_exclude_from_capture::is_supported() {
-                PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE
-            } else {
-                if display_service::is_privacy_mode_mag_supported() {
+            if win_topmost_window::is_runtime_available() {
+                if win_exclude_from_capture::is_supported() {
+                    PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE
+                } else if display_service::is_privacy_mode_mag_supported() {
                     PRIVACY_MODE_IMPL_WIN_MAG
+                } else if is_installed()
+                    && crate::platform::windows::is_self_service_running()
+                    && crate::virtual_display_manager::is_virtual_display_supported()
+                {
+                    PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY
                 } else {
-                    if is_installed() {
-                        PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY
-                    } else {
-                        ""
-                    }
+                    ""
                 }
-            }.to_owned()
+            } else if is_installed()
+                && crate::platform::windows::is_self_service_running()
+                && crate::virtual_display_manager::is_virtual_display_supported()
+            {
+                PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY
+            } else {
+                ""
+            }
+            .to_owned()
         }
         #[cfg(not(windows))]
         {
@@ -148,14 +157,16 @@ lazy_static::lazy_static! {
         let mut map: HashMap<&'static str, PrivacyModeCreator> = HashMap::new();
         #[cfg(windows)]
         {
-            if win_exclude_from_capture::is_supported() {
-                map.insert(win_exclude_from_capture::PRIVACY_MODE_IMPL, |impl_key: &str| {
-                    Box::new(win_exclude_from_capture::PrivacyModeImpl::new(impl_key))
-                });
-            } else {
-                map.insert(win_mag::PRIVACY_MODE_IMPL, |impl_key: &str| {
-                    Box::new(win_mag::PrivacyModeImpl::new(impl_key))
-                });
+            if win_topmost_window::is_runtime_available() {
+                if win_exclude_from_capture::is_supported() {
+                    map.insert(win_exclude_from_capture::PRIVACY_MODE_IMPL, |impl_key: &str| {
+                        Box::new(win_exclude_from_capture::PrivacyModeImpl::new(impl_key))
+                    });
+                } else {
+                    map.insert(win_mag::PRIVACY_MODE_IMPL, |impl_key: &str| {
+                        Box::new(win_mag::PrivacyModeImpl::new(impl_key))
+                    });
+                }
             }
 
             map.insert(win_virtual_display::PRIVACY_MODE_IMPL, |impl_key: &str| {
@@ -329,18 +340,21 @@ pub fn get_supported_privacy_mode_impl() -> Vec<(&'static str, &'static str)> {
     {
         let mut vec_impls = Vec::new();
 
-        if win_exclude_from_capture::is_supported() {
-            vec_impls.push((
-                PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE,
-                "privacy_mode_impl_mag_tip",
-            ));
-        } else {
-            if display_service::is_privacy_mode_mag_supported() {
+        if win_topmost_window::is_runtime_available() {
+            if win_exclude_from_capture::is_supported() {
+                vec_impls.push((
+                    PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE,
+                    "privacy_mode_impl_mag_tip",
+                ));
+            } else if display_service::is_privacy_mode_mag_supported() {
                 vec_impls.push((PRIVACY_MODE_IMPL_WIN_MAG, "privacy_mode_impl_mag_tip"));
             }
         }
 
-        if is_installed() && crate::platform::windows::is_self_service_running() {
+        if is_installed()
+            && crate::platform::windows::is_self_service_running()
+            && crate::virtual_display_manager::is_virtual_display_supported()
+        {
             vec_impls.push((
                 PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY,
                 "privacy_mode_impl_virtual_display_tip",
@@ -351,7 +365,7 @@ pub fn get_supported_privacy_mode_impl() -> Vec<(&'static str, &'static str)> {
     }
     #[cfg(target_os = "macos")]
     {
-        // No translation is intended for privacy_mode_impl_macos_tip as it is a 
+        // No translation is intended for privacy_mode_impl_macos_tip as it is a
         // placeholder for macOS specific privacy mode implementation which currently
         // doesn't provide multiple modes like Windows does.
         vec![(macos::PRIVACY_MODE_IMPL, "privacy_mode_impl_macos_tip")]

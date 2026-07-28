@@ -33,6 +33,16 @@ pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_rustde
 pub const INJECTED_PROCESS_EXE: &'static str = WIN_TOPMOST_INJECTED_PROCESS_EXE;
 pub(super) const PRIVACY_WINDOW_NAME: &'static str = "RustDeskPrivacyWindow";
 
+pub(super) fn is_runtime_available() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .map(|dir| dir.join("WindowInjection.dll").is_file())
+        })
+        .unwrap_or(false)
+}
+
 struct WindowHandlers {
     hthread: u64,
     hprocess: u64,
@@ -90,16 +100,8 @@ impl PrivacyMode for PrivacyModeImpl {
             return Ok(true);
         }
 
-        let exe_file = std::env::current_exe()?;
-        if let Some(cur_dir) = exe_file.parent() {
-            if !cur_dir.join("WindowInjection.dll").exists() {
-                return Ok(false);
-            }
-        } else {
-            bail!(
-                "Invalid exe parent for {}",
-                exe_file.to_string_lossy().as_ref()
-            );
+        if !is_runtime_available() {
+            return Ok(false);
         }
 
         if self.handlers.is_default() {

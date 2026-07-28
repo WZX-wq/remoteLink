@@ -1597,12 +1597,15 @@ bool allowAskForNoteAtEndOfConnection(FFI? ffi, bool closedByControlling) {
   if (ffi == null) {
     return false;
   }
-  return mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection) &&
-      bind
+  final hasAuditContext = bind
           .sessionGetAuditServerSync(sessionId: ffi.sessionId, typ: "conn")
           .isNotEmpty &&
       bind.sessionGetAuditGuid(sessionId: ffi.sessionId).isNotEmpty &&
-      bind.sessionGetLastAuditNote(sessionId: ffi.sessionId).isEmpty &&
+      bind.sessionGetLastAuditNote(sessionId: ffi.sessionId).isEmpty;
+  final supportsLocalMobileNote =
+      isMobile && ffi.connType == ConnType.defaultConn;
+  return mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection) &&
+      (hasAuditContext || supportsLocalMobileNote) &&
       (!closedByControlling ||
           bind.willSessionCloseCloseSession(sessionId: ffi.sessionId));
 }
@@ -1652,6 +1655,11 @@ Future<bool?> _showConnEndAuditDialogCloseCanceled({
     return false;
   }
   ffi.dialogManager.dismissAll();
+  final auditGuid = bind.sessionGetAuditGuid(sessionId: ffi.sessionId);
+  final hasAuditContext = auditGuid.isNotEmpty &&
+      bind
+          .sessionGetAuditServerSync(sessionId: ffi.sessionId, typ: "conn")
+          .isNotEmpty;
 
   Future<void> updateAuditNoteByGuid(String auditGuid, String note) async {
     debugPrint('Updating audit note for GUID: $auditGuid, note: $note');
@@ -1704,11 +1712,16 @@ Future<bool?> _showConnEndAuditDialogCloseCanceled({
       });
       var text = controller.text;
       if (text.isNotEmpty) {
-        await updateAuditNoteByGuid(
-                bind.sessionGetAuditGuid(sessionId: ffi.sessionId), text)
-            .timeout(const Duration(seconds: 6), onTimeout: () {
-          debugPrint('updateAuditNoteByGuid timeout after 6s');
-        });
+        if (hasAuditContext) {
+          await updateAuditNoteByGuid(auditGuid, text)
+              .timeout(const Duration(seconds: 6), onTimeout: () {
+            debugPrint('updateAuditNoteByGuid timeout after 6s');
+          });
+        }
+        if (isMobile && ffi.id.trim().isNotEmpty) {
+          await bind.mainSetPeerAlias(id: ffi.id, alias: text.trim());
+          await bind.mainLoadRecentPeers();
+        }
       }
       // Save the "ask for note" preference
       if (!isOptFixed) {

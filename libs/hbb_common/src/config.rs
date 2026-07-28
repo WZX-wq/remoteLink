@@ -234,6 +234,8 @@ lazy_static::lazy_static! {
 
 #[cfg(target_os = "ios")]
 const IOS_SHARED_DEVICE_ID_FILE: &str = "kq-ios-device-id";
+#[cfg(target_os = "ios")]
+const IOS_UUID_MISMATCH_RECOVERY_FILE: &str = "kq-ios-id-recovery-v3";
 
 #[cfg(any(target_os = "ios", test))]
 fn parse_ios_shared_device_id(raw_id: &str) -> Option<String> {
@@ -254,6 +256,30 @@ fn parse_ios_shared_device_id(raw_id: &str) -> Option<String> {
         _ => return None,
     };
     (!id.is_empty() && id.len() <= 128).then(|| id.to_owned())
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn parse_ios_uuid_mismatch_recovery(raw: &str) -> Option<(String, String)> {
+    let lines = raw.lines().map(str::trim).collect::<Vec<_>>();
+    let ["v3", uuid_token, id] = lines.as_slice() else {
+        return None;
+    };
+    if uuid_token.is_empty() || id.is_empty() || id.len() > 128 {
+        return None;
+    }
+    Some(((*uuid_token).to_owned(), (*id).to_owned()))
+}
+
+#[cfg(target_os = "ios")]
+fn ios_uuid_token(uuid: &[u8]) -> String {
+    uuid.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(target_os = "ios")]
+fn read_ios_uuid_mismatch_recovery(path: &Path) -> Option<(String, String)> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| parse_ios_uuid_mismatch_recovery(&raw))
 }
 
 #[cfg(target_os = "ios")]
@@ -1373,15 +1399,61 @@ impl Config {
         config.store();
     }
 
-    /// A UUID mismatch must never change an iOS user's visible device ID.
-    /// The main app and ReplayKit extension share a durable UUID and ID via
-    /// the App Group. Re-registering that pair is safe; generating a random
-    /// replacement ID makes the device appear to change whenever ReplayKit
-    /// starts and leaves the old, usable ID behind when it stops.
+    /// Recover once when an ID belongs to a historical UUID on the rendezvous
+    /// server. The recovery record is stored in the App Group and bound to the
+    /// current durable UUID, so the main app and ReplayKit extension converge on
+    /// the same replacement ID and never rotate it on later broadcasts.
     #[cfg(target_os = "ios")]
     pub fn recover_ios_id_after_uuid_mismatch() -> bool {
-        let _ = Self::sync_ios_shared_device_id();
-        log::warn!("Retrying iOS registration with the canonical device ID after UUID mismatch");
+        let uuid_token = ios_uuid_token(&crate::get_uuid());
+        if uuid_token.is_empty() {
+            log::error!("Cannot recover iOS registration without a durable UUID");
+            return false;
+        }
+
+        let path = Self::path(IOS_UUID_MISMATCH_RECOVERY_FILE);
+        let current_id = Self::get_id();
+        if let Some((_stored_uuid, recovered_id)) =
+            read_ios_uuid_mismatch_recovery(&path).filter(|(uuid, _)| uuid == &uuid_token)
+        {
+            if current_id == recovered_id {
+                log::error!(
+                    "iOS recovery ID was rejected again; registration requires server repair"
+                );
+                return false;
+            }
+            Self::set_id(&recovered_id);
+            log::warn!("Restored the persisted iOS registration recovery ID");
+            return true;
+        }
+
+        let Some(recovered_id) = Self::get_auto_id() else {
+            log::error!("Failed to generate the one-time iOS registration recovery ID");
+            return false;
+        };
+        let recovery = format!("v3\n{uuid_token}\n{recovered_id}\n");
+        match write_ios_shared_device_id(&path, &recovery, false) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                if let Some((stored_uuid, stored_id)) = read_ios_uuid_mismatch_recovery(&path) {
+                    if stored_uuid == uuid_token {
+                        Self::set_id(&stored_id);
+                        return current_id != stored_id;
+                    }
+                }
+                if let Err(err) = write_ios_shared_device_id(&path, &recovery, true) {
+                    log::error!("Failed to replace stale iOS recovery record: {err}");
+                    return false;
+                }
+            }
+            Err(err) => {
+                log::error!("Failed to persist iOS registration recovery: {err}");
+                return false;
+            }
+        }
+
+        Self::set_id(&recovered_id);
+        log::warn!("Migrated the iOS device ID once after UUID mismatch");
         true
     }
 
@@ -3727,6 +3799,19 @@ mod tests {
         assert_eq!(parse_ios_shared_device_id("v2\n"), None);
         assert_eq!(
             parse_ios_shared_device_id("v2\n123456789\nunexpected"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_ios_uuid_mismatch_recovery_requires_complete_v3_record() {
+        assert_eq!(
+            parse_ios_uuid_mismatch_recovery("v3\n0123abcd\n1234567890\n"),
+            Some(("0123abcd".to_owned(), "1234567890".to_owned()))
+        );
+        assert_eq!(parse_ios_uuid_mismatch_recovery("v3\n0123abcd\n"), None);
+        assert_eq!(
+            parse_ios_uuid_mismatch_recovery("v2\n0123abcd\n1234567890"),
             None
         );
     }

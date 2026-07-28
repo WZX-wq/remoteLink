@@ -377,6 +377,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
       return "ready"
     case 3:
       return "registration_required"
+    case 4:
+      return "registration_timeout"
     default:
       return transportStarted ? "registering" : "waiting_for_frame"
     }
@@ -413,7 +415,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   private func registrationErrorCode(for registrationState: Int) -> String? {
-    registrationState == 3 ? "server_registration_required" : nil
+    switch registrationState {
+    case 3:
+      return "server_registration_required"
+    case 4:
+      return "server_registration_timeout"
+    default:
+      return nil
+    }
   }
 
   private func bgraPixelBuffer(from source: CVPixelBuffer) -> CVPixelBuffer? {

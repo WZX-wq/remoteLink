@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_breadcrumb/flutter_breadcrumb.dart';
 import 'package:flutter_hbb/models/file_model.dart';
 import 'package:get/get.dart';
-import 'package:path/path.dart' as path;
-import 'package:toggle_switch/toggle_switch.dart';
 
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
@@ -77,6 +75,15 @@ class _FileManagerPageState extends State<FileManagerPage> {
   DirectoryOptions get currentOptions => currentFileController.options.value;
   final _uniqueKey = UniqueKey();
 
+  bool get _canPickAndSend =>
+      !gFFI.closed &&
+      model.localController.directory.value.path.isNotEmpty &&
+      model.remoteController.directory.value.path.isNotEmpty;
+
+  bool get _hasActiveTransfer => model.jobController.jobTable.any((job) =>
+      job.type == JobType.transfer &&
+      (job.state == JobState.inProgress || job.state == JobState.paused));
+
   @override
   void initState() {
     super.initState();
@@ -104,31 +111,43 @@ class _FileManagerPageState extends State<FileManagerPage> {
     super.dispose();
   }
 
-  Future<String> _availableImportPath(String directory, String fileName) async {
-    var candidate = path.join(directory, fileName);
-    if (!await FileSystemEntity.type(candidate)
-        .then((type) => type != FileSystemEntityType.notFound)) {
-      return candidate;
-    }
+  Future<List<Entry>> _entriesFromPickedFiles(FilePickerResult result) async {
+    final entries = <Entry>[];
+    for (final picked in result.files) {
+      final sourcePath = picked.path;
+      if (sourcePath == null || sourcePath.isEmpty) continue;
+      final source = File(sourcePath);
+      final stat = await source.stat();
+      if (stat.type != FileSystemEntityType.file) continue;
 
-    final baseName = path.basenameWithoutExtension(fileName);
-    final extension = path.extension(fileName);
-    var suffix = 1;
-    do {
-      candidate = path.join(directory, '$baseName ($suffix)$extension');
-      suffix++;
-    } while (await FileSystemEntity.type(candidate)
-        .then((type) => type != FileSystemEntityType.notFound));
-    return candidate;
+      entries.add(Entry()
+        ..entryType = 4
+        ..name = picked.name
+        ..path = source.path
+        ..size = stat.size
+        ..modifiedTime = stat.modified.millisecondsSinceEpoch ~/ 1000);
+    }
+    return entries;
   }
 
-  Future<void> _importFilesFromIOS() async {
-    if (!isIOS || !showLocal || _importingFiles || currentDir.path.isEmpty) {
+  Future<void> _pickFilesAndSend() async {
+    if (_importingFiles) return;
+    if (!_canPickAndSend) {
+      showToast(kqLocaleText(
+        zhCn: '正在准备目标文件夹，请连接完成后再发送。',
+        en: 'The destination folder is still loading. Try again once connected.',
+      ));
+      return;
+    }
+    if (_hasActiveTransfer) {
+      showToast(kqLocaleText(
+        zhCn: '当前文件仍在传输，请完成后再选择下一批。',
+        en: 'Wait for the current transfer to finish before choosing more files.',
+      ));
       return;
     }
 
     setState(() => _importingFiles = true);
-    var imported = 0;
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -136,35 +155,34 @@ class _FileManagerPageState extends State<FileManagerPage> {
       );
       if (result == null) return;
 
-      for (final picked in result.files) {
-        final sourcePath = picked.path;
-        if (sourcePath == null || sourcePath.isEmpty) continue;
-        final source = File(sourcePath);
-        if (!await source.exists()) continue;
-        final destinationPath =
-            await _availableImportPath(currentDir.path, picked.name);
-        await source.copy(destinationPath);
-        imported++;
+      final entries = await _entriesFromPickedFiles(result);
+      if (entries.isEmpty) {
+        showToast(kqLocaleText(
+          zhCn: '没有可发送的文件，请重新选择。',
+          en: 'No files were available to send. Please choose again.',
+        ));
+        return;
       }
 
-      if (imported > 0) {
-        await currentFileController.refresh();
-        showToast(kqLocaleText(
-          zhCn: '已导入 $imported 个文件',
-          en: 'Imported $imported files',
-        ));
-      } else {
-        showToast(kqLocaleText(
-          zhCn: '没有可导入的文件',
-          en: 'No files were available to import',
-        ));
+      final selected = SelectedItems(isLocal: true);
+      for (final entry in entries) {
+        selected.add(entry);
       }
+      await model.localController
+          .sendFiles(selected, model.remoteController.directoryData());
+      if (mounted) {
+        setState(() => showLocal = false);
+      }
+      showToast(kqLocaleText(
+        zhCn: '已开始发送 ${entries.length} 个文件',
+        en: 'Sending ${entries.length} file(s)',
+      ));
     } catch (error, stackTrace) {
-      debugPrint('Failed to import iOS documents: $error');
+      debugPrint('Failed to import selected documents: $error');
       debugPrintStack(stackTrace: stackTrace);
       showToast(kqLocaleText(
-        zhCn: '文件导入失败，请重新选择',
-        en: 'File import failed. Please choose the files again.',
+        zhCn: '无法读取所选文件，请重新选择后再试。',
+        en: 'The selected files could not be read. Please choose them again.',
       ));
     } finally {
       if (mounted) {
@@ -173,88 +191,108 @@ class _FileManagerPageState extends State<FileManagerPage> {
     }
   }
 
+  void _clearSelection() {
+    model.localController.selectedItems.clear();
+    model.remoteController.selectedItems.clear();
+    selectMode.value = SelectMode.none;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendSelectedItems(SelectedItems items) async {
+    final sender =
+        items.isLocal ? model.localController : model.remoteController;
+    final destination =
+        items.isLocal ? model.remoteController : model.localController;
+    if (destination.directory.value.path.isEmpty) {
+      showToast(kqLocaleText(
+        zhCn: '目标文件夹尚未准备好，请稍后重试。',
+        en: 'The destination folder is not ready yet. Try again shortly.',
+      ));
+      return;
+    }
+    await sender.sendFiles(items, destination.directoryData());
+    final itemCount = items.items.length;
+    _clearSelection();
+    if (mounted) {
+      setState(() => showLocal = destination.isLocal);
+    }
+    showToast(kqLocaleText(
+      zhCn: '已开始传输 $itemCount 个项目',
+      en: 'Transferring $itemCount item(s)',
+    ));
+  }
+
+  Future<void> _deleteSelectedItems(SelectedItems items) async {
+    final controller =
+        items.isLocal ? model.localController : model.remoteController;
+    await controller.removeAction(items);
+    _clearSelection();
+  }
+
+  String _displayDirectory(FileController controller) {
+    final directory = controller.directory.value.path;
+    if (directory.isEmpty) {
+      return kqLocaleText(zhCn: '正在加载文件夹', en: 'Loading folder');
+    }
+    final normalized = directory.replaceAll('\\', '/');
+    if (normalized == '/') return normalized;
+    final pieces = normalized.split('/').where((item) => item.isNotEmpty);
+    return pieces.isEmpty ? directory : pieces.last;
+  }
+
   @override
   Widget build(BuildContext context) => WillPopScope(
       onWillPop: () async {
         if (selectMode.value != SelectMode.none) {
-          selectMode.value = SelectMode.none;
-          setState(() {});
-        } else {
-          currentFileController.goBack();
+          _clearSelection();
+          return false;
         }
-        return false;
+        if (currentFileController.history.isNotEmpty) {
+          currentFileController.goBack();
+          return false;
+        }
+        return true;
       },
       child: Scaffold(
-        // backgroundColor: MyTheme.grayBg,
         appBar: AppBar(
-          leading: Row(children: [
-            IconButton(
-                icon: Icon(Icons.close),
-                onPressed: () => clientClose(gFFI.sessionId, gFFI)),
-          ]),
-          centerTitle: true,
-          title: ToggleSwitch(
-            initialLabelIndex: showLocal ? 0 : 1,
-            activeBgColor: [MyTheme.idColor],
-            inactiveBgColor: Theme.of(context).brightness == Brightness.light
-                ? MyTheme.grayBg
-                : null,
-            inactiveFgColor: Theme.of(context).brightness == Brightness.light
-                ? Colors.black54
-                : null,
-            totalSwitches: 2,
-            minWidth: 100,
-            fontSize: 15,
-            iconSize: 18,
-            labels: [translate("Local"), translate("Remote")],
-            icons: [Icons.phone_android_sharp, Icons.screen_share],
-            onToggle: (index) {
-              final current = showLocal ? 0 : 1;
-              if (index != current) {
-                setState(() => showLocal = !showLocal);
-              }
-            },
+          leading: IconButton(
+            tooltip: translate('Close'),
+            icon: const Icon(Icons.close_rounded),
+            onPressed: () => clientClose(gFFI.sessionId, gFFI),
           ),
+          title: Text(kqLocaleText(zhCn: '文件传输', en: 'File transfer')),
           actions: [
+            Obx(() => IconButton(
+                  tooltip: kqLocaleText(
+                      zhCn: '选择并发送文件', en: 'Choose and send files'),
+                  icon: _importingFiles
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.upload_file_rounded),
+                  onPressed: _importingFiles || _hasActiveTransfer
+                      ? null
+                      : _pickFilesAndSend,
+                )),
+            IconButton(
+              tooltip: translate('Refresh File'),
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: () => currentFileController.refresh(),
+            ),
             PopupMenuButton<String>(
-                tooltip: "",
-                icon: Icon(Icons.more_vert),
+                tooltip: kqLocaleText(zhCn: '文件选项', en: 'File options'),
+                icon: const Icon(Icons.more_horiz_rounded),
                 itemBuilder: (context) {
                   return [
-                    if (isIOS && showLocal)
-                      PopupMenuItem(
-                        enabled: !_importingFiles && currentDir.path != "/",
-                        value: "import_ios",
-                        child: Row(
-                          children: [
-                            Icon(Icons.file_open_outlined,
-                                color: Theme.of(context).iconTheme.color),
-                            SizedBox(width: 5),
-                            Text(kqLocaleText(
-                              zhCn: '从“文件”导入',
-                              en: 'Import from Files',
-                            )),
-                          ],
-                        ),
-                      ),
-                    PopupMenuItem(
-                      child: Row(
-                        children: [
-                          Icon(Icons.refresh,
-                              color: Theme.of(context).iconTheme.color),
-                          SizedBox(width: 5),
-                          Text(translate("Refresh File"))
-                        ],
-                      ),
-                      value: "refresh",
-                    ),
                     PopupMenuItem(
                       enabled: currentDir.path != "/",
                       child: Row(
                         children: [
-                          Icon(Icons.check,
+                          Icon(Icons.checklist_rounded,
                               color: Theme.of(context).iconTheme.color),
-                          SizedBox(width: 5),
+                          const SizedBox(width: 8),
                           Text(translate("Multi Select"))
                         ],
                       ),
@@ -264,9 +302,9 @@ class _FileManagerPageState extends State<FileManagerPage> {
                       enabled: currentDir.path != "/",
                       child: Row(
                         children: [
-                          Icon(Icons.folder_outlined,
+                          Icon(Icons.create_new_folder_outlined,
                               color: Theme.of(context).iconTheme.color),
-                          SizedBox(width: 5),
+                          const SizedBox(width: 8),
                           Text(translate("Create Folder"))
                         ],
                       ),
@@ -281,7 +319,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
                                   ? Icons.check_box_outlined
                                   : Icons.check_box_outline_blank,
                               color: Theme.of(context).iconTheme.color),
-                          SizedBox(width: 5),
+                          const SizedBox(width: 8),
                           Text(translate("Show Hidden Files"))
                         ],
                       ),
@@ -290,11 +328,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
                   ];
                 },
                 onSelected: (v) async {
-                  if (v == "import_ios") {
-                    await _importFilesFromIOS();
-                  } else if (v == "refresh") {
-                    currentFileController.refresh();
-                  } else if (v == "select") {
+                  if (v == "select") {
                     model.localController.selectedItems.clear();
                     model.remoteController.selectedItems.clear();
                     selectMode.toggle(showLocal);
@@ -355,150 +389,162 @@ class _FileManagerPageState extends State<FileManagerPage> {
                 }),
           ],
         ),
-        body: showLocal
-            ? FileManagerView(
-                controller: model.localController,
-                selectMode: selectMode,
-              )
-            : FileManagerView(
-                controller: model.remoteController,
-                selectMode: selectMode,
-              ),
-        bottomSheet: bottomSheet(),
+        body: Column(children: [
+          _buildLocationSelector(),
+          if (_importingFiles) const LinearProgressIndicator(minHeight: 2),
+          Expanded(
+            child: FileManagerView(
+              controller:
+                  showLocal ? model.localController : model.remoteController,
+              selectMode: selectMode,
+            ),
+          ),
+        ]),
+        bottomNavigationBar: _buildTransferPanel(),
       ));
 
-  Widget? bottomSheet() {
+  Widget _buildLocationSelector() {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: _FileLocationTab(
+            selected: showLocal,
+            icon: Icons.phone_iphone_rounded,
+            label: kqLocaleText(zhCn: '我的文件', en: 'My files'),
+            onTap: () => setState(() => showLocal = true),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _FileLocationTab(
+            selected: !showLocal,
+            icon: Icons.desktop_windows_rounded,
+            label: kqLocaleText(zhCn: '对方文件', en: 'Remote files'),
+            onTap: () => setState(() => showLocal = false),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildTransferPanel() {
     return Obx(() {
       final selectedItems = getActiveSelectedItems();
       final jobTable = model.jobController.jobTable;
-
-      final localLabel = selectedItems?.isLocal == null
-          ? ""
-          : " [${selectedItems!.isLocal ? translate("Local") : translate("Remote")}]";
-      if (!(selectMode.value == SelectMode.none)) {
-        final selectedItemsLen =
-            "${selectedItems?.items.length ?? 0} ${translate("items")}";
-        if (selectedItems == null ||
-            selectedItems.items.isEmpty ||
-            selectMode.value.eq(showLocal)) {
-          return BottomSheetBody(
-              leading: Icon(Icons.check),
-              title: translate("Selected"),
-              text: selectedItemsLen + localLabel,
-              onCanceled: () {
-                selectedItems?.items.clear();
-                selectMode.value = SelectMode.none;
-                setState(() {});
-              },
-              actions: [
-                IconButton(
-                  icon: Icon(Icons.compare_arrows),
-                  onPressed: () => setState(() => showLocal = !showLocal),
-                ),
-                IconButton(
-                  icon: Icon(Icons.delete_forever),
-                  onPressed: selectedItems != null
-                      ? () async {
-                          if (selectedItems.items.isNotEmpty) {
-                            await currentFileController
-                                .removeAction(selectedItems);
-                            selectedItems.items.clear();
-                            selectMode.value = SelectMode.none;
-                          }
-                        }
-                      : null,
-                )
-              ]);
-        } else {
-          return BottomSheetBody(
-              leading: Icon(Icons.input),
-              title: translate("Paste here?"),
-              text: selectedItemsLen + localLabel,
-              onCanceled: () {
-                selectedItems.items.clear();
-                selectMode.value = SelectMode.none;
-                setState(() {});
-              },
-              actions: [
-                IconButton(
-                  icon: Icon(Icons.compare_arrows),
-                  onPressed: () => setState(() => showLocal = !showLocal),
-                ),
-                IconButton(
-                  icon: Icon(Icons.paste),
-                  onPressed: () {
-                    selectMode.value = SelectMode.none;
-                    final otherSide = showLocal
-                        ? model.remoteController
-                        : model.localController;
-                    final thisSideData =
-                        DirectoryData(currentDir, currentOptions);
-                    otherSide.sendFiles(selectedItems, thisSideData);
-                    selectedItems.items.clear();
-                    selectMode.value = SelectMode.none;
-                  },
-                )
-              ]);
-        }
+      if (selectedItems != null && selectedItems.items.isNotEmpty) {
+        final isSendingToRemote = selectedItems.isLocal;
+        final destination =
+            isSendingToRemote ? model.remoteController : model.localController;
+        return _FileTransferPanel(
+          icon: isSendingToRemote ? Icons.send_rounded : Icons.download_rounded,
+          title: kqLocaleText(
+            zhCn: '已选择 ${selectedItems.items.length} 个项目',
+            en: '${selectedItems.items.length} item(s) selected',
+          ),
+          subtitle: kqLocaleText(
+            zhCn:
+                '${isSendingToRemote ? '发送到' : '保存到'} ${_displayDirectory(destination)}',
+            en: '${isSendingToRemote ? 'Send to' : 'Save to'} ${_displayDirectory(destination)}',
+          ),
+          primaryLabel: isSendingToRemote
+              ? kqLocaleText(zhCn: '发送', en: 'Send')
+              : kqLocaleText(zhCn: '保存', en: 'Save'),
+          primaryIcon:
+              isSendingToRemote ? Icons.send_rounded : Icons.download_rounded,
+          onPrimary: destination.directory.value.path.isEmpty
+              ? null
+              : () => _sendSelectedItems(selectedItems),
+          secondary: IconButton(
+            tooltip: translate('Delete'),
+            onPressed: () => _deleteSelectedItems(selectedItems),
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+          onDismiss: _clearSelection,
+        );
       }
 
       if (jobTable.isEmpty) {
-        return Offstage();
+        return _FileTransferPanel(
+          icon: Icons.upload_file_rounded,
+          title: kqLocaleText(zhCn: '选择文件并发送', en: 'Choose files to send'),
+          subtitle: _canPickAndSend
+              ? kqLocaleText(
+                  zhCn: '文件会直接发送到 ${_displayDirectory(model.remoteController)}',
+                  en: 'Files will be sent to ${_displayDirectory(model.remoteController)}',
+                )
+              : kqLocaleText(
+                  zhCn: '正在准备远端文件夹',
+                  en: 'Preparing the remote folder',
+                ),
+          primaryLabel: kqLocaleText(zhCn: '选择文件', en: 'Choose files'),
+          primaryIcon: Icons.add_rounded,
+          onPrimary: _canPickAndSend && !_importingFiles && !_hasActiveTransfer
+              ? _pickFilesAndSend
+              : null,
+        );
       }
 
-      // Find the first job that is in progress (the one actually transferring data)
-      // Rust backend processes jobs sequentially, so the first inProgress job is the active one
       final activeJob = jobTable
               .firstWhereOrNull((job) => job.state == JobState.inProgress) ??
+          jobTable.firstWhereOrNull((job) => job.state == JobState.error) ??
+          jobTable.firstWhereOrNull((job) => job.state == JobState.paused) ??
           jobTable.last;
-
       switch (activeJob.state) {
         case JobState.inProgress:
-          return BottomSheetBody(
-            leading: CircularProgressIndicator(),
-            title: translate("Waiting"),
-            text:
-                "${translate("Speed")}:  ${readableFileSize(activeJob.speed)}/s",
-            onCanceled: () {
-              model.jobController.cancelJob(activeJob.id);
-              jobTable.clear();
-            },
+          return _FileTransferPanel(
+            icon: Icons.sync_rounded,
+            title: kqLocaleText(
+              zhCn: '正在传输 ${activeJob.fileName}',
+              en: 'Transferring ${activeJob.fileName}',
+            ),
+            subtitle: activeJob.totalSize > 0
+                ? '${activeJob.percentText}  ${readableFileSize(activeJob.finishedSize.toDouble())} / ${readableFileSize(activeJob.totalSize.toDouble())}  ${readableFileSize(activeJob.speed)}/s'
+                : '${translate("Waiting")}  ${readableFileSize(activeJob.speed)}/s',
+            progress: activeJob.totalSize > 0 ? activeJob.percent : null,
+            primaryLabel: translate('Cancel'),
+            primaryIcon: Icons.close_rounded,
+            onPrimary: () => model.jobController.cancelJob(activeJob.id),
           );
         case JobState.done:
-          return BottomSheetBody(
-            leading: Icon(Icons.check),
-            title: "${translate("Successful")}!",
-            text: activeJob.display(),
-            onCanceled: () => jobTable.clear(),
+          return _FileTransferPanel(
+            icon: Icons.check_circle_outline_rounded,
+            title: kqLocaleText(zhCn: '传输完成', en: 'Transfer complete'),
+            subtitle: activeJob.fileName,
+            primaryLabel: translate('Close'),
+            primaryIcon: Icons.done_rounded,
+            onPrimary: jobTable.clear,
           );
         case JobState.error:
-          return BottomSheetBody(
-            leading: Icon(Icons.error),
-            title: "${translate("Error")}!",
-            text: "",
-            onCanceled: () => jobTable.clear(),
+          return _FileTransferPanel(
+            icon: Icons.error_outline_rounded,
+            title: kqLocaleText(zhCn: '传输未完成', en: 'Transfer incomplete'),
+            subtitle: activeJob.display(),
+            primaryLabel: translate('Close'),
+            primaryIcon: Icons.close_rounded,
+            onPrimary: jobTable.clear,
+          );
+        case JobState.paused:
+          return _FileTransferPanel(
+            icon: Icons.pause_circle_outline_rounded,
+            title: translate('Paused'),
+            subtitle: activeJob.fileName,
+            primaryLabel: translate('Resume'),
+            primaryIcon: Icons.play_arrow_rounded,
+            onPrimary: () => model.jobController.resumeJob(activeJob.id),
+            secondary: IconButton(
+              tooltip: translate('Cancel'),
+              icon: const Icon(Icons.close_rounded),
+              onPressed: () => model.jobController.cancelJob(activeJob.id),
+            ),
           );
         case JobState.none:
-          break;
-        case JobState.paused:
-          return BottomSheetBody(
-            leading: const Icon(Icons.pause_circle_outline),
-            title: translate("Paused"),
-            text: activeJob.display(),
-            onCanceled: () {
-              model.jobController.cancelJob(activeJob.id);
-              jobTable.clear();
-            },
-            actions: [
-              IconButton(
-                tooltip: translate("Resume"),
-                icon: const Icon(Icons.play_arrow_rounded),
-                onPressed: () => model.jobController.resumeJob(activeJob.id),
-              ),
-            ],
-          );
+          return const SizedBox.shrink();
       }
-      return Offstage();
     });
   }
 
@@ -508,10 +554,10 @@ class _FileManagerPageState extends State<FileManagerPage> {
 
     if (localSelectedItems.items.isNotEmpty &&
         remoteSelectedItems.items.isNotEmpty) {
-      // assert unreachable
       debugPrint("Wrong SelectedItems state, reset");
       localSelectedItems.clear();
       remoteSelectedItems.clear();
+      return null;
     }
 
     if (localSelectedItems.items.isEmpty && remoteSelectedItems.items.isEmpty) {
@@ -523,6 +569,162 @@ class _FileManagerPageState extends State<FileManagerPage> {
     } else {
       return remoteSelectedItems;
     }
+  }
+}
+
+class _FileLocationTab extends StatelessWidget {
+  const _FileLocationTab({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: selected ? colors.primary.withValues(alpha: 0.12) : colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: BorderSide(
+          color: selected ? colors.primary : colors.outlineVariant,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: SizedBox(
+          height: 42,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(icon, size: 18, color: selected ? colors.primary : null),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? colors.primary : colors.onSurface,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _FileTransferPanel extends StatelessWidget {
+  const _FileTransferPanel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.primaryLabel,
+    required this.primaryIcon,
+    required this.onPrimary,
+    this.progress,
+    this.secondary,
+    this.onDismiss,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String primaryLabel;
+  final IconData primaryIcon;
+  final VoidCallback? onPrimary;
+  final double? progress;
+  final Widget? secondary;
+  final VoidCallback? onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surface,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (progress != null || onPrimary == null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: LinearProgressIndicator(value: progress),
+              ),
+            Row(children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: theme.colorScheme.primary, size: 20),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ]),
+            const SizedBox(height: 9),
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              if (secondary != null) secondary!,
+              if (secondary != null) const SizedBox(width: 4),
+              if (onDismiss != null) ...[
+                IconButton(
+                  tooltip: translate('Close'),
+                  onPressed: onDismiss,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+                const SizedBox(width: 4),
+              ],
+              FilledButton.icon(
+                onPressed: onPrimary,
+                icon: Icon(primaryIcon, size: 18),
+                label: Text(primaryLabel),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ),
+    );
   }
 }
 
@@ -557,6 +759,9 @@ class _FileManagerViewState extends State<FileManagerView> {
       headTools(),
       Expanded(child: Obx(() {
         final entries = controller.directory.value.entries;
+        if (entries.isEmpty) {
+          return _emptyDirectory();
+        }
         return ListView.builder(
           controller: _listScrollController,
           itemCount: entries.length + 1,
@@ -577,29 +782,49 @@ class _FileManagerViewState extends State<FileManagerView> {
               return widget.selectMode.value != SelectMode.none &&
                   widget.selectMode.value.eq(controller.selectedItems.isLocal);
             }();
-            return Card(
+            return Material(
+              color: selected
+                  ? Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.08)
+                  : Colors.transparent,
               child: ListTile(
-                leading: entries[index].isDrive
-                    ? Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Image(
-                            image: iconHardDrive,
-                            fit: BoxFit.scaleDown,
-                            color: Theme.of(context)
-                                .iconTheme
-                                .color
-                                ?.withOpacity(0.7)))
-                    : Icon(
-                        entries[index].isFile
-                            ? Icons.feed_outlined
-                            : Icons.folder,
-                        size: 40),
-                title: Text(entries[index].name),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+                leading: SizedBox(
+                  width: 40,
+                  child: entries[index].isDrive
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Image(
+                              image: iconHardDrive,
+                              fit: BoxFit.scaleDown,
+                              color: Theme.of(context)
+                                  .iconTheme
+                                  .color
+                                  ?.withValues(alpha: 0.7)))
+                      : Icon(
+                          entries[index].isFile
+                              ? Icons.insert_drive_file_outlined
+                              : Icons.folder_outlined,
+                          color: entries[index].isFile
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.tertiary,
+                          size: 28),
+                ),
+                title: Text(
+                  entries[index].name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 selected: selected,
                 subtitle: entries[index].isDrive
                     ? null
                     : Text(
                         "${entries[index].lastModified().toString().replaceAll(".000", "")}   $sizeStr",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 12, color: MyTheme.darkGray),
                       ),
                 trailing: entries[index].isDrive
@@ -708,6 +933,40 @@ class _FileManagerViewState extends State<FileManagerView> {
     });
   }
 
+  Widget _emptyDirectory() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(
+            Icons.folder_open_outlined,
+            size: 46,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            kqLocaleText(zhCn: '此文件夹为空', en: 'This folder is empty'),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isLocal
+                ? kqLocaleText(
+                    zhCn: '使用底部的“选择文件”即可发送给对方。',
+                    en: 'Use “Choose files” below to send files to the remote device.',
+                  )
+                : kqLocaleText(
+                    zhCn: '可在这里创建文件夹，或从手机发送文件到当前目录。',
+                    en: 'Create a folder here or send files from your phone to this directory.',
+                  ),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ]),
+      ),
+    );
+  }
+
   Widget headTools() => Container(
           child: Row(
         children: [
@@ -811,69 +1070,5 @@ class _FileManagerViewState extends State<FileManagerView> {
                 ButtonStyle(minimumSize: MaterialStateProperty.all(Size(0, 0))),
             onPressed: () => onPressed(list.sublist(0, e.key + 1))))));
     return breadCrumbList;
-  }
-}
-
-class BottomSheetBody extends StatelessWidget {
-  BottomSheetBody(
-      {required this.leading,
-      required this.title,
-      required this.text,
-      this.onCanceled,
-      this.actions});
-
-  final Widget leading;
-  final String title;
-  final String text;
-  final VoidCallback? onCanceled;
-  final List<IconButton>? actions;
-
-  @override
-  BottomSheet build(BuildContext context) {
-    // ignore: no_leading_underscores_for_local_identifiers
-    final _actions = actions ?? [];
-    return BottomSheet(
-      builder: (BuildContext context) {
-        return Container(
-            height: 65,
-            alignment: Alignment.centerLeft,
-            decoration: BoxDecoration(
-                color: MyTheme.accent50,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(10))),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 15),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      leading,
-                      SizedBox(width: 16),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title, style: TextStyle(fontSize: 18)),
-                          Text(text,
-                              style: TextStyle(fontSize: 14)) // TODO color
-                        ],
-                      )
-                    ],
-                  ),
-                  Row(children: () {
-                    _actions.add(IconButton(
-                      icon: Icon(Icons.cancel_outlined),
-                      onPressed: onCanceled,
-                    ));
-                    return _actions;
-                  }())
-                ],
-              ),
-            ));
-      },
-      onClosing: () {},
-      // backgroundColor: MyTheme.grayBg,
-      enableDrag: false,
-    );
   }
 }

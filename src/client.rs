@@ -112,7 +112,7 @@ const KQ_VIEW_STYLE_ORIGINAL: &str = "original";
 const KQ_VIEW_STYLE_ADAPTIVE: &str = "adaptive";
 const KQ_FREE_MAX_FPS: i32 = 30;
 const KQ_MEMBER_MAX_FPS: i32 = 60;
-const KQ_STANDARD_IMAGE_QUALITY: i32 = 100;
+const KQ_STANDARD_IMAGE_QUALITY: i32 = 60;
 const KQ_HIGH_DEFINITION_IMAGE_QUALITY: i32 = 150;
 
 fn kq_json_id(value: &serde_json::Value) -> String {
@@ -208,7 +208,7 @@ mod kq_remote_video_quality_tests {
 
     #[test]
     fn profiles_use_distinct_receiver_stream_parameters() {
-        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 100);
+        assert_eq!(kq_remote_custom_image_quality_for_tier("720p"), 60);
         assert_eq!(kq_remote_custom_image_quality_for_tier("1080p"), 150);
         assert!(
             kq_remote_custom_image_quality_for_tier("720p")
@@ -258,6 +258,102 @@ pub const SCRAP_X11_REF_URL: &str = "https://rustdesk.com/docs/en/manual/linux/#
 
 #[cfg(not(target_os = "linux"))]
 pub const AUDIO_BUFFER_MS: usize = 3000;
+
+#[cfg(any(target_os = "ios", test))]
+const IOS_AUDIO_PREBUFFER_MS: usize = 80;
+
+#[cfg(any(target_os = "ios", test))]
+#[derive(Debug, PartialEq, Eq)]
+struct IosAudioOutputDecision {
+    output_len: usize,
+    underrun: bool,
+    resumed: bool,
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_audio_output_decision(
+    having: usize,
+    requested: usize,
+    prebuffer_samples: usize,
+    rebuffering: &mut bool,
+) -> IosAudioOutputDecision {
+    let mut resumed = false;
+    if *rebuffering {
+        if having < prebuffer_samples.max(requested) {
+            return IosAudioOutputDecision {
+                output_len: 0,
+                underrun: false,
+                resumed: false,
+            };
+        }
+        *rebuffering = false;
+        resumed = true;
+    }
+
+    let output_len = having.min(requested);
+    let underrun = output_len < requested;
+    if underrun {
+        *rebuffering = true;
+    }
+    IosAudioOutputDecision {
+        output_len,
+        underrun,
+        resumed,
+    }
+}
+
+#[cfg(test)]
+mod ios_audio_output_tests {
+    use super::*;
+
+    #[test]
+    fn waits_for_prebuffer_before_starting_playback() {
+        let mut rebuffering = true;
+        assert_eq!(
+            ios_audio_output_decision(3_839, 960, 3_840, &mut rebuffering),
+            IosAudioOutputDecision {
+                output_len: 0,
+                underrun: false,
+                resumed: false,
+            }
+        );
+        assert!(rebuffering);
+
+        assert_eq!(
+            ios_audio_output_decision(3_840, 960, 3_840, &mut rebuffering),
+            IosAudioOutputDecision {
+                output_len: 960,
+                underrun: false,
+                resumed: true,
+            }
+        );
+        assert!(!rebuffering);
+    }
+
+    #[test]
+    fn underrun_enters_rebuffering_until_the_threshold_is_restored() {
+        let mut rebuffering = false;
+        assert_eq!(
+            ios_audio_output_decision(320, 960, 3_840, &mut rebuffering),
+            IosAudioOutputDecision {
+                output_len: 320,
+                underrun: true,
+                resumed: false,
+            }
+        );
+        assert!(rebuffering);
+
+        assert_eq!(
+            ios_audio_output_decision(3_000, 960, 3_840, &mut rebuffering),
+            IosAudioOutputDecision {
+                output_len: 0,
+                underrun: false,
+                resumed: false,
+            }
+        );
+        assert!(rebuffering);
+    }
+}
 
 fn use_rendezvous_token(token: &str) -> bool {
     if token.is_empty() {
@@ -1992,6 +2088,10 @@ pub struct AudioHandler {
     device_channel: u16,
     #[cfg(not(target_os = "linux"))]
     ready: Arc<std::sync::Mutex<bool>>,
+    #[cfg(target_os = "ios")]
+    underrun_count: Arc<std::sync::atomic::AtomicUsize>,
+    #[cfg(target_os = "ios")]
+    last_underrun_report: Option<std::time::Instant>,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -2117,6 +2217,24 @@ impl AudioBuffer {
 }
 
 impl AudioHandler {
+    #[cfg(target_os = "ios")]
+    fn report_audio_underruns(&mut self) {
+        use std::sync::atomic::Ordering;
+
+        let now = std::time::Instant::now();
+        if self
+            .last_underrun_report
+            .is_some_and(|last| now.duration_since(last) < Duration::from_secs(5))
+        {
+            return;
+        }
+        self.last_underrun_report = Some(now);
+        let count = self.underrun_count.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            log::warn!("iOS audio output recovered from {count} underrun callbacks");
+        }
+    }
+
     #[cfg(target_os = "linux")]
     fn start_audio(&mut self, format0: AudioFormat) -> ResultType<()> {
         use psimple::Simple;
@@ -2273,6 +2391,8 @@ impl AudioHandler {
                 }
             }
         });
+        #[cfg(target_os = "ios")]
+        self.report_audio_underruns();
     }
 
     /// Build audio output stream for current device.
@@ -2291,21 +2411,31 @@ impl AudioHandler {
             .resize(config.sample_rate.0 as _, config.channels as _);
         let audio_buffer = self.audio_buffer.0.clone();
         let ready = self.ready.clone();
+        let output_channels = config.channels as usize;
+        #[cfg(target_os = "ios")]
+        let underrun_count = self.underrun_count.clone();
+        #[cfg(target_os = "ios")]
+        let prebuffer_samples =
+            config.sample_rate.0 as usize * output_channels * IOS_AUDIO_PREBUFFER_MS / 1000;
+        #[cfg(target_os = "ios")]
+        let mut rebuffering = true;
         let timeout = None;
         let stream = device.build_output_stream(
             config,
-            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
-                if !*ready.lock().unwrap() {
-                    *ready.lock().unwrap() = true;
+            move |data: &mut [T], _info: &cpal::OutputCallbackInfo| {
+                let mut ready = ready.lock().unwrap();
+                if !*ready {
+                    *ready = true;
                 }
+                drop(ready);
 
                 let mut n = data.len();
                 let mut lock = audio_buffer.lock().unwrap();
-                let mut having = lock.occupied_len();
+                let having = lock.occupied_len();
                 // android two timestamps, one from zero, another not
-                #[cfg(not(target_os = "android"))]
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 if having < n {
-                    let tms = info.timestamp();
+                    let tms = _info.timestamp();
                     let how_long = tms
                         .playback
                         .duration_since(&tms.callback)
@@ -2317,29 +2447,43 @@ impl AudioHandler {
                         drop(lock);
                         std::thread::sleep(how_long.div_f32(1.2));
                         lock = audio_buffer.lock().unwrap();
-                        having = lock.occupied_len();
                     }
 
-                    if having < n {
-                        n = having;
-                    }
+                    n = lock.occupied_len().min(n);
                 }
+                #[cfg(target_os = "ios")]
+                let decision = {
+                    let decision =
+                        ios_audio_output_decision(having, n, prebuffer_samples, &mut rebuffering);
+                    n = decision.output_len;
+                    if decision.underrun {
+                        use std::sync::atomic::Ordering;
+                        underrun_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                    decision
+                };
                 #[cfg(target_os = "android")]
                 if having < n {
                     n = having;
                 }
-                let mut elems = vec![0.0f32; n];
-                if n > 0 {
-                    lock.pop_slice(&mut elems);
-                }
-                drop(lock);
-
-                let mut input = elems.into_iter();
-                for sample in data.iter_mut() {
-                    *sample = match input.next() {
-                        Some(x) => T::from_sample(x),
-                        _ => T::from_sample(0.),
+                #[cfg(target_os = "ios")]
+                let fade_frames = n.div_ceil(output_channels).max(1);
+                for (index, sample) in data.iter_mut().enumerate() {
+                    let mut value = if index < n {
+                        lock.pop().unwrap_or(0.0)
+                    } else {
+                        0.0
                     };
+                    #[cfg(target_os = "ios")]
+                    if index < n {
+                        let frame = index / output_channels;
+                        if decision.underrun {
+                            value *= (fade_frames - frame) as f32 / fade_frames as f32;
+                        } else if decision.resumed {
+                            value *= (frame + 1) as f32 / fade_frames as f32;
+                        }
+                    }
+                    *sample = T::from_sample(value);
                 }
             },
             err_fn,

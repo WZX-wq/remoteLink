@@ -131,9 +131,8 @@ void main() {
     expect(config, contains('set_ios_shared_device_id(id);'));
     expect(config, contains('fn recover_ios_id_after_uuid_mismatch'));
     expect(config, contains('fn sync_ios_shared_device_id'));
-    expect(config,
-        contains('Retrying iOS registration with the canonical device ID'));
-    expect(config, isNot(contains('IOS_UUID_MISMATCH_RECOVERY_FILE')));
+    expect(config, contains('IOS_UUID_MISMATCH_RECOVERY_FILE'));
+    expect(config, contains('kq-ios-id-recovery-v3'));
     expect(ffi, contains('config::Config::sync_ios_shared_device_id();'));
     expect(delegate, contains('sharedDeviceIdFileName'));
     expect(delegate, contains('synchronizeSharedIdentityFiles'));
@@ -152,15 +151,17 @@ void main() {
     expect(iosMismatch, contains('Config::recover_ios_id_after_uuid_mismatch'));
     expect(iosMismatch, contains('self.register_pk(socket).await'));
     expect(iosMismatch, contains('if !identity_changed'));
-    expect(iosMismatch, isNot(contains('NEEDS_DEPLOY.store(true')));
+    expect(iosMismatch, contains('NEEDS_DEPLOY.store(true'));
     final recoveryStart =
         config.indexOf('pub fn recover_ios_id_after_uuid_mismatch');
     final recoveryEnd =
         config.indexOf('pub fn sync_ios_shared_device_id', recoveryStart);
     expect(recoveryStart, greaterThanOrEqualTo(0));
     expect(recoveryEnd, greaterThan(recoveryStart));
-    expect(config.substring(recoveryStart, recoveryEnd),
-        isNot(contains('get_auto_id')));
+    final recovery = config.substring(recoveryStart, recoveryEnd);
+    expect(recovery, contains('get_auto_id'));
+    expect(recovery, contains('read_ios_uuid_mismatch_recovery'));
+    expect(recovery, contains('Self::set_id(&recovered_id)'));
   });
 
   test('iOS binds the App Group before starting global Rust events', () {

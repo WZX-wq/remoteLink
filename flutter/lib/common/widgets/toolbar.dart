@@ -297,7 +297,8 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
     ));
   }
   // record
-  if (!(isDesktop || isWeb) &&
+  if (!isIOS &&
+      !(isDesktop || isWeb) &&
       (ffi.recordingModel.start || (perms["recording"] != false))) {
     v.add(TTextMenu(
         child: Row(
@@ -811,11 +812,31 @@ List<TToggleMenu> toolbarPrivacyMode(
       pi.platformAdditions[kPlatformAdditionsSupportedPrivacyModeImpl]
           as List<dynamic>?;
   if (privacyModeImpls == null) {
+    // Modern peers explicitly report the implementations that can actually be
+    // started. Do not expose the legacy generic switch while that capability
+    // data is absent: it can attempt a privacy plugin that is not bundled in
+    // the controlled desktop package.
+    if (privacyModeState.isEmpty) {
+      return [];
+    }
+
+    // Keep the active switch visible so a session can always turn privacy mode
+    // off even if a transient peer-info update did not include capabilities.
+    final implKey = privacyModeState.value;
+    final enabled = !ffiModel.viewOnly;
     return [
-      getDefaultMenu((sid, opt) async {
-        bind.sessionToggleOption(sessionId: sid, value: opt);
-        togglePrivacyModeTime = DateTime.now();
-      })
+      TToggleMenu(
+        value: true,
+        onChanged: enabled
+            ? (value) {
+                if (value != false) return;
+                togglePrivacyModeTime = DateTime.now();
+                bind.sessionTogglePrivacyMode(
+                    sessionId: sessionId, implKey: implKey, on: false);
+              }
+            : null,
+        child: Text(translate('Privacy mode')),
+      )
     ];
   }
   if (privacyModeImpls.isEmpty) {

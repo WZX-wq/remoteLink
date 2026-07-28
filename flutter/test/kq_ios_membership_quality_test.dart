@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('basic and member receiver profiles have distinct real parameters', () {
-    expect(kqStandardRemoteStreamQuality, 100);
+    expect(kqStandardRemoteStreamQuality, 60);
     expect(kqHighDefinitionRemoteStreamQuality, 150);
     expect(UserModel.freeMaxFps, 30);
     expect(UserModel.memberDefaultFps, 60);
@@ -24,6 +24,23 @@ void main() {
     expect(optionMessage, contains('kq_remote_custom_image_quality() << 8'));
     expect(optionMessage, contains('let custom_fps = kq_remote_fps();'));
     expect(optionMessage, contains('msg.custom_fps = custom_fps;'));
+  });
+
+  test('account quality profile is pushed to the active session', () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final start = source.indexOf('Future<void> setRemotePerformanceProfile');
+    final end = source.indexOf('Future<void> _setMemberStatus', start);
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final setter = source.substring(start, end);
+
+    expect(setter, contains('final sessionId = parent.target?.sessionId;'));
+    expect(setter, contains('sessionSetImageQuality('));
+    expect(setter, contains('value: kRemoteImageQualityCustom'));
+    expect(setter, contains('sessionSetCustomImageQuality('));
+    expect(setter, contains('value: customQuality'));
+    expect(setter, contains('sessionSetCustomFps('));
+    expect(setter, contains('fps: normalizedFps'));
   });
 
   test('mobile account displays the parameters that the receiver requests', () {

@@ -593,7 +593,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   title: Text(_settingsText('note-at-conn-end-tip')),
                   initialValue: _allowAskForNoteAtEndOfConnection,
                   onToggle: (v) async {
-                    if (v && !gFFI.userModel.isLogin) {
+                    if (v && !isMobile && !gFFI.userModel.isLogin) {
                       final res = await loginDialog();
                       if (res != true) return;
                     }

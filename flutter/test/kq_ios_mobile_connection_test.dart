@@ -82,12 +82,16 @@ void main() {
         File('lib/mobile/pages/connection_page.dart').readAsStringSync();
     final connect = _section(
       source,
-      '  void onConnect() async {',
+      '  Future<void> _connectToRemote({bool isFileTransfer = false}) async {',
       '  Future<void> _restoreLastConnection() async {',
     );
 
+    expect(connect, contains('final remoteId = _validatedRemoteId();'));
+    expect(connect, contains('if (remoteId == null) return;'));
     expect(connect, contains('if (!await _ensureLoggedIn()) return;'));
-    expect(connect, contains('if (!_ensureRemoteId()) return;'));
+    expect(connect,
+        contains('final online = await _queryRemoteOnline(remoteId);'));
+    expect(connect, contains('if (online == false)'));
     expect(connect, contains('password: _remotePassword'));
     expect(
       connect,
@@ -158,17 +162,18 @@ void main() {
       '  void _notifyConnectionFailureAndClose(',
       '  /// Show a message box with [type], [title] and [text].',
     );
-    expect(notify, contains('final isKqIOS'));
+    expect(notify, contains('final isKqMobile'));
     expect(
       notify,
       contains(
         'final navigator = failedRoute?.navigator ?? globalKey.currentState;',
       ),
-      reason: 'Failure cleanup must use the navigator that owns the remote route.',
+      reason:
+          'Failure cleanup must use the navigator that owns the remote route.',
     );
     expect(notify, contains('removeRegisteredMobileRemoteRoute('));
 
-    final mobileStart = notify.indexOf('if (isKqIOS) {');
+    final mobileStart = notify.indexOf('if (isKqMobile) {');
     final desktopStart = notify.indexOf('if (isKqDesktop) {');
     expect(mobileStart, greaterThanOrEqualTo(0));
     expect(desktopStart, greaterThan(mobileStart));
@@ -210,8 +215,8 @@ void main() {
     expect(shouldClose(type: 'error'), isTrue);
     expect(
       shouldClose(type: 'error', isIOSPlatform: false),
-      isFalse,
-      reason: 'Android must keep its existing retry and diagnostics behavior.',
+      isTrue,
+      reason: 'All mobile clients must exit a dead remote session promptly.',
     );
     expect(shouldClose(type: 're-input-password'), isFalse);
     expect(shouldClose(type: 'error', isKqApp: false), isFalse);
@@ -287,7 +292,8 @@ void main() {
     );
     final diagnosticsStart =
         handler.indexOf("} else if (type == 'kq-network-diagnostics') {");
-    final relayStart = handler.indexOf("} else if (type == 'relay-hint'", diagnosticsStart);
+    final relayStart =
+        handler.indexOf("} else if (type == 'relay-hint'", diagnosticsStart);
     expect(diagnosticsStart, greaterThanOrEqualTo(0));
     expect(relayStart, greaterThan(diagnosticsStart));
 
@@ -295,7 +301,8 @@ void main() {
     expect(diagnosticsBranch, contains('if (isIOS && !isWeb)'));
     expect(
       diagnosticsBranch,
-      contains("_notifyConnectionFailureAndClose('error', 'Connection Error', text)"),
+      contains(
+          "_notifyConnectionFailureAndClose('error', 'Connection Error', text)"),
     );
     expect(diagnosticsBranch, contains('showKqNetworkDiagnosticsDialog('));
   });
@@ -338,7 +345,8 @@ void main() {
     expect(
       bottomNavigation,
       contains('margin: const EdgeInsets.fromLTRB(14, 0, 14, 0)'),
-      reason: 'Platform-specific bottom spacing belongs to the safe-area helper.',
+      reason:
+          'Platform-specific bottom spacing belongs to the safe-area helper.',
     );
   });
 

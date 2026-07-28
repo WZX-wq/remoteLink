@@ -540,6 +540,12 @@ class _IOSScreenShareBroadcastMvpState
           zhTw: '裝置尚未完成服務註冊，請停止直播後重新開啟。',
           en: 'The device has not completed service registration. Stop and start the broadcast again.',
         );
+      case 'server_registration_timeout':
+        return _iosShareText(
+          zhCn: '设备接入服务超时，请检查网络后重新开启直播。',
+          zhTw: '裝置接入服務逾時，請檢查網路後重新開啟直播。',
+          en: 'Device registration timed out. Check the network and restart the broadcast.',
+        );
       case 'pixel_buffer_conversion_failed':
         return _iosShareText(
           zhCn: '屏幕画面初始化失败，请重新开启直播。',
@@ -605,6 +611,12 @@ class _IOSScreenShareBroadcastMvpState
             zhCn: '暂不可连接',
             zhTw: '暫不可連線',
             en: 'Not available',
+          );
+        case 4:
+          return _iosShareText(
+            zhCn: '接入超时',
+            zhTw: '接入逾時',
+            en: 'Registration timed out',
           );
         case 1:
           return _iosShareText(

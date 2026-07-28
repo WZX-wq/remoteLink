@@ -1,0 +1,83 @@
+import 'dart:io';
+
+import 'package:flutter_hbb/models/remote_id_policy.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('remote ID validation rejects malformed IDs before connecting', () {
+    expect(isValidKqRemoteIdentifierFormat('1234567890'), isTrue);
+    expect(isValidKqRemoteIdentifierFormat('device_01'), isTrue);
+    expect(isValidKqRemoteIdentifierFormat('12345'), isFalse);
+    expect(isValidKqRemoteIdentifierFormat('bad id'), isFalse);
+    expect(isValidKqRemoteIdentifierFormat('@@@'), isFalse);
+    expect(isValidKqRemoteIdentifierFormat('1234567890/r'), isTrue);
+    expect(
+      isValidKqRemoteIdentifierFormat('1234567890@relay.example.com:21117'),
+      isTrue,
+    );
+  });
+
+  test('online lookup is only used for rendezvous IDs', () {
+    expect(kqRemoteIdentifierSupportsOnlineLookup('1234567890'), isTrue);
+    expect(kqRemoteIdentifierSupportsOnlineLookup('device_01'), isTrue);
+    expect(
+        kqRemoteIdentifierSupportsOnlineLookup('192.168.1.2:21118'), isFalse);
+    expect(
+      kqRemoteIdentifierSupportsOnlineLookup('1234567890@server.example.com'),
+      isFalse,
+    );
+  });
+
+  test('lookup timeout stops rendezvous IDs instead of blindly connecting', () {
+    final source =
+        File('lib/mobile/pages/connection_page.dart').readAsStringSync();
+    expect(source, contains('final supportsOnlineLookup ='));
+    expect(source, contains('if (online == null && supportsOnlineLookup)'));
+    expect(source, contains('暂时无法核验识别码'));
+  });
+
+  test('mobile remote controls use one integrated mouse in both modes', () {
+    final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    expect(source, contains('paints.add(FloatingMouse('));
+    expect(source, isNot(contains('FloatingMouseWidgets(')));
+    expect(source, isNot(contains('floating_mouse_widgets.dart')));
+  });
+
+  test('mobile long labels use adaptive navigation and membership layout', () {
+    final home = File('lib/mobile/pages/home_page.dart').readAsStringSync();
+    final account =
+        File('lib/mobile/pages/account_page.dart').readAsStringSync();
+    expect(
+      home,
+      contains('NavigationDestinationLabelBehavior.onlyShowSelected'),
+    );
+    expect(account, contains('maxLines: 2'));
+    expect(account, contains('width: double.infinity'));
+  });
+
+  test('connection notes have a local mobile fallback', () {
+    final dialog = File('lib/common/widgets/dialog.dart').readAsStringSync();
+    expect(dialog, contains('supportsLocalMobileNote'));
+    expect(dialog, contains('bind.mainSetPeerAlias(id: ffi.id'));
+    expect(dialog, contains('await bind.mainLoadRecentPeers()'));
+  });
+
+  test('mobile peer timeout is checked every second at five seconds', () {
+    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
+    expect(ioLoop, contains('KQ_MOBILE_PEER_TIMEOUT'));
+    expect(ioLoop, contains('Duration::from_secs(5)'));
+    expect(
+        ioLoop, contains('last_recv_time.elapsed() >= KQ_MOBILE_PEER_TIMEOUT'));
+  });
+
+  test('iOS broadcast registration has a visible timeout state', () {
+    final rust = File('../src/ios_broadcast.rs').readAsStringSync();
+    final swift =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    expect(rust, contains('REGISTRATION_TIMEOUT_MS: i64 = 30_000'));
+    expect(rust, contains('REGISTRATION_TIMED_OUT'));
+    expect(swift, contains('server_registration_timeout'));
+    expect(page, contains('设备接入服务超时'));
+  });
+}

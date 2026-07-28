@@ -1007,57 +1007,50 @@ class _MembershipBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFFFFE7A4),
-                              fontSize: 23,
-                              fontWeight: FontWeight.w900,
-                              height: 1.08,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            subtitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.76),
-                              fontSize: 13,
-                              height: 1.28,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFFFE7A4),
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                    height: 1.16,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.76),
+                    fontSize: 13,
+                    height: 1.32,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: onPrimaryTap,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFD24D),
+                      foregroundColor: const Color(0xFF3A2B00),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    FilledButton(
-                      onPressed: onPrimaryTap,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFFD24D),
-                        foregroundColor: const Color(0xFF3A2B00),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
-                      child: Text(
-                        _mineText(isMember ? 'Renew membership' : 'Upgrade'),
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
+                    child: Text(
+                      _mineText(isMember ? 'Renew membership' : 'Upgrade'),
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
-                  ],
+                  ),
                 ),
                 if (onRefreshTap != null) ...[
                   const SizedBox(height: 12),

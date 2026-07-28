@@ -10,6 +10,9 @@ use crate::{
     common::get_default_sound_input,
     ui_session_interface::{InvokeUiSession, Session},
 };
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const KQ_MOBILE_PEER_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
 #[cfg(any(
@@ -291,6 +294,13 @@ impl<T: InvokeUiSession> Remote<T> {
                             }
                         }
                         _ = status_timer.tick() => {
+                            #[cfg(any(target_os = "android", target_os = "ios"))]
+                            if crate::get_app_name() == crate::common::KQ_APP_NAME
+                                && last_recv_time.elapsed() >= KQ_MOBILE_PEER_TIMEOUT
+                            {
+                                self.handler.msgbox("error", "Connection Error", "Timeout", "");
+                                break;
+                            }
                             let elapsed = fps_instant.elapsed().as_millis();
                             if elapsed < 1000 {
                                 continue;
@@ -1777,12 +1787,45 @@ impl<T: InvokeUiSession> Remote<T> {
                             }
                         }
                         Some(file_response::Union::Block(block)) => {
-                            if let Some(job) = fs::get_job(block.id, &mut self.write_jobs) {
-                                if let Err(_err) = job.write(block).await {
-                                    // to-do: add "skip" for writing job
+                            let job_id = block.id;
+                            let file_num = block.file_num;
+                            let mut write_error = None;
+                            {
+                                if let Some(job) = fs::get_job(job_id, &mut self.write_jobs) {
+                                    let job_type = job.r#type;
+                                    match job.write(block).await {
+                                        Ok(()) if job_type == fs::JobType::Generic => {
+                                            self.update_jobs_status();
+                                        }
+                                        Ok(()) => {}
+                                        Err(err) => {
+                                            write_error = Some((job_type, err.to_string()));
+                                        }
+                                    }
                                 }
-                                if job.r#type == fs::JobType::Generic {
-                                    self.update_jobs_status();
+                            }
+                            if let Some((job_type, err)) = write_error {
+                                // A write failure used to be ignored here. That left both
+                                // endpoints waiting and hid conditions such as a full disk.
+                                let _ = fs::remove_job(job_id, &mut self.write_jobs);
+                                match job_type {
+                                    fs::JobType::Generic => {
+                                        allow_err!(
+                                            peer.send(&fs::new_error(
+                                                job_id,
+                                                err.clone(),
+                                                file_num
+                                            ))
+                                            .await
+                                        );
+                                        self.handle_job_status(job_id, file_num, Some(err));
+                                    }
+                                    fs::JobType::Printer => {
+                                        log::error!(
+                                            "Receive print job failed while writing block: {}",
+                                            err
+                                        );
+                                    }
                                 }
                             }
                         }

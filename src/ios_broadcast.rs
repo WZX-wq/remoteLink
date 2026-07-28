@@ -6,7 +6,7 @@ use std::{
     ffi::c_void,
     slice,
     sync::{
-        atomic::{AtomicBool, AtomicI32, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering},
         Once,
     },
 };
@@ -21,6 +21,8 @@ const REGISTRATION_NOT_STARTED: i32 = 0;
 const REGISTRATION_PENDING: i32 = 1;
 const REGISTRATION_READY: i32 = 2;
 const REGISTRATION_REQUIRES_DEPLOYMENT: i32 = 3;
+const REGISTRATION_TIMED_OUT: i32 = 4;
+const REGISTRATION_TIMEOUT_MS: i64 = 30_000;
 
 pub(crate) const AUTH_RESULT_NONE: i32 = 0;
 pub(crate) const AUTH_RESULT_TEMPORARY: i32 = 1;
@@ -33,6 +35,7 @@ static HOST_THREAD_STARTED: AtomicBool = AtomicBool::new(false);
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static PAUSED: AtomicBool = AtomicBool::new(false);
 static LAST_AUTH_RESULT: AtomicI32 = AtomicI32::new(AUTH_RESULT_NONE);
+static REGISTRATION_STARTED_AT_MS: AtomicI64 = AtomicI64::new(0);
 
 pub(crate) fn set_last_auth_result(result: i32) {
     LAST_AUTH_RESULT.store(result, Ordering::Release);
@@ -91,6 +94,7 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     crate::ios_voice_call::reset_voice_call();
     PAUSED.store(false, Ordering::Release);
     ACTIVE.store(true, Ordering::Release);
+    REGISTRATION_STARTED_AT_MS.store(hbb_common::get_time(), Ordering::Release);
     crate::ios_broadcast_audio::start();
 
     if HOST_THREAD_STARTED
@@ -106,14 +110,33 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
 
 #[no_mangle]
 pub extern "C" fn kq_ios_broadcast_registration_state() -> i32 {
-    if !ACTIVE.load(Ordering::Acquire) {
+    registration_state_for(
+        ACTIVE.load(Ordering::Acquire),
+        crate::rendezvous_mediator::NEEDS_DEPLOY.load(Ordering::Acquire),
+        Config::get_key_confirmed(),
+        REGISTRATION_STARTED_AT_MS.load(Ordering::Acquire),
+        hbb_common::get_time(),
+    )
+}
+
+fn registration_state_for(
+    active: bool,
+    needs_deployment: bool,
+    key_confirmed: bool,
+    started_at_ms: i64,
+    now_ms: i64,
+) -> i32 {
+    if !active {
         return REGISTRATION_NOT_STARTED;
     }
-    if crate::rendezvous_mediator::NEEDS_DEPLOY.load(Ordering::Acquire) {
+    if needs_deployment {
         return REGISTRATION_REQUIRES_DEPLOYMENT;
     }
-    if Config::get_key_confirmed() {
+    if key_confirmed {
         return REGISTRATION_READY;
+    }
+    if started_at_ms > 0 && now_ms.saturating_sub(started_at_ms) >= REGISTRATION_TIMEOUT_MS {
+        return REGISTRATION_TIMED_OUT;
     }
     REGISTRATION_PENDING
 }
@@ -239,6 +262,7 @@ pub extern "C" fn kq_ios_broadcast_resume() {
 pub extern "C" fn kq_ios_broadcast_stop() {
     ACTIVE.store(false, Ordering::Release);
     PAUSED.store(false, Ordering::Release);
+    REGISTRATION_STARTED_AT_MS.store(0, Ordering::Release);
     crate::ios_voice_call::reset_voice_call();
     crate::ios_broadcast_audio::stop();
     scrap::clear_bgra_frames();

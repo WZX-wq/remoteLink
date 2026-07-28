@@ -1,4 +1,4 @@
-const int kqStandardRemoteStreamQuality = 100;
+const int kqStandardRemoteStreamQuality = 60;
 const int kqHighDefinitionRemoteStreamQuality = 150;
 const double kqStandardRemoteBlurSigma = 0.0;
 

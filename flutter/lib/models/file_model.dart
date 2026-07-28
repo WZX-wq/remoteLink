@@ -27,6 +27,88 @@ enum SortBy {
   }
 }
 
+const kFileTransferDisconnectedError = 'file-transfer-remote-disconnected';
+
+enum FileTransferFailureKind {
+  none,
+  oneWay,
+  permission,
+  insufficientStorage,
+  disconnected,
+  unknown,
+}
+
+FileTransferFailureKind classifyFileTransferFailure(String error) {
+  final normalized = error.trim().toLowerCase();
+  if (normalized.isEmpty || normalized == 'skipped') {
+    return FileTransferFailureKind.none;
+  }
+  if (normalized == _kOneWayFileTransferError) {
+    return FileTransferFailureKind.oneWay;
+  }
+  if (normalized == kFileTransferDisconnectedError ||
+      normalized.contains('connection closed') ||
+      normalized.contains('connection reset') ||
+      normalized.contains('broken pipe') ||
+      normalized.contains('disconnected')) {
+    return FileTransferFailureKind.disconnected;
+  }
+  if (normalized.contains('no space') ||
+      normalized.contains('not enough space') ||
+      normalized.contains('not enough space on the disk') ||
+      normalized.contains('not enough disk space') ||
+      normalized.contains('disk full') ||
+      normalized.contains('disk quota exceeded') ||
+      normalized.contains('storage full') ||
+      normalized.contains('enospc') ||
+      normalized.contains('os error 28') ||
+      normalized.contains('os error 112')) {
+    return FileTransferFailureKind.insufficientStorage;
+  }
+  if (normalized.contains('no permission of file transfer') ||
+      normalized.contains('permission denied') ||
+      normalized.contains('access denied') ||
+      normalized.contains('access is denied') ||
+      normalized.contains('operation not permitted') ||
+      normalized.contains('read-only file system') ||
+      normalized.contains('eacces')) {
+    return FileTransferFailureKind.permission;
+  }
+  return FileTransferFailureKind.unknown;
+}
+
+String fileTransferFailureMessage(String error) {
+  switch (classifyFileTransferFailure(error)) {
+    case FileTransferFailureKind.none:
+      return '';
+    case FileTransferFailureKind.oneWay:
+      return kqLocaleText(
+        zhCn: '被控端仅允许单向文件传输，无法写入当前目录。',
+        en: 'The controlled device only allows one-way file transfer.',
+      );
+    case FileTransferFailureKind.permission:
+      return kqLocaleText(
+        zhCn: '没有文件传输权限，请在被控端允许文件传输后重试。',
+        en: 'File transfer is not permitted by the controlled device.',
+      );
+    case FileTransferFailureKind.insufficientStorage:
+      return kqLocaleText(
+        zhCn: '目标设备存储空间不足，无法完成传输。',
+        en: 'The destination device does not have enough storage space.',
+      );
+    case FileTransferFailureKind.disconnected:
+      return kqLocaleText(
+        zhCn: '远端连接已断开，传输未完成。',
+        en: 'The remote connection was interrupted before the transfer finished.',
+      );
+    case FileTransferFailureKind.unknown:
+      return kqLocaleText(
+        zhCn: '文件传输失败，请检查网络和目标目录后重试。',
+        en: 'The file transfer failed. Check the network and destination folder.',
+      );
+  }
+}
+
 class JobID {
   int _count = 0;
   int next() {
@@ -211,7 +293,7 @@ class FileModel {
           ],
         ),
         contentBoxConstraints:
-            BoxConstraints(minHeight: 100, minWidth: 400, maxWidth: 400),
+            const BoxConstraints(minHeight: 100, maxWidth: 400),
         content: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -1034,8 +1116,13 @@ class JobController {
   }
 
   void jobError(Map<String, dynamic> evt) {
-    final err = evt['err'].toString();
-    int jobIndex = getJob(int.parse(evt['id']));
+    final err = evt['err']?.toString() ?? '';
+    final id = int.tryParse(evt['id']?.toString() ?? '');
+    if (id == null) {
+      debugPrint('jobError ignored without a valid job id: $evt');
+      return;
+    }
+    int jobIndex = getJob(id);
     if (jobIndex != -1) {
       final job = jobTable[jobIndex];
       job.state = JobState.error;
@@ -1071,6 +1158,25 @@ class JobController {
       }
     }
     debugPrint("jobError $evt");
+  }
+
+  void failActiveTransfers(String error) {
+    var changed = false;
+    for (final job in jobTable) {
+      if (job.type != JobType.transfer ||
+          (job.state != JobState.inProgress &&
+              job.state != JobState.none &&
+              job.state != JobState.paused)) {
+        continue;
+      }
+      job.state = JobState.error;
+      job.err = error;
+      job.recvJobRes = true;
+      changed = true;
+    }
+    if (changed) {
+      jobTable.refresh();
+    }
   }
 
   void updateJobStatus(int id,
@@ -1537,6 +1643,9 @@ class JobProgress {
     if (type == JobType.transfer) {
       if (state == JobState.done && err == "skipped") {
         return translate("Skipped");
+      }
+      if (state == JobState.error) {
+        return fileTransferFailureMessage(err);
       }
     } else if (type == JobType.deleteFile) {
       if (err == "cancel") {

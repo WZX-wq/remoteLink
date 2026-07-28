@@ -1064,8 +1064,8 @@ class FfiModel with ChangeNotifier {
       String type, String title, String text) {
     final failureCopy = presentKqConnectionFailure(text);
     final reason = kqLocaleText(zhCn: failureCopy.zhCn, en: failureCopy.en);
-    final isKqIOS = appName == '鲲穹远程桌面' && isIOS && !isWeb;
-    if (isKqIOS) {
+    final isKqMobile = appName == '鲲穹远程桌面' && isMobile && !isWeb;
+    if (isKqMobile) {
       if (_connectionFailureCloseStarted) {
         debugPrint(
             '[connectionFailure] Mobile failure cleanup already started for session $sessionId.');
@@ -2479,9 +2479,12 @@ class ImageModel with ChangeNotifier {
             height: rect.height.toInt(),
             sessionId: sessionId.toString(),
           ).then((path) {
-            platformFFI.logRgbaStage(sessionId,
+            platformFFI.logRgbaStage(
+                sessionId,
                 path == null ? 'raw-frame-save-skipped' : 'raw-frame-saved',
-                display, rect.width.toInt(), rect.height.toInt());
+                display,
+                rect.width.toInt(),
+                rect.height.toInt());
           }).catchError((_) {
             platformFFI.logRgbaStage(
                 sessionId, 'raw-frame-save-error', display);
@@ -4565,6 +4568,10 @@ class FFI {
       () async {
         if (message is EventToUI_Event) {
           if (message.field0 == "close") {
+            if (connType == ConnType.fileTransfer) {
+              fileModel.jobController
+                  .failActiveTransfers(kFileTransferDisconnectedError);
+            }
             closed = true;
             debugPrint('Exit session event loop');
             return;

@@ -98,7 +98,7 @@ void main() {
       kqRemoteStreamQuality(highDefinition: true),
       kqHighDefinitionRemoteStreamQuality,
     );
-    expect(kqStandardRemoteStreamQuality, 100);
+    expect(kqStandardRemoteStreamQuality, 60);
     expect(kqHighDefinitionRemoteStreamQuality, 150);
     expect(kqStandardRemoteStreamQuality,
         lessThan(kqHighDefinitionRemoteStreamQuality));
@@ -114,8 +114,7 @@ void main() {
     );
   });
 
-  testWidgets('standard quality is not artificially blurred',
-      (tester) async {
+  testWidgets('standard quality is not artificially blurred', (tester) async {
     await tester.pumpWidget(const Directionality(
       textDirection: TextDirection.ltr,
       child: KqRemoteQualityPresentation(

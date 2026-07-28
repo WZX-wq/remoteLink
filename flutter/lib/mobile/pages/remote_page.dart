@@ -6,7 +6,6 @@ import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/toolbar.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/mobile/widgets/floating_mouse.dart';
-import 'package:flutter_hbb/mobile/widgets/floating_mouse_widgets.dart';
 import 'package:flutter_hbb/mobile/widgets/gesture_help.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_keyboard_visibility/flutter_keyboard_visibility.dart';
@@ -820,15 +819,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           if (showCursorPaint) {
             paints.add(CursorPaint(widget.id));
           }
-          if (gFFI.ffiModel.touchMode) {
-            paints.add(FloatingMouse(
-              ffi: gFFI,
-            ));
-          } else {
-            paints.add(FloatingMouseWidgets(
-              ffi: gFFI,
-            ));
-          }
+          paints.add(FloatingMouse(
+            ffi: gFFI,
+          ));
           paints.add(_remoteSideActionRail());
           return paints;
         }()));
@@ -1395,16 +1388,6 @@ void showOptions(
   final cursorToggles = await toolbarCursor(context, id, gFFI);
   final displayToggles = await toolbarDisplayToggle(context, id, gFFI);
 
-  var privacyModeList = <TToggleMenu>[];
-  final privacyModeState = PrivacyModeState.find(id);
-  if ((gFFI.ffiModel.pi.features.privacyMode && gFFI.ffiModel.keyboard) ||
-      privacyModeState.isNotEmpty) {
-    privacyModeList = toolbarPrivacyMode(privacyModeState, context, id, gFFI);
-    if (privacyModeList.length == 1) {
-      displayToggles.add(privacyModeList[0]);
-    }
-  }
-
   var viewStyle =
       viewStyleRadios.isNotEmpty ? viewStyleRadios.first.groupValue : '';
   var imageQuality =
@@ -1572,9 +1555,7 @@ void showOptions(
                             ),
                         ]),
                       ),
-                    if (resolution != null ||
-                        virtualDisplayMenu != null ||
-                        privacyModeList.length > 1)
+                    if (resolution != null || virtualDisplayMenu != null)
                       _RemoteOptionSection(
                         title: kqLocaleText(zhCn: '高级', en: 'Advanced'),
                         icon: Icons.tune_rounded,
@@ -1589,14 +1570,6 @@ void showOptions(
                               label: virtualDisplayMenu.child,
                               onTap: () =>
                                   closeThen(virtualDisplayMenu.onPressed),
-                            ),
-                          if (privacyModeList.length > 1)
-                            _RemoteOptionAction(
-                              label: Text(translate('Privacy mode')),
-                              onTap: () => closeThen(() => setPrivacyModeDialog(
-                                  dialogManager,
-                                  privacyModeList,
-                                  privacyModeState)),
                             ),
                         ]),
                       ),
