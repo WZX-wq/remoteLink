@@ -1940,8 +1940,9 @@ pub fn elevate_portable(_id: i32) {
 #[inline]
 pub fn handle_incoming_voice_call(id: i32, accept: bool) {
     if let Some(client) = CLIENTS.read().unwrap().get(&id) {
-        // Not handled in iOS yet.
-        #[cfg(not(any(target_os = "ios")))]
+        // iOS has no in-process CM IPC sender. Its broadcast-host voice calls
+        // are answered through the App Group protocol in `ios_voice_call`.
+        #[cfg(not(target_os = "ios"))]
         allow_err!(client.tx.send(Data::VoiceCallResponse(accept)));
     };
 }
@@ -1950,8 +1951,8 @@ pub fn handle_incoming_voice_call(id: i32, accept: bool) {
 #[inline]
 pub fn close_voice_call(id: i32) {
     if let Some(client) = CLIENTS.read().unwrap().get(&id) {
-        // Not handled in iOS yet.
-        #[cfg(not(any(target_os = "ios")))]
+        // See `handle_incoming_voice_call`: iOS broadcast calls use App Group IPC.
+        #[cfg(not(target_os = "ios"))]
         allow_err!(client.tx.send(Data::CloseVoiceCall("".to_owned())));
     };
 }

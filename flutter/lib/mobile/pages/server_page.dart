@@ -273,6 +273,7 @@ class _IOSScreenShareBroadcastMvpState
   Timer? _broadcastStatusTimer;
   Map<String, dynamic>? _broadcastStatus;
   bool _voiceCallActive = false;
+  bool _registeredIdFetched = false;
 
   @override
   void initState() {
@@ -294,16 +295,24 @@ class _IOSScreenShareBroadcastMvpState
     try {
       final response = await _kqIOSBroadcastChannel
           .invokeMethod<Map<dynamic, dynamic>>('get_broadcast_status');
-      if (mounted && response != null) {
-        final status = Map<String, dynamic>.fromEntries(
-          response.entries.map(
-            (entry) => MapEntry(entry.key.toString(), entry.value),
-          ),
-        );
+      if (mounted) {
+        final status = response == null
+            ? null
+            : Map<String, dynamic>.fromEntries(
+                response.entries.map(
+                  (entry) => MapEntry(entry.key.toString(), entry.value),
+                ),
+              );
         setState(() {
           _broadcastStatus = status;
         });
-        if (_registeredBroadcastDeviceId() != null) {
+        final registrationReady = _broadcastRegistrationReady(status);
+        if (!registrationReady) {
+          _registeredIdFetched = false;
+        } else if (!_registeredIdFetched) {
+          _registeredIdFetched = true;
+          // The Rust core reads this value from the App Group canonical ID file.
+          // Do not copy the extension telemetry ID into the main app state.
           await gFFI.serverModel.fetchID();
         }
       }
@@ -344,8 +353,8 @@ class _IOSScreenShareBroadcastMvpState
     }
   }
 
-  bool _hasBroadcastHeartbeat() {
-    final status = _broadcastStatus;
+  bool _hasBroadcastHeartbeat([Map<String, dynamic>? status]) {
+    status ??= _broadcastStatus;
     if (status == null || status['isFresh'] != true) return false;
     return const <String>{
       'starting',
@@ -366,18 +375,11 @@ class _IOSScreenShareBroadcastMvpState
     return audioSupported == true;
   }
 
-  String? _registeredBroadcastDeviceId() {
-    final status = _broadcastStatus;
-    if (status == null || !_hasBroadcastHeartbeat()) return null;
+  bool _broadcastRegistrationReady([Map<String, dynamic>? status]) {
+    status ??= _broadcastStatus;
+    if (status == null || !_hasBroadcastHeartbeat(status)) return false;
     final registrationState = status['registrationState'];
-    if (registrationState is! num || registrationState.toInt() != 2) {
-      return null;
-    }
-    final deviceId = (status['deviceId'] as String? ?? '').trim();
-    if (deviceId.isEmpty || deviceId.length > 128 || deviceId.contains('\n')) {
-      return null;
-    }
-    return deviceId;
+    return registrationState is num && registrationState.toInt() == 2;
   }
 
   String? _broadcastFailureText() {
@@ -448,6 +450,13 @@ class _IOSScreenShareBroadcastMvpState
     if (registrationState is num) {
       switch (registrationState.toInt()) {
         case 2:
+          if (!_broadcastRegistrationReady()) {
+            return _iosShareText(
+              zhCn: '正在确认设备标识',
+              zhTw: '正在確認裝置識別碼',
+              en: 'Confirming device identity',
+            );
+          }
           return _iosShareText(
             zhCn: '可连接',
             zhTw: '可連線',
@@ -481,6 +490,11 @@ class _IOSScreenShareBroadcastMvpState
       _errorText = null;
     });
     try {
+      showToast(_iosShareText(
+        zhCn: '需要语音通话时，请在系统直播面板打开麦克风。',
+        zhTw: '需要語音通話時，請在系統直播面板開啟麥克風。',
+        en: 'For voice calls, turn on Microphone in the system broadcast panel.',
+      ));
       final opened = await _kqIOSBroadcastChannel
           .invokeMethod<bool>('show_broadcast_picker');
       if (!mounted) return;
@@ -533,7 +547,7 @@ class _IOSScreenShareBroadcastMvpState
   Widget build(BuildContext context) {
     final connectionAvailabilityText = _connectionAvailabilityText();
     final broadcastActive = _hasBroadcastHeartbeat();
-    final registeredDeviceId = _registeredBroadcastDeviceId();
+    final registrationReady = _broadcastRegistrationReady();
     final remoteViewAvailable = _remoteViewAvailable();
     final audioSupported = _broadcastAudioSupported();
 
@@ -545,7 +559,7 @@ class _IOSScreenShareBroadcastMvpState
         children: [
           ServerInfo(
             connectionStatusTextOverride: connectionAvailabilityText,
-            registeredDeviceId: registeredDeviceId,
+            showDeviceId: registrationReady,
             sharingActionLabel: broadcastActive
                 ? _iosShareText(
                     zhCn: remoteViewAvailable ? '正在共享' : '直播已开启',
@@ -975,7 +989,7 @@ class ServerInfo extends StatelessWidget {
   ServerInfo({
     Key? key,
     this.connectionStatusTextOverride,
-    this.registeredDeviceId,
+    this.showDeviceId = true,
     this.sharingActionLabel,
     this.sharingActionIcon,
     this.onSharingAction,
@@ -985,7 +999,7 @@ class ServerInfo extends StatelessWidget {
   final model = gFFI.serverModel;
   final emptyController = TextEditingController(text: "-");
   final String? connectionStatusTextOverride;
-  final String? registeredDeviceId;
+  final bool showDeviceId;
   final String? sharingActionLabel;
   final IconData? sharingActionIcon;
   final VoidCallback? onSharingAction;
@@ -995,7 +1009,10 @@ class ServerInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final q = KqTheme.of(context);
-    final displayedDeviceId = registeredDeviceId ?? model.serverId.value.text;
+    // The App Group ID is the only identity users can rely on. The broadcast
+    // status is transport telemetry and must never replace it while ReplayKit
+    // starts or stops.
+    final displayedDeviceId = model.serverId.value.text;
 
     void copyToClipboard(String value) {
       Clipboard.setData(ClipboardData(text: value));
@@ -1115,13 +1132,15 @@ class ServerInfo extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _DeviceSecretTile(
-            label: translate('ID'),
-            value: displayedDeviceId,
-            icon: Icons.perm_identity_rounded,
-            onCopy: () => copyToClipboard(displayedDeviceId.trim()),
-          ),
-          const SizedBox(height: 10),
+          if (showDeviceId) ...[
+            _DeviceSecretTile(
+              label: translate('ID'),
+              value: displayedDeviceId,
+              icon: Icons.perm_identity_rounded,
+              onCopy: () => copyToClipboard(displayedDeviceId.trim()),
+            ),
+            const SizedBox(height: 10),
+          ],
           _DevicePasswordTile(
             serverModel: serverModel,
             onCopy: serverModel.selectedPasswordCanCopy

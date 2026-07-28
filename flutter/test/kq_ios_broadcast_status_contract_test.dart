@@ -92,8 +92,8 @@ void main() {
     expect(handler, isNot(contains('unsupported_pixel_format')));
   });
 
-  test('iOS displays the registered broadcast ID while the broadcast runs',
-      () {
+  test('iOS displays one canonical ID while the broadcast runs', () {
+    final config = File('../libs/hbb_common/src/config.rs').readAsStringSync();
     final native = File('../src/ios_broadcast.rs').readAsStringSync();
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
@@ -106,10 +106,14 @@ void main() {
     expect(bridge, contains('kq_ios_broadcast_copy_device_id'));
     expect(handler, contains('kq_broadcast_device_id'));
     expect(delegate, contains('"deviceId"'));
-    expect(page, contains('String? _registeredBroadcastDeviceId()'));
-    expect(page, contains('registeredDeviceId: registeredDeviceId'));
-    expect(page,
-        contains('final displayedDeviceId = registeredDeviceId ?? model.serverId.value.text;'));
+    expect(page, contains('bool _broadcastRegistrationReady'));
+    expect(page, contains('showDeviceId: registrationReady'));
+    expect(config, contains('fn parse_ios_shared_device_id'));
+    expect(
+        page, contains('final displayedDeviceId = model.serverId.value.text;'));
+    expect(page, contains('Do not copy the extension telemetry ID'));
+    expect(page, isNot(contains('registeredDeviceId:')));
+    expect(page, isNot(contains('sync_ios_canonical_device_id')));
     expect(page, isNot(contains('serverIdOverride')));
   });
 
@@ -127,7 +131,9 @@ void main() {
     expect(config, contains('set_ios_shared_device_id(id);'));
     expect(config, contains('fn recover_ios_id_after_uuid_mismatch'));
     expect(config, contains('fn sync_ios_shared_device_id'));
-    expect(config, contains('kq-ios-uuid-mismatch-recovery'));
+    expect(config,
+        contains('Retrying iOS registration with the canonical device ID'));
+    expect(config, isNot(contains('IOS_UUID_MISMATCH_RECOVERY_FILE')));
     expect(ffi, contains('config::Config::sync_ios_shared_device_id();'));
     expect(delegate, contains('sharedDeviceIdFileName'));
     expect(delegate, contains('synchronizeSharedIdentityFiles'));
@@ -141,11 +147,20 @@ void main() {
         '#[cfg(not(target_os = "ios"))]\n    async fn handle_uuid_mismatch');
     expect(iosMismatchStart, greaterThanOrEqualTo(0));
     expect(nonIosMismatchStart, greaterThan(iosMismatchStart));
-    final iosMismatch = rendezvous.substring(iosMismatchStart, nonIosMismatchStart);
+    final iosMismatch =
+        rendezvous.substring(iosMismatchStart, nonIosMismatchStart);
     expect(iosMismatch, contains('Config::recover_ios_id_after_uuid_mismatch'));
     expect(iosMismatch, contains('self.register_pk(socket).await'));
     expect(iosMismatch, contains('if !identity_changed'));
     expect(iosMismatch, isNot(contains('NEEDS_DEPLOY.store(true')));
+    final recoveryStart =
+        config.indexOf('pub fn recover_ios_id_after_uuid_mismatch');
+    final recoveryEnd =
+        config.indexOf('pub fn sync_ios_shared_device_id', recoveryStart);
+    expect(recoveryStart, greaterThanOrEqualTo(0));
+    expect(recoveryEnd, greaterThan(recoveryStart));
+    expect(config.substring(recoveryStart, recoveryEnd),
+        isNot(contains('get_auto_id')));
   });
 
   test('iOS binds the App Group before starting global Rust events', () {
@@ -203,17 +218,39 @@ void main() {
     final serverPage =
         File('lib/mobile/pages/server_page.dart').readAsStringSync();
     final ffi = File('../src/flutter_ffi.rs').readAsStringSync();
+    final broadcast = File('../src/ios_broadcast.rs').readAsStringSync();
+    final handler =
+        File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
+    final bridge =
+        File('ios/KQScreenBroadcast/KQBroadcastBridge.h').readAsStringSync();
+    final info = File('ios/Runner/Info.plist').readAsStringSync();
+    final extensionInfo =
+        File('ios/KQScreenBroadcast/Info.plist').readAsStringSync();
 
     expect(serverConnection, contains('send_ios_host_voice_call_audio'));
-    expect(serverConnection, contains('bind_host_voice_call_sender'));
+    expect(serverConnection, contains('take_host_voice_call_audio'));
+    expect(serverConnection, contains('take_host_voice_call_close'));
     expect(voiceBridge, contains('send_host_voice_call_audio'));
-    expect(voiceBridge, contains('close_host_voice_call_from_ui'));
+    expect(voiceBridge, contains('HOST_CAPTURE_DIRECTORY_NAME'));
+    expect(voiceBridge, contains('push_broadcast_host_voice_audio'));
+    expect(voiceBridge, contains('request_host_voice_call_close'));
+    expect(broadcast, contains('kq_ios_broadcast_push_voice_audio_f32'));
+    expect(handler, contains('case .audioMic:'));
+    expect(handler, contains('submitMicrophoneAudio(sampleBuffer)'));
+    expect(handler, contains('"lastMicAudioAt": lastMicAudioAt'));
+    expect(serverPage, contains('系统直播面板打开麦克风'));
+    expect(handler, contains('kq_ios_broadcast_push_voice_audio_f32'));
+    expect(bridge, contains('kq_ios_broadcast_push_voice_audio_f32'));
     expect(delegate, contains('kq_ios_host_voice_call_audio'));
+    expect(delegate, contains('picker.showsMicrophoneButton = true'));
     expect(delegate, contains('get_ios_voice_call_state'));
     expect(delegate, contains('end_ios_voice_call'));
     expect(serverPage, contains('_refreshIOSVoiceCallState'));
     expect(serverPage, contains('_endIOSVoiceCall'));
     expect(ffi, contains('kq_ios_host_voice_call_end'));
+    expect(info, contains('<string>audio</string>'));
+    expect(extensionInfo, contains('NSMicrophoneUsageDescription'));
+    expect(serverConnection, contains('iOS host sent voice audio frame'));
   });
 
   test('iOS advertises its displayed ID as a registerable device', () {
@@ -325,10 +362,19 @@ void main() {
     final uiInterface = File('../src/ui_interface.rs').readAsStringSync();
 
     expect(uiInterface, contains('fn persist_mobile_temporary_password'));
+    expect(
+      uiInterface,
+      contains('fn refresh_mobile_password_credentials_if_needed'),
+    );
     expect(uiInterface, contains('Config::set_option("temporary-password"'));
     expect(uiInterface, contains('persist_mobile_temporary_password(&value);'));
     expect(uiInterface,
         contains('persist_mobile_temporary_password(&temporary_password());'));
+    expect(
+      uiInterface,
+      contains(
+          'password_security::reload_current_password_credentials_from_config();'),
+    );
   });
 
   test('iOS broadcast snapshots verification codes before sending its salt',
@@ -493,6 +539,8 @@ void main() {
     expect(passwordSecurity, contains('Config::get_existing_key_pair()'));
     expect(connection, contains('Config::set_option('));
     expect(connection, contains('keys::OPTION_TEMPORARY_PASSWORD.to_owned()'));
+    expect(connection, contains('fn rotate_temporary_password'));
+    expect(connection, contains('successful one-time use'));
   });
 
   test(

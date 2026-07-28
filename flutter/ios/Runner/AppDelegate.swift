@@ -34,6 +34,8 @@ import AVFoundation
   private let voiceCallResponseFileName = "kq-ios-voice-call-response.json"
   private let voiceCallStateFileName = "kq-ios-voice-call-state.json"
   private let voiceCallAudioFileName = "kq-ios-voice-call-audio.bin"
+  private let voiceCallReplayKitMicMarkerFileName =
+    "kq-ios-voice-call-replaykit-mic-active"
   private let voiceCallAudioRecordMagic: UInt32 = 0x4156514B
   private let voiceCallAudioHeaderSize = 16
   private let voiceCallAudioMaxSamples = 11_520
@@ -350,6 +352,9 @@ import AVFoundation
     )
     let data = try JSONSerialization.data(withJSONObject: value)
     try data.write(to: url, options: .atomic)
+    let handle = try FileHandle(forWritingTo: url)
+    handle.synchronizeFile()
+    handle.closeFile()
   }
 
   private func voiceCallNumber(_ value: Any?) -> Double? {
@@ -407,6 +412,11 @@ import AVFoundation
   }
 
   @objc private func monitorIOSVoiceCallInvitation() {
+    if let requestId = voiceInvitationRequestId,
+       !isPendingIOSVoiceCallRequest(requestId) {
+      voiceInvitationRequestId = nil
+    }
+
     guard UIApplication.shared.applicationState == .active,
           voiceInvitationRequestId == nil,
           let pending = pendingIOSVoiceCall(),
@@ -428,7 +438,23 @@ import AVFoundation
     alert.addAction(UIAlertAction(title: "接听", style: .default) { [weak self] _ in
       self?.respondToNativeIOSVoiceCall(requestId: requestId, accepted: true)
     })
-    presenter.present(alert, animated: true)
+    presenter.present(alert, animated: true) { [weak self, weak alert] in
+      guard let self = self else { return }
+      if alert?.presentingViewController == nil,
+         self.voiceInvitationRequestId == requestId {
+        self.voiceInvitationRequestId = nil
+        NSLog("Failed to present iOS voice call invitation")
+      }
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak alert] in
+      guard let self = self,
+            self.voiceInvitationRequestId == requestId,
+            alert?.presentingViewController == nil else {
+        return
+      }
+      self.voiceInvitationRequestId = nil
+      NSLog("Timed out presenting iOS voice call invitation")
+    }
   }
 
   private func voiceInvitationPresenter() -> UIViewController? {
@@ -507,6 +533,21 @@ import AVFoundation
       return
     }
     do {
+      if accepted {
+        // ReplayKit microphone buffers are the primary source while sharing.
+        // Keep the main-app recorder as a fallback for broadcasts whose system
+        // microphone switch was left off, but never turn a capture failure into
+        // a protocol-level rejection.
+        if replayKitMicrophoneIsAvailable() {
+          voiceBroadcastCaptureRequestId = nil
+          NSLog("ReplayKit microphone is active for iOS voice call")
+        } else if startIOSBroadcastHostVoiceCapture() {
+          voiceBroadcastCaptureRequestId = requestId
+        } else {
+          voiceBroadcastCaptureRequestId = nil
+          NSLog("iOS host recorder unavailable; using ReplayKit microphone")
+        }
+      }
       try writeVoiceCallJSON([
         "requestId": requestId,
         "accepted": accepted,
@@ -552,10 +593,18 @@ import AVFoundation
   private func startIOSVoicePlayback(requestId: String) {
     voicePlaybackQueue.async { [weak self] in
       guard let self = self else { return }
-      self.stopIOSVoicePlaybackLocked(deactivateAudioSession: false)
+      self.stopIOSVoicePlaybackLocked(
+        deactivateAudioSession: false,
+        stopCapture: false
+      )
       do {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        try session.setCategory(
+          .playAndRecord,
+          mode: .voiceChat,
+          options: [.defaultToSpeaker, .allowBluetoothHFP, .duckOthers]
+        )
+        try session.setPreferredSampleRate(48_000)
         try session.setActive(true)
         if !self.voicePlaybackNodeAttached {
           self.voicePlaybackEngine.attach(self.voicePlaybackNode)
@@ -592,7 +641,10 @@ import AVFoundation
     }
   }
 
-  private func stopIOSVoicePlaybackLocked(deactivateAudioSession: Bool) {
+  private func stopIOSVoicePlaybackLocked(
+    deactivateAudioSession: Bool,
+    stopCapture: Bool = true
+  ) {
     voicePlaybackTimer?.setEventHandler {}
     voicePlaybackTimer?.cancel()
     voicePlaybackTimer = nil
@@ -602,7 +654,7 @@ import AVFoundation
     voicePlaybackOffset = 0
     voicePlaybackPending.removeAll(keepingCapacity: false)
     voicePlaybackStartedAt = nil
-    if voiceBroadcastCaptureRequestId != nil {
+    if stopCapture && voiceBroadcastCaptureRequestId != nil {
       stopIOSVoiceCapture(deactivateAudioSession: false)
       voiceBroadcastCaptureRequestId = nil
     }
@@ -618,18 +670,18 @@ import AVFoundation
     guard let requestId = voicePlaybackRequestId else {
       return
     }
+    if voiceBroadcastCaptureRequestId == requestId,
+       let marker = voiceCallFileURL(voiceCallReplayKitMicMarkerFileName),
+       FileManager.default.fileExists(atPath: marker.path) {
+      stopIOSVoiceCapture(deactivateAudioSession: false)
+      voiceBroadcastCaptureRequestId = nil
+      NSLog("Stopped iOS fallback recorder after ReplayKit microphone became active")
+    }
     if let state = readVoiceCallJSON(voiceCallStateFileName),
        state["requestId"] as? String == requestId,
-       state["active"] as? Bool == true {
-      if voiceBroadcastCaptureRequestId != requestId,
-         startIOSBroadcastHostVoiceCapture() {
-        voiceBroadcastCaptureRequestId = requestId
-      }
-    } else if let state = readVoiceCallJSON(voiceCallStateFileName),
-              state["requestId"] as? String == requestId,
-              state["active"] as? Bool == false {
-      stopIOSVoicePlaybackLocked(deactivateAudioSession: true)
-      return
+       state["active"] as? Bool == false {
+        stopIOSVoicePlaybackLocked(deactivateAudioSession: true)
+        return
     }
     if let startedAt = voicePlaybackStartedAt,
        Date().timeIntervalSince(startedAt) > 10,
@@ -746,7 +798,7 @@ import AVFoundation
       self.broadcastPicker?.removeFromSuperview()
       let picker = RPSystemBroadcastPickerView(frame: .zero)
       picker.preferredExtension = self.broadcastExtensionBundleId
-      picker.showsMicrophoneButton = false
+      picker.showsMicrophoneButton = true
       picker.isAccessibilityElement = false
       picker.translatesAutoresizingMaskIntoConstraints = false
       self.broadcastPicker = picker
@@ -818,6 +870,25 @@ import AVFoundation
     result(normalizeBroadcastStatus(selectedStatus))
   }
 
+  private func replayKitMicrophoneIsAvailable() -> Bool {
+    let status = selectNewestBroadcastStatus(
+      broadcastStatusFromDefaults(),
+      loadBroadcastStatusFile()
+    )
+    guard let status = status,
+          let state = status["state"] as? String,
+          ["started", "capturing", "resumed"].contains(state),
+          let updatedAt = voiceCallNumber(status["updatedAt"]),
+          Date().timeIntervalSince1970 - updatedAt < 5 else {
+      return false
+    }
+    guard let lastMicAudioAt = voiceCallNumber(status["lastMicAudioAt"]) else {
+      return false
+    }
+    let microphoneAge = Date().timeIntervalSince1970 - lastMicAudioAt
+    return microphoneAge >= 0 && microphoneAge < 3
+  }
+
   private func broadcastStatusFromDefaults() -> [String: Any]? {
     guard let defaults = UserDefaults(suiteName: broadcastAppGroupId) else {
       return nil
@@ -827,6 +898,7 @@ import AVFoundation
       "videoFrames": defaults.integer(forKey: "kq_broadcast_video_frames"),
       "appAudioFrames": defaults.integer(forKey: "kq_broadcast_app_audio_frames"),
       "micAudioFrames": defaults.integer(forKey: "kq_broadcast_mic_audio_frames"),
+      "lastMicAudioAt": defaults.double(forKey: "kq_broadcast_last_mic_audio_at"),
       "width": defaults.integer(forKey: "kq_broadcast_width"),
       "height": defaults.integer(forKey: "kq_broadcast_height"),
       "updatedAt": defaults.double(forKey: "kq_broadcast_updated_at"),
@@ -836,6 +908,9 @@ import AVFoundation
       "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
       "deviceId": defaults.string(forKey: "kq_broadcast_device_id") ?? "",
       "audioSupported": defaults.bool(forKey: "kq_broadcast_audio_supported"),
+      "voiceMicrophoneActive": defaults.bool(
+        forKey: "kq_broadcast_voice_microphone_active"
+      ),
       "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
         ? true
         : defaults.bool(forKey: "kq_broadcast_view_only"),
@@ -876,6 +951,7 @@ import AVFoundation
         "videoFrames": 0,
         "appAudioFrames": 0,
         "micAudioFrames": 0,
+        "lastMicAudioAt": 0.0,
         "width": 0,
         "height": 0,
         "updatedAt": 0.0,

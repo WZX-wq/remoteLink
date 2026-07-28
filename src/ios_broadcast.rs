@@ -183,6 +183,21 @@ pub extern "C" fn kq_ios_broadcast_push_audio_f32(data: *const f32, sample_count
     crate::ios_broadcast_audio::push_audio_samples(samples)
 }
 
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_push_voice_audio_f32(
+    data: *const f32,
+    sample_count: usize,
+) -> i32 {
+    if !ACTIVE.load(Ordering::Acquire) {
+        return crate::ios_broadcast_audio::ERR_TRANSPORT_INACTIVE;
+    }
+    if data.is_null() || sample_count == 0 {
+        return crate::ios_voice_call::ERR_INVALID_VOICE_AUDIO;
+    }
+    let samples = unsafe { slice::from_raw_parts(data, sample_count) };
+    crate::ios_voice_call::push_broadcast_host_voice_audio(samples)
+}
+
 /// Returns remote sessions that completed the server-side subscription flow.
 /// The ReplayKit extension polls this while publishing its App Group status.
 #[no_mangle]

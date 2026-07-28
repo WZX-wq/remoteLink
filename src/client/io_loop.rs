@@ -41,9 +41,9 @@ use hbb_common::{
 };
 #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
 use hbb_common::{tokio::sync::Mutex as TokioMutex, ResultType};
-use scrap::CodecFormat;
 #[cfg(target_os = "ios")]
 use magnum_opus::{Application::Voip, Channels::Mono, Encoder};
+use scrap::CodecFormat;
 use std::{
     collections::HashMap,
     ffi::c_void,
@@ -2153,21 +2153,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 }
                 Some(message::Union::VoiceCallRequest(request)) => {
                     if request.is_connect {
-                        #[cfg(target_os = "ios")]
-                        {
-                            // iOS currently initiates voice calls but cannot
-                            // present and answer an incoming peer request in
-                            // this session type. Return a protocol response
-                            // instead of dropping the request.
-                            let response = crate::client::new_voice_call_response(
-                                request.req_timestamp,
-                                false,
-                            );
-                            allow_err!(peer.send(&response).await);
-                            self.handler
-                                .on_voice_call_closed("Voice call is unavailable on iOS");
-                        }
-                        #[cfg(not(target_os = "ios"))]
                         self.handler.on_voice_call_incoming();
                     } else {
                         log::debug!("The remote has requested to close the voice call");
@@ -2185,6 +2170,7 @@ impl<T: InvokeUiSession> Remote<T> {
                             log::debug!("Possible encountering a voice call attack.");
                         } else {
                             if response.accepted {
+                                log::info!("Voice call accepted by peer");
                                 // The peer accepted the voice call.
                                 if let Some(stopper) = self.start_voice_call() {
                                     self.stop_voice_call_sender = Some(stopper);
@@ -2194,6 +2180,7 @@ impl<T: InvokeUiSession> Remote<T> {
                                         .on_voice_call_closed("Failed to start voice call");
                                 }
                             } else {
+                                log::info!("Voice call rejected by peer");
                                 // The peer refused the voice call.
                                 self.handler
                                     .on_voice_call_closed("Voice call rejected by peer");

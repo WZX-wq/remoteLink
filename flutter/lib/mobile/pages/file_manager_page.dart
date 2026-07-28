@@ -629,11 +629,6 @@ class _FileManagerViewState extends State<FileManagerView> {
                                   child: Text(translate("Multi Select")),
                                   value: "multi_select",
                                 ),
-                                PopupMenuItem(
-                                  child: Text(translate("Properties")),
-                                  value: "properties",
-                                  enabled: false,
-                                ),
                                 if (!entries[index].isDrive &&
                                     versionCmp(gFFI.ffiModel.pi.version,
                                             "1.3.0") >=
@@ -671,7 +666,17 @@ class _FileManagerViewState extends State<FileManagerView> {
                   if (entries[index].isDirectory || entries[index].isDrive) {
                     controller.openDirectory(entries[index].path);
                   } else {
-                    // Perform file-related tasks.
+                    if (widget.selectMode.value != SelectMode.none &&
+                        !widget.selectMode.value.eq(isLocal)) {
+                      return;
+                    }
+                    if (widget.selectMode.value == SelectMode.none) {
+                      widget.selectMode.value =
+                          isLocal ? SelectMode.local : SelectMode.remote;
+                    }
+                    _selectedItems.clear();
+                    _selectedItems.add(entries[index]);
+                    setState(() {});
                   }
                 },
                 onLongPress: entries[index].isDrive

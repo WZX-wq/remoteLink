@@ -138,15 +138,33 @@ lazy_static::lazy_static! {
 
 #[cfg(target_os = "ios")]
 const IOS_SHARED_DEVICE_ID_FILE: &str = "kq-ios-device-id";
-#[cfg(target_os = "ios")]
-const IOS_UUID_MISMATCH_RECOVERY_FILE: &str = "kq-ios-uuid-mismatch-recovery";
+
+#[cfg(any(target_os = "ios", test))]
+fn parse_ios_shared_device_id(raw_id: &str) -> Option<String> {
+    let raw_id = raw_id.trim();
+    if raw_id.is_empty() {
+        return None;
+    }
+
+    let lines = raw_id.lines().map(str::trim).collect::<Vec<_>>();
+    if lines.iter().any(|line| line.is_empty()) {
+        return None;
+    }
+    let id = match lines.as_slice() {
+        // The identity-recovery format is versioned. Earlier releases copied
+        // it into the shared-ID file, so retain compatibility with it here.
+        ["v2", id] => *id,
+        [id] if *id != "v2" => *id,
+        _ => return None,
+    };
+    (!id.is_empty() && id.len() <= 128).then(|| id.to_owned())
+}
 
 #[cfg(target_os = "ios")]
 fn read_ios_shared_device_id(path: &Path) -> Option<String> {
     std::fs::read_to_string(path)
         .ok()
-        .map(|id| id.trim().to_owned())
-        .filter(|id| !id.is_empty() && id.len() <= 128)
+        .and_then(|id| parse_ios_shared_device_id(&id))
 }
 
 #[cfg(target_os = "ios")]
@@ -175,35 +193,6 @@ fn write_ios_shared_device_id(path: &Path, id: &str, replace: bool) -> std::io::
     file.sync_all()?;
     std::fs::rename(temporary, path)?;
     Ok(())
-}
-
-#[cfg(target_os = "ios")]
-fn read_ios_uuid_mismatch_recovery(path: &Path) -> Option<String> {
-    let value = std::fs::read_to_string(path).ok()?;
-    let mut lines = value.lines().map(str::trim).filter(|line| !line.is_empty());
-    let _marker_version_or_host = lines.next()?;
-    // Releases before 1.4.6 (3008970547819) stored `<host>\n<id>`. Keep
-    // accepting that form so a device that has already recovered does not
-    // begin rotating its ID after an upgrade.
-    let id = lines.next()?;
-    (!id.is_empty() && id.len() <= 128).then(|| id.to_owned())
-}
-
-#[cfg(target_os = "ios")]
-fn write_ios_uuid_mismatch_recovery(path: &Path, id: &str) -> std::io::Result<()> {
-    let Some(parent) = path.parent() else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "iOS UUID mismatch recovery has no parent directory",
-        ));
-    };
-    std::fs::create_dir_all(parent)?;
-
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-    let mut file = std::fs::File::create(&temporary)?;
-    file.write_all(format!("v2\n{id}\n").as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(temporary, path)
 }
 
 /// iOS runs the main app and the ReplayKit extension in separate processes.
@@ -753,11 +742,7 @@ pub fn store_path<T: serde::Serialize>(path: PathBuf, cfg: T) -> crate::ResultTy
     #[cfg(not(windows))]
     {
         use std::os::unix::fs::PermissionsExt;
-        confy::store_path_perms(
-            &path,
-            cfg,
-            fs::Permissions::from_mode(0o600),
-        )?;
+        confy::store_path_perms(&path, cfg, fs::Permissions::from_mode(0o600))?;
         // On iOS, force sync to disk to ensure broadcast extension sees the update
         #[cfg(target_os = "ios")]
         {
@@ -834,8 +819,16 @@ impl Config {
             #[cfg(target_os = "ios")]
             log::error!(
                 "iOS config has invalid ID - enc_id: '{}', id: '{}', keypair_len: ({}, {})",
-                if config.enc_id.is_empty() { "empty" } else { "present" },
-                if config.id.is_empty() { "empty" } else { "present" },
+                if config.enc_id.is_empty() {
+                    "empty"
+                } else {
+                    "present"
+                },
+                if config.id.is_empty() {
+                    "empty"
+                } else {
+                    "present"
+                },
                 config.key_pair.0.len(),
                 config.key_pair.1.len()
             );
@@ -1197,42 +1190,15 @@ impl Config {
         config.store();
     }
 
-    /// A UUID mismatch can mean the rendezvous service still has an identity
-    /// from an older iOS installation. Migrate exactly once per App Group,
-    /// regardless of which rendezvous address reports the mismatch. The main
-    /// app and ReplayKit extension can register against differently formatted
-    /// addresses for the same service, so scoping this recovery to `host`
-    /// caused a new random ID to be generated on every broadcast restart.
+    /// A UUID mismatch must never change an iOS user's visible device ID.
+    /// The main app and ReplayKit extension share a durable UUID and ID via
+    /// the App Group. Re-registering that pair is safe; generating a random
+    /// replacement ID makes the device appear to change whenever ReplayKit
+    /// starts and leaves the old, usable ID behind when it stops.
     #[cfg(target_os = "ios")]
     pub fn recover_ios_id_after_uuid_mismatch() -> bool {
-        let marker_path = Self::path(IOS_UUID_MISMATCH_RECOVERY_FILE);
-        if let Some(recovered_id) = read_ios_uuid_mismatch_recovery(&marker_path) {
-            if recovered_id != Self::get_id() {
-                // Upgrade an existing device to the last successfully chosen
-                // canonical ID before attempting one registration retry.
-                Self::set_id(&recovered_id);
-                log::info!("Restored the canonical iOS recovery ID after UUID mismatch");
-                return true;
-            }
-            log::warn!("iOS UUID mismatch recovery was already attempted");
-            return false;
-        }
-
-        let current_id = Self::get_id();
-        let Some(new_id) = Self::get_auto_id() else {
-            log::error!("Failed to generate an iOS recovery ID after UUID mismatch");
-            return false;
-        };
-        if new_id == current_id {
-            log::error!("Generated the existing iOS ID during UUID mismatch recovery");
-            return false;
-        }
-
-        Self::set_id(&new_id);
-        if let Err(err) = write_ios_uuid_mismatch_recovery(&marker_path, &new_id) {
-            log::error!("Failed to persist iOS UUID mismatch recovery marker: {err}");
-        }
-        log::info!("Migrated iOS identity after UUID mismatch");
+        let _ = Self::sync_ios_shared_device_id();
+        log::warn!("Retrying iOS registration with the canonical device ID after UUID mismatch");
         true
     }
 
@@ -1465,6 +1431,17 @@ impl Config {
 
     pub fn get_id() -> String {
         let mut id = CONFIG.read().unwrap().id.clone();
+        #[cfg(target_os = "ios")]
+        if let Some(shared_id) = get_or_create_ios_shared_device_id(&id) {
+            if id != shared_id {
+                let mut config = CONFIG.write().unwrap();
+                if config.id != shared_id {
+                    config.id = shared_id.clone();
+                    config.store();
+                }
+            }
+            return shared_id;
+        }
         if id.is_empty() {
             if let Some(tmp) = Config::gen_id() {
                 id = tmp;
@@ -3523,6 +3500,23 @@ mod tests {
         let cfg: PeerConfig = Default::default();
         let res = toml::to_string_pretty(&cfg);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_parse_ios_shared_device_id_accepts_legacy_and_versioned_formats() {
+        assert_eq!(
+            parse_ios_shared_device_id("123456789"),
+            Some("123456789".to_owned())
+        );
+        assert_eq!(
+            parse_ios_shared_device_id("v2\n123456789\n"),
+            Some("123456789".to_owned())
+        );
+        assert_eq!(parse_ios_shared_device_id("v2\n"), None);
+        assert_eq!(
+            parse_ios_shared_device_id("v2\n123456789\nunexpected"),
+            None
+        );
     }
 
     #[test]

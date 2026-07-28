@@ -44,6 +44,7 @@ void main() {
 
   test('deleting recent account devices hides them before the next reload', () {
     final peerCard = _read('lib/common/widgets/peer_card.dart');
+    final peerTab = _read('lib/common/widgets/peer_tab_page.dart');
     final peerModel = _read('lib/models/peer_model.dart');
     final peersView = _read('lib/common/widgets/peers_view.dart');
     final api = _read('lib/common/kq_project_api.dart');
@@ -54,6 +55,14 @@ void main() {
       peerCard,
       contains(
           'gFFI.recentPeersModel.removePeerById(id, notifyIfMissing: true);'),
+    );
+    expect(peerTab,
+        contains('final peers = List<Peer>.from(model.selectedPeers);'));
+    expect(peerTab, contains('KqProjectApi.markAccountDeviceHidden(p);'));
+    expect(
+      peerTab,
+      contains(
+          'gFFI.recentPeersModel.removePeerById(\n                    p.id,'),
     );
     expect(api, contains('filterHiddenAccountDevices'));
     expect(

@@ -459,6 +459,23 @@ fn persist_mobile_temporary_password(password: &str) {
     Config::set_option("temporary-password".to_owned(), password.to_owned());
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn refresh_mobile_password_credentials_if_needed(key: &str) {
+    use hbb_common::config::keys;
+
+    if matches!(
+        key,
+        "temporary-password"
+            | keys::OPTION_KQ_DAILY_PASSWORD
+            | keys::OPTION_KQ_DAILY_PASSWORD_DATE
+            | keys::OPTION_KQ_PERMANENT_PASSWORD_PREVIEW
+            | keys::OPTION_VERIFICATION_METHOD
+            | keys::OPTION_APPROVE_MODE
+    ) {
+        password_security::reload_current_password_credentials_from_config();
+    }
+}
+
 #[inline]
 pub fn set_option(key: String, value: String) {
     if key == "temporary-password" {
@@ -478,6 +495,7 @@ pub fn set_option(key: String, value: String) {
                 password_security::set_temporary_password(&value);
                 persist_mobile_temporary_password(&value);
             }
+            refresh_mobile_password_credentials_if_needed("temporary-password");
         }
         return;
     }
@@ -521,7 +539,9 @@ pub fn set_option(key: String, value: String) {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let _nat = crate::CheckTestNatType::new();
+        let key_for_refresh = key.clone();
         Config::set_option(key, value);
+        refresh_mobile_password_credentials_if_needed(&key_for_refresh);
     }
 }
 
@@ -712,6 +732,7 @@ pub fn set_permanent_password_with_result(password: String) -> bool {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         config::Config::set_permanent_password(&password);
+        password_security::reload_current_password_credentials_from_config();
         return true;
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]

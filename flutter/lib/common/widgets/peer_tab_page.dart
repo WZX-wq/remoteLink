@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:flutter_hbb/common/widgets/address_book.dart';
 import 'package:flutter_hbb/common/widgets/dialog.dart';
 import 'package:flutter_hbb/common/widgets/my_group.dart';
@@ -625,11 +626,16 @@ class _PeerTabPageState extends State<PeerTabPage>
         toolTip: translate('Delete'),
         onTap: () {
           onSubmit() async {
-            final peers = model.selectedPeers;
+            final peers = List<Peer>.from(model.selectedPeers);
             switch (model.currentTab) {
               case 0:
                 for (var p in peers) {
                   await deleteKqRecentPeer(p.id);
+                  KqProjectApi.markAccountDeviceHidden(p);
+                  gFFI.recentPeersModel.removePeerById(
+                    p.id,
+                    notifyIfMissing: true,
+                  );
                 }
                 bind.mainLoadRecentPeers();
                 break;

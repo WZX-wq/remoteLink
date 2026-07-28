@@ -1781,7 +1781,7 @@ unsafe extern "C" fn kq_ios_host_voice_call_audio(samples: *const f32, sample_le
 #[cfg(target_os = "ios")]
 #[no_mangle]
 extern "C" fn kq_ios_host_voice_call_end() -> bool {
-    crate::ios_voice_call::close_host_voice_call_from_ui()
+    crate::ios_voice_call::request_host_voice_call_close()
 }
 
 pub fn session_get_conn_token(session_id: SessionID) -> SyncReturn<Option<String>> {

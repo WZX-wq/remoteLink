@@ -20,18 +20,24 @@ void setTemporaryPasswordLengthDialog(
   if (index < 0) index = 0;
   length = lengths[index];
   dialogManager.show((setState, close, context) {
-    setLength(newValue) {
+    var saving = false;
+
+    setLength(newValue) async {
       final oldValue = length;
-      if (oldValue == newValue) return;
+      if (oldValue == newValue || saving) return;
       setState(() {
         length = newValue;
+        saving = true;
       });
-      bind.mainSetOption(key: "temporary-password-length", value: newValue);
-      bind.mainUpdateTemporaryPassword();
-      Future.delayed(Duration(milliseconds: 200), () {
+      try {
+        await gFFI.serverModel.setTemporaryPasswordLength(newValue);
         close();
         _showSuccess();
-      });
+      } catch (error) {
+        debugPrint('Failed to update one-time password length: $error');
+        setState(() => saving = false);
+        showToast(translate('Failed'));
+      }
     }
 
     return CustomAlertDialog(
@@ -44,7 +50,9 @@ void setTemporaryPasswordLengthDialog(
                   children: [
                     Text(value),
                     Radio(
-                        value: value, groupValue: length, onChanged: setLength),
+                        value: value,
+                        groupValue: length,
+                        onChanged: saving ? null : setLength),
                   ],
                 ),
               )

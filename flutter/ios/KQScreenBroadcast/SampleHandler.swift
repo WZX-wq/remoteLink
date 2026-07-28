@@ -16,8 +16,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var videoFrameCount = 0
   private var appAudioFrameCount = 0
   private var micAudioFrameCount = 0
+  private var lastMicAudioAt = 0.0
   private var transportStarted = false
   private var audioForwardingActive = false
+  private var micAudioForwardingActive = false
   private var scaledFrame = [UInt8]()
   private var audioConverters = [String: AVAudioConverter]()
   private var convertedPixelBuffer: CVPixelBuffer?
@@ -31,6 +33,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
     channels: 2,
     interleaved: true
   )!
+  private let voiceAudioFormat = AVAudioFormat(
+    commonFormat: .pcmFormatFloat32,
+    sampleRate: 48_000,
+    channels: 1,
+    interleaved: true
+  )!
 
   override init() {
     defaults = UserDefaults(suiteName: appGroupId)
@@ -42,8 +50,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     videoFrameCount = 0
     appAudioFrameCount = 0
     micAudioFrameCount = 0
+    lastMicAudioAt = 0
     transportStarted = false
     audioForwardingActive = false
+    micAudioForwardingActive = false
     audioConverters.removeAll()
     capturedWidth = 0
     capturedHeight = 0
@@ -97,6 +107,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
     transportStarted = false
     audioForwardingActive = false
+    micAudioForwardingActive = false
+    lastMicAudioAt = 0
     audioConverters.removeAll()
     publishStatus(state: "finished", transportState: "stopped")
   }
@@ -216,10 +228,40 @@ final class SampleHandler: RPBroadcastSampleHandler {
         )
       }
     case .audioMic:
-      // Screen-sharing audio is application sound. Microphone audio remains in
-      // the existing voice-call channel so the two independent sources do not
-      // get mixed twice and create echo for the remote viewer.
       micAudioFrameCount += 1
+      lastMicAudioAt = Date().timeIntervalSince1970
+      guard transportStarted else {
+        return
+      }
+      let audioResult = submitMicrophoneAudio(sampleBuffer)
+      if audioResult == 0 {
+        let becameActive = !micAudioForwardingActive
+        micAudioForwardingActive = true
+        if becameActive || micAudioFrameCount % 100 == 0 {
+          NSLog("[KQBroadcast] forwarded \(micAudioFrameCount) microphone buffers")
+          publishStatus(
+            state: "capturing",
+            transportState: registrationTransportState()
+          )
+        }
+      } else if audioResult == 7 {
+        // ReplayKit provides microphone buffers for the whole broadcast. Rust
+        // intentionally discards them until a voice call is accepted.
+        micAudioForwardingActive = false
+        if micAudioFrameCount == 1 {
+          publishStatus(
+            state: "capturing",
+            transportState: registrationTransportState()
+          )
+        }
+      } else if micAudioFrameCount == 1 || micAudioFrameCount % 100 == 0 {
+        micAudioForwardingActive = false
+        publishStatus(
+          state: "capturing",
+          transportState: registrationTransportState(),
+          errorCode: "voice_audio_submit_\(audioResult)"
+        )
+      }
     @unknown default:
       publishStatus(state: "unknown")
     }
@@ -252,6 +294,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "videoFrames": videoFrameCount,
       "appAudioFrames": appAudioFrameCount,
       "micAudioFrames": micAudioFrameCount,
+      "lastMicAudioAt": lastMicAudioAt,
       "width": capturedWidth,
       "height": capturedHeight,
       "updatedAt": timestamp,
@@ -262,6 +305,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "remoteViewerCount": viewerCount,
       "deviceId": broadcastDeviceId(),
       "audioSupported": audioForwardingActive,
+      "voiceMicrophoneActive": micAudioForwardingActive,
       "viewOnly": true,
       "errorCode": errorCode ?? registrationErrorCode(for: registrationState) ?? "",
     ]
@@ -272,6 +316,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(videoFrameCount, forKey: "kq_broadcast_video_frames")
     defaults.set(appAudioFrameCount, forKey: "kq_broadcast_app_audio_frames")
     defaults.set(micAudioFrameCount, forKey: "kq_broadcast_mic_audio_frames")
+    defaults.set(lastMicAudioAt, forKey: "kq_broadcast_last_mic_audio_at")
     defaults.set(capturedWidth, forKey: "kq_broadcast_width")
     defaults.set(capturedHeight, forKey: "kq_broadcast_height")
     defaults.set(timestamp, forKey: "kq_broadcast_updated_at")
@@ -281,6 +326,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(status["deviceId"], forKey: "kq_broadcast_device_id")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
+    defaults.set(
+      micAudioForwardingActive,
+      forKey: "kq_broadcast_voice_microphone_active"
+    )
     defaults.set(true, forKey: "kq_broadcast_view_only")
     defaults.set(status["errorCode"], forKey: "kq_broadcast_error_code")
     defaults.synchronize()
@@ -478,7 +527,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     let key = "\(inputFormat.sampleRate)-\(inputFormat.channelCount)-\(inputFormat.isInterleaved)-\(inputFormat.commonFormat)"
-    guard let converter = audioConverter(for: inputFormat, key: key) else {
+    guard let converter = audioConverter(
+      for: inputFormat,
+      outputFormat: outputAudioFormat,
+      key: key
+    ) else {
       return 13
     }
     let outputCapacity = AVAudioFrameCount(max(
@@ -525,11 +578,91 @@ final class SampleHandler: RPBroadcastSampleHandler {
     )
   }
 
-  private func audioConverter(for inputFormat: AVAudioFormat, key: String) -> AVAudioConverter? {
+  private func submitMicrophoneAudio(_ sampleBuffer: CMSampleBuffer) -> Int32 {
+    guard let description = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+      return 20
+    }
+    let inputFormat = AVAudioFormat(cmAudioFormatDescription: description)
+    let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+    guard frameCount > 0,
+          let inputBuffer = AVAudioPCMBuffer(
+            pcmFormat: inputFormat,
+            frameCapacity: AVAudioFrameCount(frameCount)
+          ) else {
+      return 21
+    }
+    inputBuffer.frameLength = AVAudioFrameCount(frameCount)
+    let copyStatus = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+      sampleBuffer,
+      at: 0,
+      frameCount: Int32(frameCount),
+      into: inputBuffer.mutableAudioBufferList
+    )
+    guard copyStatus == 0 else {
+      return 22
+    }
+
+    let key = "voice-\(inputFormat.sampleRate)-\(inputFormat.channelCount)-\(inputFormat.isInterleaved)-\(inputFormat.commonFormat)"
+    guard let converter = audioConverter(
+      for: inputFormat,
+      outputFormat: voiceAudioFormat,
+      key: key
+    ) else {
+      return 23
+    }
+    let outputCapacity = AVAudioFrameCount(max(
+      1,
+      Int(ceil(Double(frameCount) * voiceAudioFormat.sampleRate / inputFormat.sampleRate)) + 32
+    ))
+    guard let outputBuffer = AVAudioPCMBuffer(
+      pcmFormat: voiceAudioFormat,
+      frameCapacity: outputCapacity
+    ) else {
+      return 24
+    }
+
+    var suppliedInput = false
+    var conversionError: NSError?
+    let conversionStatus = converter.convert(to: outputBuffer, error: &conversionError) {
+      _, inputStatus in
+      if suppliedInput {
+        inputStatus.pointee = .noDataNow
+        return nil
+      }
+      suppliedInput = true
+      inputStatus.pointee = .haveData
+      return inputBuffer
+    }
+    guard conversionStatus != .error,
+          conversionError == nil,
+          outputBuffer.frameLength > 0 else {
+      return 25
+    }
+
+    let audioBuffer = outputBuffer.audioBufferList.pointee.mBuffers
+    guard let data = audioBuffer.mData,
+          audioBuffer.mDataByteSize > 0 else {
+      return 26
+    }
+    let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.stride
+    guard sampleCount > 0 else {
+      return 27
+    }
+    return kq_ios_broadcast_push_voice_audio_f32(
+      data.assumingMemoryBound(to: Float.self),
+      UInt(sampleCount)
+    )
+  }
+
+  private func audioConverter(
+    for inputFormat: AVAudioFormat,
+    outputFormat: AVAudioFormat,
+    key: String
+  ) -> AVAudioConverter? {
     if let converter = audioConverters[key] {
       return converter
     }
-    guard let converter = AVAudioConverter(from: inputFormat, to: outputAudioFormat) else {
+    guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
       return nil
     }
     audioConverters[key] = converter

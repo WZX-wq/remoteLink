@@ -74,6 +74,49 @@ void main() {
     expect(page, isNot(contains('_checkPendingIOSVoiceCall')));
   });
 
+  test('iOS recovers its invitation state when an alert cannot be shown', () {
+    final native = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final monitorStart =
+        native.indexOf('@objc private func monitorIOSVoiceCallInvitation');
+    final presenterStart =
+        native.indexOf('private func voiceInvitationPresenter');
+
+    expect(monitorStart, greaterThanOrEqualTo(0));
+    expect(presenterStart, greaterThan(monitorStart));
+    final monitor = native.substring(monitorStart, presenterStart);
+    expect(monitor, contains('!isPendingIOSVoiceCallRequest(requestId)'));
+    expect(monitor, contains('Failed to present iOS voice call invitation'));
+    expect(monitor, contains('Timed out presenting iOS voice call invitation'));
+  });
+
+  test('iOS accepts independently of fallback capture and keeps two-way audio',
+      () {
+    final native = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final responseStart =
+        native.indexOf('private func finishIOSVoiceCallResponse');
+    final responseEnd = native.indexOf('private func getIOSVoiceCallState');
+    final playbackStart = native.indexOf('private func startIOSVoicePlayback');
+    final playbackEnd = native.indexOf('private func stopIOSVoicePlayback()');
+
+    expect(responseStart, greaterThanOrEqualTo(0));
+    expect(responseEnd, greaterThan(responseStart));
+    final response = native.substring(responseStart, responseEnd);
+    expect(response, contains('startIOSBroadcastHostVoiceCapture()'));
+    expect(response, contains('"accepted": accepted'));
+    expect(response, isNot(contains('"accepted": responseAccepted')));
+    expect(
+        response,
+        contains(
+            'iOS host recorder unavailable; using ReplayKit microphone'));
+    expect(playbackStart, greaterThanOrEqualTo(0));
+    expect(playbackEnd, greaterThan(playbackStart));
+    final playback = native.substring(playbackStart, playbackEnd);
+    expect(playback, contains('stopCapture: false'));
+    expect(playback, contains('.playAndRecord'));
+    expect(playback, contains('.voiceChat'));
+    expect(native, contains('picker.showsMicrophoneButton = true'));
+  });
+
   test('Rust reports voice start failure, rejection, and remote hangup', () {
     final source = File('../src/client/io_loop.rs').readAsStringSync();
     expect(source, contains('"Failed to start voice call"'));
@@ -89,8 +132,12 @@ void main() {
     final connection =
         File('lib/mobile/pages/connection_page.dart').readAsStringSync();
     final model = File('lib/models/model.dart').readAsStringSync();
+    final fileManager =
+        File('lib/mobile/pages/file_manager_page.dart').readAsStringSync();
     expect(connection, contains('isFileTransfer: true'));
     expect(connection, isNot(contains('isAndroid && isFileTransfer')));
     expect(model, contains('Clipboard.setData('));
+    expect(fileManager, contains('widget.selectMode.value ='));
+    expect(fileManager, contains('_selectedItems.add(entries[index])'));
   });
 }

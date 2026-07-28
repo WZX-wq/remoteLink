@@ -10,8 +10,8 @@ Usage:
   scripts/kq_ios_testflight_fast.sh --mode upload-existing --ipa /path/to/app.ipa
 
 Modes:
-  rust             Rebuild iOS Rust static library, Flutter iOS, archive, export, upload.
-  dart             Rebuild Flutter iOS only, archive, export, upload.
+  rust             Rebuild the iOS Rust static library, archive, export, upload.
+  dart             Archive, export, upload without rebuilding Rust.
   archive-only     Reuse existing build intermediates, archive, export, upload.
   upload-existing  Reuse an existing IPA and upload only.
 
@@ -159,6 +159,24 @@ ensure_flutter_pub_get() {
   fi
 }
 
+prepare_flutter_build_config() {
+  log "Refreshing Flutter iOS build settings for $build_name ($build_number) without compiling."
+  (
+    cd "$flutter_dir"
+    "$flutter_bin" build ios \
+      --config-only \
+      --release \
+      --build-name "$build_name" \
+      --build-number "$build_number" \
+      --no-codesign \
+      --no-pub
+  )
+  grep -Fx "FLUTTER_BUILD_NAME=$build_name" "$ios_dir/Flutter/Generated.xcconfig" >/dev/null \
+    || fail "Flutter build name was not written to Generated.xcconfig"
+  grep -Fx "FLUTTER_BUILD_NUMBER=$build_number" "$ios_dir/Flutter/Generated.xcconfig" >/dev/null \
+    || fail "Flutter build number was not written to Generated.xcconfig"
+}
+
 ensure_pods() {
   if [[ ! -d "$ios_dir/Pods" ]]; then
     log "Running pod install because Pods is missing."
@@ -166,6 +184,17 @@ ensure_pods() {
   else
     log "Reusing existing CocoaPods install."
   fi
+}
+
+verify_archive_build_number() {
+  local archive_path="$1"
+  local app_info="$archive_path/Products/Applications/Runner.app/Info.plist"
+  local extension_info="$archive_path/Products/Applications/Runner.app/PlugIns/KQScreenBroadcast.appex/Info.plist"
+  local app_build extension_build
+  app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info")"
+  extension_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$extension_info")"
+  [[ "$app_build" == "$build_number" && "$extension_build" == "$build_number" ]] \
+    || fail "Archive build numbers are inconsistent: app=$app_build extension=$extension_build expected=$build_number"
 }
 
 ios_rust_context() {
@@ -218,18 +247,6 @@ build_rust_ios() {
     cargo build --features "$rust_features" --release --target "$target" --lib -j "$cargo_jobs"
     bash "$repo_dir/scripts/ci/prepare-ios-rust-static-libs.sh" "target/$target/release"
     record_ios_rust_context
-  )
-}
-
-build_flutter_ios() {
-  log "Building Flutter iOS release build $build_name ($build_number) without codesign."
-  (
-    cd "$flutter_dir"
-    "$flutter_bin" build ios \
-      --release \
-      --build-name "$build_name" \
-      --build-number "$build_number" \
-      --no-codesign
   )
 }
 
@@ -330,8 +347,12 @@ archive_and_export() {
     CODE_SIGN_STYLE=Manual \
     MARKETING_VERSION="$build_name" \
     CURRENT_PROJECT_VERSION="$build_number" \
+    FLUTTER_BUILD_NAME="$build_name" \
+    FLUTTER_BUILD_NUMBER="$build_number" \
     OTHER_CODE_SIGN_FLAGS="--keychain $keychain" \
     -jobs "$xcode_jobs"
+
+  verify_archive_build_number "$archive_path"
 
   log "Exporting IPA."
   xcodebuild -exportArchive \
@@ -386,17 +407,19 @@ case "$mode" in
     ensure_flutter_pub_get
     ensure_pods
     build_rust_ios
-    build_flutter_ios
+    prepare_flutter_build_config
     archive_and_export
     ;;
   dart)
     ensure_flutter_pub_get
     ensure_pods
-    build_flutter_ios
+    prepare_flutter_build_config
     archive_and_export
     ;;
   archive-only)
+    ensure_flutter_pub_get
     ensure_pods
+    prepare_flutter_build_config
     archive_and_export
     ;;
 esac

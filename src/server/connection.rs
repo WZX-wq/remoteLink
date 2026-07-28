@@ -424,8 +424,6 @@ pub struct Connection {
     voice_call_request_timestamp: Option<NonZeroI64>,
     #[cfg(target_os = "ios")]
     ios_voice_call_request_id: Option<String>,
-    #[cfg(target_os = "ios")]
-    ios_voice_call_tx: mpsc::UnboundedSender<ipc::Data>,
     voice_calling: bool,
     voice_call_audio_frames_to_cm: u64,
     #[cfg(target_os = "ios")]
@@ -434,6 +432,8 @@ pub struct Connection {
     ios_voice_call_encoder: Option<Encoder>,
     #[cfg(target_os = "ios")]
     ios_voice_call_format_sent: bool,
+    #[cfg(target_os = "ios")]
+    ios_host_voice_frames_sent: u64,
     options_in_login: Option<OptionMessage>,
     #[cfg(not(any(target_os = "ios")))]
     pressed_modifiers: HashSet<rdev::Key>,
@@ -637,8 +637,6 @@ impl Connection {
             voice_call_request_timestamp: None,
             #[cfg(target_os = "ios")]
             ios_voice_call_request_id: None,
-            #[cfg(target_os = "ios")]
-            ios_voice_call_tx: tx_from_cm.clone(),
             voice_calling: false,
             voice_call_audio_frames_to_cm: 0,
             #[cfg(target_os = "ios")]
@@ -647,6 +645,8 @@ impl Connection {
             ios_voice_call_encoder: None,
             #[cfg(target_os = "ios")]
             ios_voice_call_format_sent: false,
+            #[cfg(target_os = "ios")]
+            ios_host_voice_frames_sent: 0,
             options_in_login: None,
             #[cfg(not(any(target_os = "ios")))]
             pressed_modifiers: Default::default(),
@@ -738,6 +738,14 @@ impl Connection {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         std::thread::spawn(move || Self::handle_input(_rx_input, tx_cloned));
         let mut second_timer = crate::rustdesk_interval(time::interval(Duration::from_secs(1)));
+        // `tokio::select!` does not accept a cfg-gated branch. Keep the branch
+        // syntactically present on every platform, but only wake it frequently on iOS.
+        let mut ios_voice_capture_timer =
+            crate::rustdesk_interval(time::interval(if cfg!(target_os = "ios") {
+                Duration::from_millis(50)
+            } else {
+                Duration::from_secs(24 * 60 * 60)
+            }));
 
         #[cfg(feature = "unix-file-copy-paste")]
         let rx_clip_holder;
@@ -1160,6 +1168,11 @@ impl Connection {
                     #[cfg(target_os = "ios")]
                     if let Some(request_id) = conn.ios_voice_call_request_id.clone() {
                         if let Some(accepted) = crate::ios_voice_call::take_voice_call_response(&request_id) {
+                            log::info!(
+                                "Applying iOS voice call response for request {}: accepted={}",
+                                request_id,
+                                accepted
+                            );
                             conn.handle_voice_call(accepted).await;
                         } else if crate::ios_voice_call::request_expired(&request_id) {
                             log::info!("iOS voice call invitation {} timed out", request_id);
@@ -1181,7 +1194,25 @@ impl Connection {
                     conn.file_remove_log_control.on_timer().drain(..).map(|x| conn.send_to_cm(x)).count();
                     #[cfg(feature = "hwcodec")]
                     conn.update_supported_encoding();
-                }
+                },
+                _ = ios_voice_capture_timer.tick() => {
+                    #[cfg(target_os = "ios")]
+                    {
+                        if let Some(request_id) = conn.ios_voice_call_request_id.clone() {
+                            if conn.voice_calling
+                                && crate::ios_voice_call::take_host_voice_call_close(&request_id)
+                            {
+                                log::info!("Closing iOS host voice call {} from main app", request_id);
+                                conn.close_voice_call().await;
+                                conn.send(new_voice_call_request(false)).await;
+                            } else if conn.voice_calling {
+                                for samples in crate::ios_voice_call::take_host_voice_call_audio() {
+                                    conn.send_ios_host_voice_call_audio(samples).await;
+                                }
+                            }
+                        }
+                    }
+                },
                 _ = test_delay_timer.tick() => {
                     if last_recv_time.elapsed() >= SEC30 {
                         conn.on_close("Timeout", true).await;
@@ -2439,11 +2470,23 @@ impl Connection {
         self.validate_password_plain(storage)
     }
 
+    fn rotate_temporary_password(&self, reason: &str) -> String {
+        password::update_temporary_password();
+        let new_password = password::temporary_password();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        Config::set_option(
+            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
+            new_password.clone(),
+        );
+        log::info!("Temporary password rotated after {reason}: ip={}", self.ip,);
+        new_password
+    }
+
     // This is coarse brute-force protection for the current temporary password value.
     // We only care whether the active temporary password itself was presented correctly,
-    // not whether later authorization steps succeed. A successful temporary-password
-    // match clears this state immediately, and the counter also resets whenever the
-    // temporary password changes or is rotated.
+    // not whether later authorization steps succeed. A successful one-time password
+    // match rotates the code immediately, and the failure counter also resets whenever
+    // the temporary password changes or is rotated.
     fn check_update_temporary_password(&self, temporary_password_success: bool) {
         const MAX_CONSECUTIVE_FAILURES: i32 = 10;
         #[derive(Default)]
@@ -2471,6 +2514,8 @@ impl Connection {
         }
 
         if temporary_password_success {
+            let new_password = self.rotate_temporary_password("successful one-time use");
+            state.password = new_password;
             state.failures = 0;
             return;
         }
@@ -2480,15 +2525,9 @@ impl Connection {
             return;
         }
 
-        password::update_temporary_password();
-        let new_password = password::temporary_password();
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        Config::set_option(
-            keys::OPTION_TEMPORARY_PASSWORD.to_owned(),
-            new_password.clone(),
-        );
+        let new_password = self.rotate_temporary_password("too many consecutive wrong attempts");
         log::warn!(
-            "Temporary password rotated after too many consecutive wrong attempts: failures={}, ip={}",
+            "Temporary password failure threshold reached before rotation: failures={}, ip={}",
             state.failures,
             self.ip,
         );
@@ -4790,6 +4829,15 @@ impl Connection {
                     ..Default::default()
                 });
                 self.send(message).await;
+                self.ios_host_voice_frames_sent += 1;
+                if self.ios_host_voice_frames_sent == 1
+                    || self.ios_host_voice_frames_sent % 500 == 0
+                {
+                    log::info!(
+                        "iOS host sent voice audio frame #{} to peer",
+                        self.ios_host_voice_frames_sent
+                    );
+                }
             }
             Err(err) => log::warn!("Failed to encode iOS host voice PCM: {err}"),
         }
@@ -4805,12 +4853,12 @@ impl Connection {
                 self.voice_call_audio_frames_to_cm = 0;
                 #[cfg(target_os = "ios")]
                 {
+                    self.ios_host_voice_frames_sent = 0;
+                }
+                #[cfg(target_os = "ios")]
+                {
                     if let Some(request_id) = self.ios_voice_call_request_id.as_deref() {
                         crate::ios_voice_call::activate_voice_call(request_id);
-                        crate::ios_voice_call::bind_host_voice_call_sender(
-                            request_id,
-                            self.ios_voice_call_tx.clone(),
-                        );
                     } else {
                         log::error!("Accepted iOS voice call without a pending request ID");
                     }
@@ -4833,11 +4881,17 @@ impl Connection {
                     self.ios_voice_call_decoder = None;
                     self.ios_voice_call_encoder = None;
                     self.ios_voice_call_format_sent = false;
+                    self.ios_host_voice_frames_sent = 0;
                 }
                 #[cfg(not(target_os = "ios"))]
                 self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
             }
             self.send(msg).await;
+            log::info!(
+                "Voice call response sent for connection {}: accepted={}",
+                self.inner.id(),
+                accepted
+            );
             self.voice_calling = accepted;
             if self.is_authed_view_camera_conn() {
                 if let Some(s) = self.server.upgrade() {
@@ -4865,6 +4919,7 @@ impl Connection {
             self.ios_voice_call_decoder = None;
             self.ios_voice_call_encoder = None;
             self.ios_voice_call_format_sent = false;
+            self.ios_host_voice_frames_sent = 0;
         }
         // Notify the connection manager that the voice call has been closed.
         #[cfg(not(target_os = "ios"))]
@@ -5281,6 +5336,7 @@ impl Connection {
             self.ios_voice_call_decoder = None;
             self.ios_voice_call_encoder = None;
             self.ios_voice_call_format_sent = false;
+            self.ios_host_voice_frames_sent = 0;
         }
         #[cfg(not(target_os = "ios"))]
         crate::audio_service::set_voice_call_input_device(None, true);

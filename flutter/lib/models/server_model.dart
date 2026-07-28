@@ -111,6 +111,8 @@ class ServerModel with ChangeNotifier {
   bool _permanentPreviewAutofillAttempted = false;
   KqPasswordKind _selectedPasswordKind = KqPasswordKind.oneTime;
   int _zeroClientLengthCounter = 0;
+  Future<void> _passwordOperationTail = Future.value();
+  bool _passwordRefreshQueued = false;
 
   late String _emptyIdShow;
   late final IDTextEditingController _serverId;
@@ -318,8 +320,11 @@ class ServerModel with ChangeNotifier {
   Future<void> refreshSelectedPassword() async {
     switch (_selectedPasswordKind) {
       case KqPasswordKind.oneTime:
-        await bind.mainUpdateTemporaryPassword();
-        break;
+        await _queuePasswordOperation(() async {
+          await bind.mainUpdateTemporaryPassword();
+          await _updatePasswordModelOnce();
+        });
+        return;
       case KqPasswordKind.daily:
         final password = _generatePassword();
         await setDailyPassword(password);
@@ -329,64 +334,85 @@ class ServerModel with ChangeNotifier {
         await setPermanentPasswordPreview(password);
         return;
     }
-    await updatePasswordModel();
   }
 
-  Future<void> setOneTimePassword(String password) async {
-    final value = _normalizeVerificationCode(password);
-    await bind.mainSetOption(key: kKqTemporaryPasswordControlKey, value: value);
-    if (_serverPasswd.text != value) {
-      _serverPasswd.text = value;
-      notifyListeners();
-    }
-    await updatePasswordModel();
-  }
-
-  Future<void> setDailyPassword(String password) async {
-    final value = _normalizeVerificationCode(password);
-    await bind.mainSetOption(key: kOptionKqDailyPassword, value: value);
-    await bind.mainSetOption(key: kKqTemporaryPasswordControlKey, value: value);
-    await bind.mainSetOption(
-      key: kOptionKqDailyPasswordDate,
-      value: _todayPasswordDate(),
+  Future<T> _queuePasswordOperation<T>(Future<T> Function() operation) {
+    final result = _passwordOperationTail.then<T>((_) => operation());
+    _passwordOperationTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
     );
-    if (_dailyPasswd.text != value) {
-      _dailyPasswd.text = value;
-      notifyListeners();
-    }
-    await updatePasswordModel();
+    return result;
   }
 
-  Future<bool> setPermanentPasswordPreview(String password) async {
+  Future<void> setOneTimePassword(String password) {
     final value = _normalizeVerificationCode(password);
-    final ok = await bind.mainSetPermanentPasswordWithResult(password: value);
-    if (!ok) {
-      return false;
-    }
-    await bind.mainSetOption(
-      key: kOptionKqPermanentPasswordPreview,
-      value: value,
-    );
-    _permanentPasswd.text = value;
-    _localPermanentPasswordSet = value.isNotEmpty;
-    _permanentPasswordSet = value.isNotEmpty;
-    notifyListeners();
-    await updatePasswordModel();
-    return true;
+    return _queuePasswordOperation(() async {
+      await bind.mainSetOption(
+        key: kKqTemporaryPasswordControlKey,
+        value: value,
+      );
+      if (_serverPasswd.text != value) {
+        _serverPasswd.text = value;
+        notifyListeners();
+      }
+      await _updatePasswordModelOnce();
+    });
   }
 
-  Future<bool> removePermanentPassword() async {
-    final ok = await bind.mainSetPermanentPasswordWithResult(password: "");
-    if (!ok) {
-      return false;
-    }
-    await bind.mainSetOption(key: kOptionKqPermanentPasswordPreview, value: "");
-    _permanentPasswd.text = "";
-    _localPermanentPasswordSet = false;
-    _permanentPasswordSet = false;
-    notifyListeners();
-    await updatePasswordModel();
-    return true;
+  Future<void> setDailyPassword(String password) {
+    final value = _normalizeVerificationCode(password);
+    return _queuePasswordOperation(() async {
+      await bind.mainSetOption(key: kOptionKqDailyPassword, value: value);
+      await bind.mainSetOption(
+        key: kOptionKqDailyPasswordDate,
+        value: _todayPasswordDate(),
+      );
+      if (_dailyPasswd.text != value) {
+        _dailyPasswd.text = value;
+        notifyListeners();
+      }
+      await _updatePasswordModelOnce();
+    });
+  }
+
+  Future<bool> setPermanentPasswordPreview(String password) {
+    final value = _normalizeVerificationCode(password);
+    return _queuePasswordOperation(() async {
+      final ok = await bind.mainSetPermanentPasswordWithResult(password: value);
+      if (!ok) {
+        return false;
+      }
+      await bind.mainSetOption(
+        key: kOptionKqPermanentPasswordPreview,
+        value: value,
+      );
+      _permanentPasswd.text = value;
+      _localPermanentPasswordSet = value.isNotEmpty;
+      _permanentPasswordSet = value.isNotEmpty;
+      notifyListeners();
+      await _updatePasswordModelOnce();
+      return true;
+    });
+  }
+
+  Future<bool> removePermanentPassword() {
+    return _queuePasswordOperation(() async {
+      final ok = await bind.mainSetPermanentPasswordWithResult(password: "");
+      if (!ok) {
+        return false;
+      }
+      await bind.mainSetOption(
+        key: kOptionKqPermanentPasswordPreview,
+        value: "",
+      );
+      _permanentPasswd.text = "";
+      _localPermanentPasswordSet = false;
+      _permanentPasswordSet = false;
+      notifyListeners();
+      await _updatePasswordModelOnce();
+      return true;
+    });
   }
 
   setVerificationMethod(String method) async {
@@ -407,8 +433,12 @@ class ServerModel with ChangeNotifier {
     return _temporaryPasswordLength;
   }
 
-  setTemporaryPasswordLength(String length) async {
-    await bind.mainSetOption(key: "temporary-password-length", value: length);
+  Future<void> setTemporaryPasswordLength(String length) {
+    return _queuePasswordOperation(() async {
+      await bind.mainSetOption(key: "temporary-password-length", value: length);
+      await bind.mainUpdateTemporaryPassword();
+      await _updatePasswordModelOnce();
+    });
   }
 
   String _defaultApproveMode(String mode) {
@@ -553,7 +583,21 @@ class ServerModel with ChangeNotifier {
     notifyListeners();
   }
 
-  updatePasswordModel() async {
+  Future<void> updatePasswordModel() {
+    if (_passwordRefreshQueued) {
+      return _passwordOperationTail;
+    }
+    _passwordRefreshQueued = true;
+    return _queuePasswordOperation(() async {
+      try {
+        await _updatePasswordModelOnce();
+      } finally {
+        _passwordRefreshQueued = false;
+      }
+    });
+  }
+
+  Future<void> _updatePasswordModelOnce() async {
     var update = false;
     final rawTemporaryPassword = await bind.mainGetTemporaryPassword();
     var temporaryPassword = _normalizeVerificationCode(rawTemporaryPassword);
@@ -566,6 +610,13 @@ class ServerModel with ChangeNotifier {
         await bind.mainGetOption(key: kOptionVerificationMethod);
     final temporaryPasswordLength =
         await bind.mainGetOption(key: "temporary-password-length");
+    if (_temporaryPasswordLength != temporaryPasswordLength &&
+        _temporaryPasswordLength.isNotEmpty) {
+      await bind.mainUpdateTemporaryPassword();
+      temporaryPassword = _normalizeVerificationCode(
+        await bind.mainGetTemporaryPassword(),
+      );
+    }
     var approveMode = await bind.mainGetOption(key: kOptionApproveMode);
     final normalizedApproveMode = _defaultApproveMode(approveMode);
     if (approveMode != normalizedApproveMode) {
@@ -664,9 +715,6 @@ class ServerModel with ChangeNotifier {
       update = true;
     }
     if (_temporaryPasswordLength != temporaryPasswordLength) {
-      if (_temporaryPasswordLength.isNotEmpty) {
-        bind.mainUpdateTemporaryPassword();
-      }
       _temporaryPasswordLength = temporaryPasswordLength;
       update = true;
     }
