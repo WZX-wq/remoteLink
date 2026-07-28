@@ -43,6 +43,19 @@ void main() {
     expect(actions, isNot(contains('showMenu(')));
   });
 
+  test('Android remote rail uses the redesigned mobile panels', () {
+    final page = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final start = page.indexOf('Widget _remoteSideActionRail()');
+    final end = page.indexOf('Widget _remoteSideActionButton(', start);
+
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final rail = page.substring(start, end);
+    expect(rail, contains('showOptions(context, widget.id'));
+    expect(rail, contains('showActions(widget.id)'));
+    expect(rail, isNot(contains('if (isIOS)')));
+  });
+
   test('mobile display settings use compact grouped controls', () {
     final page = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
     final start = page.indexOf('void showOptions(');
