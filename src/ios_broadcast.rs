@@ -211,6 +211,16 @@ pub extern "C" fn kq_ios_broadcast_active_viewer_count() -> usize {
 }
 
 #[no_mangle]
+pub extern "C" fn kq_ios_broadcast_voice_frames_sent() -> u64 {
+    crate::ios_voice_call::host_voice_frames_sent()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_voice_frames_received() -> u64 {
+    crate::ios_voice_call::peer_voice_frames_received()
+}
+
+#[no_mangle]
 pub extern "C" fn kq_ios_broadcast_pause() {
     PAUSED.store(true, Ordering::Release);
     crate::ios_broadcast_audio::pause();

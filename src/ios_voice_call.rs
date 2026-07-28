@@ -36,6 +36,8 @@ static BROADCAST_MIC_MARKER_PUBLISHED: AtomicBool = AtomicBool::new(false);
 static BROADCAST_FALLBACK_CLEARED: AtomicBool = AtomicBool::new(false);
 static BROADCAST_MIC_FRAMES_QUEUED: AtomicU64 = AtomicU64::new(0);
 static BROADCAST_MIC_FRAMES_DRAINED: AtomicU64 = AtomicU64::new(0);
+static HOST_VOICE_FRAMES_SENT: AtomicU64 = AtomicU64::new(0);
+static PEER_VOICE_FRAMES_RECEIVED: AtomicU64 = AtomicU64::new(0);
 
 lazy_static::lazy_static! {
     static ref BROADCAST_HOST_AUDIO: Mutex<VecDeque<f32>> = Mutex::new(VecDeque::new());
@@ -102,8 +104,26 @@ fn clear_broadcast_host_audio() {
     BROADCAST_MIC_FRAMES_DRAINED.store(0, Ordering::Release);
     BROADCAST_MIC_MARKER_PUBLISHED.store(false, Ordering::Release);
     BROADCAST_FALLBACK_CLEARED.store(false, Ordering::Release);
+    HOST_VOICE_FRAMES_SENT.store(0, Ordering::Release);
+    PEER_VOICE_FRAMES_RECEIVED.store(0, Ordering::Release);
     #[cfg(target_os = "ios")]
     remove_file(BROADCAST_MIC_ACTIVE_FILE_NAME);
+}
+
+pub(crate) fn record_host_voice_frame_sent() {
+    HOST_VOICE_FRAMES_SENT.fetch_add(1, Ordering::AcqRel);
+}
+
+pub(crate) fn record_peer_voice_frame_received() {
+    PEER_VOICE_FRAMES_RECEIVED.fetch_add(1, Ordering::AcqRel);
+}
+
+pub(crate) fn host_voice_frames_sent() -> u64 {
+    HOST_VOICE_FRAMES_SENT.load(Ordering::Acquire)
+}
+
+pub(crate) fn peer_voice_frames_received() -> u64 {
+    PEER_VOICE_FRAMES_RECEIVED.load(Ordering::Acquire)
 }
 
 #[cfg(target_os = "ios")]
@@ -405,10 +425,6 @@ pub(crate) fn send_host_voice_call_audio(samples: Vec<f32>) {
     }
 
     let directory = host_capture_directory();
-    if let Err(err) = fs::create_dir_all(&directory) {
-        log::warn!("Failed to create iOS host voice capture queue: {err}");
-        return;
-    }
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
@@ -416,18 +432,30 @@ pub(crate) fn send_host_voice_call_audio(samples: Vec<f32>) {
     let destination = directory.join(format!("{timestamp:020}-{}.bin", uuid::Uuid::new_v4()));
     let temporary = destination.with_extension("tmp");
     let payload = make_audio_record(48_000, 1, &samples);
-    match File::create(&temporary)
-        .and_then(|mut file| {
-            file.write_all(&payload)?;
-            file.sync_all()
-        })
-        .and_then(|_| fs::rename(&temporary, &destination))
-    {
-        Ok(()) => {}
-        Err(err) => {
-            let _ = fs::remove_file(&temporary);
-            log::warn!("Failed to enqueue iOS host voice capture frame: {err}");
+
+    let mut last_error = None;
+    for attempt in 0..2 {
+        let result = fs::create_dir_all(&directory)
+            .and_then(|_| File::create(&temporary))
+            .and_then(|mut file| {
+                file.write_all(&payload)?;
+                file.sync_all()
+            })
+            .and_then(|_| fs::rename(&temporary, &destination));
+        match result {
+            Ok(()) => return,
+            Err(err) if attempt == 0 && err.kind() == std::io::ErrorKind::NotFound => {
+                last_error = Some(err);
+            }
+            Err(err) => {
+                last_error = Some(err);
+                break;
+            }
         }
+    }
+    let _ = fs::remove_file(&temporary);
+    if let Some(err) = last_error {
+        log::warn!("Failed to enqueue iOS host voice capture frame after retry: {err}");
     }
 }
 

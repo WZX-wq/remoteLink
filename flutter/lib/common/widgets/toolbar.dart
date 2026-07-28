@@ -25,11 +25,13 @@ bool allowDisplaySwitchInPrivacyMode(PeerInfo pi) {
 class TTextMenu {
   final Widget child;
   final VoidCallback? onPressed;
+  final IconData? mobileIcon;
   Widget? trailingIcon;
   bool divider;
   TTextMenu(
       {required this.child,
       required this.onPressed,
+      this.mobileIcon,
       this.trailingIcon,
       this.divider = false});
 
@@ -160,6 +162,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
   if (isDefaultConn && isMobile) {
     v.add(TTextMenu(
         child: Text(translate('Reset canvas')),
+        mobileIcon: Icons.center_focus_strong_rounded,
         onPressed: () => ffi.cursorModel.reset()));
   }
 
@@ -201,6 +204,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
     v.add(
       TTextMenu(
           child: Text(translate('Note')),
+          mobileIcon: Icons.edit_note_rounded,
           onPressed: () async {
             bool isLogin =
                 bind.mainGetLocalOption(key: 'access_token').isNotEmpty;
@@ -288,6 +292,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
   if (pi.version.isNotEmpty) {
     v.add(TTextMenu(
       child: Text(translate('Refresh')),
+      mobileIcon: Icons.refresh_rounded,
       onPressed: () => sessionRefreshVideo(sessionId, pi),
     ));
   }
@@ -310,6 +315,9 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
             )
           ],
         ),
+        mobileIcon: ffi.recordingModel.start
+            ? Icons.stop_circle_outlined
+            : Icons.videocam_outlined,
         onPressed: () => ffi.recordingModel.toggle()));
   }
 

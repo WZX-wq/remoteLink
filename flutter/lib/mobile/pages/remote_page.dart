@@ -613,8 +613,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         futureBuilder(
           future: gFFI.invokeMethod("get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
           hasData: (isSupportVoiceCall) {
-            final showVoiceCall =
-                isIOS || (isAndroid && isSupportVoiceCall);
+            final showVoiceCall = isIOS || (isAndroid && isSupportVoiceCall);
             if (!showVoiceCall) {
               return const SizedBox.shrink();
             }
@@ -859,69 +858,119 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     return [
       TTextMenu(
         child: Text(translate('Back')),
+        mobileIcon: Icons.arrow_back_rounded,
         onPressed: () => gFFI.inputModel.onMobileBack(),
       ),
       TTextMenu(
         child: Text(translate('Home')),
+        mobileIcon: Icons.home_rounded,
         onPressed: () => gFFI.inputModel.onMobileHome(),
       ),
       TTextMenu(
         child: Text(translate('Apps')),
+        mobileIcon: Icons.apps_rounded,
         onPressed: () => gFFI.inputModel.onMobileApps(),
       ),
       TTextMenu(
         child: Text(translate('Volume up')),
+        mobileIcon: Icons.volume_up_rounded,
         onPressed: () => gFFI.inputModel.onMobileVolumeUp(),
       ),
       TTextMenu(
         child: Text(translate('Volume down')),
+        mobileIcon: Icons.volume_down_rounded,
         onPressed: () => gFFI.inputModel.onMobileVolumeDown(),
       ),
       TTextMenu(
         child: Text(translate('Power')),
+        mobileIcon: Icons.power_settings_new_rounded,
         onPressed: () => gFFI.inputModel.onMobilePower(),
       ),
     ];
   }
 
   void showActions(String id) async {
-    final size = MediaQuery.of(context).size;
-    final x = 120.0;
-    final y = size.height;
     final mobileActionMenus = _getMobileActionMenus();
-    final menus = toolbarControls(context, id, gFFI, includeFingerprint: false);
-
-    final List<PopupMenuEntry<int>> more = [
-      ...mobileActionMenus
-          .asMap()
-          .entries
-          .map((e) =>
-              PopupMenuItem<int>(child: e.value.getChild(), value: e.key))
-          .toList(),
-      if (mobileActionMenus.isNotEmpty) PopupMenuDivider(),
-      ...menus
-          .asMap()
-          .entries
-          .map((e) => PopupMenuItem<int>(
-              child: e.value.getChild(),
-              value: e.key + mobileActionMenus.length))
-          .toList(),
-    ];
-    () async {
-      var index = await showMenu(
-        context: context,
-        position: RelativeRect.fromLTRB(x, y, x, y),
-        items: more,
-        elevation: 8,
-      );
-      if (index != null) {
-        if (index < mobileActionMenus.length) {
-          mobileActionMenus[index].onPressed?.call();
-        } else if (index < mobileActionMenus.length + more.length) {
-          menus[index - mobileActionMenus.length].onPressed?.call();
-        }
-      }
-    }();
+    final menus = toolbarControls(context, id, gFFI, includeFingerprint: false)
+        .where((menu) => !menu.divider)
+        .toList();
+    final allMenus = <TTextMenu>[...mobileActionMenus, ...menus];
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.72,
+          ),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 8, 6),
+              child: Row(children: [
+                Expanded(
+                  child: Text(
+                    kqLocaleText(zhCn: '更多操作', en: 'More actions'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: translate('Close'),
+                  onPressed: () => Navigator.pop(sheetContext),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ]),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 12),
+                itemCount: allMenus.length,
+                separatorBuilder: (_, index) =>
+                    index + 1 == mobileActionMenus.length
+                        ? const Divider(height: 9)
+                        : const SizedBox(height: 1),
+                itemBuilder: (_, index) {
+                  final menu = allMenus[index];
+                  return ListTile(
+                    minTileHeight: 52,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    leading: Icon(
+                      menu.mobileIcon ?? Icons.tune_rounded,
+                      color: theme.colorScheme.primary,
+                    ),
+                    title: DefaultTextStyle.merge(
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15),
+                      child: menu.child,
+                    ),
+                    trailing: menu.trailingIcon,
+                    enabled: menu.onPressed != null,
+                    onTap: menu.onPressed == null
+                        ? null
+                        : () => Navigator.pop(sheetContext, index),
+                  );
+                },
+              ),
+            ),
+          ]),
+        );
+      },
+    );
+    if (selected != null && selected >= 0 && selected < allMenus.length) {
+      allMenus[selected].onPressed?.call();
+    }
   }
 
   showChatOptions(String id) async {
@@ -1339,67 +1388,14 @@ class CursorPaint extends StatelessWidget {
 
 void showOptions(
     BuildContext context, String id, OverlayDialogManager dialogManager) async {
-  var displays = <Widget>[];
   final pi = gFFI.ffiModel.pi;
-  final image = gFFI.ffiModel.getConnectionImageText();
-  if (image != null) {
-    displays.add(Padding(padding: const EdgeInsets.only(top: 8), child: image));
-  }
-  if (pi.displays.length > 1 && pi.currentDisplay != kAllDisplayValue) {
-    final cur = pi.currentDisplay;
-    final children = <Widget>[];
-    final isDarkTheme = MyTheme.currentThemeMode() == ThemeMode.dark;
-    final numColorSelected = Colors.white;
-    final numColorUnselected = isDarkTheme ? Colors.grey : Colors.black87;
-    // We can't use `Theme.of(context).primaryColor` here, the color is:
-    // - light theme: 0xff2196f3 (Colors.blue)
-    // - dark theme: 0xff212121 (the canvas color?)
-    final numBgSelected =
-        Theme.of(context).colorScheme.primary.withOpacity(0.6);
-    for (var i = 0; i < pi.displays.length; ++i) {
-      children.add(InkWell(
-          onTap: () {
-            if (i == cur) return;
-            openMonitorInTheSameTab(i, gFFI, pi);
-            gFFI.dialogManager.dismissAll();
-          },
-          child: Ink(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).hintColor),
-                  borderRadius: BorderRadius.circular(2),
-                  color: i == cur ? numBgSelected : null),
-              child: Center(
-                  child: Text((i + 1).toString(),
-                      style: TextStyle(
-                          color:
-                              i == cur ? numColorSelected : numColorUnselected,
-                          fontWeight: FontWeight.bold))))));
-    }
-    displays.add(Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 8,
-          children: children,
-        )));
-  }
-  if (displays.isNotEmpty) {
-    displays.add(const Divider(color: MyTheme.border));
-  }
+  final viewStyleRadios = await toolbarViewStyle(context, id, gFFI);
+  final imageQualityRadios = await toolbarImageQuality(context, id, gFFI);
+  final codecRadios = await toolbarCodec(context, id, gFFI);
+  final cursorToggles = await toolbarCursor(context, id, gFFI);
+  final displayToggles = await toolbarDisplayToggle(context, id, gFFI);
 
-  List<TRadioMenu<String>> viewStyleRadios =
-      await toolbarViewStyle(context, id, gFFI);
-  List<TRadioMenu<String>> imageQualityRadios =
-      await toolbarImageQuality(context, id, gFFI);
-  List<TRadioMenu<String>> codecRadios = await toolbarCodec(context, id, gFFI);
-  List<TToggleMenu> cursorToggles = await toolbarCursor(context, id, gFFI);
-  List<TToggleMenu> displayToggles =
-      await toolbarDisplayToggle(context, id, gFFI);
-
-  List<TToggleMenu> privacyModeList = [];
-  // privacy mode
+  var privacyModeList = <TToggleMenu>[];
   final privacyModeState = PrivacyModeState.find(id);
   if ((gFFI.ffiModel.pi.features.privacyMode && gFFI.ffiModel.keyboard) ||
       privacyModeState.isNotEmpty) {
@@ -1409,155 +1405,397 @@ void showOptions(
     }
   }
 
-  dialogManager.show((setState, close, context) {
-    var viewStyle =
-        (viewStyleRadios.isNotEmpty ? viewStyleRadios[0].groupValue : '').obs;
-    var imageQuality =
-        (imageQualityRadios.isNotEmpty ? imageQualityRadios[0].groupValue : '')
-            .obs;
-    var codec = (codecRadios.isNotEmpty ? codecRadios[0].groupValue : '').obs;
-    final radios = [
-      for (var e in viewStyleRadios)
-        Obx(() => getRadio<String>(
-            e.child,
-            e.value,
-            viewStyle.value,
-            e.onChanged != null
-                ? (v) {
-                    e.onChanged?.call(v);
-                    if (v != null) viewStyle.value = v;
-                  }
-                : null)),
-      // Show custom scale controls when custom view style is selected
-      Obx(() => viewStyle.value == kRemoteViewStyleCustom
-          ? MobileCustomScaleControls(ffi: gFFI)
-          : const SizedBox.shrink()),
-      const Divider(color: MyTheme.border),
-      for (var e in imageQualityRadios)
-        Obx(() {
-          final selectedCustom = e.value == kRemoteImageQualityCustom &&
-              imageQuality.value == kRemoteImageQualityCustom;
-          return getRadio<String>(
-              e.child,
-              e.value,
-              imageQuality.value,
-              e.onChanged != null
-                  ? (v) {
-                      if (v == null && selectedCustom) {
-                        e.onChanged?.call(e.value);
-                        return;
-                      }
-                      e.onChanged?.call(v);
-                      if (v != null) imageQuality.value = v;
-                    }
-                  : null,
-              toggleable: selectedCustom);
-        }),
-      const Divider(color: MyTheme.border),
-      for (var e in codecRadios)
-        Obx(() => getRadio<String>(
-            e.child,
-            e.value,
-            codec.value,
-            e.onChanged != null
-                ? (v) {
-                    e.onChanged?.call(v);
-                    if (v != null) codec.value = v;
-                  }
-                : null)),
-      if (codecRadios.isNotEmpty) const Divider(color: MyTheme.border),
-    ];
-    final rxCursorToggleValues = cursorToggles.map((e) => e.value.obs).toList();
-    final cursorTogglesList = cursorToggles
-        .asMap()
-        .entries
-        .map((e) => Obx(() => CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            value: rxCursorToggleValues[e.key].value,
-            onChanged: e.value.onChanged != null
-                ? (v) {
-                    e.value.onChanged?.call(v);
-                    if (v != null) rxCursorToggleValues[e.key].value = v;
-                  }
-                : null,
-            title: e.value.child)))
-        .toList();
+  var viewStyle =
+      viewStyleRadios.isNotEmpty ? viewStyleRadios.first.groupValue : '';
+  var imageQuality =
+      imageQualityRadios.isNotEmpty ? imageQualityRadios.first.groupValue : '';
+  var codec = codecRadios.isNotEmpty ? codecRadios.first.groupValue : '';
+  final cursorValues = cursorToggles.map((toggle) => toggle.value).toList();
+  final displayValues = displayToggles.map((toggle) => toggle.value).toList();
 
-    final rxToggleValues = displayToggles.map((e) => e.value.obs).toList();
-    final displayTogglesList = displayToggles
-        .asMap()
-        .entries
-        .map((e) => Obx(() => CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            value: rxToggleValues[e.key].value,
-            onChanged: e.value.onChanged != null
-                ? (v) {
-                    e.value.onChanged?.call(v);
-                    if (v != null) rxToggleValues[e.key].value = v;
-                  }
-                : null,
-            title: e.value.child)))
-        .toList();
-    final toggles = [
-      ...cursorTogglesList,
-      if (cursorToggles.isNotEmpty) const Divider(color: MyTheme.border),
-      ...displayTogglesList,
-    ];
+  await showModalBottomSheet<void>(
+    context: context,
+    useSafeArea: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (sheetContext, setSheetState) {
+        final theme = Theme.of(sheetContext);
+        void closeThen(VoidCallback? action) {
+          Navigator.pop(sheetContext);
+          if (action != null) {
+            Future<void>.delayed(Duration.zero, action);
+          }
+        }
 
-    Widget privacyModeWidget = Offstage();
-    if (privacyModeList.length > 1) {
-      privacyModeWidget = ListTile(
-        contentPadding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-        title: Text(translate('Privacy mode')),
-        onTap: () => setPrivacyModeDialog(
-            dialogManager, privacyModeList, privacyModeState),
-      );
-    }
+        final resolution = getResolutionMenu(gFFI, id);
+        final virtualDisplayMenu = getVirtualDisplayMenu(gFFI, id);
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.84,
+          ),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 8, 6),
+              child: Row(children: [
+                Icon(Icons.monitor_rounded,
+                    size: 21, color: theme.colorScheme.primary),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    kqLocaleText(zhCn: '屏幕设置', en: 'Display settings'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: translate('Close'),
+                  onPressed: () => Navigator.pop(sheetContext),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ]),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (pi.displays.length > 1 &&
+                        pi.currentDisplay != kAllDisplayValue)
+                      _RemoteOptionSection(
+                        title: kqLocaleText(zhCn: '显示器', en: 'Monitor'),
+                        icon: Icons.desktop_windows_rounded,
+                        child: Wrap(
+                          spacing: 8,
+                          children: List.generate(pi.displays.length, (index) {
+                            final selected = index == pi.currentDisplay;
+                            return _RemoteMonitorButton(
+                              number: index + 1,
+                              selected: selected,
+                              onTap: selected
+                                  ? null
+                                  : () {
+                                      openMonitorInTheSameTab(index, gFFI, pi);
+                                      Navigator.pop(sheetContext);
+                                    },
+                            );
+                          }),
+                        ),
+                      ),
+                    _RemoteOptionSection(
+                      title: kqLocaleText(zhCn: '缩放', en: 'Scale'),
+                      icon: Icons.aspect_ratio_rounded,
+                      child: Column(children: [
+                        _RemoteOptionSegments<String>(
+                          options: viewStyleRadios,
+                          selected: viewStyle,
+                          onSelected: (option) {
+                            option.onChanged?.call(option.value);
+                            setSheetState(() => viewStyle = option.value);
+                          },
+                        ),
+                        if (viewStyle == kRemoteViewStyleCustom)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: MobileCustomScaleControls(ffi: gFFI),
+                          ),
+                      ]),
+                    ),
+                    _RemoteOptionSection(
+                      title: kqLocaleText(zhCn: '画质', en: 'Quality'),
+                      icon: Icons.high_quality_rounded,
+                      child: _RemoteOptionSegments<String>(
+                        options: imageQualityRadios,
+                        selected: imageQuality,
+                        onSelected: (option) {
+                          option.onChanged?.call(option.value);
+                          setSheetState(() => imageQuality = option.value);
+                        },
+                      ),
+                    ),
+                    if (codecRadios.isNotEmpty)
+                      _RemoteOptionSection(
+                        title: kqLocaleText(zhCn: '编码', en: 'Codec'),
+                        icon: Icons.memory_rounded,
+                        child: _RemoteOptionSegments<String>(
+                          options: codecRadios,
+                          selected: codec,
+                          onSelected: (option) {
+                            option.onChanged?.call(option.value);
+                            setSheetState(() => codec = option.value);
+                          },
+                        ),
+                      ),
+                    if (cursorToggles.isNotEmpty || displayToggles.isNotEmpty)
+                      _RemoteOptionSection(
+                        title: kqLocaleText(zhCn: '显示', en: 'Display'),
+                        icon: Icons.visibility_rounded,
+                        child: Column(children: [
+                          for (var index = 0;
+                              index < cursorToggles.length;
+                              index++)
+                            _RemoteOptionToggle(
+                              label: cursorToggles[index].child,
+                              value: cursorValues[index],
+                              onChanged: cursorToggles[index].onChanged == null
+                                  ? null
+                                  : (value) {
+                                      cursorToggles[index]
+                                          .onChanged
+                                          ?.call(value);
+                                      setSheetState(
+                                          () => cursorValues[index] = value);
+                                    },
+                            ),
+                          for (var index = 0;
+                              index < displayToggles.length;
+                              index++)
+                            _RemoteOptionToggle(
+                              label: displayToggles[index].child,
+                              value: displayValues[index],
+                              onChanged: displayToggles[index].onChanged == null
+                                  ? null
+                                  : (value) {
+                                      displayToggles[index]
+                                          .onChanged
+                                          ?.call(value);
+                                      setSheetState(
+                                          () => displayValues[index] = value);
+                                    },
+                            ),
+                        ]),
+                      ),
+                    if (resolution != null ||
+                        virtualDisplayMenu != null ||
+                        privacyModeList.length > 1)
+                      _RemoteOptionSection(
+                        title: kqLocaleText(zhCn: '高级', en: 'Advanced'),
+                        icon: Icons.tune_rounded,
+                        child: Column(children: [
+                          if (resolution != null)
+                            _RemoteOptionAction(
+                              label: resolution.child,
+                              onTap: () => closeThen(resolution.onPressed),
+                            ),
+                          if (virtualDisplayMenu != null)
+                            _RemoteOptionAction(
+                              label: virtualDisplayMenu.child,
+                              onTap: () =>
+                                  closeThen(virtualDisplayMenu.onPressed),
+                            ),
+                          if (privacyModeList.length > 1)
+                            _RemoteOptionAction(
+                              label: Text(translate('Privacy mode')),
+                              onTap: () => closeThen(() => setPrivacyModeDialog(
+                                  dialogManager,
+                                  privacyModeList,
+                                  privacyModeState)),
+                            ),
+                        ]),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ]),
+        );
+      },
+    ),
+  );
+  _disableAndroidSoftKeyboard();
+}
 
-    var popupDialogMenus = List<Widget>.empty(growable: true);
-    final resolution = getResolutionMenu(gFFI, id);
-    if (resolution != null) {
-      popupDialogMenus.add(ListTile(
-        contentPadding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-        title: resolution.child,
-        onTap: () {
-          close();
-          resolution.onPressed?.call();
-        },
-      ));
-    }
-    final virtualDisplayMenu = getVirtualDisplayMenu(gFFI, id);
-    if (virtualDisplayMenu != null) {
-      popupDialogMenus.add(ListTile(
-        contentPadding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-        title: virtualDisplayMenu.child,
-        onTap: () {
-          close();
-          virtualDisplayMenu.onPressed?.call();
-        },
-      ));
-    }
-    if (popupDialogMenus.isNotEmpty) {
-      popupDialogMenus.add(const Divider(color: MyTheme.border));
-    }
-
-    return CustomAlertDialog(
-      content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: displays +
-              radios +
-              popupDialogMenus +
-              toggles +
-              [privacyModeWidget]),
-    );
-  }, clickMaskDismiss: true, backDismiss: true).then((value) {
-    _disableAndroidSoftKeyboard();
+class _RemoteOptionSection extends StatelessWidget {
+  const _RemoteOptionSection({
+    required this.title,
+    required this.icon,
+    required this.child,
   });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 17, color: theme.colorScheme.primary),
+          const SizedBox(width: 7),
+          Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ]),
+        const SizedBox(height: 9),
+        child,
+        const SizedBox(height: 8),
+        Divider(height: 1, color: theme.dividerColor.withValues(alpha: 0.55)),
+      ]),
+    );
+  }
+}
+
+class _RemoteOptionSegments<T> extends StatelessWidget {
+  const _RemoteOptionSegments({
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<TRadioMenu<T>> options;
+  final T selected;
+  final ValueChanged<TRadioMenu<T>> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(builder: (context, constraints) {
+      final columns = options.length <= 3
+          ? options.length
+          : options.length <= 4
+              ? 2
+              : 3;
+      final width = columns == 0
+          ? constraints.maxWidth
+          : (constraints.maxWidth - (columns - 1) * 8) / columns;
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: options.map((option) {
+          final isSelected = option.value == selected;
+          final enabled = option.onChanged != null;
+          return SizedBox(
+            width: width,
+            height: 42,
+            child: Material(
+              color: isSelected
+                  ? theme.colorScheme.primary.withValues(alpha: 0.13)
+                  : theme.colorScheme.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+                side: BorderSide(
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : theme.dividerColor,
+                ),
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: enabled ? () => onSelected(option) : null,
+                child: Center(
+                  child: DefaultTextStyle.merge(
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: enabled
+                          ? isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface
+                          : theme.disabledColor,
+                      fontSize: 13,
+                      fontWeight:
+                          isSelected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                    child: option.child,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      );
+    });
+  }
+}
+
+class _RemoteMonitorButton extends StatelessWidget {
+  const _RemoteMonitorButton({
+    required this.number,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final int number;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 46,
+      height: 42,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          padding: EdgeInsets.zero,
+          foregroundColor: selected ? colors.onPrimary : colors.onSurface,
+          backgroundColor: selected ? colors.primary : Colors.transparent,
+          side: BorderSide(color: selected ? colors.primary : colors.outline),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+        child: Text('$number'),
+      ),
+    );
+  }
+}
+
+class _RemoteOptionToggle extends StatelessWidget {
+  const _RemoteOptionToggle({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final Widget label;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile.adaptive(
+      contentPadding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      value: value,
+      onChanged: onChanged,
+      title: DefaultTextStyle.merge(
+        style: const TextStyle(fontSize: 14),
+        child: label,
+      ),
+    );
+  }
+}
+
+class _RemoteOptionAction extends StatelessWidget {
+  const _RemoteOptionAction({required this.label, required this.onTap});
+
+  final Widget label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      title: label,
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+  }
 }
 
 TTextMenu? getVirtualDisplayMenu(FFI ffi, String id) {

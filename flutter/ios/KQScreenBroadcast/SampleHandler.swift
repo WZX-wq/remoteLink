@@ -17,6 +17,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var appAudioFrameCount = 0
   private var micAudioFrameCount = 0
   private var lastMicAudioAt = 0.0
+  private var voiceInputFrameCount = 0
+  private var voiceInputLevelPublishedAt = 0.0
   private var transportStarted = false
   private var audioForwardingActive = false
   private var micAudioForwardingActive = false
@@ -51,6 +53,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     appAudioFrameCount = 0
     micAudioFrameCount = 0
     lastMicAudioAt = 0
+    voiceInputFrameCount = 0
+    voiceInputLevelPublishedAt = 0
     transportStarted = false
     audioForwardingActive = false
     micAudioForwardingActive = false
@@ -306,6 +310,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "deviceId": broadcastDeviceId(),
       "audioSupported": audioForwardingActive,
       "voiceMicrophoneActive": micAudioForwardingActive,
+      "voiceFramesSent": Int(kq_ios_broadcast_voice_frames_sent()),
+      "voiceFramesReceived": Int(kq_ios_broadcast_voice_frames_received()),
       "viewOnly": true,
       "errorCode": errorCode ?? registrationErrorCode(for: registrationState) ?? "",
     ]
@@ -329,6 +335,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(
       micAudioForwardingActive,
       forKey: "kq_broadcast_voice_microphone_active"
+    )
+    defaults.set(
+      Int(kq_ios_broadcast_voice_frames_sent()),
+      forKey: "kq_broadcast_voice_frames_sent"
+    )
+    defaults.set(
+      Int(kq_ios_broadcast_voice_frames_received()),
+      forKey: "kq_broadcast_voice_frames_received"
     )
     defaults.set(true, forKey: "kq_broadcast_view_only")
     defaults.set(status["errorCode"], forKey: "kq_broadcast_error_code")
@@ -648,10 +662,43 @@ final class SampleHandler: RPBroadcastSampleHandler {
     guard sampleCount > 0 else {
       return 27
     }
-    return kq_ios_broadcast_push_voice_audio_f32(
+    let pushResult = kq_ios_broadcast_push_voice_audio_f32(
       data.assumingMemoryBound(to: Float.self),
       UInt(sampleCount)
     )
+    if pushResult == 0 {
+      publishMicrophoneLevel(
+        data.assumingMemoryBound(to: Float.self),
+        sampleCount: sampleCount
+      )
+    }
+    return pushResult
+  }
+
+  private func publishMicrophoneLevel(
+    _ samples: UnsafePointer<Float>,
+    sampleCount: Int
+  ) {
+    voiceInputFrameCount += 1
+    let now = Date().timeIntervalSince1970
+    guard now - voiceInputLevelPublishedAt >= 0.08,
+          sampleCount > 0,
+          let defaults = defaults else {
+      return
+    }
+    var squareSum = 0.0
+    for index in 0..<sampleCount {
+      let sample = Double(samples[index])
+      squareSum += sample * sample
+    }
+    let rms = sqrt(squareSum / Double(sampleCount))
+    let decibels = 20 * log10(max(rms, 0.000_001))
+    let level = min(1, max(0, (decibels + 55) / 55))
+    voiceInputLevelPublishedAt = now
+    defaults.set(level, forKey: "kq_ios_voice_call_input_level")
+    defaults.set(now, forKey: "kq_ios_voice_call_input_updated_at")
+    defaults.set(voiceInputFrameCount, forKey: "kq_ios_voice_call_input_frames")
+    defaults.set("replaykit", forKey: "kq_ios_voice_call_input_source")
   }
 
   private func audioConverter(

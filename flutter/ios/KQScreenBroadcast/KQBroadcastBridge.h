@@ -32,6 +32,9 @@ int32_t kq_ios_broadcast_push_voice_audio_f32(
 
 uintptr_t kq_ios_broadcast_active_viewer_count(void);
 
+uint64_t kq_ios_broadcast_voice_frames_sent(void);
+uint64_t kq_ios_broadcast_voice_frames_received(void);
+
 void kq_ios_broadcast_pause(void);
 void kq_ios_broadcast_resume(void);
 void kq_ios_broadcast_stop(void);

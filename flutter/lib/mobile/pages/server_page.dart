@@ -271,8 +271,19 @@ class _IOSScreenShareBroadcastMvpState
   bool _opening = false;
   String? _errorText;
   Timer? _broadcastStatusTimer;
+  Timer? _voiceCallMetricsTimer;
   Map<String, dynamic>? _broadcastStatus;
   bool _voiceCallActive = false;
+  bool _refreshingVoiceCallMetrics = false;
+  bool _voiceInputActive = false;
+  bool _voiceOutputActive = false;
+  double _voiceInputLevel = 0;
+  double _voiceOutputLevel = 0;
+  int _voiceInputFrames = 0;
+  int _voiceOutputFrames = 0;
+  int _voiceFramesSent = 0;
+  int _voiceFramesReceived = 0;
+  DateTime? _voiceCallDetectedAt;
   bool _registeredIdFetched = false;
 
   @override
@@ -288,6 +299,7 @@ class _IOSScreenShareBroadcastMvpState
   @override
   void dispose() {
     _broadcastStatusTimer?.cancel();
+    _voiceCallMetricsTimer?.cancel();
     super.dispose();
   }
 
@@ -326,15 +338,48 @@ class _IOSScreenShareBroadcastMvpState
   }
 
   Future<void> _refreshIOSVoiceCallState() async {
+    if (_refreshingVoiceCallMetrics) return;
+    _refreshingVoiceCallMetrics = true;
     try {
-      final active = await _kqIOSBroadcastChannel
-              .invokeMethod<bool>('get_ios_voice_call_state') ??
-          false;
-      if (mounted && _voiceCallActive != active) {
-        setState(() => _voiceCallActive = active);
+      final response = await _kqIOSBroadcastChannel
+          .invokeMethod<Map<dynamic, dynamic>>('get_ios_voice_call_metrics');
+      final metrics = response == null
+          ? const <String, dynamic>{}
+          : Map<String, dynamic>.fromEntries(response.entries.map(
+              (entry) => MapEntry(entry.key.toString(), entry.value),
+            ));
+      final active = metrics['active'] == true;
+      if (!mounted) return;
+      if (active && !_voiceCallActive) {
+        _voiceCallDetectedAt = DateTime.now();
+      } else if (!active) {
+        _voiceCallDetectedAt = null;
+      }
+      setState(() {
+        _voiceCallActive = active;
+        _voiceInputActive = metrics['inputActive'] == true;
+        _voiceOutputActive = metrics['outputActive'] == true;
+        _voiceInputLevel = (metrics['inputLevel'] as num?)?.toDouble() ?? 0;
+        _voiceOutputLevel = (metrics['outputLevel'] as num?)?.toDouble() ?? 0;
+        _voiceInputFrames = (metrics['inputFrames'] as num?)?.toInt() ?? 0;
+        _voiceOutputFrames = (metrics['outputFrames'] as num?)?.toInt() ?? 0;
+        _voiceFramesSent = (metrics['sentFrames'] as num?)?.toInt() ?? 0;
+        _voiceFramesReceived =
+            (metrics['receivedFrames'] as num?)?.toInt() ?? 0;
+      });
+      if (active && _voiceCallMetricsTimer == null) {
+        _voiceCallMetricsTimer = Timer.periodic(
+          const Duration(milliseconds: 160),
+          (_) => _refreshIOSVoiceCallState(),
+        );
+      } else if (!active && _voiceCallMetricsTimer != null) {
+        _voiceCallMetricsTimer?.cancel();
+        _voiceCallMetricsTimer = null;
       }
     } on PlatformException catch (error) {
       debugPrint('Failed to read iOS voice call state: $error');
+    } finally {
+      _refreshingVoiceCallMetrics = false;
     }
   }
 
@@ -344,13 +389,106 @@ class _IOSScreenShareBroadcastMvpState
             false;
     if (!mounted) return;
     if (ended) {
-      setState(() => _voiceCallActive = false);
+      _voiceCallMetricsTimer?.cancel();
+      _voiceCallMetricsTimer = null;
+      setState(() {
+        _voiceCallActive = false;
+        _voiceInputLevel = 0;
+        _voiceOutputLevel = 0;
+      });
     } else {
       showToast(kqLocaleText(
         zhCn: '语音通话已结束。',
         en: 'The voice call has ended.',
       ));
     }
+  }
+
+  String _voiceCallStatusText() {
+    final waitingForAudio = _voiceCallDetectedAt != null &&
+        DateTime.now().difference(_voiceCallDetectedAt!).inSeconds >= 3 &&
+        _voiceInputFrames == 0 &&
+        _voiceFramesSent == 0;
+    if (waitingForAudio) {
+      return kqLocaleText(
+        zhCn: '未检测到麦克风声音',
+        en: 'No microphone audio',
+      );
+    }
+    if (_voiceInputActive && _voiceInputLevel >= 0.04) {
+      return kqLocaleText(zhCn: '正在说话', en: 'Speaking');
+    }
+    if (_voiceOutputActive && _voiceOutputLevel >= 0.04) {
+      return kqLocaleText(zhCn: '对方正在说话', en: 'Peer speaking');
+    }
+    return kqLocaleText(zhCn: '语音通话中', en: 'Voice call active');
+  }
+
+  Widget _buildIOSVoiceCallBar(BuildContext context) {
+    final q = KqTheme.of(context);
+    final hasAudioFlow = _voiceFramesSent > 0 ||
+        _voiceFramesReceived > 0 ||
+        _voiceInputFrames > 0 ||
+        _voiceOutputFrames > 0;
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: q.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(children: [
+        _IOSVoiceLevelIndicator(
+          level: _voiceInputLevel,
+          active: _voiceInputActive,
+          color: hasAudioFlow ? q.online : q.primary,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _voiceCallStatusText(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: q.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                kqLocaleText(zhCn: '麦克风已开启', en: 'Microphone on'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: q.muted, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Semantics(
+          button: true,
+          label: kqLocaleText(zhCn: '结束语音通话', en: 'End voice call'),
+          child: Material(
+            color: q.offline,
+            shape: const CircleBorder(),
+            child: IconButton(
+              tooltip: kqLocaleText(zhCn: '结束语音通话', en: 'End voice call'),
+              onPressed: _endIOSVoiceCall,
+              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.call_end_rounded,
+                  color: Colors.white, size: 21),
+            ),
+          ),
+        ),
+      ]),
+    );
   }
 
   bool _hasBroadcastHeartbeat([Map<String, dynamic>? status]) {
@@ -580,20 +718,64 @@ class _IOSScreenShareBroadcastMvpState
           ),
           if (_voiceCallActive) ...[
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: _endIOSVoiceCall,
-                icon: const Icon(Icons.call_end_rounded),
-                label: Text(kqLocaleText(
-                  zhCn: '结束语音通话',
-                  en: 'End voice call',
-                )),
-              ),
-            ),
+            _buildIOSVoiceCallBar(context),
           ],
         ],
       ),
+    );
+  }
+}
+
+class _IOSVoiceLevelIndicator extends StatelessWidget {
+  const _IOSVoiceLevelIndicator({
+    required this.level,
+    required this.active,
+    required this.color,
+  });
+
+  final double level;
+  final bool active;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = active ? level.clamp(0.0, 1.0).toDouble() : 0.0;
+    final heights = <double>[
+      6 + normalized * 8,
+      8 + normalized * 15,
+      6 + normalized * 11,
+    ];
+    return SizedBox(
+      width: 48,
+      height: 44,
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.mic_rounded, color: color, size: 18),
+        ),
+        const SizedBox(width: 3),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: heights
+              .map((height) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOut,
+                    width: 2,
+                    height: height,
+                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ))
+              .toList(),
+        ),
+      ]),
     );
   }
 }

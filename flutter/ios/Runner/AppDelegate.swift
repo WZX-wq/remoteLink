@@ -36,6 +36,13 @@ import AVFoundation
   private let voiceCallAudioFileName = "kq-ios-voice-call-audio.bin"
   private let voiceCallReplayKitMicMarkerFileName =
     "kq-ios-voice-call-replaykit-mic-active"
+  private let voiceCallInputLevelKey = "kq_ios_voice_call_input_level"
+  private let voiceCallInputUpdatedAtKey = "kq_ios_voice_call_input_updated_at"
+  private let voiceCallInputFramesKey = "kq_ios_voice_call_input_frames"
+  private let voiceCallInputSourceKey = "kq_ios_voice_call_input_source"
+  private let voiceCallOutputLevelKey = "kq_ios_voice_call_output_level"
+  private let voiceCallOutputUpdatedAtKey = "kq_ios_voice_call_output_updated_at"
+  private let voiceCallOutputFramesKey = "kq_ios_voice_call_output_frames"
   private let voiceCallAudioRecordMagic: UInt32 = 0x4156514B
   private let voiceCallAudioHeaderSize = 16
   private let voiceCallAudioMaxSamples = 11_520
@@ -48,8 +55,16 @@ import AVFoundation
   private var voiceAudioSamples = [Float]()
   private var voiceAudioReadIndex = 0
   private var voiceTapInstalled = false
+  private var voiceInputFrameCount = 0
+  private var voiceInputLevelPublishedAt = 0.0
   private let voicePlaybackEngine = AVAudioEngine()
   private let voicePlaybackNode = AVAudioPlayerNode()
+  private let voicePlaybackFormat = AVAudioFormat(
+    commonFormat: .pcmFormatFloat32,
+    sampleRate: 48_000,
+    channels: 1,
+    interleaved: false
+  )!
   private let voicePlaybackQueue = DispatchQueue(
     label: "com.kunqiong.remotelink.voice-playback",
     qos: .userInitiated
@@ -60,6 +75,8 @@ import AVFoundation
   private var voicePlaybackPending = Data()
   private var voicePlaybackStartedAt: Date?
   private var voicePlaybackNodeAttached = false
+  private var voiceOutputFrameCount = 0
+  private var voiceOutputLevelPublishedAt = 0.0
   private var voiceBroadcastCaptureRequestId: String?
   private var voiceInvitationTimer: Timer?
   private var voiceInvitationRequestId: String?
@@ -111,6 +128,8 @@ import AVFoundation
         self.respondToIOSVoiceCall(arguments: call.arguments, result: result)
       case "get_ios_voice_call_state":
         self.getIOSVoiceCallState(result: result)
+      case "get_ios_voice_call_metrics":
+        self.getIOSVoiceCallMetrics(result: result)
       case "end_ios_voice_call":
         self.endIOSVoiceCall(result: result)
       default:
@@ -170,6 +189,7 @@ import AVFoundation
         options: [.defaultToSpeaker, .allowBluetoothHFP]
       )
       try audioSession.setPreferredSampleRate(48_000)
+      try audioSession.setPreferredIOBufferDuration(0.02)
       try audioSession.setActive(true)
 
       let inputNode = voiceAudioEngine.inputNode
@@ -195,6 +215,9 @@ import AVFoundation
       voiceTapInstalled = true
       voiceAudioEngine.prepare()
       try voiceAudioEngine.start()
+      NSLog(
+        "Started iOS voice capture: rate=\(format.sampleRate), channels=\(format.channelCount)"
+      )
       return true
     } catch {
       NSLog("Failed to start iOS voice capture: \(error)")
@@ -277,8 +300,10 @@ import AVFoundation
       voiceAudioReadIndex = endIndex
       switch destination {
       case .remoteSession(let sessionId):
+        publishIOSVoiceInputLevel(frame, source: "remote-session")
         sendIOSVoiceFrame(frame, sessionId: sessionId)
       case .broadcastHost:
+        publishIOSVoiceInputLevel(frame, source: "main-fallback")
         sendIOSHostVoiceFrame(frame)
       }
     }
@@ -309,6 +334,66 @@ import AVFoundation
         UInt(framePointer.count)
       )
     }
+  }
+
+  private func normalizedIOSVoiceLevel(_ samples: [Float]) -> Double {
+    guard !samples.isEmpty else { return 0 }
+    let squareSum = samples.reduce(0.0) { partial, sample in
+      partial + Double(sample * sample)
+    }
+    let rms = sqrt(squareSum / Double(samples.count))
+    let decibels = 20 * log10(max(rms, 0.000_001))
+    return min(1, max(0, (decibels + 55) / 55))
+  }
+
+  private func publishIOSVoiceInputLevel(_ samples: [Float], source: String) {
+    voiceInputFrameCount += 1
+    if voiceInputFrameCount == 1 {
+      NSLog("Captured first iOS voice input frame from \(source)")
+    }
+    let now = Date().timeIntervalSince1970
+    guard now - voiceInputLevelPublishedAt >= 0.08,
+          let defaults = UserDefaults(suiteName: broadcastAppGroupId) else {
+      return
+    }
+    voiceInputLevelPublishedAt = now
+    defaults.set(normalizedIOSVoiceLevel(samples), forKey: voiceCallInputLevelKey)
+    defaults.set(now, forKey: voiceCallInputUpdatedAtKey)
+    defaults.set(voiceInputFrameCount, forKey: voiceCallInputFramesKey)
+    defaults.set(source, forKey: voiceCallInputSourceKey)
+  }
+
+  private func publishIOSVoiceOutputLevel(_ samples: [Float]) {
+    voiceOutputFrameCount += 1
+    if voiceOutputFrameCount == 1 {
+      NSLog("Scheduled first peer voice frame for iOS playback")
+    }
+    let now = Date().timeIntervalSince1970
+    guard now - voiceOutputLevelPublishedAt >= 0.08,
+          let defaults = UserDefaults(suiteName: broadcastAppGroupId) else {
+      return
+    }
+    voiceOutputLevelPublishedAt = now
+    defaults.set(normalizedIOSVoiceLevel(samples), forKey: voiceCallOutputLevelKey)
+    defaults.set(now, forKey: voiceCallOutputUpdatedAtKey)
+    defaults.set(voiceOutputFrameCount, forKey: voiceCallOutputFramesKey)
+  }
+
+  private func resetIOSVoiceCallTelemetry() {
+    voiceInputFrameCount = 0
+    voiceInputLevelPublishedAt = 0
+    voiceOutputFrameCount = 0
+    voiceOutputLevelPublishedAt = 0
+    guard let defaults = UserDefaults(suiteName: broadcastAppGroupId) else {
+      return
+    }
+    defaults.set(0.0, forKey: voiceCallInputLevelKey)
+    defaults.set(0.0, forKey: voiceCallInputUpdatedAtKey)
+    defaults.set(0, forKey: voiceCallInputFramesKey)
+    defaults.set("none", forKey: voiceCallInputSourceKey)
+    defaults.set(0.0, forKey: voiceCallOutputLevelKey)
+    defaults.set(0.0, forKey: voiceCallOutputUpdatedAtKey)
+    defaults.set(0, forKey: voiceCallOutputFramesKey)
   }
 
   private func voiceCallDirectory() -> URL? {
@@ -534,19 +619,7 @@ import AVFoundation
     }
     do {
       if accepted {
-        // ReplayKit microphone buffers are the primary source while sharing.
-        // Keep the main-app recorder as a fallback for broadcasts whose system
-        // microphone switch was left off, but never turn a capture failure into
-        // a protocol-level rejection.
-        if replayKitMicrophoneIsAvailable() {
-          voiceBroadcastCaptureRequestId = nil
-          NSLog("ReplayKit microphone is active for iOS voice call")
-        } else if startIOSBroadcastHostVoiceCapture() {
-          voiceBroadcastCaptureRequestId = requestId
-        } else {
-          voiceBroadcastCaptureRequestId = nil
-          NSLog("iOS host recorder unavailable; using ReplayKit microphone")
-        }
+        resetIOSVoiceCallTelemetry()
       }
       try writeVoiceCallJSON([
         "requestId": requestId,
@@ -555,6 +628,7 @@ import AVFoundation
       ], fileName: voiceCallResponseFileName)
       if accepted {
         startIOSVoicePlayback(requestId: requestId)
+        startIOSHostVoiceCaptureWhenActive(requestId: requestId)
       } else {
         stopIOSVoicePlayback()
       }
@@ -562,6 +636,39 @@ import AVFoundation
     } catch {
       NSLog("Failed to write iOS voice call response: \(error)")
       result(false)
+    }
+  }
+
+  private func startIOSHostVoiceCaptureWhenActive(
+    requestId: String,
+    remainingAttempts: Int = 30
+  ) {
+    guard remainingAttempts > 0 else {
+      NSLog("Timed out waiting to start iOS host voice capture")
+      return
+    }
+    guard let state = readVoiceCallJSON(voiceCallStateFileName),
+          state["requestId"] as? String == requestId,
+          state["active"] as? Bool == true else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        self?.startIOSHostVoiceCaptureWhenActive(
+          requestId: requestId,
+          remainingAttempts: remainingAttempts - 1
+        )
+      }
+      return
+    }
+
+    // The extension clears stale cross-process audio when it activates the
+    // call. Start fallback capture only after that cleanup has completed.
+    if replayKitMicrophoneIsAvailable() {
+      voiceBroadcastCaptureRequestId = nil
+      NSLog("ReplayKit microphone is active for iOS voice call")
+    } else if startIOSBroadcastHostVoiceCapture() {
+      voiceBroadcastCaptureRequestId = requestId
+    } else {
+      voiceBroadcastCaptureRequestId = nil
+      NSLog("iOS host recorder unavailable; using ReplayKit microphone")
     }
   }
 
@@ -574,6 +681,35 @@ import AVFoundation
       return
     }
     result(true)
+  }
+
+  private func getIOSVoiceCallMetrics(result: @escaping FlutterResult) {
+    let state = readVoiceCallJSON(voiceCallStateFileName)
+    let active = state?["active"] as? Bool == true &&
+      !(state?["requestId"] as? String ?? "").isEmpty
+    let defaults = UserDefaults(suiteName: broadcastAppGroupId)
+    let now = Date().timeIntervalSince1970
+    let inputUpdatedAt = defaults?.double(forKey: voiceCallInputUpdatedAtKey) ?? 0
+    let outputUpdatedAt = defaults?.double(forKey: voiceCallOutputUpdatedAtKey) ?? 0
+    let inputFresh = active && inputUpdatedAt > 0 && now - inputUpdatedAt < 0.6
+    let outputFresh = active && outputUpdatedAt > 0 && now - outputUpdatedAt < 0.6
+    result([
+      "active": active,
+      "inputLevel": inputFresh
+        ? defaults?.double(forKey: voiceCallInputLevelKey) ?? 0
+        : 0,
+      "outputLevel": outputFresh
+        ? defaults?.double(forKey: voiceCallOutputLevelKey) ?? 0
+        : 0,
+      "inputActive": inputFresh,
+      "outputActive": outputFresh,
+      "inputFrames": defaults?.integer(forKey: voiceCallInputFramesKey) ?? 0,
+      "outputFrames": defaults?.integer(forKey: voiceCallOutputFramesKey) ?? 0,
+      "sentFrames": defaults?.integer(forKey: "kq_broadcast_voice_frames_sent") ?? 0,
+      "receivedFrames": defaults?.integer(forKey: "kq_broadcast_voice_frames_received") ?? 0,
+      "inputSource": defaults?.string(forKey: voiceCallInputSourceKey) ?? "none",
+      "updatedAt": voiceCallNumber(state?["updatedAt"]) ?? 0,
+    ])
   }
 
   private func endIOSVoiceCall(result: @escaping FlutterResult) {
@@ -605,13 +741,14 @@ import AVFoundation
           options: [.defaultToSpeaker, .allowBluetoothHFP, .duckOthers]
         )
         try session.setPreferredSampleRate(48_000)
+        try session.setPreferredIOBufferDuration(0.02)
         try session.setActive(true)
         if !self.voicePlaybackNodeAttached {
           self.voicePlaybackEngine.attach(self.voicePlaybackNode)
           self.voicePlaybackEngine.connect(
             self.voicePlaybackNode,
             to: self.voicePlaybackEngine.mainMixerNode,
-            format: nil
+            format: self.voicePlaybackFormat
           )
           self.voicePlaybackNodeAttached = true
         }
@@ -654,6 +791,8 @@ import AVFoundation
     voicePlaybackOffset = 0
     voicePlaybackPending.removeAll(keepingCapacity: false)
     voicePlaybackStartedAt = nil
+    voiceOutputFrameCount = 0
+    voiceOutputLevelPublishedAt = 0
     if stopCapture && voiceBroadcastCaptureRequestId != nil {
       stopIOSVoiceCapture(deactivateAudioSession: false)
       voiceBroadcastCaptureRequestId = nil
@@ -754,27 +893,45 @@ import AVFoundation
     sampleRate: Double,
     channels: Int
   ) {
-    let frameCount = samples.count / channels
-    guard frameCount > 0,
-          let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: sampleRate,
-            channels: AVAudioChannelCount(channels),
-            interleaved: false
-          ),
-          let buffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: AVAudioFrameCount(frameCount)
+    let sourceFrameCount = samples.count / channels
+    guard sourceFrameCount > 0, sampleRate > 0 else {
+      return
+    }
+    var mono = [Float](repeating: 0, count: sourceFrameCount)
+    for frame in 0..<sourceFrameCount {
+      var value: Float = 0
+      for channel in 0..<channels {
+        value += samples[frame * channels + channel]
+      }
+      mono[frame] = value / Float(channels)
+    }
+
+    let normalized: [Float]
+    if abs(sampleRate - 48_000) < 1 {
+      normalized = mono
+    } else {
+      let outputCount = max(1, Int(Double(sourceFrameCount) * 48_000 / sampleRate))
+      normalized = (0..<outputCount).map { index in
+        let sourcePosition = Double(index) * sampleRate / 48_000
+        let lower = min(Int(sourcePosition), mono.count - 1)
+        let upper = min(lower + 1, mono.count - 1)
+        let fraction = Float(sourcePosition - Double(lower))
+        return mono[lower] + (mono[upper] - mono[lower]) * fraction
+      }
+    }
+
+    guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: voicePlaybackFormat,
+            frameCapacity: AVAudioFrameCount(normalized.count)
           ),
           let channelData = buffer.floatChannelData else {
       return
     }
-    buffer.frameLength = AVAudioFrameCount(frameCount)
-    for frame in 0..<frameCount {
-      for channel in 0..<channels {
-        channelData[channel][frame] = samples[frame * channels + channel]
-      }
+    buffer.frameLength = AVAudioFrameCount(normalized.count)
+    for index in normalized.indices {
+      channelData[0][index] = normalized[index]
     }
+    publishIOSVoiceOutputLevel(normalized)
     voicePlaybackNode.scheduleBuffer(buffer)
     if !voicePlaybackNode.isPlaying {
       voicePlaybackNode.play()
@@ -911,6 +1068,8 @@ import AVFoundation
       "voiceMicrophoneActive": defaults.bool(
         forKey: "kq_broadcast_voice_microphone_active"
       ),
+      "voiceFramesSent": defaults.integer(forKey: "kq_broadcast_voice_frames_sent"),
+      "voiceFramesReceived": defaults.integer(forKey: "kq_broadcast_voice_frames_received"),
       "viewOnly": defaults.object(forKey: "kq_broadcast_view_only") == nil
         ? true
         : defaults.bool(forKey: "kq_broadcast_view_only"),

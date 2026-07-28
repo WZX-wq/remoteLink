@@ -4799,6 +4799,7 @@ impl Connection {
                     *channels,
                     &decoded[..sample_count],
                 );
+                crate::ios_voice_call::record_peer_voice_frame_received();
             }
             Err(err) => log::warn!("Failed to decode iOS voice audio frame: {err}"),
         }
@@ -4850,6 +4851,7 @@ impl Connection {
                     ..Default::default()
                 });
                 self.send(message).await;
+                crate::ios_voice_call::record_host_voice_frame_sent();
                 self.ios_host_voice_frames_sent += 1;
                 if self.ios_host_voice_frames_sent == 1
                     || self.ios_host_voice_frames_sent % 500 == 0
