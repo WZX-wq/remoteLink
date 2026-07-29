@@ -200,6 +200,22 @@ impl Frame<'_> {
             Frame::Texture(texture) => Ok(EncodeInput::Texture(*texture)),
         }
     }
+
+    pub fn to_with_scale<'a>(
+        &'a self,
+        yuvfmt: EncodeYuvFormat,
+        yuv: &'a mut Vec<u8>,
+        mid_data: &mut Vec<u8>,
+        scale_data: &mut Vec<u8>,
+    ) -> ResultType<EncodeInput<'a>> {
+        match self {
+            Frame::PixelBuffer(pixelbuffer) => {
+                convert_to_yuv_with_scale(&pixelbuffer, yuvfmt, yuv, mid_data, scale_data)?;
+                Ok(EncodeInput::YUV(yuv))
+            }
+            Frame::Texture(texture) => Ok(EncodeInput::Texture(*texture)),
+        }
+    }
 }
 
 pub enum EncodeInput<'a> {

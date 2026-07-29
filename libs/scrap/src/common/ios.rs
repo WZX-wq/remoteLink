@@ -1,7 +1,10 @@
 use crate::external_frame::{ExternalFrame, FrameMailbox, FrameSubmitError};
 use crate::{Frame, Pixfmt, TraitCapturer, TraitPixelBuffer};
 use lazy_static::lazy_static;
-use std::{io, time::Duration};
+use std::{
+    io,
+    time::{Duration, Instant},
+};
 
 lazy_static! {
     static ref FRAME_MAILBOX: FrameMailbox = FrameMailbox::default();
@@ -22,6 +25,19 @@ pub fn clear_bgra_frames() {
 
 pub fn current_frame_size() -> Option<(usize, usize)> {
     FRAME_MAILBOX.latest_size()
+}
+
+fn wait_current_frame_size(timeout: Duration) -> Option<(usize, usize)> {
+    let started = Instant::now();
+    loop {
+        if let Some(size) = current_frame_size() {
+            return Some(size);
+        }
+        if started.elapsed() >= timeout {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 pub struct Capturer {
@@ -95,7 +111,7 @@ pub struct Display {
 
 impl Display {
     pub fn primary() -> io::Result<Self> {
-        let (width, height) = current_frame_size()
+        let (width, height) = wait_current_frame_size(Duration::from_millis(1500))
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no ReplayKit frame"))?;
         Ok(Self { width, height })
     }

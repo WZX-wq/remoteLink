@@ -98,8 +98,10 @@ void main() {
       kqRemoteStreamQuality(highDefinition: true),
       kqHighDefinitionRemoteStreamQuality,
     );
-    expect(kqStandardRemoteStreamQuality, 60);
+    expect(kqStandardRemoteStreamQuality, 35);
     expect(kqHighDefinitionRemoteStreamQuality, 150);
+    expect(kqRemoteMaxFrameHeight(highDefinition: false), 480);
+    expect(kqRemoteMaxFrameHeight(highDefinition: true), 1080);
     expect(kqStandardRemoteStreamQuality,
         lessThan(kqHighDefinitionRemoteStreamQuality));
     expect(UserModel.freeMaxFps, 30);
@@ -114,7 +116,8 @@ void main() {
     );
   });
 
-  testWidgets('standard quality is not artificially blurred', (tester) async {
+  testWidgets('standard quality is visibly rendered as SD on the viewer',
+      (tester) async {
     await tester.pumpWidget(const Directionality(
       textDirection: TextDirection.ltr,
       child: KqRemoteQualityPresentation(
@@ -124,9 +127,9 @@ void main() {
       ),
     ));
 
-    expect(kqStandardRemoteBlurSigma, 0);
-    expect(find.byType(ImageFiltered), findsNothing);
-    expect(find.byType(ClipRect), findsNothing);
+    expect(kqStandardRemoteBlurSigma, greaterThan(0));
+    expect(find.byType(ImageFiltered), findsOneWidget);
+    expect(find.byType(ClipRect), findsOneWidget);
     expect(find.byType(Stack), findsNothing);
     expect(find.byType(BackdropFilter), findsNothing);
     expect(find.byKey(const Key('standard-video')), findsOneWidget);
@@ -147,7 +150,9 @@ void main() {
     expect(find.byKey(const Key('hd-video')), findsOneWidget);
   });
 
-  test('KQ quality tiers never resize frames inside the encoder pipeline', () {
+  test(
+      'KQ quality tiers scale the encoded frame without changing display resolution',
+      () {
     final videoQos = File('../src/server/video_qos.rs').readAsStringSync();
     final videoService =
         File('../src/server/video_service.rs').readAsStringSync();
@@ -157,13 +162,15 @@ void main() {
     final yuvHeader =
         File('../libs/scrap/src/bindings/yuv_ffi.h').readAsStringSync();
 
-    expect(videoQos, isNot(contains('KqVideoTier')));
-    expect(videoService, isNot(contains('kq_encoded_dimensions')));
-    expect(videoService, isNot(contains('KQ video encoder switch')));
-    expect(conversion, isNot(contains('convert_to_yuv_with_scale')));
-    expect(conversion, isNot(contains('ARGBScale(')));
-    expect(frameApi, isNot(contains('scale_data: &mut Vec<u8>')));
-    expect(yuvHeader, isNot(contains('scale_argb.h')));
+    expect(videoQos, contains('stream_max_height'));
+    expect(videoQos, contains('kq_scaled_dimensions'));
+    expect(videoService, contains('.encoded_dimensions(c.width, c.height)'));
+    expect(videoService, contains('KQ video encoder dimensions changed'));
+    expect(conversion, contains('convert_to_yuv_with_scale'));
+    expect(conversion, contains('ARGBScale('));
+    expect(frameApi, contains('to_with_scale'));
+    expect(frameApi, contains('scale_data: &mut Vec<u8>'));
+    expect(yuvHeader, contains('scale_argb.h'));
   });
 
   test('Windows blur stays outside the Android video widget', () {
@@ -803,12 +810,15 @@ void main() {
     final helper = File('lib/utils/remote_frame_diagnostic_io.dart');
 
     final onRgbaStart = model.indexOf(
-      'Future<bool> onRgba(int display, Uint8List rgba) async',
+      'Future<bool> onRgba(int display, Uint8List rgba,',
     );
     final decodeStart =
         model.indexOf('Future<bool> decodeAndUpdate(', onRgbaStart);
     final onRgbaSource = model.substring(onRgbaStart, decodeStart);
     expect(onRgbaSource, contains('saveRemoteRgbaDiagnostic('));
+    expect(onRgbaSource, contains('final diagnosticWidth ='));
+    expect(onRgbaSource, contains('frameWidth > 0 ? frameWidth'));
+    expect(onRgbaSource, contains('frameHeight > 0 ? frameHeight'));
     expect(helper.existsSync(), isTrue);
     final helperSource = helper.readAsStringSync();
     expect(helperSource, contains('img.Image.fromBytes('));

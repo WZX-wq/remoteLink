@@ -944,7 +944,7 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
         ) &&
         !user.canUseMemberRemoteQuality;
     if (memberOnly) {
-      showToast(translate('Members can use 1080p / 60 FPS'));
+      showToast(translate('Members can use 1080p HD / 60 FPS'));
       return;
     }
 
@@ -1162,8 +1162,8 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
           Icons.high_quality_outlined),
       _optionButton(
         context,
-        label: '720p / 60 FPS',
-        caption: translate('Basic plan available'),
+        label: translate('Basic SD'),
+        caption: translate('SD / 30 FPS'),
         selected: resolution == UserModel.remoteResolution720p,
         enabled: !_saving,
         onPressed: () => _applyProfile(
@@ -1173,8 +1173,10 @@ class _PerformanceMenuState extends State<_PerformanceMenu> {
       ),
       _optionButton(
         context,
-        label: '1080p / 60 FPS',
-        caption: isMember ? translate('Member HD') : translate('Members only'),
+        label: translate('Member HD'),
+        caption: isMember
+            ? translate('1080p HD / 60 FPS')
+            : translate('Members only'),
         selected: resolution == UserModel.remoteResolution1080p,
         enabled: !_saving && isMember,
         locked: !isMember,
@@ -2399,9 +2401,9 @@ class _ChatMenuState extends State<_ChatMenu> {
           color: _ToolbarTheme.blueColor,
           hoverColor: _ToolbarTheme.hoverBlueColor,
           menuChildrenGetter: (_) => [
-            textChat(),
-            voiceCall(),
-          ]);
+                textChat(),
+                voiceCall(),
+              ]);
     }
   }
 

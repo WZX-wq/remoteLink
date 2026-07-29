@@ -2451,7 +2451,8 @@ class ImageModel with ChangeNotifier {
     _webDecodingRgba = false;
   }
 
-  Future<bool> onRgba(int display, Uint8List rgba) async {
+  Future<bool> onRgba(int display, Uint8List rgba,
+      {int frameWidth = 0, int frameHeight = 0}) async {
     final firstFrame = _image == null;
     final pixels = firstFrame ? Uint8List.fromList(rgba) : rgba;
     platformFFI.logRgbaStage(sessionId, 'dart-frame-received', display,
@@ -2473,25 +2474,34 @@ class ImageModel with ChangeNotifier {
         }
         final rect = parent.target?.ffiModel.pi.getDisplayRect(display);
         if (isWindows && rect != null) {
+          final diagnosticWidth =
+              frameWidth > 0 ? frameWidth : rect.width.toInt();
+          final diagnosticHeight =
+              frameHeight > 0 ? frameHeight : rect.height.toInt();
           unawaited(saveRemoteRgbaDiagnostic(
             rgba: pixels,
-            width: rect.width.toInt(),
-            height: rect.height.toInt(),
+            width: diagnosticWidth,
+            height: diagnosticHeight,
             sessionId: sessionId.toString(),
           ).then((path) {
             platformFFI.logRgbaStage(
                 sessionId,
                 path == null ? 'raw-frame-save-skipped' : 'raw-frame-saved',
                 display,
-                rect.width.toInt(),
-                rect.height.toInt());
+                diagnosticWidth,
+                diagnosticHeight);
           }).catchError((_) {
             platformFFI.logRgbaStage(
                 sessionId, 'raw-frame-save-error', display);
           }));
         }
       }
-      rendered = await decodeAndUpdate(display, pixels);
+      rendered = await decodeAndUpdate(
+        display,
+        pixels,
+        frameWidth: frameWidth,
+        frameHeight: frameHeight,
+      );
     } catch (e) {
       debugPrint('onRgba error: $e');
       platformFFI.logRgbaStage(sessionId, 'dart-decode-exception', display);
@@ -2514,11 +2524,12 @@ class ImageModel with ChangeNotifier {
     return rendered;
   }
 
-  Future<bool> decodeAndUpdate(int display, Uint8List rgba) async {
+  Future<bool> decodeAndUpdate(int display, Uint8List rgba,
+      {int frameWidth = 0, int frameHeight = 0}) async {
     final pid = parent.target?.id;
     final rect = parent.target?.ffiModel.pi.getDisplayRect(display);
-    final width = rect?.width.toInt() ?? 0;
-    final height = rect?.height.toInt() ?? 0;
+    final width = frameWidth > 0 ? frameWidth : rect?.width.toInt() ?? 0;
+    final height = frameHeight > 0 ? frameHeight : rect?.height.toInt() ?? 0;
     if (width <= 0 || height <= 0) {
       debugPrint(
           'Ignore RGBA frame with invalid display size: display=$display, size=${width}x$height');
@@ -4598,7 +4609,12 @@ class FFI {
           if (rgba != null) {
             platformFFI.logRgbaStage(
                 sessionId, 'dart-buffer-read', display, sz);
-            final rendered = await imageModel.onRgba(display, rgba);
+            final rendered = await imageModel.onRgba(
+              display,
+              rgba,
+              frameWidth: platformFFI.getRgbaWidth(sessionId, display),
+              frameHeight: platformFFI.getRgbaHeight(sessionId, display),
+            );
             if (rendered) {
               final waitForCanvasPaint =
                   shouldDeferSoftwareFirstFrameUntilPaint(

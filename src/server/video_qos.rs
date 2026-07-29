@@ -43,6 +43,9 @@ const HISTORY_DELAY_LEN: usize = 2;
 const ADJUST_RATIO_INTERVAL: usize = 3; // Adjust quality ratio every 3 seconds
 const DYNAMIC_SCREEN_THRESHOLD: usize = 2; // Allow increase quality ratio if encode more than 2 times in one second
 const DELAY_THRESHOLD_150MS: u32 = 150; // 150ms is the threshold for good network condition
+const KQ_STANDARD_STREAM_MAX_HEIGHT: usize = 480;
+const KQ_HD_STREAM_MAX_HEIGHT: usize = 1080;
+
 #[inline]
 fn custom_quality_value(image_quality: i32) -> Option<i32> {
     let packed_quality = image_quality >> 8 & 0xFFF;
@@ -181,6 +184,26 @@ impl VideoQoS {
     }
 
     /// The user's selected quality before adaptive bitrate adjustments.
+    pub fn stream_max_height(&self) -> Option<usize> {
+        if crate::get_app_name() != crate::common::KQ_APP_NAME {
+            return None;
+        }
+        match self.latest_quality() {
+            Quality::Best => Some(KQ_HD_STREAM_MAX_HEIGHT),
+            Quality::Custom(ratio) if ratio >= 2.0 => Some(KQ_HD_STREAM_MAX_HEIGHT),
+            Quality::Custom(_) | Quality::Balanced | Quality::Low => {
+                Some(KQ_STANDARD_STREAM_MAX_HEIGHT)
+            }
+        }
+    }
+
+    pub fn encoded_dimensions(&self, width: usize, height: usize) -> (usize, usize) {
+        let Some(max_height) = self.stream_max_height() else {
+            return (width, height);
+        };
+        kq_scaled_dimensions(width, height, max_height)
+    }
+
     // Get current bitrate ratio with bounds checking
     pub fn ratio(&mut self) -> f32 {
         if self.ratio < BR_MIN_HIGH_RESOLUTION || self.ratio > BR_MAX {
@@ -204,6 +227,15 @@ impl VideoQoS {
     pub fn in_vbr_state(&self) -> bool {
         self.abr_config && self.displays.iter().all(|e| e.1.support_changing_quality)
     }
+}
+
+pub fn kq_scaled_dimensions(width: usize, height: usize, max_height: usize) -> (usize, usize) {
+    if width == 0 || height == 0 || max_height == 0 || height <= max_height {
+        return (width, height);
+    }
+    let scaled_width = ((width as f64) * (max_height as f64) / (height as f64)).round() as usize;
+    let even = |value: usize| -> usize { value.max(2) & !1 };
+    (even(scaled_width), even(max_height))
 }
 
 // User session management
@@ -269,16 +301,17 @@ impl VideoQoS {
             }
         };
 
+        let custom_quality = custom_quality_value(image_quality);
         let quality = Some((hbb_common::get_time(), convert_quality(image_quality)));
         if let Some(user) = self.users.get_mut(&id) {
             user.quality = quality;
             // update ratio directly
             self.ratio = self.latest_quality().ratio();
             if crate::get_app_name() == crate::common::KQ_APP_NAME {
-                let custom_quality = custom_quality_value(image_quality).unwrap_or_default();
                 log::info!(
-                    "KQ video quality updated: conn_id={id}, custom_quality={custom_quality}, ratio={:.2}",
-                    self.ratio
+                    "KQ video quality updated: conn_id={id}, custom_quality={}, ratio={:.2}",
+                    custom_quality.unwrap_or_default(),
+                    self.ratio,
                 );
             }
         }

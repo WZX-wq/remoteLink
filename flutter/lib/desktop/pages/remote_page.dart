@@ -914,6 +914,10 @@ class _ImagePaintState extends State<ImagePaint> {
       return SizedBox(width: viewport.width, height: viewport.height);
     }
     _handleSoftwarePaint(model, viewport, scale);
+    final drawWidth =
+        scale > 0 ? viewport.width / scale : image.width.toDouble();
+    final drawHeight =
+        scale > 0 ? viewport.height / scale : image.height.toDouble();
     return SizedBox(
       width: viewport.width,
       height: viewport.height,
@@ -923,12 +927,15 @@ class _ImagePaintState extends State<ImagePaint> {
             Positioned(
               left: x * scale,
               top: y * scale,
-              width: image.width * scale,
-              height: image.height * scale,
+              width: drawWidth * scale,
+              height: drawHeight * scale,
               child: RawImage(
                 image: image,
                 fit: BoxFit.fill,
-                filterQuality: _remoteImageFilterQuality(scale),
+                filterQuality: _remoteImageFilterQuality(
+                  scale,
+                  isStandardTier: _isKqStandardRemoteTier,
+                ),
               ),
             ),
           ],
@@ -966,18 +973,27 @@ class _ImagePaintState extends State<ImagePaint> {
     }
   }
 
-  FilterQuality _remoteImageFilterQuality(double scale) {
+  FilterQuality _remoteImageFilterQuality(
+    double scale, {
+    required bool isStandardTier,
+  }) {
+    if (isStandardTier) {
+      return FilterQuality.low;
+    }
     if (scale < 1.0) {
       return FilterQuality.high;
     }
     return FilterQuality.medium;
   }
 
+  bool get _isKqStandardRemoteTier =>
+      gFFI.userModel.remoteResolutionSelection ==
+      UserModel.remoteResolution720p;
+
   Widget _applyKqRemoteQualityPresentation(Widget child) {
     return KqRemoteQualityPresentation(
       streamQuality: gFFI.userModel.remoteCustomQualitySelection,
-      isStandardTier: gFFI.userModel.remoteResolutionSelection ==
-          UserModel.remoteResolution720p,
+      isStandardTier: _isKqStandardRemoteTier,
       child: child,
     );
   }
@@ -1024,7 +1040,10 @@ class _ImagePaintState extends State<ImagePaint> {
                 textureId: textureId.value,
                 filterQuality: isViewOriginal
                     ? FilterQuality.none
-                    : _remoteImageFilterQuality(sizeScale),
+                    : _remoteImageFilterQuality(
+                        sizeScale,
+                        isStandardTier: _isKqStandardRemoteTier,
+                      ),
               )),
         ));
       }

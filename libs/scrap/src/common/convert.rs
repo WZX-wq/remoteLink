@@ -7,10 +7,18 @@
 include!(concat!(env!("OUT_DIR"), "/yuv_ffi.rs"));
 
 use crate::PixelBuffer;
-use crate::{generate_call_macro, EncodeYuvFormat, TraitPixelBuffer};
+use crate::{generate_call_macro, EncodeYuvFormat, Pixfmt, TraitPixelBuffer};
 use hbb_common::{bail, log, ResultType};
 
 generate_call_macro!(call_yuv, false);
+
+struct FrameData<'a> {
+    data: &'a [u8],
+    stride: &'a [usize],
+    pixfmt: Pixfmt,
+    width: usize,
+    height: usize,
+}
 
 pub fn convert_to_yuv(
     captured: &PixelBuffer,
@@ -18,11 +26,160 @@ pub fn convert_to_yuv(
     dst: &mut Vec<u8>,
     mid_data: &mut Vec<u8>,
 ) -> ResultType<()> {
+    let stride = captured.stride();
+    convert_frame_data_to_yuv(
+        FrameData {
+            data: captured.data(),
+            stride: &stride,
+            pixfmt: captured.pixfmt(),
+            width: captured.width(),
+            height: captured.height(),
+        },
+        &dst_fmt,
+        dst,
+        mid_data,
+    )
+}
+
+/// Convert a captured frame to the encoder's dimensions, scaling down before
+/// color conversion when the selected stream profile has a smaller frame size.
+pub fn convert_to_yuv_with_scale(
+    captured: &PixelBuffer,
+    dst_fmt: EncodeYuvFormat,
+    dst: &mut Vec<u8>,
+    mid_data: &mut Vec<u8>,
+    scale_data: &mut Vec<u8>,
+) -> ResultType<()> {
+    let src_width = captured.width();
+    let src_height = captured.height();
+    if src_width == dst_fmt.w && src_height == dst_fmt.h {
+        return convert_to_yuv(captured, dst_fmt, dst, mid_data);
+    }
+    if src_width < dst_fmt.w || src_height < dst_fmt.h {
+        bail!(
+            "cannot scale captured frame up: ({src_width}, {src_height}) -> ({}, {})",
+            dst_fmt.w,
+            dst_fmt.h
+        );
+    }
+
     let src = captured.data();
     let src_stride = captured.stride();
     let src_pixfmt = captured.pixfmt();
-    let src_width = captured.width();
-    let src_height = captured.height();
+    validate_rgb_input(src, &src_stride, src_pixfmt, src_width, src_height)?;
+
+    let dst_stride = dst_fmt
+        .w
+        .checked_mul(4)
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("scaled frame stride overflow"))?;
+    let dst_len = dst_stride
+        .checked_mul(dst_fmt.h)
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("scaled frame buffer overflow"))?;
+    scale_data.resize(dst_len, 0);
+
+    let mut scale = |input: &[u8], input_stride: usize| -> ResultType<()> {
+        call_yuv!(ARGBScale(
+            input.as_ptr(),
+            input_stride as _,
+            src_width as _,
+            src_height as _,
+            scale_data.as_mut_ptr(),
+            dst_stride as _,
+            dst_fmt.w as _,
+            dst_fmt.h as _,
+            FilterMode::kFilterBox,
+        ));
+        Ok(())
+    };
+
+    let scaled_pixfmt = match src_pixfmt {
+        Pixfmt::BGRA | Pixfmt::RGBA => {
+            let input_stride = *src_stride
+                .first()
+                .ok_or_else(|| hbb_common::anyhow::anyhow!("missing source stride"))?;
+            scale(src, input_stride)?;
+            src_pixfmt
+        }
+        Pixfmt::RGB565LE => {
+            let input_stride = *src_stride
+                .first()
+                .ok_or_else(|| hbb_common::anyhow::anyhow!("missing source stride"))?;
+            let argb_stride = src_width
+                .checked_mul(4)
+                .ok_or_else(|| hbb_common::anyhow::anyhow!("ARGB frame stride overflow"))?;
+            let argb_len = argb_stride
+                .checked_mul(src_height)
+                .ok_or_else(|| hbb_common::anyhow::anyhow!("ARGB frame buffer overflow"))?;
+            mid_data.resize(argb_len, 0);
+            call_yuv!(RGB565ToARGB(
+                src.as_ptr(),
+                input_stride as _,
+                mid_data.as_mut_ptr(),
+                argb_stride as _,
+                src_width as _,
+                src_height as _,
+            ));
+            scale(mid_data, argb_stride)?;
+            Pixfmt::BGRA
+        }
+        _ => {
+            bail!("unsupported scaled source pixel format: {src_pixfmt:?}",);
+        }
+    };
+
+    convert_frame_data_to_yuv(
+        FrameData {
+            data: scale_data,
+            stride: &[dst_stride],
+            pixfmt: scaled_pixfmt,
+            width: dst_fmt.w,
+            height: dst_fmt.h,
+        },
+        &dst_fmt,
+        dst,
+        mid_data,
+    )
+}
+
+fn validate_rgb_input(
+    src: &[u8],
+    src_stride: &[usize],
+    src_pixfmt: Pixfmt,
+    src_width: usize,
+    src_height: usize,
+) -> ResultType<()> {
+    if !matches!(src_pixfmt, Pixfmt::BGRA | Pixfmt::RGBA | Pixfmt::RGB565LE) {
+        return Ok(());
+    }
+    let stride = *src_stride
+        .first()
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("missing source stride"))?;
+    let min_stride = src_width
+        .checked_mul(src_pixfmt.bytes_per_pixel())
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("source stride overflow"))?;
+    if stride < min_stride {
+        bail!("src_stride too small: {stride} < {min_stride}");
+    }
+    let min_len = stride
+        .checked_mul(src_height)
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("source buffer size overflow"))?;
+    if src.len() < min_len {
+        bail!("wrong src len, {} < {stride} * {src_height}", src.len());
+    }
+    Ok(())
+}
+
+fn convert_frame_data_to_yuv(
+    source: FrameData,
+    dst_fmt: &EncodeYuvFormat,
+    dst: &mut Vec<u8>,
+    mid_data: &mut Vec<u8>,
+) -> ResultType<()> {
+    let src = source.data;
+    let src_stride = source.stride;
+    let src_pixfmt = source.pixfmt;
+    let src_width = source.width;
+    let src_height = source.height;
     if src_width > dst_fmt.w || src_height > dst_fmt.h {
         bail!(
             "src rect > dst rect: ({src_width}, {src_height}) > ({},{})",
@@ -30,27 +187,7 @@ pub fn convert_to_yuv(
             dst_fmt.h
         );
     }
-    if src_pixfmt == crate::Pixfmt::BGRA
-        || src_pixfmt == crate::Pixfmt::RGBA
-        || src_pixfmt == crate::Pixfmt::RGB565LE
-    {
-        // stride is calculated, not real, so we need to check it
-        if src_stride[0] < src_width * src_pixfmt.bytes_per_pixel() {
-            bail!(
-                "src_stride too small: {} < {}",
-                src_stride[0],
-                src_width * src_pixfmt.bytes_per_pixel()
-            );
-        }
-        if src.len() < src_stride[0] * src_height {
-            bail!(
-                "wrong src len, {} < {} * {}",
-                src.len(),
-                src_stride[0],
-                src_height
-            );
-        }
-    }
+    validate_rgb_input(src, src_stride, src_pixfmt, src_width, src_height)?;
     let align = |x: usize| (x + 63) / 64 * 64;
     let unsupported = format!(
         "unsupported pixfmt conversion: {src_pixfmt:?} -> {:?}",
@@ -58,9 +195,9 @@ pub fn convert_to_yuv(
     );
 
     match (src_pixfmt, dst_fmt.pixfmt) {
-        (crate::Pixfmt::BGRA, crate::Pixfmt::I420)
-        | (crate::Pixfmt::RGBA, crate::Pixfmt::I420)
-        | (crate::Pixfmt::RGB565LE, crate::Pixfmt::I420) => {
+        (Pixfmt::BGRA, Pixfmt::I420)
+        | (Pixfmt::RGBA, Pixfmt::I420)
+        | (Pixfmt::RGB565LE, Pixfmt::I420) => {
             let dst_stride_y = dst_fmt.stride[0];
             let dst_stride_uv = dst_fmt.stride[1];
             dst.resize(dst_fmt.h * dst_stride_y * 2, 0); // waste some memory to ensure memory safety
@@ -68,9 +205,9 @@ pub fn convert_to_yuv(
             let dst_u = dst[dst_fmt.u..].as_mut_ptr();
             let dst_v = dst[dst_fmt.v..].as_mut_ptr();
             let f = match src_pixfmt {
-                crate::Pixfmt::BGRA => ARGBToI420,
-                crate::Pixfmt::RGBA => ABGRToI420,
-                crate::Pixfmt::RGB565LE => RGB565ToI420,
+                Pixfmt::BGRA => ARGBToI420,
+                Pixfmt::RGBA => ABGRToI420,
+                Pixfmt::RGB565LE => RGB565ToI420,
                 _ => bail!(unsupported),
             };
             call_yuv!(f(
@@ -86,9 +223,9 @@ pub fn convert_to_yuv(
                 src_height as _,
             ));
         }
-        (crate::Pixfmt::BGRA, crate::Pixfmt::NV12)
-        | (crate::Pixfmt::RGBA, crate::Pixfmt::NV12)
-        | (crate::Pixfmt::RGB565LE, crate::Pixfmt::NV12) => {
+        (Pixfmt::BGRA, Pixfmt::NV12)
+        | (Pixfmt::RGBA, Pixfmt::NV12)
+        | (Pixfmt::RGB565LE, Pixfmt::NV12) => {
             let dst_stride_y = dst_fmt.stride[0];
             let dst_stride_uv = dst_fmt.stride[1];
             dst.resize(
@@ -98,9 +235,9 @@ pub fn convert_to_yuv(
             let dst_y = dst.as_mut_ptr();
             let dst_uv = dst[dst_fmt.u..].as_mut_ptr();
             let (input, input_stride) = match src_pixfmt {
-                crate::Pixfmt::BGRA => (src.as_ptr(), src_stride[0]),
-                crate::Pixfmt::RGBA => (src.as_ptr(), src_stride[0]),
-                crate::Pixfmt::RGB565LE => {
+                Pixfmt::BGRA => (src.as_ptr(), src_stride[0]),
+                Pixfmt::RGBA => (src.as_ptr(), src_stride[0]),
+                Pixfmt::RGB565LE => {
                     let mid_stride = src_width * 4;
                     mid_data.resize(mid_stride * src_height, 0);
                     call_yuv!(RGB565ToARGB(
@@ -116,9 +253,9 @@ pub fn convert_to_yuv(
                 _ => bail!(unsupported),
             };
             let f = match src_pixfmt {
-                crate::Pixfmt::BGRA => ARGBToNV12,
-                crate::Pixfmt::RGBA => ABGRToNV12,
-                crate::Pixfmt::RGB565LE => ARGBToNV12,
+                Pixfmt::BGRA => ARGBToNV12,
+                Pixfmt::RGBA => ABGRToNV12,
+                Pixfmt::RGB565LE => ARGBToNV12,
                 _ => bail!(unsupported),
             };
             call_yuv!(f(
@@ -132,9 +269,9 @@ pub fn convert_to_yuv(
                 src_height as _,
             ));
         }
-        (crate::Pixfmt::BGRA, crate::Pixfmt::I444)
-        | (crate::Pixfmt::RGBA, crate::Pixfmt::I444)
-        | (crate::Pixfmt::RGB565LE, crate::Pixfmt::I444) => {
+        (Pixfmt::BGRA, Pixfmt::I444)
+        | (Pixfmt::RGBA, Pixfmt::I444)
+        | (Pixfmt::RGB565LE, Pixfmt::I444) => {
             let dst_stride_y = dst_fmt.stride[0];
             let dst_stride_u = dst_fmt.stride[1];
             let dst_stride_v = dst_fmt.stride[2];
@@ -147,8 +284,8 @@ pub fn convert_to_yuv(
             let dst_u = dst[dst_fmt.u..].as_mut_ptr();
             let dst_v = dst[dst_fmt.v..].as_mut_ptr();
             let (input, input_stride) = match src_pixfmt {
-                crate::Pixfmt::BGRA => (src.as_ptr(), src_stride[0]),
-                crate::Pixfmt::RGBA => {
+                Pixfmt::BGRA => (src.as_ptr(), src_stride[0]),
+                Pixfmt::RGBA => {
                     mid_data.resize(src.len(), 0);
                     call_yuv!(ABGRToARGB(
                         src.as_ptr(),
@@ -160,7 +297,7 @@ pub fn convert_to_yuv(
                     ));
                     (mid_data.as_ptr(), src_stride[0])
                 }
-                crate::Pixfmt::RGB565LE => {
+                Pixfmt::RGB565LE => {
                     let mid_stride = src_width * 4;
                     mid_data.resize(mid_stride * src_height, 0);
                     call_yuv!(RGB565ToARGB(

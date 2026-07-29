@@ -534,7 +534,7 @@ class _AccountPageState extends State<AccountPage> {
                       const SizedBox(height: 10),
                       Text(
                         _mineText(
-                            'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.'),
+                            'Basic uses SD / 30 FPS. Membership unlocks 1080p HD / 60 FPS.'),
                         style: TextStyle(
                           color: q.muted,
                           fontSize: 13,
@@ -949,7 +949,7 @@ class _MembershipBanner extends StatelessWidget {
     final subtitle = isMember
         ? _mineText('Membership benefits active')
         : _mineText(
-            'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.');
+            'Basic uses SD / 30 FPS. Membership unlocks 1080p HD / 60 FPS.');
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -1907,7 +1907,7 @@ class _RemoteExperienceControl extends StatelessWidget {
           icon: Icons.high_quality_rounded,
           children: [
             _QualityOption(
-              label: '720p / 30 FPS',
+              label: _mineText('SD / 30 FPS'),
               caption: _mineText('Basic plan available'),
               selected: resolution == UserModel.remoteResolution720p,
               enabled: !saving,
@@ -1917,7 +1917,7 @@ class _RemoteExperienceControl extends StatelessWidget {
               ),
             ),
             _QualityOption(
-              label: '1080p / 60 FPS',
+              label: _mineText('1080p HD / 60 FPS'),
               caption: isMember
                   ? _mineText('HD quality')
                   : _mineText('Members only'),
@@ -1930,7 +1930,7 @@ class _RemoteExperienceControl extends StatelessWidget {
                         UserModel.memberDefaultFps,
                       )
                   : () =>
-                      showToast(translate('Members can use 1080p / 60 FPS')),
+                      showToast(translate('Members can use 1080p HD / 60 FPS')),
             ),
           ],
         ),
@@ -2364,9 +2364,11 @@ const _mineZh = {
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
   'Membership quality unlocked': '会员画质已解锁，可使用 1080p 和 60 FPS。',
   'Upgrade to unlock 1080p and 60 FPS':
-      '当前账号可使用 720p / 30 FPS，开通会员后可使用 1080p / 60 FPS。',
-  'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.':
-      '基础版使用 720p / 30 FPS，会员可使用 1080p / 60 FPS。',
+      '当前账号可使用标清 / 30 FPS，开通会员后可使用 1080p 高清 / 60 FPS。',
+  'SD / 30 FPS': '标清 / 30 FPS',
+  '1080p HD / 60 FPS': '1080p 高清 / 60 FPS',
+  'Basic uses SD / 30 FPS. Membership unlocks 1080p HD / 60 FPS.':
+      '基础版使用标清 / 30 FPS，会员可使用 1080p 高清 / 60 FPS。',
 };
 
 const _mineTw = {
@@ -2395,6 +2397,8 @@ const _mineTw = {
   'Alipay cashier opened': '已開啟支付寶收銀台',
   'Payment cancelled': '\u652f\u4ed8\u5df2\u53d6\u6d88',
   'Payment was not completed': '\u652f\u4ed8\u672a\u5b8c\u6210',
-  'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.':
-      '基礎版使用 720p / 30 FPS，會員可使用 1080p / 60 FPS。',
+  'SD / 30 FPS': '標清 / 30 FPS',
+  '1080p HD / 60 FPS': '1080p 高畫質 / 60 FPS',
+  'Basic uses SD / 30 FPS. Membership unlocks 1080p HD / 60 FPS.':
+      '基礎版使用標清 / 30 FPS，會員可使用 1080p 高畫質 / 60 FPS。',
 };

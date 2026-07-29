@@ -188,7 +188,10 @@ pub extern "C" fn kq_ios_broadcast_push_bgra(
                 && previous_size.is_some()
                 && previous_size != Some((width, height))
             {
-                crate::server::video_service::refresh();
+                crate::server::video_service::request_refresh(
+                    crate::server::video_service::VideoSource::Monitor,
+                    Some(0),
+                );
             }
             OK
         }

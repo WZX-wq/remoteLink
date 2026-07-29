@@ -104,11 +104,11 @@ class _KqIosMembershipPurchasePageState
                 padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
                 children: [
                   _IosMembershipIntro(
-                    title: _text('会员解锁 1080p / 60 FPS',
-                        'Membership unlocks 1080p / 60 FPS'),
+                    title: _text('会员解锁 1080p 高清 / 60 FPS',
+                        'Membership unlocks 1080p HD / 60 FPS'),
                     subtitle: _text(
-                      '基础版使用 720p / 30 FPS，付款和恢复购买由 Apple 处理。',
-                      'Basic uses 720p / 30 FPS. Apple handles payment and purchase restoration.',
+                      '基础版使用标清 / 30 FPS，付款和恢复购买由 Apple 处理。',
+                      'Basic uses SD / 30 FPS. Apple handles payment and purchase restoration.',
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -335,8 +335,8 @@ class _IosMembershipPackageTile extends StatelessWidget {
         ? text('Apple 暂未返回此套餐，请稍后重新获取。',
             'Apple has not made this plan available yet. Reload later.')
         : text(
-            '开通后可使用 1080p / 60 FPS 远程控制。',
-            'Unlock 1080p / 60 FPS remote control.',
+            '开通后可使用 1080p 高清 / 60 FPS 远程控制。',
+            'Unlock 1080p HD / 60 FPS remote control.',
           );
     return Container(
       padding: const EdgeInsets.all(16),

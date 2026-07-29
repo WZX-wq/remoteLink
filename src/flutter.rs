@@ -245,6 +245,8 @@ struct RgbaData {
     // We must check the `rgba_valid` before reading [rgba].
     data: Vec<u8>,
     valid: bool,
+    width: usize,
+    height: usize,
 }
 
 pub type FlutterRgbaRendererPluginOnRgba = unsafe extern "C" fn(
@@ -1270,6 +1272,16 @@ impl InvokeUiSession for FlutterHandler {
 
 impl FlutterHandler {
     #[inline]
+    fn get_rgba_dimensions(&self, _display: usize) -> (usize, usize) {
+        if let Some(rgba_data) = self.display_rgbas.read().unwrap().get(&_display) {
+            if rgba_data.valid {
+                return (rgba_data.width, rgba_data.height);
+            }
+        }
+        (0, 0)
+    }
+
+    #[inline]
     fn on_rgba_soft_render(&self, display: usize, rgba: &mut scrap::ImageRgb) {
         // Give a chance for plugins or etc to hook a rgba data.
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1289,10 +1301,14 @@ impl FlutterHandler {
             } else {
                 rgba_data.valid = true;
             }
+            rgba_data.width = rgba.w;
+            rgba_data.height = rgba.h;
             // Return the rgba buffer to the video handler for reusing allocated rgba buffer.
             std::mem::swap::<Vec<u8>>(&mut rgba.raw, &mut rgba_data.data);
         } else {
             let mut rgba_data = RgbaData::default();
+            rgba_data.width = rgba.w;
+            rgba_data.height = rgba.h;
             std::mem::swap::<Vec<u8>>(&mut rgba.raw, &mut rgba_data.data);
             rgba_data.valid = true;
             if crate::get_app_name() == crate::common::KQ_APP_NAME {
@@ -1851,6 +1867,26 @@ pub extern "C" fn session_get_rgba(session_uuid_str: *const char, display: usize
     }
 
     std::ptr::null()
+}
+
+#[no_mangle]
+pub extern "C" fn session_get_rgba_width(session_uuid_str: *const char, display: usize) -> usize {
+    if let Ok(session_id) = char_to_session_id(session_uuid_str) {
+        if let Some(s) = sessions::get_session_by_session_id(&session_id) {
+            return s.ui_handler.get_rgba_dimensions(display).0;
+        }
+    }
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn session_get_rgba_height(session_uuid_str: *const char, display: usize) -> usize {
+    if let Ok(session_id) = char_to_session_id(session_uuid_str) {
+        if let Some(s) = sessions::get_session_by_session_id(&session_id) {
+            return s.ui_handler.get_rgba_dimensions(display).1;
+        }
+    }
+    0
 }
 
 pub fn session_next_rgba(session_id: SessionID, display: usize) {

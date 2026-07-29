@@ -572,6 +572,7 @@ fn run(vs: VideoService) -> ResultType<()> {
     let mut video_qos = VIDEO_QOS.lock().unwrap();
     let mut spf = video_qos.spf();
     let mut quality = video_qos.ratio();
+    let (target_width, target_height) = video_qos.encoded_dimensions(c.width, c.height);
     let record_incoming = config::option2bool(
         "allow-auto-record-incoming",
         &Config::get_option("allow-auto-record-incoming"),
@@ -587,6 +588,8 @@ fn run(vs: VideoService) -> ResultType<()> {
         last_portable_service_running,
         vs.source,
         display_idx,
+        target_width,
+        target_height,
     ) {
         Ok(result) => result,
         Err(err) => {
@@ -607,9 +610,20 @@ fn run(vs: VideoService) -> ResultType<()> {
                 last_portable_service_running,
                 vs.source,
                 display_idx,
+                target_width,
+                target_height,
             )?
         }
     };
+    if (target_width, target_height) != (c.width, c.height) {
+        log::info!(
+            "KQ video encoder dimensions changed: captured={}x{}, encoded={}x{}",
+            c.width,
+            c.height,
+            target_width,
+            target_height
+        );
+    }
     #[cfg(feature = "vram")]
     c.set_output_texture(encoder.input_texture());
     #[cfg(target_os = "android")]
@@ -646,12 +660,14 @@ fn run(vs: VideoService) -> ResultType<()> {
     let mut would_block_count = 0u32;
     let mut yuv = Vec::new();
     let mut mid_data = Vec::new();
+    let mut scale_data = Vec::new();
     let mut repeat_encode_counter = 0;
     let repeat_encode_max = 10;
     let mut encode_fail_counter = 0;
     let mut first_frame = true;
     let encoded_width = encoder.yuvfmt().w;
     let encoded_height = encoder.yuvfmt().h;
+    let should_scale_frame = (encoded_width, encoded_height) != (target_width, target_height);
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
 
     while sp.ok() {
@@ -665,6 +681,10 @@ fn run(vs: VideoService) -> ResultType<()> {
             &mut send_counter,
             &mut second_instant,
             &sp.name(),
+            c.width,
+            c.height,
+            encoded_width,
+            encoded_height,
         )?;
         if sp.is_option_true(OPTION_REFRESH) {
             if vs.source.is_monitor() {
@@ -766,7 +786,16 @@ fn run(vs: VideoService) -> ResultType<()> {
                         }
                     }
 
-                    let frame = frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)?;
+                    let frame = if should_scale_frame {
+                        frame.to_with_scale(
+                            encoder.yuvfmt(),
+                            &mut yuv,
+                            &mut mid_data,
+                            &mut scale_data,
+                        )?
+                    } else {
+                        frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)?
+                    };
                     let send_conn_ids = handle_one_frame(
                         display_idx,
                         &sp,
@@ -933,6 +962,8 @@ fn setup_encoder(
     last_portable_service_running: bool,
     source: VideoSource,
     display_idx: usize,
+    target_width: usize,
+    target_height: usize,
 ) -> ResultType<(
     Encoder,
     EncoderCfg,
@@ -947,6 +978,8 @@ fn setup_encoder(
         client_record || record_incoming,
         last_portable_service_running,
         source,
+        target_width,
+        target_height,
     );
     Encoder::set_fallback(&encoder_cfg);
     let codec_format = Encoder::negotiated_codec();
@@ -963,9 +996,16 @@ fn get_encoder_config(
     record: bool,
     _portable_service: bool,
     _source: VideoSource,
+    target_width: usize,
+    target_height: usize,
 ) -> EncoderCfg {
     #[cfg(all(windows, feature = "vram"))]
-    if _portable_service || c.is_gdi() || _source == VideoSource::Camera {
+    if _portable_service
+        || c.is_gdi()
+        || _source == VideoSource::Camera
+        || c.width != target_width
+        || c.height != target_height
+    {
         log::info!("gdi:{}, portable:{}", c.is_gdi(), _portable_service);
         VRamEncoder::set_not_use(_name, true);
     }
@@ -980,8 +1020,8 @@ fn get_encoder_config(
             if let Some(feature) = VRamEncoder::try_get(&c.device(), negotiated_codec) {
                 return EncoderCfg::VRAM(VRamEncoderConfig {
                     device: c.device(),
-                    width: c.width,
-                    height: c.height,
+                    width: target_width,
+                    height: target_height,
                     quality,
                     feature,
                     keyframe_interval,
@@ -992,23 +1032,23 @@ fn get_encoder_config(
                 return EncoderCfg::HWRAM(HwRamEncoderConfig {
                     name: hw.name,
                     mc_name: hw.mc_name,
-                    width: c.width,
-                    height: c.height,
+                    width: target_width,
+                    height: target_height,
                     quality,
                     keyframe_interval,
                 });
             }
             EncoderCfg::VPX(VpxEncoderConfig {
-                width: c.width as _,
-                height: c.height as _,
+                width: target_width as _,
+                height: target_height as _,
                 quality,
                 codec: VpxVideoCodecId::VP9,
                 keyframe_interval,
             })
         }
         format @ (CodecFormat::VP8 | CodecFormat::VP9) => EncoderCfg::VPX(VpxEncoderConfig {
-            width: c.width as _,
-            height: c.height as _,
+            width: target_width as _,
+            height: target_height as _,
             quality,
             codec: if format == CodecFormat::VP8 {
                 VpxVideoCodecId::VP8
@@ -1019,22 +1059,22 @@ fn get_encoder_config(
         }),
         #[cfg(not(target_os = "ios"))]
         CodecFormat::AV1 => EncoderCfg::AOM(AomEncoderConfig {
-            width: c.width as _,
-            height: c.height as _,
+            width: target_width as _,
+            height: target_height as _,
             quality,
             keyframe_interval,
         }),
         #[cfg(target_os = "ios")]
         CodecFormat::AV1 => EncoderCfg::VPX(VpxEncoderConfig {
-            width: c.width as _,
-            height: c.height as _,
+            width: target_width as _,
+            height: target_height as _,
             quality,
             codec: VpxVideoCodecId::VP9,
             keyframe_interval,
         }),
         _ => EncoderCfg::VPX(VpxEncoderConfig {
-            width: c.width as _,
-            height: c.height as _,
+            width: target_width as _,
+            height: target_height as _,
             quality,
             codec: VpxVideoCodecId::VP9,
             keyframe_interval,
@@ -1214,6 +1254,24 @@ pub fn refresh() {
     Display::refresh_size();
 }
 
+pub fn request_refresh(source: VideoSource, display: Option<usize>) {
+    refresh();
+    #[cfg(target_os = "ios")]
+    {
+        if let Err(err) = crate::server::display_service::check_displays_changed() {
+            log::warn!("Failed to refresh iOS display metadata: {err}");
+        }
+    }
+    let target = display.map(|display| (source, display));
+    if let Ok(server) = crate::server::CLIENT_SERVER.read() {
+        server.set_video_service_opt(
+            target,
+            OPTION_REFRESH,
+            super::service::SERVICE_OPTION_VALUE_TRUE,
+        );
+    }
+}
+
 #[cfg(windows)]
 fn start_uac_elevation_check() {
     static START: Once = Once::new();
@@ -1326,8 +1384,18 @@ fn check_qos(
     send_counter: &mut usize,
     second_instant: &mut Instant,
     name: &str,
+    captured_width: usize,
+    captured_height: usize,
+    encoded_width: usize,
+    encoded_height: usize,
 ) -> ResultType<()> {
     let mut video_qos = VIDEO_QOS.lock().unwrap();
+    if video_qos.encoded_dimensions(captured_width, captured_height)
+        != (encoded_width, encoded_height)
+    {
+        log::info!("KQ video encoder dimensions changed, switching encoder");
+        bail!("SWITCH");
+    }
     let next_spf = video_qos.spf();
     if *spf != next_spf {
         *spf = next_spf;

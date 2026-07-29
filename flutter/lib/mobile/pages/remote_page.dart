@@ -1295,7 +1295,13 @@ class ImagePaint extends StatelessWidget {
   ImagePaint({Key? key, required this.ffiModel, this.onPaint})
       : super(key: key);
 
-  FilterQuality _remoteImageFilterQuality(double scale) {
+  FilterQuality _remoteImageFilterQuality(
+    double scale, {
+    required bool isStandardTier,
+  }) {
+    if (isStandardTier) {
+      return FilterQuality.low;
+    }
     if (scale < 1.0) {
       return FilterQuality.high;
     }
@@ -1314,10 +1320,9 @@ class ImagePaint extends StatelessWidget {
       }
     }
     final adjust = c.getAdjustY();
-    final blurSigma = gFFI.userModel.remoteResolutionSelection ==
-            UserModel.remoteResolution720p
-        ? kqStandardRemoteBlurSigma
-        : 0.0;
+    final isStandardTier = gFFI.userModel.remoteResolutionSelection ==
+        UserModel.remoteResolution720p;
+    final blurSigma = isStandardTier ? kqStandardRemoteBlurSigma : 0.0;
     return SizedBox.expand(
       child: CustomPaint(
         painter: ImagePainter(
@@ -1325,8 +1330,13 @@ class ImagePaint extends StatelessWidget {
           x: c.x / s,
           y: (c.y + adjust) / s,
           scale: s,
-          filterQuality: _remoteImageFilterQuality(s),
+          filterQuality: _remoteImageFilterQuality(
+            s,
+            isStandardTier: isStandardTier,
+          ),
           blurSigma: blurSigma,
+          targetWidth: c.getDisplayWidth().toDouble(),
+          targetHeight: c.getDisplayHeight().toDouble(),
           onPaint: () => onPaint?.call(m),
         ),
       ),

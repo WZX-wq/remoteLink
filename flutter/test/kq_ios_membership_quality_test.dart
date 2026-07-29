@@ -6,11 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('basic and member receiver profiles have distinct real parameters', () {
-    expect(kqStandardRemoteStreamQuality, 60);
+    expect(kqStandardRemoteStreamQuality, 35);
     expect(kqHighDefinitionRemoteStreamQuality, 150);
+    expect(kqRemoteMaxFrameHeight(highDefinition: false), 480);
+    expect(kqRemoteMaxFrameHeight(highDefinition: true), 1080);
     expect(UserModel.freeMaxFps, 30);
     expect(UserModel.memberDefaultFps, 60);
-    expect(kqStandardRemoteBlurSigma, 0);
+    expect(kqStandardRemoteBlurSigma, greaterThan(0));
   });
 
   test('Rust connection option message uses the selected tier parameters', () {
@@ -46,8 +48,8 @@ void main() {
   test('mobile account displays the parameters that the receiver requests', () {
     final source =
         File('lib/mobile/pages/account_page.dart').readAsStringSync();
-    expect(source, contains("label: '720p / 30 FPS'"));
-    expect(source, contains("label: '1080p / 60 FPS'"));
+    expect(source, contains("label: _mineText('SD / 30 FPS')"));
+    expect(source, contains("label: _mineText('1080p HD / 60 FPS')"));
     expect(source, contains('UserModel.freeMaxFps'));
     expect(source, contains('UserModel.memberDefaultFps'));
   });
@@ -55,15 +57,15 @@ void main() {
   test('membership card localizes the free and member quality message', () {
     final source =
         File('lib/mobile/pages/account_page.dart').readAsStringSync();
-    const key = 'Basic uses 720p / 30 FPS. Membership unlocks 1080p / 60 FPS.';
+    const key = 'Basic uses SD / 30 FPS. Membership unlocks 1080p HD / 60 FPS.';
     final cardTextOffset = source.indexOf("'$key'");
     expect(cardTextOffset, greaterThanOrEqualTo(0));
     expect(
       source.substring(cardTextOffset - 80, cardTextOffset + key.length + 4),
       contains('_mineText('),
     );
-    expect(source, contains('基础版使用 720p / 30 FPS，会员可使用 1080p / 60 FPS。'));
-    expect(source, contains('基礎版使用 720p / 30 FPS，會員可使用 1080p / 60 FPS。'));
+    expect(source, contains('基础版使用标清 / 30 FPS，会员可使用 1080p 高清 / 60 FPS。'));
+    expect(source, contains('基礎版使用標清 / 30 FPS，會員可使用 1080p 高畫質 / 60 FPS。'));
     expect(source, contains("'Upgrade Kunqiong Membership': '开通鲲穹会员'"));
     expect(source, contains("'Membership benefits unlocked': '会员权益已开通'"));
     expect(source, contains("'Membership benefits active': '会员权益已生效'"));

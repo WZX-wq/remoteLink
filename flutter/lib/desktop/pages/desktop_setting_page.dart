@@ -3464,7 +3464,7 @@ class _DisplayState extends State<_Display> {
             child: _settingsProfileButton(
               context,
               icon: Icons.desktop_windows_outlined,
-              label: '720p / 60 FPS',
+              label: translate('Basic SD'),
               selected: resolution == UserModel.remoteResolution720p,
               enabled: true,
               onTap: () => _saveRemotePerformance(
@@ -3482,7 +3482,7 @@ class _DisplayState extends State<_Display> {
             child: _settingsProfileButton(
               context,
               icon: Icons.high_quality_rounded,
-              label: '1080p / 60 FPS',
+              label: translate('Member HD'),
               selected: resolution == UserModel.remoteResolution1080p,
               enabled: isMember,
               locked: !isMember,
@@ -3493,14 +3493,14 @@ class _DisplayState extends State<_Display> {
                         fps: UserModel.memberDefaultFps,
                       )
                   : () => showToast(
-                        translate('Members can use 1080p / 60 FPS'),
+                        translate('Members can use 1080p HD / 60 FPS'),
                       ),
             ),
           ),
           helper: isMember
               ? _kqSettingText('会员已解锁', 'Membership unlocked')
               : _kqSettingText(
-                  '会员可用 1080p / 60 FPS', '1080p / 60 FPS for members'),
+                  '会员可用 1080p 高清 / 60 FPS', '1080p HD / 60 FPS for members'),
         );
         if (wide) {
           return Row(
@@ -4365,8 +4365,8 @@ class _AccountState extends State<_Account> {
           Expanded(
             child: Text(
               _kqSettingText(
-                '画质说明：两档均使用稳定的 60 FPS 视频链路。基础版使用较低压缩质量的 720p 标清画质，会员可解锁 1080p 高清画质。',
-                'Quality: Both tiers use the stable 60 FPS video pipeline. Basic uses lower compression quality for 720p standard quality, while members unlock 1080p HD.',
+                '画质说明：基础版使用标清 / 30 FPS，会员可解锁 1080p 高清 / 60 FPS。',
+                'Quality: Basic uses SD / 30 FPS, while members unlock 1080p HD / 60 FPS.',
               ),
               style: TextStyle(
                 color: palette.mutedText,
@@ -4532,8 +4532,8 @@ class _AccountState extends State<_Account> {
                     child: _guestFeatureItem(
                       icon: Icons.bolt_rounded,
                       title: _kqSettingText('会员权益', 'Membership benefits'),
-                      subtitle: _kqSettingText('会员可解锁 1080p / 60 FPS',
-                          'Members can unlock 1080p / 60 FPS'),
+                      subtitle: _kqSettingText('会员可解锁 1080p 高清 / 60 FPS',
+                          'Members can unlock 1080p HD / 60 FPS'),
                       color: const Color(0xFFD97706),
                       background: const Color(0xFFFEF3C7),
                     ),
@@ -4607,8 +4607,8 @@ class _AccountState extends State<_Account> {
                   _guestFeatureItem(
                     icon: Icons.bolt_rounded,
                     title: _kqSettingText('高清流畅', 'Clear and smooth'),
-                    subtitle: _kqSettingText('会员可解锁 1080p / 60 FPS 远控体验',
-                        'Members can unlock 1080p / 60 FPS remote control'),
+                    subtitle: _kqSettingText('会员可解锁 1080p 高清 / 60 FPS 远控体验',
+                        'Members can unlock 1080p HD / 60 FPS remote control'),
                     color: const Color(0xFFD97706),
                     background: const Color(0xFFFEF3C7),
                   ),
@@ -4868,14 +4868,14 @@ class _AccountState extends State<_Account> {
           _accountBenefitItem(
             context,
             enabled: true,
-            title: '720p / 60 FPS',
+            title: translate('Basic SD'),
             subtitle:
                 _kqSettingText('基础远控可用', 'Basic remote control available'),
           ),
           _accountBenefitItem(
             context,
             enabled: isMember,
-            title: '1080p / 60 FPS',
+            title: translate('Member HD'),
             subtitle: translate('Member HD remote control'),
           ),
           _accountBenefitItem(
@@ -5135,7 +5135,7 @@ class _AccountState extends State<_Account> {
               _referencePillOption(
                 context,
                 icon: Icons.desktop_windows_outlined,
-                label: '720p / 60 FPS',
+                label: translate('Basic SD'),
                 selected: resolution == UserModel.remoteResolution720p,
                 enabled: true,
                 onTap: () => _saveRemotePerformance(
@@ -5146,7 +5146,7 @@ class _AccountState extends State<_Account> {
               _referencePillOption(
                 context,
                 icon: Icons.high_quality_rounded,
-                label: '1080p / 60 FPS',
+                label: translate('Member HD'),
                 selected: resolution == UserModel.remoteResolution1080p,
                 enabled: isMember,
                 locked: !isMember,
@@ -5157,7 +5157,7 @@ class _AccountState extends State<_Account> {
                           fps: UserModel.memberDefaultFps,
                         )
                     : () => showToast(
-                          translate('Members can use 1080p / 60 FPS'),
+                          translate('Members can use 1080p HD / 60 FPS'),
                         ),
               ),
             ],

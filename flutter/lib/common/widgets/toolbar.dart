@@ -398,6 +398,35 @@ Future<List<TRadioMenu<String>>> toolbarViewStyle(
 
 Future<List<TRadioMenu<String>>> toolbarImageQuality(
     BuildContext context, String id, FFI ffi) async {
+  if (appName == '鲲穹远程桌面') {
+    await gFFI.userModel.syncMemberEntitlementFromDisk();
+    final groupValue = gFFI.userModel.remoteResolutionSelection;
+
+    Future<void> applyKqProfile(String? value) async {
+      if (value == null) return;
+      await gFFI.userModel.setRemotePerformanceProfile(
+        resolutionTier: value,
+        fps: value == '1080p' ? 60 : 30,
+      );
+    }
+
+    return [
+      TRadioMenu<String>(
+        child: Text(translate('Basic SD')),
+        value: '720p',
+        groupValue: groupValue,
+        onChanged: applyKqProfile,
+      ),
+      TRadioMenu<String>(
+        child: Text(translate('Member HD')),
+        value: '1080p',
+        groupValue: groupValue,
+        onChanged:
+            gFFI.userModel.canUseMemberRemoteQuality ? applyKqProfile : null,
+      ),
+    ];
+  }
+
   final groupValue =
       await bind.sessionGetImageQuality(sessionId: ffi.sessionId) ?? '';
   onChanged(String? value) async {

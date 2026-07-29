@@ -4529,14 +4529,7 @@ impl Connection {
     }
 
     fn refresh_video_display(&self, display: Option<usize>) {
-        video_service::refresh();
-        self.server.upgrade().map(|s| {
-            s.read().unwrap().set_video_service_opt(
-                display.map(|d| (self.video_source(), d)),
-                video_service::OPTION_REFRESH,
-                super::service::SERVICE_OPTION_VALUE_TRUE,
-            );
-        });
+        video_service::request_refresh(self.video_source(), display);
     }
 
     async fn handle_switch_display(&mut self, s: SwitchDisplay) {

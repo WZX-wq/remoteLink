@@ -78,15 +78,20 @@ class UserModel {
   int get remoteEntitlementMaxFps =>
       canUseMemberRemoteQuality ? memberMaxFps : freeMaxFps;
   int get remoteMaxFps => remoteFpsSelection;
-  String get remoteResolutionLabel => remoteResolutionSelection;
+  String get remoteResolutionLabel =>
+      remoteResolutionSelection == remoteResolution1080p
+          ? translate('Member HD')
+          : translate('Basic SD');
   String get remoteQualityLabel =>
-      '$remoteResolutionLabel / $remoteFpsSelection FPS';
+      remoteResolutionSelection == remoteResolution1080p
+          ? translate('1080p HD / 60 FPS')
+          : translate('SD / 30 FPS');
   String get membershipName =>
       translate(isMember.value ? 'Member plan' : 'Basic plan');
   String get remoteEntitlementHint => isMember.value
-      ? translate('Members can use 720p / 60 FPS or 1080p / 60 FPS.')
+      ? translate('Members can use SD / 30 FPS or 1080p HD / 60 FPS.')
       : translate(
-          'Basic plan uses 720p / 60 FPS. Members can use 1080p / 60 FPS.');
+          'Basic plan uses SD / 30 FPS. Members can use 1080p HD / 60 FPS.');
   String get displayNameOrUserName =>
       displayName.value.trim().isEmpty ? userName.value : displayName.value;
   String get accountLabelWithHandle {

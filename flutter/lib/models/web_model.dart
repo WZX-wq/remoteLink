@@ -100,6 +100,8 @@ class PlatformFFI {
 
   int getRgbaSize(SessionID sessionId, int display) =>
       _ffiBind.sessionGetRgbaSize(sessionId: sessionId, display: display);
+  int getRgbaWidth(SessionID sessionId, int display) => 0;
+  int getRgbaHeight(SessionID sessionId, int display) => 0;
   void nextRgba(SessionID sessionId, int display) =>
       _ffiBind.sessionNextRgba(sessionId: sessionId, display: display);
   void registerPixelbufferTexture(SessionID sessionId, int display, int ptr) =>

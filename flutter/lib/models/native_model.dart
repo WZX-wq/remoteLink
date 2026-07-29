@@ -23,6 +23,8 @@ final class RgbaFrame extends Struct {
 
 typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>, int);
 typedef F3Dart = Pointer<Uint8> Function(Pointer<Utf8>, Int32);
+typedef RgbaDimensionNative = UintPtr Function(Pointer<Utf8>, UintPtr);
+typedef RgbaDimensionDart = int Function(Pointer<Utf8>, int);
 typedef LogRgbaStageNative = Void Function(
     Pointer<Utf8>, Pointer<Utf8>, UintPtr, UintPtr, UintPtr);
 typedef LogRgbaStageDart = void Function(
@@ -47,6 +49,8 @@ class PlatformFFI {
 
   RustdeskImpl get ffiBind => _ffiBind;
   F3? _session_get_rgba;
+  RgbaDimensionDart? _sessionGetRgbaWidth;
+  RgbaDimensionDart? _sessionGetRgbaHeight;
   LogRgbaStageDart? _sessionLogRgbaStage;
 
   static get localeName => Platform.localeName;
@@ -111,6 +115,22 @@ class PlatformFFI {
 
   int getRgbaSize(SessionID sessionId, int display) =>
       _ffiBind.sessionGetRgbaSize(sessionId: sessionId, display: display);
+  int getRgbaWidth(SessionID sessionId, int display) =>
+      _getRgbaDimension(_sessionGetRgbaWidth, sessionId, display);
+  int getRgbaHeight(SessionID sessionId, int display) =>
+      _getRgbaDimension(_sessionGetRgbaHeight, sessionId, display);
+  int _getRgbaDimension(
+      RgbaDimensionDart? getter, SessionID sessionId, int display) {
+    if (getter == null) return 0;
+    final sessionIdStr = sessionId.toString();
+    var a = sessionIdStr.toNativeUtf8();
+    try {
+      return getter(a, display);
+    } finally {
+      malloc.free(a);
+    }
+  }
+
   void nextRgba(SessionID sessionId, int display) =>
       _ffiBind.sessionNextRgba(sessionId: sessionId, display: display);
   void logRgbaStage(SessionID sessionId, String stage, int display,
@@ -153,6 +173,12 @@ class PlatformFFI {
     debugPrint('initializing FFI $_appType');
     try {
       _session_get_rgba = dylib.lookupFunction<F3Dart, F3>("session_get_rgba");
+      _sessionGetRgbaWidth =
+          dylib.lookupFunction<RgbaDimensionNative, RgbaDimensionDart>(
+              "session_get_rgba_width");
+      _sessionGetRgbaHeight =
+          dylib.lookupFunction<RgbaDimensionNative, RgbaDimensionDart>(
+              "session_get_rgba_height");
       _sessionLogRgbaStage =
           dylib.lookupFunction<LogRgbaStageNative, LogRgbaStageDart>(
               "session_log_rgba_stage");

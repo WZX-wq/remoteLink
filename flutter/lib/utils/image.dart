@@ -97,6 +97,8 @@ class ImagePainter extends CustomPainter {
     required this.scale,
     this.filterQuality,
     this.blurSigma = 0,
+    this.targetWidth,
+    this.targetHeight,
     this.onPaint,
   });
 
@@ -106,6 +108,8 @@ class ImagePainter extends CustomPainter {
   double scale;
   FilterQuality? filterQuality;
   double blurSigma;
+  double? targetWidth;
+  double? targetHeight;
   VoidCallback? onPaint;
 
   @override
@@ -136,8 +140,23 @@ class ImagePainter extends CustomPainter {
     if (kIsWeb) {
       paint.filterQuality = FilterQuality.high;
     }
-    canvas.drawImage(
-        image!, Offset(x.toInt().toDouble(), y.toInt().toDouble()), paint);
+    final drawWidth = targetWidth;
+    final drawHeight = targetHeight;
+    if (drawWidth != null &&
+        drawHeight != null &&
+        drawWidth > 0 &&
+        drawHeight > 0) {
+      canvas.drawImageRect(
+        image!,
+        Rect.fromLTWH(0, 0, image!.width.toDouble(), image!.height.toDouble()),
+        Rect.fromLTWH(
+            x.toInt().toDouble(), y.toInt().toDouble(), drawWidth, drawHeight),
+        paint,
+      );
+    } else {
+      canvas.drawImage(
+          image!, Offset(x.toInt().toDouble(), y.toInt().toDouble()), paint);
+    }
     onPaint?.call();
   }
 

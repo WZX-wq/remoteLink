@@ -1,11 +1,19 @@
-const int kqStandardRemoteStreamQuality = 60;
+const int kqStandardRemoteStreamQuality = 35;
 const int kqHighDefinitionRemoteStreamQuality = 150;
-const double kqStandardRemoteBlurSigma = 0.0;
+const int kqStandardRemoteMaxFrameHeight = 480;
+const int kqHighDefinitionRemoteMaxFrameHeight = 1080;
+const double kqStandardRemoteBlurSigma = 0.9;
 
 int kqRemoteStreamQuality({required bool highDefinition}) {
   return highDefinition
       ? kqHighDefinitionRemoteStreamQuality
       : kqStandardRemoteStreamQuality;
+}
+
+int kqRemoteMaxFrameHeight({required bool highDefinition}) {
+  return highDefinition
+      ? kqHighDefinitionRemoteMaxFrameHeight
+      : kqStandardRemoteMaxFrameHeight;
 }
 
 bool kqRemoteProfileRequiresMembership({required bool highDefinition}) {
