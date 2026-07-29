@@ -667,7 +667,7 @@ fn run(vs: VideoService) -> ResultType<()> {
     let mut first_frame = true;
     let encoded_width = encoder.yuvfmt().w;
     let encoded_height = encoder.yuvfmt().h;
-    let should_scale_frame = (encoded_width, encoded_height) != (target_width, target_height);
+    let should_scale_frame = (encoded_width, encoded_height) != (c.width, c.height);
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
 
     while sp.ok() {

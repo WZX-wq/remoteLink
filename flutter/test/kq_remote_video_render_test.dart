@@ -165,6 +165,12 @@ void main() {
     expect(videoQos, contains('stream_max_height'));
     expect(videoQos, contains('kq_scaled_dimensions'));
     expect(videoService, contains('.encoded_dimensions(c.width, c.height)'));
+    expect(
+      videoService,
+      contains(
+        'let should_scale_frame = (encoded_width, encoded_height) != (c.width, c.height);',
+      ),
+    );
     expect(videoService, contains('KQ video encoder dimensions changed'));
     expect(conversion, contains('convert_to_yuv_with_scale'));
     expect(conversion, contains('ARGBScale('));
