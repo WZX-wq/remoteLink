@@ -2087,12 +2087,12 @@ function Test-BuiltInPrivateServerDefaults {
     } else {
         Add-Check "private-server:built-in-defaults" "FAIL" "Missing defaults: $($missing -join ', ')"
     }
-    if ($content -match '#\[cfg\(target_os = "android"\)\]\s*let register_device = "Y";' -and
-        $content -match '#\[cfg\(not\(target_os = "android"\)\)\]\s*let register_device = "N";' -and
+    if ($content -match '#\[cfg\(any\(target_os = "android", target_os = "ios"\)\)\]\s*let register_device = "Y";' -and
+        $content -match '#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*let register_device = "N";' -and
         $content -match '(keys::)?OPTION_REGISTER_DEVICE\.to_owned\(\),\s*register_device\.to_owned\(\)') {
-        Add-Check "private-server:android-register-device-enabled" "PASS" "Android can register with the private rendezvous server"
+        Add-Check "private-server:mobile-register-device-enabled" "PASS" "Android and iOS can register with the private rendezvous server"
     } else {
-        Add-Check "private-server:android-register-device-enabled" "FAIL" "Android register-device default must be enabled while non-Android remains disabled"
+        Add-Check "private-server:mobile-register-device-enabled" "FAIL" "Android and iOS register-device defaults must be enabled while desktop remains disabled"
     }
 
     $rendezvousSource = ".\src\rendezvous_mediator.rs"

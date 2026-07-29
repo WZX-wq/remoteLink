@@ -27,6 +27,8 @@ import AVFoundation
   private let legacyConfig2FileName = "RustDesk2.toml"
   private let broadcastUuidFileName = "kq-ios-device-uuid"
   private let sharedDeviceIdFileName = "kq-ios-device-id"
+  private let sharedDeviceIdentityFileName = "kq-ios-device-identity-v1"
+  private let registeredDeviceIdentityFileName = "kq-ios-registered-identity-v1"
   private let configProfileMigrationMarkerFileName =
     "kq-ios-config-profile-migration-v1"
   private let broadcastStatusFileName = "kq-broadcast-status.json"
@@ -80,6 +82,7 @@ import AVFoundation
   private var voiceBroadcastCaptureRequestId: String?
   private var voiceInvitationTimer: Timer?
   private var voiceInvitationRequestId: String?
+  private var nativeChannel: FlutterMethodChannel?
   // ReplayKit may defer starting the upload extension until after its system
   // confirmation UI closes. Keep this picker attached for that handoff.
   private var broadcastPicker: RPSystemBroadcastPickerView?
@@ -89,17 +92,32 @@ import AVFoundation
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    dummyMethodToEnforceBundling();
+    let launched = super.application(
+      application,
+      didFinishLaunchingWithOptions: launchOptions
+    )
     registerNativeChannel()
     startIOSVoiceCallInvitationMonitor()
-    dummyMethodToEnforceBundling();
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    return launched
   }
 
-  private func registerNativeChannel() {
+  private func registerNativeChannel(retryCount: Int = 0) {
+    guard nativeChannel == nil else {
+      return
+    }
     guard let controller = window?.rootViewController as? FlutterViewController else {
+      guard retryCount < 20 else {
+        NSLog("Failed to register mChannel: Flutter view controller is unavailable")
+        return
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        self?.registerNativeChannel(retryCount: retryCount + 1)
+      }
       return
     }
     let channel = FlutterMethodChannel(name: "mChannel", binaryMessenger: controller.binaryMessenger)
+    nativeChannel = channel
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else {
         result(false)
@@ -1061,6 +1079,9 @@ import AVFoundation
       "updatedAt": defaults.double(forKey: "kq_broadcast_updated_at"),
       "transportState": defaults.string(forKey: "kq_broadcast_transport_state") ?? "not_started",
       "registrationState": defaults.integer(forKey: "kq_broadcast_registration_state"),
+      "registrationRejection": defaults.integer(
+        forKey: "kq_broadcast_registration_rejection"
+      ),
       "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
       "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
       "deviceId": defaults.string(forKey: "kq_broadcast_device_id") ?? "",
@@ -1117,6 +1138,7 @@ import AVFoundation
         "isFresh": false,
         "transportState": "unavailable",
         "registrationState": 0,
+        "registrationRejection": 0,
         "remoteViewAvailable": false,
         "remoteViewerCount": 0,
         "deviceId": "",
@@ -1284,6 +1306,18 @@ import AVFoundation
       required: false,
       preserveExisting: true
     )
+    _ = try copy(
+      sharedDeviceIdentityFileName,
+      to: sharedDeviceIdentityFileName,
+      required: false,
+      preserveExisting: true
+    )
+    _ = try copy(
+      registeredDeviceIdentityFileName,
+      to: registeredDeviceIdentityFileName,
+      required: false,
+      preserveExisting: true
+    )
     try synchronizeSharedIdentityFiles(from: source, to: destination)
     try Data("1".utf8).write(to: migrationMarker, options: .atomic)
     NSLog("[Config Migration] Unified iOS config profile from \(selected.configFileName)")
@@ -1294,7 +1328,12 @@ import AVFoundation
       return
     }
     let fileManager = FileManager.default
-    for fileName in [broadcastUuidFileName, sharedDeviceIdFileName] {
+    for fileName in [
+      broadcastUuidFileName,
+      sharedDeviceIdFileName,
+      sharedDeviceIdentityFileName,
+      registeredDeviceIdentityFileName,
+    ] {
       let target = destination.appendingPathComponent(fileName)
       guard !fileManager.fileExists(atPath: target.path) else {
         continue

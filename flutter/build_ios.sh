@@ -13,6 +13,17 @@ FLUTTER_ARGS=(
   --build-name "$BUILD_NAME"
   --build-number "$BUILD_NUMBER"
 )
+for define_name in \
+  KQ_PRIVACY_POLICY_URL \
+  KQ_ACCOUNT_DELETE_URL \
+  KQ_IOS_IAP_PRODUCTS \
+  KQ_IOS_IAP_VERIFY_URL \
+  KQ_IOS_INTERNAL_DIRECT_PAYMENT
+do
+  if [ -n "${!define_name:-}" ]; then
+    FLUTTER_ARGS+=(--dart-define="$define_name=${!define_name}")
+  fi
+done
 
 cd "$SCRIPT_DIR"
 flutter pub get

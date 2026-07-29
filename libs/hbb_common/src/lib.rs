@@ -368,6 +368,13 @@ fn get_ios_shared_uuid() -> Option<Vec<u8>> {
         return None;
     }
 
+    // A validated identity snapshot is authoritative. It keeps the UUID paired
+    // with the exact ID and signing key used during rendezvous registration.
+    if let Some(uuid) = Config::get_ios_identity_uuid() {
+        let _ = CACHED_IOS_UUID.set(uuid.clone());
+        return Some(uuid);
+    }
+
     let path = std::path::PathBuf::from(app_dir).join("kq-ios-device-uuid");
     if let Ok(raw) = std::fs::read_to_string(&path) {
         if let Some(uuid) = parse_stored_uuid(&raw) {

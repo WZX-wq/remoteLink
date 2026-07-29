@@ -1,7 +1,9 @@
+#[cfg(target_os = "ios")]
+use std::sync::atomic::AtomicU32;
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, RwLock,
     },
     time::{Duration, Instant},
@@ -42,6 +44,25 @@ static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 static MANUAL_RESTARTED: AtomicBool = AtomicBool::new(false);
 static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
 pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "ios")]
+pub(crate) static IOS_RENDEZVOUS_LAST_RESPONSE_MS: AtomicI64 = AtomicI64::new(0);
+#[cfg(target_os = "ios")]
+pub(crate) static IOS_REGISTRATION_REJECTION: AtomicI64 = AtomicI64::new(0);
+#[cfg(target_os = "ios")]
+pub(crate) const IOS_REGISTRATION_REJECTION_NONE: i64 = 0;
+#[cfg(target_os = "ios")]
+pub(crate) const IOS_REGISTRATION_REJECTION_UUID_MISMATCH: i64 = 1;
+#[cfg(target_os = "ios")]
+pub(crate) const IOS_REGISTRATION_REJECTION_NOT_DEPLOYED: i64 = 2;
+#[cfg(target_os = "ios")]
+static IOS_UNCONFIRMED_ID_COLLISIONS: AtomicU32 = AtomicU32::new(0);
+#[cfg(target_os = "ios")]
+const IOS_MAX_UNCONFIRMED_ID_COLLISIONS: u32 = 5;
+
+#[cfg(target_os = "ios")]
+fn mark_ios_rendezvous_response_received() {
+    IOS_RENDEZVOUS_LAST_RESPONSE_MS.store(hbb_common::get_time(), Ordering::Release);
+}
 // register_pk retry interval (ms) when device is awaiting deployment
 const DEPLOY_RETRY_INTERVAL: i64 = 30_000;
 lazy_static::lazy_static! {
@@ -311,6 +332,8 @@ impl RendezvousMediator {
         match msg {
             Some(rendezvous_message::Union::RegisterPeerResponse(rpr)) => {
                 update_latency();
+                #[cfg(target_os = "ios")]
+                mark_ios_rendezvous_response_received();
                 if rpr.request_pk {
                     log::info!("request_pk received from {}", self.host);
                     self.register_pk(sink).await?;
@@ -320,6 +343,16 @@ impl RendezvousMediator {
                 update_latency();
                 match rpr.result.enum_value() {
                     Ok(register_pk_response::Result::OK) => {
+                        #[cfg(target_os = "ios")]
+                        {
+                            mark_ios_rendezvous_response_received();
+                            IOS_REGISTRATION_REJECTION
+                                .store(IOS_REGISTRATION_REJECTION_NONE, Ordering::Release);
+                            IOS_UNCONFIRMED_ID_COLLISIONS.store(0, Ordering::Release);
+                            if !Config::mark_ios_identity_registered() {
+                                log::error!("Failed to mark the accepted iOS identity as durable");
+                            }
+                        }
                         Config::set_key_confirmed(true);
                         Config::set_host_key_confirmed(&self.host_prefix, true);
                         *SOLVING_PK_MISMATCH.lock().await = "".to_owned();
@@ -333,6 +366,9 @@ impl RendezvousMediator {
                             log::warn!("Server requires deployment. Run `rustdesk --deploy --token <api_token>` on this device.");
                         }
                         NEEDS_DEPLOY.store(true, Ordering::SeqCst);
+                        #[cfg(target_os = "ios")]
+                        IOS_REGISTRATION_REJECTION
+                            .store(IOS_REGISTRATION_REJECTION_NOT_DEPLOYED, Ordering::Release);
                         // Clear key_confirmed so the UI reflects the truth: this device is
                         // not currently registered. Covers the case where an online device
                         // was deleted by an admin while running.
@@ -764,31 +800,38 @@ impl RendezvousMediator {
 
     #[cfg(target_os = "ios")]
     async fn handle_uuid_mismatch(&mut self, socket: Sink<'_>) -> ResultType<()> {
+        let was_confirmed = Config::has_confirmed_ios_identity() || Config::get_key_confirmed();
         {
             let mut solving = SOLVING_PK_MISMATCH.lock().await;
-            if !solving.is_empty() {
-                if *solving == self.host {
-                    log::error!(
-                        "The persisted iOS recovery ID was rejected by {}; server repair is required",
-                        self.host
-                    );
-                    NEEDS_DEPLOY.store(true, Ordering::SeqCst);
-                    Config::set_key_confirmed(false);
-                    Config::set_host_key_confirmed(&self.host_prefix, false);
-                }
+            if !solving.is_empty() && *solving != self.host {
                 return Ok(());
             }
-            log::info!("UUID_MISMATCH received from {}", self.host);
             Config::set_key_confirmed(false);
             Config::set_host_key_confirmed(&self.host_prefix, false);
-            let identity_changed = Config::recover_ios_id_after_uuid_mismatch();
-            *solving = self.host.clone();
-            if !identity_changed {
-                NEEDS_DEPLOY.store(true, Ordering::SeqCst);
-                return Ok(());
+
+            let collision = IOS_UNCONFIRMED_ID_COLLISIONS.fetch_add(1, Ordering::AcqRel);
+            if !was_confirmed
+                && collision < IOS_MAX_UNCONFIRMED_ID_COLLISIONS
+                && Config::rotate_unconfirmed_ios_id()
+            {
+                *solving = self.host.clone();
+                NEEDS_DEPLOY.store(false, Ordering::SeqCst);
+                IOS_REGISTRATION_REJECTION
+                    .store(IOS_REGISTRATION_REJECTION_NONE, Ordering::Release);
+                drop(solving);
+                return self.register_pk(socket).await;
             }
+
+            log::error!(
+                "The fixed iOS identity was rejected by {}; server repair is required",
+                self.host
+            );
+            *solving = self.host.clone();
+            NEEDS_DEPLOY.store(true, Ordering::SeqCst);
+            IOS_REGISTRATION_REJECTION
+                .store(IOS_REGISTRATION_REJECTION_UUID_MISMATCH, Ordering::Release);
         }
-        self.register_pk(socket).await
+        Ok(())
     }
 
     #[cfg(not(target_os = "ios"))]

@@ -536,9 +536,21 @@ class _IOSScreenShareBroadcastMvpState
         );
       case 'server_registration_required':
         return _iosShareText(
-          zhCn: '设备暂未完成服务注册，请关闭直播后重新开启。',
-          zhTw: '裝置尚未完成服務註冊，請停止直播後重新開啟。',
-          en: 'The device has not completed service registration. Stop and start the broadcast again.',
+          zhCn: '服务器尚未允许此设备注册，请联系管理员检查设备登记策略。',
+          zhTw: '伺服器尚未允許此裝置註冊，請聯絡管理員檢查裝置登記策略。',
+          en: 'The server has not allowed this device registration. Ask an administrator to check the enrollment policy.',
+        );
+      case 'server_identity_conflict':
+        return _iosShareText(
+          zhCn: '固定设备标识与服务器记录冲突，请联系管理员清理旧记录。',
+          zhTw: '固定裝置識別碼與伺服器記錄衝突，請聯絡管理員清理舊記錄。',
+          en: 'The fixed device identity conflicts with the server record. Ask an administrator to remove the stale record.',
+        );
+      case 'server_registration_rejected':
+        return _iosShareText(
+          zhCn: '服务器拒绝了设备注册，请稍后重试。',
+          zhTw: '伺服器拒絕了裝置註冊，請稍後再試。',
+          en: 'The server rejected device registration. Try again later.',
         );
       case 'server_registration_timeout':
         return _iosShareText(

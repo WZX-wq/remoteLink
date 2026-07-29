@@ -66,6 +66,11 @@ fn is_ios_auth_option_key(key: &str) -> bool {
     IOS_AUTH_OPTION_KEYS.contains(&key)
 }
 
+#[cfg(target_os = "ios")]
+fn ios_config_dir_is_ready() -> bool {
+    !APP_DIR.read().unwrap().trim().is_empty()
+}
+
 #[cfg(any(target_os = "ios", test))]
 fn preserve_latest_ios_auth_options(
     latest: &Config2,
@@ -93,6 +98,12 @@ fn preserve_latest_ios_password_credentials(latest: &Config, pending: &mut Confi
 #[cfg(target_os = "ios")]
 fn with_ios_config_write_lock(path: &Path, write: impl FnOnce()) -> bool {
     use std::os::fd::AsRawFd;
+
+    if !ios_config_dir_is_ready() {
+        log::error!("Refused to write iOS identity/config before the App Group was bound");
+        return false;
+    }
+    let _process_guard = IOS_CONFIG_WRITE_MUTEX.lock().unwrap();
 
     let mut lock_name = path.as_os_str().to_os_string();
     lock_name.push(".lock");
@@ -223,6 +234,11 @@ lazy_static::lazy_static! {
     pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
 }
 
+#[cfg(target_os = "ios")]
+lazy_static::lazy_static! {
+    static ref IOS_CONFIG_WRITE_MUTEX: Mutex<()> = Default::default();
+}
+
 #[cfg(target_os = "android")]
 lazy_static::lazy_static! {
     pub static ref ANDROID_RUSTLS_PLATFORM_VERIFIER_INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -235,7 +251,11 @@ lazy_static::lazy_static! {
 #[cfg(target_os = "ios")]
 const IOS_SHARED_DEVICE_ID_FILE: &str = "kq-ios-device-id";
 #[cfg(target_os = "ios")]
-const IOS_UUID_MISMATCH_RECOVERY_FILE: &str = "kq-ios-id-recovery-v3";
+const IOS_SHARED_DEVICE_UUID_FILE: &str = "kq-ios-device-uuid";
+#[cfg(target_os = "ios")]
+const IOS_IDENTITY_SNAPSHOT_FILE: &str = "kq-ios-device-identity-v1";
+#[cfg(target_os = "ios")]
+const IOS_REGISTERED_IDENTITY_FILE: &str = "kq-ios-registered-identity-v1";
 
 #[cfg(any(target_os = "ios", test))]
 fn parse_ios_shared_device_id(raw_id: &str) -> Option<String> {
@@ -256,30 +276,6 @@ fn parse_ios_shared_device_id(raw_id: &str) -> Option<String> {
         _ => return None,
     };
     (!id.is_empty() && id.len() <= 128).then(|| id.to_owned())
-}
-
-#[cfg(any(target_os = "ios", test))]
-fn parse_ios_uuid_mismatch_recovery(raw: &str) -> Option<(String, String)> {
-    let lines = raw.lines().map(str::trim).collect::<Vec<_>>();
-    let ["v3", uuid_token, id] = lines.as_slice() else {
-        return None;
-    };
-    if uuid_token.is_empty() || id.is_empty() || id.len() > 128 {
-        return None;
-    }
-    Some(((*uuid_token).to_owned(), (*id).to_owned()))
-}
-
-#[cfg(target_os = "ios")]
-fn ios_uuid_token(uuid: &[u8]) -> String {
-    uuid.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-#[cfg(target_os = "ios")]
-fn read_ios_uuid_mismatch_recovery(path: &Path) -> Option<(String, String)> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| parse_ios_uuid_mismatch_recovery(&raw))
 }
 
 #[cfg(target_os = "ios")]
@@ -314,7 +310,239 @@ fn write_ios_shared_device_id(path: &Path, id: &str, replace: bool) -> std::io::
     file.write_all(id.as_bytes())?;
     file.sync_all()?;
     std::fs::rename(temporary, path)?;
+    if let Ok(parent) = std::fs::File::open(parent) {
+        let _ = parent.sync_all();
+    }
     Ok(())
+}
+
+#[cfg(any(target_os = "ios", test))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IosIdentitySnapshot {
+    id: String,
+    key_pair: KeyPair,
+    uuid: Vec<u8>,
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn valid_ios_identity_key_pair(key_pair: &KeyPair) -> bool {
+    if key_pair.0.len() != sign::SECRETKEYBYTES || key_pair.1.len() != sign::PUBLICKEYBYTES {
+        return false;
+    }
+    // Ed25519 secret keys are stored as seed || public key by libsodium. This
+    // catches truncated, mixed-generation, and partially overwritten identities.
+    key_pair.0[sign::SECRETKEYBYTES - sign::PUBLICKEYBYTES..] == key_pair.1
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_identity_payload(snapshot: &IosIdentitySnapshot) -> String {
+    format!(
+        "v1\nid:{}\nsk:{}\npk:{}\nuuid:{}\n",
+        base64::encode(snapshot.id.as_bytes(), base64::Variant::Original),
+        base64::encode(&snapshot.key_pair.0, base64::Variant::Original),
+        base64::encode(&snapshot.key_pair.1, base64::Variant::Original),
+        base64::encode(&snapshot.uuid, base64::Variant::Original),
+    )
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn ios_registered_identity_record(snapshot: &IosIdentitySnapshot) -> String {
+    let digest = Sha256::digest(ios_identity_payload(snapshot).as_bytes());
+    format!(
+        "v1\n{}\n",
+        base64::encode(digest, base64::Variant::Original)
+    )
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn serialize_ios_identity_snapshot(snapshot: &IosIdentitySnapshot) -> Option<String> {
+    if snapshot.id.trim().is_empty()
+        || snapshot.id.len() > 128
+        || snapshot.uuid.is_empty()
+        || snapshot.uuid.len() > 256
+        || !valid_ios_identity_key_pair(&snapshot.key_pair)
+    {
+        return None;
+    }
+    let payload = ios_identity_payload(snapshot);
+    let checksum = Sha256::digest(payload.as_bytes());
+    Some(format!(
+        "{payload}sha256:{}\n",
+        base64::encode(checksum, base64::Variant::Original)
+    ))
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn parse_ios_identity_snapshot(raw: &str) -> Option<IosIdentitySnapshot> {
+    let mut lines = raw.lines();
+    if lines.next()? != "v1" {
+        return None;
+    }
+    let id = base64::decode(
+        lines.next()?.strip_prefix("id:")?.as_bytes(),
+        base64::Variant::Original,
+    )
+    .ok()
+    .and_then(|value| String::from_utf8(value).ok())?;
+    let sk = base64::decode(
+        lines.next()?.strip_prefix("sk:")?.as_bytes(),
+        base64::Variant::Original,
+    )
+    .ok()?;
+    let pk = base64::decode(
+        lines.next()?.strip_prefix("pk:")?.as_bytes(),
+        base64::Variant::Original,
+    )
+    .ok()?;
+    let uuid = base64::decode(
+        lines.next()?.strip_prefix("uuid:")?.as_bytes(),
+        base64::Variant::Original,
+    )
+    .ok()?;
+    let checksum = base64::decode(
+        lines.next()?.strip_prefix("sha256:")?.as_bytes(),
+        base64::Variant::Original,
+    )
+    .ok()?;
+    if lines.next().is_some() {
+        return None;
+    }
+
+    let snapshot = IosIdentitySnapshot {
+        id,
+        key_pair: (sk, pk),
+        uuid,
+    };
+    let expected = Sha256::digest(ios_identity_payload(&snapshot).as_bytes());
+    if checksum.as_slice() != expected.as_slice()
+        || snapshot.id.trim().is_empty()
+        || snapshot.id.len() > 128
+        || snapshot.uuid.is_empty()
+        || snapshot.uuid.len() > 256
+        || !valid_ios_identity_key_pair(&snapshot.key_pair)
+    {
+        return None;
+    }
+    Some(snapshot)
+}
+
+#[cfg(target_os = "ios")]
+fn read_ios_identity_snapshot() -> Option<IosIdentitySnapshot> {
+    std::fs::read_to_string(Config::path(IOS_IDENTITY_SNAPSHOT_FILE))
+        .ok()
+        .and_then(|raw| parse_ios_identity_snapshot(&raw))
+}
+
+#[cfg(target_os = "ios")]
+fn parse_ios_shared_uuid(raw: &str) -> Option<Vec<u8>> {
+    let raw = raw.trim();
+    if let Some(encoded) = raw.strip_prefix("pk:") {
+        return base64::decode(encoded.as_bytes(), base64::Variant::Original)
+            .ok()
+            .filter(|value| !value.is_empty());
+    }
+    if let Some(uuid) = raw.strip_prefix("uuid:") {
+        return (!uuid.is_empty()).then(|| uuid.as_bytes().to_vec());
+    }
+    (!raw.is_empty()).then(|| raw.as_bytes().to_vec())
+}
+
+#[cfg(target_os = "ios")]
+fn read_ios_shared_uuid() -> Option<Vec<u8>> {
+    std::fs::read_to_string(Config::path(IOS_SHARED_DEVICE_UUID_FILE))
+        .ok()
+        .and_then(|raw| parse_ios_shared_uuid(&raw))
+}
+
+#[cfg(target_os = "ios")]
+fn write_ios_identity_snapshot(snapshot: &IosIdentitySnapshot) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let raw = serialize_ios_identity_snapshot(snapshot).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid iOS identity snapshot",
+        )
+    })?;
+    let path = Config::path(IOS_IDENTITY_SNAPSHOT_FILE);
+    let Some(parent) = path.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "iOS identity snapshot has no parent directory",
+        ));
+    };
+    std::fs::create_dir_all(parent)?;
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    let mut file = std::fs::File::create(&temporary)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.write_all(raw.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, &path)?;
+    if let Ok(parent) = std::fs::File::open(parent) {
+        let _ = parent.sync_all();
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "ios")]
+fn persist_ios_identity_snapshot(snapshot: &IosIdentitySnapshot) -> bool {
+    if let Err(err) = write_ios_identity_snapshot(snapshot) {
+        log::error!("Failed to persist the durable iOS identity snapshot: {err}");
+        return false;
+    }
+    set_ios_shared_device_id(&snapshot.id);
+    true
+}
+
+#[cfg(target_os = "ios")]
+fn apply_durable_ios_identity(latest: &Config, pending: &mut Config) {
+    if let Some(snapshot) = read_ios_identity_snapshot() {
+        pending.id = snapshot.id;
+        pending.enc_id.clear();
+        pending.key_pair = snapshot.key_pair;
+        return;
+    }
+
+    let key_pair = if valid_ios_identity_key_pair(&pending.key_pair) {
+        pending.key_pair.clone()
+    } else if valid_ios_identity_key_pair(&latest.key_pair) {
+        latest.key_pair.clone()
+    } else {
+        return;
+    };
+    let id = read_ios_shared_device_id(&Config::path(IOS_SHARED_DEVICE_ID_FILE))
+        .or_else(|| parse_ios_shared_device_id(&pending.id))
+        .or_else(|| parse_ios_shared_device_id(&latest.id));
+    let Some(id) = id else {
+        return;
+    };
+    let snapshot = IosIdentitySnapshot {
+        id,
+        uuid: read_ios_shared_uuid().unwrap_or_else(|| key_pair.1.clone()),
+        key_pair,
+    };
+    if persist_ios_identity_snapshot(&snapshot) {
+        pending.id = snapshot.id;
+        pending.enc_id.clear();
+        pending.key_pair = snapshot.key_pair;
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn update_ios_identity_snapshot_id(id: &str) -> Option<bool> {
+    let path = Config::file_("");
+    if read_ios_identity_snapshot().is_none() {
+        return None;
+    }
+    let mut updated = false;
+    let locked = with_ios_config_write_lock(&path, || {
+        let Some(mut snapshot) = read_ios_identity_snapshot() else {
+            return;
+        };
+        snapshot.id = id.to_owned();
+        updated = persist_ios_identity_snapshot(&snapshot);
+    });
+    Some(locked && updated)
 }
 
 /// iOS runs the main app and the ReplayKit extension in separate processes.
@@ -323,6 +551,12 @@ fn write_ios_shared_device_id(path: &Path, id: &str, replace: bool) -> std::io::
 #[cfg(target_os = "ios")]
 fn get_or_create_ios_shared_device_id(preferred: &str) -> Option<String> {
     let path = Config::path(IOS_SHARED_DEVICE_ID_FILE);
+    if let Some(snapshot) = read_ios_identity_snapshot() {
+        if read_ios_shared_device_id(&path).as_deref() != Some(snapshot.id.as_str()) {
+            set_ios_shared_device_id(&snapshot.id);
+        }
+        return Some(snapshot.id);
+    }
     if let Some(id) = read_ios_shared_device_id(&path) {
         return Some(id);
     }
@@ -966,7 +1200,15 @@ impl Config {
             store = true;
         }
         #[cfg(target_os = "ios")]
-        if let Some(id) = get_or_create_ios_shared_device_id(&config.id) {
+        if let Some(snapshot) = read_ios_identity_snapshot() {
+            if config.id != snapshot.id || config.key_pair != snapshot.key_pair {
+                config.id = snapshot.id;
+                config.key_pair = snapshot.key_pair;
+                config.enc_id.clear();
+                store = true;
+            }
+            id_valid = true;
+        } else if let Some(id) = get_or_create_ios_shared_device_id(&config.id) {
             if config.id != id {
                 config.id = id;
                 store = true;
@@ -1116,6 +1358,7 @@ impl Config {
                 let latest = Config::load_::<Config>("");
                 let mut merged = self.clone();
                 preserve_latest_ios_password_credentials(&latest, &mut merged);
+                apply_durable_ios_identity(&latest, &mut merged);
                 merged.store_unlocked();
             });
             if !stored {
@@ -1130,7 +1373,12 @@ impl Config {
     #[cfg(target_os = "ios")]
     fn store_with_password_override(&self) {
         let path = Config::file_("");
-        let stored = with_ios_config_write_lock(&path, || self.store_unlocked());
+        let stored = with_ios_config_write_lock(&path, || {
+            let latest = Config::load_::<Config>("");
+            let mut merged = self.clone();
+            apply_durable_ios_identity(&latest, &mut merged);
+            merged.store_unlocked();
+        });
         if !stored {
             log::error!(
                 "Skipped iOS password credential write because its cross-process lock failed"
@@ -1390,7 +1638,19 @@ impl Config {
 
     pub fn set_id(id: &str) {
         #[cfg(target_os = "ios")]
-        set_ios_shared_device_id(id);
+        {
+            // Once a complete identity exists, update its authoritative atomic
+            // snapshot first. A crash can then only leave the helper ID stale,
+            // and the next read repairs that helper from the snapshot.
+            match update_ios_identity_snapshot_id(id) {
+                Some(true) => {}
+                Some(false) => {
+                    log::error!("Refused to change the iOS ID because its identity snapshot could not be updated");
+                    return;
+                }
+                None => set_ios_shared_device_id(id),
+            }
+        }
         let mut config = CONFIG.write().unwrap();
         if id == config.id {
             return;
@@ -1399,71 +1659,20 @@ impl Config {
         config.store();
     }
 
-    /// Recover once when an ID belongs to a historical UUID on the rendezvous
-    /// server. The recovery record is stored in the App Group and bound to the
-    /// current durable UUID, so the main app and ReplayKit extension converge on
-    /// the same replacement ID and never rotate it on later broadcasts.
-    #[cfg(target_os = "ios")]
-    pub fn recover_ios_id_after_uuid_mismatch() -> bool {
-        let uuid_token = ios_uuid_token(&crate::get_uuid());
-        if uuid_token.is_empty() {
-            log::error!("Cannot recover iOS registration without a durable UUID");
-            return false;
-        }
-
-        let path = Self::path(IOS_UUID_MISMATCH_RECOVERY_FILE);
-        let current_id = Self::get_id();
-        if let Some((_stored_uuid, recovered_id)) =
-            read_ios_uuid_mismatch_recovery(&path).filter(|(uuid, _)| uuid == &uuid_token)
-        {
-            if current_id == recovered_id {
-                log::error!(
-                    "iOS recovery ID was rejected again; registration requires server repair"
-                );
-                return false;
-            }
-            Self::set_id(&recovered_id);
-            log::warn!("Restored the persisted iOS registration recovery ID");
-            return true;
-        }
-
-        let Some(recovered_id) = Self::get_auto_id() else {
-            log::error!("Failed to generate the one-time iOS registration recovery ID");
-            return false;
-        };
-        let recovery = format!("v3\n{uuid_token}\n{recovered_id}\n");
-        match write_ios_shared_device_id(&path, &recovery, false) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                if let Some((stored_uuid, stored_id)) = read_ios_uuid_mismatch_recovery(&path) {
-                    if stored_uuid == uuid_token {
-                        Self::set_id(&stored_id);
-                        return current_id != stored_id;
-                    }
-                }
-                if let Err(err) = write_ios_shared_device_id(&path, &recovery, true) {
-                    log::error!("Failed to replace stale iOS recovery record: {err}");
-                    return false;
-                }
-            }
-            Err(err) => {
-                log::error!("Failed to persist iOS registration recovery: {err}");
-                return false;
-            }
-        }
-
-        Self::set_id(&recovered_id);
-        log::warn!("Migrated the iOS device ID once after UUID mismatch");
-        true
-    }
-
     /// The main app and ReplayKit extension have independent Rust statics. Pull
     /// an identity migration performed by the extension into the foreground app
     /// before it displays or registers the local ID.
     #[cfg(target_os = "ios")]
     pub fn sync_ios_shared_device_id() -> bool {
         let path = Self::path(IOS_SHARED_DEVICE_ID_FILE);
-        let Some(id) = read_ios_shared_device_id(&path) else {
+        let id = if let Some(snapshot) = read_ios_identity_snapshot() {
+            if read_ios_shared_device_id(&path).as_deref() != Some(snapshot.id.as_str()) {
+                set_ios_shared_device_id(&snapshot.id);
+            }
+            snapshot.id
+        } else if let Some(id) = read_ios_shared_device_id(&path) {
+            id
+        } else {
             return false;
         };
 
@@ -1575,6 +1784,56 @@ impl Config {
         CONFIG.read().unwrap().key_confirmed
     }
 
+    #[cfg(target_os = "ios")]
+    pub fn has_confirmed_ios_identity() -> bool {
+        let Some(snapshot) = read_ios_identity_snapshot() else {
+            return false;
+        };
+        std::fs::read_to_string(Self::path(IOS_REGISTERED_IDENTITY_FILE))
+            .map(|record| record == ios_registered_identity_record(&snapshot))
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn mark_ios_identity_registered() -> bool {
+        let Some(snapshot) = read_ios_identity_snapshot() else {
+            log::error!("Cannot mark a missing iOS identity as registered");
+            return false;
+        };
+        let path = Self::path(IOS_REGISTERED_IDENTITY_FILE);
+        match write_ios_shared_device_id(&path, &ios_registered_identity_record(&snapshot), true) {
+            Ok(()) => true,
+            Err(err) => {
+                log::error!("Failed to persist the registered iOS identity marker: {err}");
+                false
+            }
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn rotate_unconfirmed_ios_id() -> bool {
+        if Self::has_confirmed_ios_identity() {
+            log::error!("Refused to rotate an iOS identity already confirmed by the server");
+            return false;
+        }
+        let previous = Self::get_id();
+        for _ in 0..3 {
+            let Some(candidate) = Self::get_auto_id() else {
+                continue;
+            };
+            if candidate == previous {
+                continue;
+            }
+            Self::set_id(&candidate);
+            if Self::get_id() == candidate {
+                log::warn!("Rotated an unconfirmed iOS device ID after a server collision");
+                return true;
+            }
+        }
+        log::error!("Failed to persist a replacement iOS device ID");
+        false
+    }
+
     pub fn set_key_confirmed(v: bool) {
         let mut config = CONFIG.write().unwrap();
         if config.key_confirmed == v {
@@ -1603,24 +1862,105 @@ impl Config {
     pub fn get_key_pair() -> KeyPair {
         // lock here to make sure no gen_keypair more than once
         // no use of CONFIG directly here to ensure no recursive calling in Config::load because of password dec which calling this function
-        let mut lock = KEY_PAIR.lock().unwrap();
-        if let Some(p) = lock.as_ref() {
-            return p.clone();
-        }
-        let mut config = Config::load_::<Config>("");
-        if config.key_pair.0.is_empty() {
-            log::info!("Generated new keypair for id: {}", config.id);
-            let (pk, sk) = sign::gen_keypair();
-            let key_pair = (sk.0.to_vec(), pk.0.into());
-            config.key_pair = key_pair.clone();
-            std::thread::spawn(|| {
+        #[cfg(target_os = "ios")]
+        {
+            if let Some(snapshot) = read_ios_identity_snapshot() {
+                *KEY_PAIR.lock().unwrap() = Some(snapshot.key_pair.clone());
+                return snapshot.key_pair;
+            }
+
+            let Some(snapshot) = Self::ensure_ios_identity() else {
+                log::error!("Failed to create or restore the durable iOS identity");
+                return Default::default();
+            };
+            *KEY_PAIR.lock().unwrap() = Some(snapshot.key_pair.clone());
+            {
                 let mut config = CONFIG.write().unwrap();
-                config.key_pair = key_pair;
-                config.store();
-            });
+                config.id = snapshot.id;
+                config.enc_id.clear();
+                config.key_pair = snapshot.key_pair.clone();
+            }
+            return snapshot.key_pair;
         }
-        *lock = Some(config.key_pair.clone());
-        config.key_pair
+
+        #[cfg(not(target_os = "ios"))]
+        {
+            let mut lock = KEY_PAIR.lock().unwrap();
+            if let Some(p) = lock.as_ref() {
+                return p.clone();
+            }
+            let mut config = Config::load_::<Config>("");
+            if config.key_pair.0.is_empty() {
+                log::info!("Generated new keypair for id: {}", config.id);
+                let (pk, sk) = sign::gen_keypair();
+                let key_pair = (sk.0.to_vec(), pk.0.into());
+                config.key_pair = key_pair.clone();
+                std::thread::spawn(|| {
+                    let mut config = CONFIG.write().unwrap();
+                    config.key_pair = key_pair;
+                    config.store();
+                });
+            }
+            *lock = Some(config.key_pair.clone());
+            config.key_pair
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    fn ensure_ios_identity() -> Option<IosIdentitySnapshot> {
+        let path = Config::file_("");
+        let mut restored = None;
+        let locked = with_ios_config_write_lock(&path, || {
+            let mut config = Config::load_::<Config>("");
+            let snapshot = read_ios_identity_snapshot();
+            let id = snapshot
+                .as_ref()
+                .map(|value| value.id.clone())
+                .or_else(|| read_ios_shared_device_id(&Config::path(IOS_SHARED_DEVICE_ID_FILE)))
+                .or_else(|| parse_ios_shared_device_id(&config.id))
+                .or_else(Config::get_auto_id);
+            let Some(id) = id else {
+                log::error!("Failed to allocate a durable iOS device ID");
+                return;
+            };
+
+            let key_pair = snapshot
+                .as_ref()
+                .map(|value| value.key_pair.clone())
+                .filter(valid_ios_identity_key_pair)
+                .or_else(|| {
+                    valid_ios_identity_key_pair(&config.key_pair).then(|| config.key_pair.clone())
+                })
+                .unwrap_or_else(|| {
+                    log::info!("Generated a new durable keypair for iOS id: {id}");
+                    let (pk, sk) = sign::gen_keypair();
+                    (sk.0.to_vec(), pk.0.to_vec())
+                });
+            let uuid = snapshot
+                .as_ref()
+                .map(|value| value.uuid.clone())
+                .filter(|value| !value.is_empty())
+                .or_else(read_ios_shared_uuid)
+                .unwrap_or_else(|| key_pair.1.clone());
+            let snapshot = IosIdentitySnapshot { id, key_pair, uuid };
+            if !persist_ios_identity_snapshot(&snapshot) {
+                return;
+            }
+
+            // Store a complete plaintext identity in the same critical section.
+            // Config::load() encrypts the ID later using the now-durable UUID;
+            // writing plaintext here avoids re-entering get_uuid() while the
+            // cross-process identity lock is held.
+            config.id = snapshot.id.clone();
+            config.enc_id.clear();
+            config.key_pair = snapshot.key_pair.clone();
+            Config::store_(&config, "");
+            restored = Some(snapshot);
+        });
+        if !locked {
+            return None;
+        }
+        restored
     }
 
     pub fn get_cached_pk() -> Option<Vec<u8>> {
@@ -1635,17 +1975,34 @@ impl Config {
             return Some(p.clone());
         }
 
+        #[cfg(target_os = "ios")]
+        if let Some(snapshot) = read_ios_identity_snapshot() {
+            *lock = Some(snapshot.key_pair.clone());
+            return Some(snapshot.key_pair);
+        }
+
         // IMPORTANT: this path is called while holding KEY_PAIR lock.
         // Config::load_ must remain a raw conf load/deserialize path and must never
         // call decrypt_* / symmetric_crypt (directly or indirectly), otherwise this
         // can re-enter key loading and deadlock.
         let config = Config::load_::<Config>("");
-        if !config.key_pair.0.is_empty() {
+        #[cfg(target_os = "ios")]
+        let valid = valid_ios_identity_key_pair(&config.key_pair);
+        #[cfg(not(target_os = "ios"))]
+        let valid = !config.key_pair.0.is_empty();
+        if valid {
             *lock = Some(config.key_pair.clone());
             Some(config.key_pair)
         } else {
             None
         }
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn get_ios_identity_uuid() -> Option<Vec<u8>> {
+        read_ios_identity_snapshot()
+            .map(|snapshot| snapshot.uuid)
+            .or_else(read_ios_shared_uuid)
     }
 
     pub fn no_register_device() -> bool {
@@ -2149,6 +2506,17 @@ impl Config {
     // TODO: `Config::set()` does not invalidate trusted devices when permanent password/salt changes.
     // This matches historical behavior, but may need revisiting in a separate PR.
     pub fn set(cfg: Config) -> bool {
+        #[cfg(target_os = "ios")]
+        let cfg = {
+            let mut cfg = cfg;
+            if let Some(snapshot) = read_ios_identity_snapshot().or_else(Self::ensure_ios_identity)
+            {
+                cfg.id = snapshot.id;
+                cfg.enc_id.clear();
+                cfg.key_pair = snapshot.key_pair;
+            }
+            cfg
+        };
         let mut lock = CONFIG.write().unwrap();
         if *lock == cfg {
             return false;
@@ -3804,16 +4172,50 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ios_uuid_mismatch_recovery_requires_complete_v3_record() {
-        assert_eq!(
-            parse_ios_uuid_mismatch_recovery("v3\n0123abcd\n1234567890\n"),
-            Some(("0123abcd".to_owned(), "1234567890".to_owned()))
-        );
-        assert_eq!(parse_ios_uuid_mismatch_recovery("v3\n0123abcd\n"), None);
-        assert_eq!(
-            parse_ios_uuid_mismatch_recovery("v2\n0123abcd\n1234567890"),
-            None
-        );
+    fn test_ios_identity_snapshot_roundtrip_and_checksum() {
+        assert!(sodiumoxide::init().is_ok());
+        let (pk, sk) = sign::gen_keypair();
+        let snapshot = IosIdentitySnapshot {
+            id: "1616155279".to_owned(),
+            key_pair: (sk.0.to_vec(), pk.0.to_vec()),
+            uuid: b"fixed-ios-uuid".to_vec(),
+        };
+        let serialized = serialize_ios_identity_snapshot(&snapshot).unwrap();
+        assert_eq!(parse_ios_identity_snapshot(&serialized), Some(snapshot));
+
+        let tampered = serialized.replace("MTYxNjE1NTI3OQ==", "MTYxNjE1NTI3OA==");
+        assert_eq!(parse_ios_identity_snapshot(&tampered), None);
+    }
+
+    #[test]
+    fn test_ios_identity_snapshot_rejects_mixed_keypair() {
+        assert!(sodiumoxide::init().is_ok());
+        let (pk, sk) = sign::gen_keypair();
+        let (other_pk, _) = sign::gen_keypair();
+        let snapshot = IosIdentitySnapshot {
+            id: "1616155279".to_owned(),
+            key_pair: (sk.0.to_vec(), other_pk.0.to_vec()),
+            uuid: pk.0.to_vec(),
+        };
+        assert!(!valid_ios_identity_key_pair(&snapshot.key_pair));
+        assert_eq!(serialize_ios_identity_snapshot(&snapshot), None);
+    }
+
+    #[test]
+    fn test_ios_registered_identity_marker_is_bound_to_complete_identity() {
+        assert!(sodiumoxide::init().is_ok());
+        let (pk, sk) = sign::gen_keypair();
+        let snapshot = IosIdentitySnapshot {
+            id: "1616155279".to_owned(),
+            key_pair: (sk.0.to_vec(), pk.0.to_vec()),
+            uuid: b"fixed-ios-uuid".to_vec(),
+        };
+        let marker = ios_registered_identity_record(&snapshot);
+        assert_eq!(marker.lines().next(), Some("v1"));
+
+        let mut replacement = snapshot.clone();
+        replacement.id = "1616155280".to_owned();
+        assert_ne!(marker, ios_registered_identity_record(&replacement));
     }
 
     #[test]

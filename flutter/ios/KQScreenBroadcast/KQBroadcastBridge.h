@@ -8,6 +8,7 @@ int32_t kq_ios_broadcast_start(
     uintptr_t config_dir_len);
 
 int32_t kq_ios_broadcast_registration_state(void);
+int64_t kq_ios_broadcast_registration_rejection(void);
 
 int32_t kq_ios_broadcast_last_auth_result(void);
 

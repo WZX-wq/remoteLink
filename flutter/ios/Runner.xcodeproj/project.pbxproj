@@ -57,7 +57,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		0A3A301029F021DD0095DDA5 /* liblibrustdesk.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = liblibrustdesk.a; path = "../../target/aarch64-apple-ios/release/liblibrustdesk.a"; sourceTree = "<group>"; };
+		0A3A301029F021DD0095DDA5 /* liblibrustdesk.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = liblibrustdesk.a; path = "../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a"; sourceTree = "<group>"; };
 		0A3A301329F0AB660095DDA5 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		A1B2C3D40000000000000006 /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
 		A1B2C3D40000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -91,7 +91,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1B2C3D40000000000000012 /* liblibrustdesk.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -432,6 +431,8 @@
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = KQScreenBroadcast/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				KQ_RUST_IOS_TARGET = "aarch64-apple-ios";
+				"KQ_RUST_IOS_TARGET[sdk=iphonesimulator*]" = "aarch64-apple-ios-sim";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -439,13 +440,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/",
 				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-force_load",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/liblibrustdesk.a",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a",
 					"-l\"c++\"",
 					"-l\"jpeg\"",
 					"-l\"sqlite3\"",
@@ -493,6 +494,8 @@
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = KQScreenBroadcast/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				KQ_RUST_IOS_TARGET = "aarch64-apple-ios";
+				"KQ_RUST_IOS_TARGET[sdk=iphonesimulator*]" = "aarch64-apple-ios-sim";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -500,13 +503,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/",
 				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-force_load",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/liblibrustdesk.a",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a",
 					"-l\"c++\"",
 					"-l\"jpeg\"",
 					"-l\"sqlite3\"",
@@ -554,6 +557,8 @@
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = KQScreenBroadcast/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				KQ_RUST_IOS_TARGET = "aarch64-apple-ios";
+				"KQ_RUST_IOS_TARGET[sdk=iphonesimulator*]" = "aarch64-apple-ios-sim";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -561,13 +566,13 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/",
 				);
 				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-force_load",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/liblibrustdesk.a",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a",
 					"-l\"c++\"",
 					"-l\"jpeg\"",
 					"-l\"sqlite3\"",
@@ -645,6 +650,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				KQ_RUST_IOS_TARGET = "aarch64-apple-ios";
+				"KQ_RUST_IOS_TARGET[sdk=iphonesimulator*]" = "aarch64-apple-ios-sim";
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = iphoneos;
@@ -674,11 +681,11 @@
 					/usr/lib/swift,
 					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)/",
 					"$(SDKROOT)/usr/lib/swift",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/",
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/liblibrustdesk.a",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a",
 					"-ObjC",
 					"-l\"c++\"",
 					"-l\"jpeg\"",
@@ -756,6 +763,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				KQ_RUST_IOS_TARGET = "aarch64-apple-ios";
+				"KQ_RUST_IOS_TARGET[sdk=iphonesimulator*]" = "aarch64-apple-ios-sim";
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -806,6 +815,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				KQ_RUST_IOS_TARGET = "aarch64-apple-ios";
+				"KQ_RUST_IOS_TARGET[sdk=iphonesimulator*]" = "aarch64-apple-ios-sim";
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = iphoneos;
@@ -837,11 +848,11 @@
 					/usr/lib/swift,
 					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)/",
 					"$(SDKROOT)/usr/lib/swift",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/",
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/liblibrustdesk.a",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a",
 					"-ObjC",
 					"-l\"c++\"",
 					"-l\"jpeg\"",
@@ -894,11 +905,11 @@
 					/usr/lib/swift,
 					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)/",
 					"$(SDKROOT)/usr/lib/swift",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/",
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../../target/aarch64-apple-ios/release/liblibrustdesk.a",
+					"$(PROJECT_DIR)/../../target/$(KQ_RUST_IOS_TARGET)/release/liblibrustdesk.a",
 					"-ObjC",
 					"-l\"c++\"",
 					"-l\"jpeg\"",

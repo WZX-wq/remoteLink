@@ -23,6 +23,9 @@ const REGISTRATION_READY: i32 = 2;
 const REGISTRATION_REQUIRES_DEPLOYMENT: i32 = 3;
 const REGISTRATION_TIMED_OUT: i32 = 4;
 const REGISTRATION_TIMEOUT_MS: i64 = 30_000;
+// RegisterPeer heartbeats are normally sent every REG_INTERVAL. Keep enough
+// headroom for a delayed packet without treating a healthy broadcast as stale.
+const REGISTRATION_RESPONSE_STALE_MS: i64 = hbb_common::config::REG_INTERVAL * 3;
 
 pub(crate) const AUTH_RESULT_NONE: i32 = 0;
 pub(crate) const AUTH_RESULT_TEMPORARY: i32 = 1;
@@ -85,11 +88,12 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
 
     seed_temporary_password_from_config();
     Config::set_option("stop-service".to_owned(), String::new());
-    // A previous app process may have left a cached confirmation behind. The
-    // broadcast extension must prove this session is registered before it can
-    // accept a remote connection.
-    Config::set_key_confirmed(false);
     crate::rendezvous_mediator::NEEDS_DEPLOY.store(false, Ordering::Release);
+    crate::rendezvous_mediator::IOS_RENDEZVOUS_LAST_RESPONSE_MS.store(0, Ordering::Release);
+    crate::rendezvous_mediator::IOS_REGISTRATION_REJECTION.store(
+        crate::rendezvous_mediator::IOS_REGISTRATION_REJECTION_NONE,
+        Ordering::Release,
+    );
     set_last_auth_result(AUTH_RESULT_NONE);
     crate::ios_voice_call::reset_voice_call();
     PAUSED.store(false, Ordering::Release);
@@ -113,15 +117,24 @@ pub extern "C" fn kq_ios_broadcast_registration_state() -> i32 {
     registration_state_for(
         ACTIVE.load(Ordering::Acquire),
         crate::rendezvous_mediator::NEEDS_DEPLOY.load(Ordering::Acquire),
+        crate::rendezvous_mediator::IOS_RENDEZVOUS_LAST_RESPONSE_MS.load(Ordering::Acquire),
+        Config::no_register_device(),
         Config::get_key_confirmed(),
         REGISTRATION_STARTED_AT_MS.load(Ordering::Acquire),
         hbb_common::get_time(),
     )
 }
 
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_registration_rejection() -> i64 {
+    crate::rendezvous_mediator::IOS_REGISTRATION_REJECTION.load(Ordering::Acquire)
+}
+
 fn registration_state_for(
     active: bool,
     needs_deployment: bool,
+    last_rendezvous_response_ms: i64,
+    unmanaged_device: bool,
     key_confirmed: bool,
     started_at_ms: i64,
     now_ms: i64,
@@ -132,7 +145,9 @@ fn registration_state_for(
     if needs_deployment {
         return REGISTRATION_REQUIRES_DEPLOYMENT;
     }
-    if key_confirmed {
+    let rendezvous_response_fresh = last_rendezvous_response_ms > 0
+        && now_ms.saturating_sub(last_rendezvous_response_ms) < REGISTRATION_RESPONSE_STALE_MS;
+    if rendezvous_response_fresh && (unmanaged_device || key_confirmed) {
         return REGISTRATION_READY;
     }
     if started_at_ms > 0 && now_ms.saturating_sub(started_at_ms) >= REGISTRATION_TIMEOUT_MS {
@@ -264,6 +279,7 @@ pub extern "C" fn kq_ios_broadcast_resume() {
 #[no_mangle]
 pub extern "C" fn kq_ios_broadcast_stop() {
     ACTIVE.store(false, Ordering::Release);
+    crate::rendezvous_mediator::IOS_RENDEZVOUS_LAST_RESPONSE_MS.store(0, Ordering::Release);
     PAUSED.store(false, Ordering::Release);
     REGISTRATION_STARTED_AT_MS.store(0, Ordering::Release);
     crate::ios_voice_call::reset_voice_call();

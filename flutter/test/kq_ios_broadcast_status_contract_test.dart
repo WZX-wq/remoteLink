@@ -128,13 +128,18 @@ void main() {
     expect(config, contains('fn get_or_create_ios_shared_device_id'));
     expect(config, contains('fn set_ios_shared_device_id'));
     expect(config, contains('get_or_create_ios_shared_device_id(&config.id)'));
-    expect(config, contains('set_ios_shared_device_id(id);'));
-    expect(config, contains('fn recover_ios_id_after_uuid_mismatch'));
+    expect(config, contains('update_ios_identity_snapshot_id(id)'));
+    expect(config, contains('Refused to change the iOS ID'));
+    expect(config, contains('const IOS_IDENTITY_SNAPSHOT_FILE'));
+    expect(config, contains('fn ensure_ios_identity'));
+    expect(config, contains('fn write_ios_identity_snapshot'));
+    expect(config, contains('file.sync_all()?'));
+    expect(config, contains('apply_durable_ios_identity(&latest, &mut merged)'));
     expect(config, contains('fn sync_ios_shared_device_id'));
-    expect(config, contains('IOS_UUID_MISMATCH_RECOVERY_FILE'));
-    expect(config, contains('kq-ios-id-recovery-v3'));
     expect(ffi, contains('config::Config::sync_ios_shared_device_id();'));
     expect(delegate, contains('sharedDeviceIdFileName'));
+    expect(delegate, contains('sharedDeviceIdentityFileName'));
+    expect(delegate, contains('registeredDeviceIdentityFileName'));
     expect(delegate, contains('synchronizeSharedIdentityFiles'));
     expect(
       config.indexOf('get_or_create_ios_shared_device_id(&config.id)'),
@@ -148,20 +153,13 @@ void main() {
     expect(nonIosMismatchStart, greaterThan(iosMismatchStart));
     final iosMismatch =
         rendezvous.substring(iosMismatchStart, nonIosMismatchStart);
-    expect(iosMismatch, contains('Config::recover_ios_id_after_uuid_mismatch'));
+    expect(iosMismatch, isNot(contains('Config::recover_ios_id_after_uuid_mismatch')));
+    expect(iosMismatch, contains('Config::has_confirmed_ios_identity()'));
+    expect(iosMismatch, contains('Config::rotate_unconfirmed_ios_id()'));
+    expect(iosMismatch, contains('IOS_MAX_UNCONFIRMED_ID_COLLISIONS'));
     expect(iosMismatch, contains('self.register_pk(socket).await'));
-    expect(iosMismatch, contains('if !identity_changed'));
+    expect(iosMismatch, contains('The fixed iOS identity was rejected'));
     expect(iosMismatch, contains('NEEDS_DEPLOY.store(true'));
-    final recoveryStart =
-        config.indexOf('pub fn recover_ios_id_after_uuid_mismatch');
-    final recoveryEnd =
-        config.indexOf('pub fn sync_ios_shared_device_id', recoveryStart);
-    expect(recoveryStart, greaterThanOrEqualTo(0));
-    expect(recoveryEnd, greaterThan(recoveryStart));
-    final recovery = config.substring(recoveryStart, recoveryEnd);
-    expect(recovery, contains('get_auto_id'));
-    expect(recovery, contains('read_ios_uuid_mismatch_recovery'));
-    expect(recovery, contains('Self::set_id(&recovered_id)'));
   });
 
   test('iOS binds the App Group before starting global Rust events', () {
@@ -175,6 +173,27 @@ void main() {
     expect(bindAppGroup, greaterThan(prepareConfig));
     expect(initialize, greaterThan(bindAppGroup));
     expect(startEvents, greaterThan(initialize));
+  });
+
+  test('iOS registers its native channel after Flutter launch is ready', () {
+    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final launchStart = delegate.indexOf('override func application(');
+    final channelStart = delegate.indexOf(
+      'private func registerNativeChannel',
+      launchStart,
+    );
+    final launchBody = delegate.substring(launchStart, channelStart);
+
+    expect(launchBody, contains('let launched = super.application('));
+    expect(
+      launchBody.indexOf('registerNativeChannel()'),
+      greaterThan(launchBody.indexOf('let launched = super.application(')),
+    );
+    expect(
+        delegate, contains('private var nativeChannel: FlutterMethodChannel?'));
+    expect(delegate, contains('guard nativeChannel == nil else'));
+    expect(delegate, contains('retryCount < 20'));
+    expect(delegate, contains('self?.registerNativeChannel('));
   });
 
   test('iOS broadcast bridges voice invitations through App Group storage', () {
@@ -254,7 +273,7 @@ void main() {
     expect(serverConnection, contains('iOS host sent voice audio frame'));
   });
 
-  test('iOS advertises its displayed ID as a registerable device', () {
+  test('iOS advertises its displayed ID as a registered device', () {
     final defaults = File('../src/common.rs').readAsStringSync();
     final rendezvous = File('../src/rendezvous_mediator.rs').readAsStringSync();
 
@@ -262,7 +281,7 @@ void main() {
       defaults,
       contains(
         RegExp(
-          r'#\[cfg\(target_os = "android"\)\]\s*'
+          r'#\[cfg\(any\(target_os = "android", target_os = "ios"\)\)\]\s*'
           r'let register_device = "Y";',
         ),
       ),
@@ -271,7 +290,7 @@ void main() {
       defaults,
       contains(
         RegExp(
-          r'#\[cfg\(not\(target_os = "android"\)\)\]\s*'
+          r'#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*'
           r'let register_device = "N";',
         ),
       ),
@@ -280,19 +299,49 @@ void main() {
       rendezvous,
       contains('no_register_device: Config::no_register_device()'),
     );
+    expect(
+      rendezvous,
+      isNot(contains(
+          'let requires_pk_confirmation = !Config::no_register_device()')),
+    );
     expect(rendezvous, isNot(contains('clear_ios_uuid_mismatch_recovery')));
   });
 
-  test('iOS broadcast requires a fresh rendezvous confirmation before ready',
+  test(
+      'iOS broadcast requires a fresh successful rendezvous response before ready',
       () {
     final native = File('../src/ios_broadcast.rs').readAsStringSync();
+    final rendezvous = File('../src/rendezvous_mediator.rs').readAsStringSync();
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
     final bridge =
         File('ios/KQScreenBroadcast/KQBroadcastBridge.h').readAsStringSync();
     final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
-    expect(native, contains('Config::set_key_confirmed(false);'));
+    final broadcastStart = native.indexOf('kq_ios_broadcast_start');
+    final registrationState = native.indexOf(
+      'pub extern "C" fn kq_ios_broadcast_registration_state',
+    );
+    final startBody = native.substring(broadcastStart, registrationState);
+    expect(startBody, isNot(contains('Config::set_key_confirmed(false);')));
+    expect(native, contains('IOS_RENDEZVOUS_LAST_RESPONSE_MS'));
+    expect(native, contains('REGISTRATION_RESPONSE_STALE_MS'));
+    expect(
+        native,
+        contains(
+            'const REGISTRATION_RESPONSE_STALE_MS: i64 = hbb_common::config::REG_INTERVAL * 3;'));
+    expect(
+        rendezvous, contains('fn mark_ios_rendezvous_response_received()'));
+    expect(
+        rendezvous,
+        contains(
+            'Some(rendezvous_message::Union::RegisterPeerResponse(rpr))'));
+    expect(
+        rendezvous, contains('mark_ios_rendezvous_response_received();'));
+    expect(
+      rendezvous,
+      contains('IOS_RENDEZVOUS_LAST_RESPONSE_MS'),
+    );
     expect(
       native,
       contains(
@@ -301,7 +350,10 @@ void main() {
     expect(bridge, contains('kq_ios_broadcast_registration_state'));
     expect(handler, contains('kq_ios_broadcast_registration_state()'));
     expect(handler, contains('kq_broadcast_registration_state'));
+    expect(handler, contains('kq_ios_broadcast_registration_rejection()'));
+    expect(handler, contains('kq_broadcast_registration_rejection'));
     expect(delegate, contains('"registrationState"'));
+    expect(delegate, contains('"registrationRejection"'));
   });
 
   test('iOS broadcast always merges legacy rendezvous configuration', () {

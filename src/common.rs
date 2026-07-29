@@ -2747,13 +2747,11 @@ fn apply_kq_remote_link_defaults() {
         .unwrap()
         .insert(keys::OPTION_VIEW_STYLE.to_owned(), "adaptive".to_owned());
 
-    // The public RustDesk server accepts iOS screen-sharing endpoints as
-    // unmanaged peers. Requiring managed-device deployment here leaves the
-    // iOS client permanently offline because this deployment does not expose
-    // a RustDesk management API.
-    #[cfg(target_os = "android")]
+    // Android and iOS expose IDs that other clients must be able to resolve.
+    // Register their public keys with hbbs instead of opting those IDs out.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     let register_device = "Y";
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let register_device = "N";
     config::BUILTIN_SETTINGS.write().unwrap().insert(
         keys::OPTION_REGISTER_DEVICE.to_owned(),

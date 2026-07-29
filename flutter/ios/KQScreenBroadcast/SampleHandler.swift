@@ -304,6 +304,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "updatedAt": timestamp,
       "transportState": effectiveTransportState,
       "registrationState": registrationState,
+      "registrationRejection": transportStarted
+        ? Int(kq_ios_broadcast_registration_rejection())
+        : 0,
       "lastAuthResult": authenticationResult(),
       "remoteViewAvailable": viewerCount > 0,
       "remoteViewerCount": viewerCount,
@@ -327,6 +330,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(capturedHeight, forKey: "kq_broadcast_height")
     defaults.set(timestamp, forKey: "kq_broadcast_updated_at")
     defaults.set(registrationState, forKey: "kq_broadcast_registration_state")
+    defaults.set(
+      status["registrationRejection"],
+      forKey: "kq_broadcast_registration_rejection"
+    )
     defaults.set(status["lastAuthResult"], forKey: "kq_broadcast_last_auth_result")
     defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
@@ -417,7 +424,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private func registrationErrorCode(for registrationState: Int) -> String? {
     switch registrationState {
     case 3:
-      return "server_registration_required"
+      switch Int(kq_ios_broadcast_registration_rejection()) {
+      case 1:
+        return "server_identity_conflict"
+      case 2:
+        return "server_registration_required"
+      default:
+        return "server_registration_rejected"
+      }
     case 4:
       return "server_registration_timeout"
     default:
