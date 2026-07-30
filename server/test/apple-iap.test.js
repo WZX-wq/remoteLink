@@ -20,7 +20,7 @@ function fakeJws(payload) {
 }
 
 function appleConfig(overrides = {}) {
-  const { privateKey } = crypto.generateKeyPairSync('ec', {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', {
     namedCurve: 'prime256v1',
   });
   return {
@@ -28,6 +28,7 @@ function appleConfig(overrides = {}) {
     issuerId: 'issuer-id',
     keyId: 'key-id',
     privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    publicKey: publicKey.export({ type: 'spki', format: 'pem' }),
     environment: 'sandbox',
     ...overrides,
   };
@@ -57,6 +58,20 @@ test('accepts an Apple private key provided through an escaped CI environment va
   });
 
   assert.match(token, /^ey/);
+});
+
+test('generates an App Store Server API JWT with an ES256 P1363 signature', () => {
+  const config = appleConfig();
+  const token = buildAppStoreServerApiToken(config, new Date('2026-07-30T00:00:00Z'));
+  const [header, payload, signature] = token.split('.');
+  const verified = crypto
+    .createVerify('SHA256')
+    .update(`${header}.${payload}`, 'utf8')
+    .end()
+    .verify({ key: config.publicKey, dsaEncoding: 'ieee-p1363' }, signature, 'base64url');
+
+  assert.equal(Buffer.from(signature, 'base64url').length, 64);
+  assert.equal(verified, true);
 });
 
 test('uses the StoreKit transaction ID only when it matches signed transaction data', () => {
@@ -202,6 +217,27 @@ test('retains an Apple upstream status without exposing its response body', asyn
         expectedProductId: 'com.kunqiong.remotelink.member.monthly',
         config: appleConfig(),
         fetchImpl: async () => new Response('{}', { status: 401 }),
+      }),
+    (error) =>
+      error instanceof AppleIapError &&
+      error.statusCode === 502 &&
+      error.reason === 'apple_upstream_rejected' &&
+      error.upstreamStatus === 401,
+  );
+});
+
+test('retains Apple upstream status for a non-json error response', async () => {
+  await assert.rejects(
+    () =>
+      fetchAndValidateAppleTransaction({
+        transactionId: '1000000123456794',
+        expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+        config: appleConfig(),
+        fetchImpl: async () =>
+          new Response('<html>Unauthorized</html>', {
+            status: 401,
+            headers: { 'content-type': 'text/html' },
+          }),
       }),
     (error) =>
       error instanceof AppleIapError &&

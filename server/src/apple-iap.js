@@ -154,7 +154,7 @@ export function buildAppStoreServerApiToken(config, now = new Date()) {
     .createSign('SHA256')
     .update(`${encodedHeader}.${encodedPayload}`, 'utf8')
     .end()
-    .sign(privateKey)
+    .sign({ key: privateKey, dsaEncoding: 'ieee-p1363' })
     .toString('base64url');
   return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
@@ -213,6 +213,16 @@ export async function fetchAndValidateAppleTransaction({
     );
   }
 
+  if (!response.ok) {
+    clearTimeout(timeout);
+    throw new AppleIapError(
+      'Apple could not verify this purchase.',
+      502,
+      'apple_upstream_rejected',
+      response.status,
+    );
+  }
+
   let payload;
   try {
     payload = await response.json();
@@ -229,17 +239,10 @@ export async function fetchAndValidateAppleTransaction({
       'Apple purchase verification returned invalid data.',
       502,
       'apple_upstream_invalid_response',
-    );
-  }
-  clearTimeout(timeout);
-  if (!response.ok) {
-    throw new AppleIapError(
-      'Apple could not verify this purchase.',
-      502,
-      'apple_upstream_rejected',
       response.status,
     );
   }
+  clearTimeout(timeout);
   const claims = parseJwsPayload(payload?.signedTransactionInfo);
   const appleTransactionId = String(claims.transactionId || '').trim();
   if (appleTransactionId !== normalizedTransactionId) {
