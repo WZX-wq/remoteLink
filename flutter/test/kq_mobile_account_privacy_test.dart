@@ -62,4 +62,24 @@ void main() {
     expect(source, contains("_mineText('Membership valid until')"));
     expect(source, contains("_mineText('Unlimited')"));
   });
+
+  test('account page refreshes server membership while it is visible', () {
+    final source = _readAccountPage();
+    final stateStart = source.indexOf('class _AccountPageState');
+    final stateEnd =
+        source.indexOf('  Future<void> _saveRemotePerformance', stateStart);
+    expect(stateStart, greaterThanOrEqualTo(0));
+    expect(stateEnd, greaterThan(stateStart));
+    final state = source.substring(stateStart, stateEnd);
+
+    expect(state, contains('with WidgetsBindingObserver'));
+    expect(state, contains('WidgetsBinding.instance.addObserver(this)'));
+    expect(state, contains('WidgetsBinding.instance.removeObserver(this)'));
+    expect(state, contains('Timer.periodic(const Duration(seconds: 30)'));
+    expect(state, contains('didChangeAppLifecycleState'));
+    expect(state, contains('AppLifecycleState.resumed'));
+    expect(state, contains('_refreshMemberEntitlementFromServer'));
+    expect(state, contains('await user.refreshMembership('));
+    expect(state, contains('showError: false, keepExistingOnFailure: true'));
+  });
 }

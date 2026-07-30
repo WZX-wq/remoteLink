@@ -47,6 +47,8 @@ pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "ios")]
 pub(crate) static IOS_RENDEZVOUS_LAST_RESPONSE_MS: AtomicI64 = AtomicI64::new(0);
 #[cfg(target_os = "ios")]
+pub(crate) static IOS_PEER_REGISTERED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "ios")]
 pub(crate) static IOS_REGISTRATION_REJECTION: AtomicI64 = AtomicI64::new(0);
 #[cfg(target_os = "ios")]
 pub(crate) const IOS_REGISTRATION_REJECTION_NONE: i64 = 0;
@@ -333,7 +335,12 @@ impl RendezvousMediator {
             Some(rendezvous_message::Union::RegisterPeerResponse(rpr)) => {
                 update_latency();
                 #[cfg(target_os = "ios")]
-                mark_ios_rendezvous_response_received();
+                {
+                    mark_ios_rendezvous_response_received();
+                    if !rpr.request_pk {
+                        IOS_PEER_REGISTERED.store(true, Ordering::Release);
+                    }
+                }
                 if rpr.request_pk {
                     log::info!("request_pk received from {}", self.host);
                     self.register_pk(sink).await?;
@@ -346,6 +353,7 @@ impl RendezvousMediator {
                         #[cfg(target_os = "ios")]
                         {
                             mark_ios_rendezvous_response_received();
+                            IOS_PEER_REGISTERED.store(false, Ordering::Release);
                             IOS_REGISTRATION_REJECTION
                                 .store(IOS_REGISTRATION_REJECTION_NONE, Ordering::Release);
                             IOS_UNCONFIRMED_ID_COLLISIONS.store(0, Ordering::Release);
@@ -357,6 +365,10 @@ impl RendezvousMediator {
                         Config::set_host_key_confirmed(&self.host_prefix, true);
                         *SOLVING_PK_MISMATCH.lock().await = "".to_owned();
                         NEEDS_DEPLOY.store(false, Ordering::SeqCst);
+                        // A key-confirmation response does not register the device as
+                        // online. Publish the ID in the same exchange so clients cannot
+                        // see it as ready before the next registration heartbeat.
+                        self.register_peer(sink).await?;
                     }
                     Ok(register_pk_response::Result::UUID_MISMATCH) => {
                         self.handle_uuid_mismatch(sink).await?;

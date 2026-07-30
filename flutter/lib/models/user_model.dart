@@ -510,7 +510,10 @@ class UserModel {
     yield* orderedTokens;
   }
 
-  Future<void> refreshMembership({bool showError = false}) async {
+  Future<void> refreshMembership({
+    bool showError = false,
+    bool keepExistingOnFailure = true,
+  }) async {
     final refreshSerial = ++_membershipRefreshSerial;
     bool isCurrentRefresh() => refreshSerial == _membershipRefreshSerial;
     Future<void> setCurrentMemberStatus(
@@ -619,6 +622,17 @@ class UserModel {
 
       final message = lastError?.toString() ??
           translate('Failed to refresh membership status');
+      if (keepExistingOnFailure) {
+        if (isCurrentRefresh()) {
+          memberLastError.value = message;
+          await bind.mainSetLocalOption(
+              key: memberLastErrorKey, value: message);
+        }
+        if (showError && isCurrentRefresh()) {
+          showToast(message);
+        }
+        return;
+      }
       await setCurrentMemberStatus(false, expireAt: '', error: message);
       if (showError && isCurrentRefresh()) {
         showToast(message);

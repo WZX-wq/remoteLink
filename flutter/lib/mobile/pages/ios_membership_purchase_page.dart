@@ -124,8 +124,10 @@ class _KqIosMembershipPurchasePageState
         return _text('这笔 Apple 购买已关联其他账号。',
             'This Apple purchase is already linked to another account.');
       case KqIosMembershipPurchaseFeedback.verificationServiceUnavailable:
-        return _text('会员验证服务暂不可用，请稍后恢复购买。',
-            'Membership verification is unavailable. Please restore purchases later.');
+        return _text(
+          'Apple 付款可能已完成，但会员验证服务暂不可用。请不要重复购买，稍后点击恢复购买。',
+          'Apple payment may have completed, but membership verification is unavailable. Do not repurchase; restore purchases later.',
+        );
       case KqIosMembershipPurchaseFeedback.verificationFailed:
         return _text('Apple 交易验证失败，请恢复购买后重试。',
             'Apple transaction verification failed. Please restore purchases and try again.');
@@ -145,13 +147,11 @@ class _KqIosMembershipPurchasePageState
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
     final configured = _controller.config.isConfigured;
-    final configuredPackages = widget.packages
-        .where(
-          (package) =>
-              _controller.config.productForPackage(package.id.toString()) !=
-              null,
-        )
-        .toList(growable: false);
+    final configuredPackageIds =
+        _controller.config.packageToProductId.keys.toList(growable: false);
+    final packagesById = {
+      for (final package in widget.packages) package.id.toString(): package,
+    };
     return Scaffold(
       backgroundColor: q.surface,
       body: SafeArea(
@@ -182,7 +182,7 @@ class _KqIosMembershipPurchasePageState
                         'This build has not configured Apple membership products and entitlement verification yet.',
                       ),
                     )
-                  else if (configuredPackages.isEmpty)
+                  else if (configuredPackageIds.isEmpty)
                     _IosMembershipNotice(
                       icon: Icons.info_outline_rounded,
                       color: q.warning,
@@ -197,20 +197,20 @@ class _KqIosMembershipPurchasePageState
                         padding: EdgeInsets.symmetric(vertical: 12),
                         child: Center(child: CircularProgressIndicator()),
                       ),
-                    for (final package in configuredPackages) ...[
+                    for (final packageId in configuredPackageIds) ...[
                       _IosMembershipPackageTile(
-                        package: package,
+                        package: packagesById[packageId],
                         product: _controller.productForPackage(
-                          package.id.toString(),
+                          packageId,
                         ),
                         unavailable: _controller.isProductMissing(
-                          package.id.toString(),
+                          packageId,
                         ),
                         enabled: _controller.canPurchase &&
                             _controller.isPackageAvailable(
-                              package.id.toString(),
+                              packageId,
                             ),
-                        onBuy: () => _controller.buy(package.id.toString()),
+                        onBuy: () => _controller.buy(packageId),
                         text: _text,
                       ),
                       const SizedBox(height: 10),
@@ -365,7 +365,7 @@ class _IosMembershipPackageTile extends StatelessWidget {
     required this.text,
   });
 
-  final KqMemberPackage package;
+  final KqMemberPackage? package;
   final ProductDetails? product;
   final bool unavailable;
   final bool enabled;
@@ -376,12 +376,17 @@ class _IosMembershipPackageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final q = KqTheme.of(context);
     final price = product?.price ?? text('暂不可用', 'Unavailable');
+    final packageName = package?.displayName ??
+        product?.title ??
+        text('鲲穹会员', 'Kunqiong Membership');
+    final durationLabel =
+        package?.durationLabel ?? text('自动续订套餐', 'Auto-renewing plan');
     final subtitle = unavailable
         ? text('Apple 暂未返回此套餐，请稍后重新获取。',
             'Apple has not made this plan available yet. Reload later.')
         : text(
-            '自动续订，${package.durationLabel}。开通后可使用 1080p 高清 / 60 FPS 远程控制。',
-            'Auto-renews every ${package.durationLabel}. Unlock 1080p HD / 60 FPS remote control.',
+            '自动续订。开通后可使用 1080p 高清 / 60 FPS 远程控制。',
+            'Auto-renews. Unlock 1080p HD / 60 FPS remote control.',
           );
     return Container(
       padding: const EdgeInsets.all(16),
@@ -397,7 +402,7 @@ class _IosMembershipPackageTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  package.displayName,
+                  packageName,
                   style: TextStyle(
                     color: q.ink,
                     fontSize: 16,
@@ -406,7 +411,7 @@ class _IosMembershipPackageTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${package.durationLabel}  $subtitle',
+                  '$durationLabel  $subtitle',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: q.muted, fontSize: 12, height: 1.35),

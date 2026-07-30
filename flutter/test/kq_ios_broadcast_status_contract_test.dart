@@ -325,6 +325,7 @@ void main() {
     final startBody = native.substring(broadcastStart, registrationState);
     expect(startBody, isNot(contains('Config::set_key_confirmed(false);')));
     expect(native, contains('IOS_RENDEZVOUS_LAST_RESPONSE_MS'));
+    expect(native, contains('IOS_PEER_REGISTERED'));
     expect(native, contains('REGISTRATION_RESPONSE_STALE_MS'));
     expect(
         native,
@@ -336,6 +337,7 @@ void main() {
         rendezvous,
         contains(
             'Some(rendezvous_message::Union::RegisterPeerResponse(rpr))'));
+    expect(rendezvous, contains('IOS_PEER_REGISTERED'));
     expect(
         rendezvous, contains('mark_ios_rendezvous_response_received();'));
     expect(
@@ -354,6 +356,23 @@ void main() {
     expect(handler, contains('kq_broadcast_registration_rejection'));
     expect(delegate, contains('"registrationState"'));
     expect(delegate, contains('"registrationRejection"'));
+  });
+
+  test('iOS registers the broadcast ID immediately after key confirmation', () {
+    final rendezvous = File('../src/rendezvous_mediator.rs').readAsStringSync();
+    final registrationStart = rendezvous.indexOf(
+      'Ok(register_pk_response::Result::OK) => {',
+    );
+    final registrationEnd = rendezvous.indexOf(
+      'Ok(register_pk_response::Result::UUID_MISMATCH)',
+      registrationStart,
+    );
+
+    expect(registrationStart, greaterThanOrEqualTo(0));
+    expect(registrationEnd, greaterThan(registrationStart));
+    final registrationSuccess =
+        rendezvous.substring(registrationStart, registrationEnd);
+    expect(registrationSuccess, contains('self.register_peer(sink).await?;'));
   });
 
   test('iOS broadcast always merges legacy rendezvous configuration', () {
@@ -563,9 +582,11 @@ void main() {
     final handler =
         File('ios/KQScreenBroadcast/SampleHandler.swift').readAsStringSync();
 
-    expect(handler, contains('NSLog("[KQBroadcast] broadcast started"'));
-    expect(handler, contains('NSLog("[KQBroadcast] app group is unavailable"'));
-    expect(handler, contains('NSLog("[KQBroadcast] transport start result='));
+    expect(handler, contains('private func kqBroadcastLog('));
+    expect(handler, contains('KQIOSDiagnostics.log('));
+    expect(handler, contains('kqBroadcastLog("broadcast started"'));
+    expect(handler, contains('kqBroadcastLog("app group is unavailable"'));
+    expect(handler, contains('"broadcast transport start completed"'));
   });
 
   test('iOS main app and broadcast extension share the same native UUID', () {

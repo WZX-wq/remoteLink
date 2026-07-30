@@ -368,8 +368,11 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           'Apple could not start the purchase.',
         );
       }
-    } catch (_) {
-      _diagnostic('purchase_start_failed');
+    } catch (error) {
+      _diagnostic(
+        'purchase_start_failed',
+        exceptionType: error.runtimeType.toString(),
+      );
       _setFailure(
         KqIosMembershipPurchaseFeedback.paymentFailed,
         'Apple could not start the purchase.',
@@ -398,8 +401,11 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         statusMessage = 'Restore request sent. Checking Apple purchases.';
         notifyListeners();
       }
-    } catch (_) {
-      _diagnostic('restore_failed');
+    } catch (error) {
+      _diagnostic(
+        'restore_failed',
+        exceptionType: error.runtimeType.toString(),
+      );
       _setFailure(
         KqIosMembershipPurchaseFeedback.paymentFailed,
         'Unable to restore Apple purchases.',
@@ -426,7 +432,12 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         continue;
       }
       if (purchase.status == PurchaseStatus.error) {
-        _diagnostic('purchase_error');
+        _diagnostic(
+          'purchase_error',
+          productId: purchase.productID,
+          storeErrorSource: purchase.error?.source,
+          storeErrorCode: purchase.error?.code,
+        );
         _setFailure(
           KqIosMembershipPurchaseFeedback.paymentFailed,
           'Apple payment could not be completed.',
@@ -519,7 +530,14 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       packageId: packageId,
       purchase: purchase,
     );
-    _diagnostic('server_verification_started');
+    _diagnostic(
+      'server_verification_started',
+      packageId: packageId,
+      productId: payload.productId,
+      transactionPresent: payload.transactionId.isNotEmpty,
+      endpointHost: endpoint.host,
+      endpointPath: endpoint.path,
+    );
     late http.Response response;
     try {
       response = await http
@@ -534,12 +552,20 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           )
           .timeout(const Duration(seconds: 15));
     } on TimeoutException {
-      _diagnostic('server_verification_timeout');
+      _diagnostic(
+        'server_verification_timeout',
+        endpointHost: endpoint.host,
+        endpointPath: endpoint.path,
+      );
       throw const KqIosPurchaseVerificationException(
         KqIosMembershipPurchaseFeedback.verificationServiceUnavailable,
       );
     } on http.ClientException {
-      _diagnostic('server_verification_network_error');
+      _diagnostic(
+        'server_verification_network_error',
+        endpointHost: endpoint.host,
+        endpointPath: endpoint.path,
+      );
       throw const KqIosPurchaseVerificationException(
         KqIosMembershipPurchaseFeedback.verificationServiceUnavailable,
       );
@@ -547,6 +573,10 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
     _diagnostic(
       'server_verification_response',
       httpStatus: response.statusCode,
+      packageId: packageId,
+      productId: payload.productId,
+      endpointHost: endpoint.host,
+      endpointPath: endpoint.path,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw KqIosPurchaseVerificationException(
@@ -610,6 +640,14 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
     int? purchaseCount,
     int? httpStatus,
     bool? responseHasError,
+    String? packageId,
+    String? productId,
+    bool? transactionPresent,
+    String? storeErrorSource,
+    String? storeErrorCode,
+    String? exceptionType,
+    String? endpointHost,
+    String? endpointPath,
   }) {
     final fields = <String>[
       if (requestedProducts != null) 'requested=$requestedProducts',
@@ -618,6 +656,14 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       if (purchaseCount != null) 'purchases=$purchaseCount',
       if (httpStatus != null) 'http_status=$httpStatus',
       if (responseHasError != null) 'response_error=$responseHasError',
+      if (packageId != null) 'package=$packageId',
+      if (productId != null) 'product=$productId',
+      if (transactionPresent != null) 'transaction_present=$transactionPresent',
+      if (storeErrorSource != null) 'store_error_source=$storeErrorSource',
+      if (storeErrorCode != null) 'store_error_code=$storeErrorCode',
+      if (exceptionType != null) 'exception_type=$exceptionType',
+      if (endpointHost != null) 'endpoint_host=$endpointHost',
+      if (endpointPath != null) 'endpoint_path=$endpointPath',
     ];
     debugPrint(
         'KQ_IAP event=$event${fields.isEmpty ? '' : ' ${fields.join(' ')}'}');

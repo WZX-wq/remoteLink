@@ -130,10 +130,26 @@ void main() {
 
     expect(controller, contains('if (_productsByStoreId.isEmpty)'));
     expect(controller, contains('Apple membership products are unavailable.'));
-    expect(page, contains('final configuredPackages = widget.packages'));
+    expect(page, contains('final configuredPackageIds ='));
+    expect(page, contains('config.packageToProductId.keys'));
     expect(page, contains('final price = product?.price ?? text'));
     expect(page, contains("text('暂不可用', 'Unavailable')"));
     expect(page, isNot(contains('product!.description')));
+  });
+
+  test('iOS StoreKit purchase does not depend on the legacy package API', () {
+    final account =
+        File('lib/mobile/pages/account_page.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(
+        account,
+        contains(
+            'if (route == KqIosMembershipPaymentRoute.appleInAppPurchaseRequired)'));
+    expect(account, contains('keepExistingOnFailure: true'));
+    expect(page, contains('final configuredPackageIds ='));
+    expect(page, contains('config.packageToProductId.keys'));
   });
 
   test('iOS payment keeps StoreKit diagnostics out of the customer-facing UI',
@@ -164,6 +180,22 @@ void main() {
     expect(page, contains('恢复购买'));
     expect(page, contains('TextButton.icon('));
     expect(page, isNot(contains('OutlinedButton.icon(')));
+  });
+
+  test('iOS payment distinguishes Apple payment from verification outage', () {
+    final controller =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(controller, contains('server_verification_started'));
+    expect(controller, contains('transaction_present='));
+    expect(controller, contains('endpoint_host='));
+    expect(controller, contains('endpoint_path='));
+    expect(controller, contains('store_error_code='));
+    expect(controller, contains('store_error_source='));
+    expect(page, contains('Apple 付款可能已完成，但会员验证服务暂不可用'));
+    expect(page, contains('请不要重复购买'));
   });
 
   test('iOS membership and screen sharing pages compile', () {

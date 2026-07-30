@@ -55,14 +55,36 @@ class AccountPage extends StatefulWidget implements PageShape {
   State<AccountPage> createState() => _AccountPageState();
 }
 
-class _AccountPageState extends State<AccountPage> {
+class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
   bool _syncingMemberEntitlement = false;
+  bool _refreshingMemberEntitlementFromServer = false;
   DateTime? _lastMemberEntitlementSyncAt;
+  DateTime? _lastMemberEntitlementServerRefreshAt;
+  Timer? _memberEntitlementRefreshTimer;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_syncMemberEntitlementFromDisk(force: true));
+    WidgetsBinding.instance.addObserver(this);
+    _memberEntitlementRefreshTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) {
+      unawaited(_refreshMemberEntitlementFromServer());
+    });
+    unawaited(_refreshMemberEntitlementFromServer(force: true));
+  }
+
+  @override
+  void dispose() {
+    _memberEntitlementRefreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshMemberEntitlementFromServer(force: true));
+    }
   }
 
   Future<void> _syncMemberEntitlementFromDisk({bool force = false}) async {
@@ -88,6 +110,39 @@ class _AccountPageState extends State<AccountPage> {
     }
   }
 
+  Future<void> _refreshMemberEntitlementFromServer({
+    bool force = false,
+  }) async {
+    if (_refreshingMemberEntitlementFromServer) {
+      return;
+    }
+    _refreshingMemberEntitlementFromServer = true;
+    try {
+      await _syncMemberEntitlementFromDisk(force: force);
+      final user = gFFI.userModel;
+      if (!user.isLogin || !user.hasMemberApiCredential) {
+        return;
+      }
+      final now = DateTime.now();
+      if (!force &&
+          _lastMemberEntitlementServerRefreshAt != null &&
+          now.difference(_lastMemberEntitlementServerRefreshAt!) <
+              const Duration(seconds: 15)) {
+        return;
+      }
+      _lastMemberEntitlementServerRefreshAt = now;
+      await user.refreshMembership(
+          showError: false, keepExistingOnFailure: true);
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('KQ membership background refresh failed: $e');
+    } finally {
+      _refreshingMemberEntitlementFromServer = false;
+    }
+  }
+
   Future<void> _saveRemotePerformance({
     String? resolutionTier,
     int? fps,
@@ -109,7 +164,10 @@ class _AccountPageState extends State<AccountPage> {
     if (isLogin) {
       _openPersonalCenterPage();
     } else {
-      await loginDialog();
+      final loggedIn = await loginDialog();
+      if (loggedIn == true) {
+        unawaited(_refreshMemberEntitlementFromServer(force: true));
+      }
     }
   }
 
@@ -129,17 +187,19 @@ class _AccountPageState extends State<AccountPage> {
       final loggedIn = await loginDialog();
       if (loggedIn != true) return;
     }
-    await gFFI.userModel.refreshMembership(showError: true);
-    final packages = gFFI.userModel.memberPackages.toList();
-    if (packages.isEmpty) {
-      showToast(translate('No purchasable membership packages available'));
-      return;
-    }
-    if (!mounted) return;
     if (route == KqIosMembershipPaymentRoute.appleInAppPurchaseRequired) {
+      // Apple StoreKit owns iOS purchasable products and prices. A transient
+      // legacy account API error must not prevent customers from restoring or
+      // buying an Apple subscription.
+      unawaited(user.refreshMembership(
+        showError: false,
+        keepExistingOnFailure: true,
+      ));
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => KqIosMembershipPurchasePage(packages: packages),
+          builder: (_) => KqIosMembershipPurchasePage(
+            packages: user.memberPackages.toList(),
+          ),
         ),
       );
       if (mounted) {
@@ -147,6 +207,13 @@ class _AccountPageState extends State<AccountPage> {
       }
       return;
     }
+    await user.refreshMembership(showError: true);
+    final packages = user.memberPackages.toList();
+    if (packages.isEmpty) {
+      showToast(translate('No purchasable membership packages available'));
+      return;
+    }
+    if (!mounted) return;
     _showMemberRechargeSheet(packages);
   }
 

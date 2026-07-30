@@ -92,6 +92,7 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     Config::set_option("stop-service".to_owned(), String::new());
     crate::rendezvous_mediator::NEEDS_DEPLOY.store(false, Ordering::Release);
     crate::rendezvous_mediator::IOS_RENDEZVOUS_LAST_RESPONSE_MS.store(0, Ordering::Release);
+    crate::rendezvous_mediator::IOS_PEER_REGISTERED.store(false, Ordering::Release);
     crate::rendezvous_mediator::IOS_REGISTRATION_REJECTION.store(
         crate::rendezvous_mediator::IOS_REGISTRATION_REJECTION_NONE,
         Ordering::Release,
@@ -121,6 +122,7 @@ pub extern "C" fn kq_ios_broadcast_registration_state() -> i32 {
         ACTIVE.load(Ordering::Acquire),
         crate::rendezvous_mediator::NEEDS_DEPLOY.load(Ordering::Acquire),
         crate::rendezvous_mediator::IOS_RENDEZVOUS_LAST_RESPONSE_MS.load(Ordering::Acquire),
+        crate::rendezvous_mediator::IOS_PEER_REGISTERED.load(Ordering::Acquire),
         Config::no_register_device(),
         Config::get_key_confirmed(),
         REGISTRATION_STARTED_AT_MS.load(Ordering::Acquire),
@@ -137,6 +139,7 @@ fn registration_state_for(
     active: bool,
     needs_deployment: bool,
     last_rendezvous_response_ms: i64,
+    peer_registered: bool,
     unmanaged_device: bool,
     key_confirmed: bool,
     started_at_ms: i64,
@@ -150,7 +153,7 @@ fn registration_state_for(
     }
     let rendezvous_response_fresh = last_rendezvous_response_ms > 0
         && now_ms.saturating_sub(last_rendezvous_response_ms) < REGISTRATION_RESPONSE_STALE_MS;
-    if rendezvous_response_fresh && (unmanaged_device || key_confirmed) {
+    if rendezvous_response_fresh && peer_registered && (unmanaged_device || key_confirmed) {
         return REGISTRATION_READY;
     }
     if started_at_ms > 0 && now_ms.saturating_sub(started_at_ms) >= REGISTRATION_TIMEOUT_MS {
@@ -384,6 +387,7 @@ pub extern "C" fn kq_ios_broadcast_resume() {
 pub extern "C" fn kq_ios_broadcast_stop() {
     ACTIVE.store(false, Ordering::Release);
     crate::rendezvous_mediator::IOS_RENDEZVOUS_LAST_RESPONSE_MS.store(0, Ordering::Release);
+    crate::rendezvous_mediator::IOS_PEER_REGISTERED.store(false, Ordering::Release);
     PAUSED.store(false, Ordering::Release);
     REGISTRATION_STARTED_AT_MS.store(0, Ordering::Release);
     crate::ios_voice_call::reset_voice_call();

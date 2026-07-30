@@ -6,8 +6,7 @@ void main() {
   test('membership refresh clears a stale account session without credentials',
       () {
     final source = File('lib/models/user_model.dart').readAsStringSync();
-    final refreshStart = source.indexOf(
-        '  Future<void> refreshMembership({bool showError = false}) async {');
+    final refreshStart = source.indexOf('  Future<void> refreshMembership({');
     final refreshEnd =
         source.indexOf('  Future<http.Response> _postMemberApi(', refreshStart);
     final refreshSource = source.substring(refreshStart, refreshEnd);
@@ -30,8 +29,7 @@ void main() {
   test('membership refresh clears a session when every credential is rejected',
       () {
     final source = File('lib/models/user_model.dart').readAsStringSync();
-    final refreshStart = source.indexOf(
-        '  Future<void> refreshMembership({bool showError = false}) async {');
+    final refreshStart = source.indexOf('  Future<void> refreshMembership({');
     final refreshEnd =
         source.indexOf('  Future<http.Response> _postMemberApi(', refreshStart);
     final refreshSource = source.substring(refreshStart, refreshEnd);
@@ -42,6 +40,29 @@ void main() {
       contains('if (allCredentialsRejected && isCurrentRefresh()) {'),
     );
     expect(refreshSource, contains('await reset();'));
+  });
+
+  test('membership refresh preserves cached benefits on transient errors', () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final refreshStart = source.indexOf('  Future<void> refreshMembership({');
+    final refreshEnd =
+        source.indexOf('  Future<http.Response> _postMemberApi(', refreshStart);
+    expect(refreshStart, greaterThanOrEqualTo(0));
+    expect(refreshEnd, greaterThan(refreshStart));
+    final refreshSource = source.substring(refreshStart, refreshEnd);
+
+    expect(refreshSource, contains('bool keepExistingOnFailure = true'));
+    expect(refreshSource, contains('if (keepExistingOnFailure) {'));
+    expect(refreshSource, contains('memberLastError.value = message;'));
+    final preserveStart = refreshSource.indexOf('if (keepExistingOnFailure) {');
+    final clearStart = refreshSource.indexOf(
+        "await setCurrentMemberStatus(false, expireAt: '', error: message);");
+    expect(preserveStart, greaterThanOrEqualTo(0));
+    expect(clearStart, greaterThan(preserveStart));
+    expect(
+      refreshSource.substring(preserveStart, clearStart),
+      contains('return;'),
+    );
   });
 
   test('desktop account page does not render cached user data as a login', () {

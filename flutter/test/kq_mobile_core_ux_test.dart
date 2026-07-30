@@ -47,10 +47,7 @@ void main() {
     final home = File('lib/mobile/pages/home_page.dart').readAsStringSync();
     final account =
         File('lib/mobile/pages/account_page.dart').readAsStringSync();
-    expect(
-      home,
-      contains('NavigationDestinationLabelBehavior.onlyShowSelected'),
-    );
+    expect(home, contains('NavigationDestinationLabelBehavior.alwaysShow'));
     expect(account, contains('maxLines: 2'));
     expect(account, contains('width: double.infinity'));
   });
