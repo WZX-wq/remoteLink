@@ -7,6 +7,11 @@ if [[ -z "${VCPKG_ROOT:-}" ]]; then
   exit 1
 fi
 
+platform_kind="device"
+if [[ "$triplet" == *"-ios-simulator" ]]; then
+  platform_kind="simulator"
+fi
+
 installed_root="${VCPKG_INSTALLED_ROOT:-$VCPKG_ROOT/installed}"
 lib_dir="$installed_root/$triplet/lib"
 include_dir="$installed_root/$triplet/include"
@@ -62,17 +67,31 @@ check_archive_platform() {
   local otool_out="$tmp/otool.txt"
   otool -l "$obj" > "$otool_out"
   if grep -Eq 'LC_VERSION_MIN_MACOSX|platform MACOS' "$otool_out"; then
-    echo "Archive $archive contains a macOS object ($member), not an iOS device object." >&2
+    echo "Archive $archive contains a macOS object ($member), not an iOS $platform_kind object." >&2
     exit 1
   fi
-  if grep -Eq 'platform 7|platform IOSSIMULATOR' "$otool_out"; then
-    echo "Archive $archive contains an iOS simulator object ($member), not an iOS device object." >&2
-    exit 1
-  fi
-  if grep -Eq 'LC_VERSION_MIN_IPHONEOS|platform IOS' "$otool_out"; then
-    echo "Archive $archive contains iOS object metadata."
+
+  if [[ "$platform_kind" == "simulator" ]]; then
+    if grep -Eq 'LC_VERSION_MIN_IPHONEOS|platform IOS([[:space:]]|$)' "$otool_out"; then
+      echo "Archive $archive contains an iOS device object ($member), not an iOS Simulator object." >&2
+      exit 1
+    fi
+    if grep -Eq 'LC_VERSION_MIN_IPHONESIMULATOR|platform 7|platform IOSSIMULATOR' "$otool_out"; then
+      echo "Archive $archive contains iOS Simulator object metadata."
+    else
+      echo "Archive $archive does not contain iOS Simulator metadata for $member." >&2
+      exit 1
+    fi
   else
-    echo "Warning: no explicit iOS platform metadata found in $member; continuing after confirming it is not macOS."
+    if grep -Eq 'platform 7|platform IOSSIMULATOR|LC_VERSION_MIN_IPHONESIMULATOR' "$otool_out"; then
+      echo "Archive $archive contains an iOS simulator object ($member), not an iOS device object." >&2
+      exit 1
+    fi
+    if grep -Eq 'LC_VERSION_MIN_IPHONEOS|platform IOS([[:space:]]|$)' "$otool_out"; then
+      echo "Archive $archive contains iOS device object metadata."
+    else
+      echo "Warning: no explicit iOS platform metadata found in $member; continuing after confirming it is not macOS."
+    fi
   fi
 }
 

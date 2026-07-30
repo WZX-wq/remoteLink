@@ -132,7 +132,7 @@ class HomePageState extends State<HomePage> {
                       indicatorColor: q.primary.withOpacity(0.16),
                       selectedIndex: _selectedIndex,
                       labelBehavior:
-                          NavigationDestinationLabelBehavior.onlyShowSelected,
+                          NavigationDestinationLabelBehavior.alwaysShow,
                       destinations: _pages
                           .map((page) => NavigationDestination(
                                 icon: page.icon,

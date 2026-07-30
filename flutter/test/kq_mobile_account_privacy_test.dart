@@ -24,7 +24,29 @@ void main() {
     expect(source, isNot(contains('value: _localUserPhoneNumber()')));
   });
 
-  test('membership banner avoids showing exact expiry date on public surface',
+  test('mobile account header shows only the masked username', () {
+    final source = _readAccountPage();
+    final homeStart = source.indexOf('return ListView(');
+    final homeEnd = source.indexOf('class _MineToolbar', homeStart);
+    final headerStart = source.indexOf('class _ProfileHeader');
+    final headerEnd = source.indexOf('class _MembershipBanner', headerStart);
+    expect(homeStart, greaterThanOrEqualTo(0));
+    expect(homeEnd, greaterThan(homeStart));
+    expect(headerStart, greaterThanOrEqualTo(0));
+    expect(headerEnd, greaterThan(headerStart));
+
+    final home = source.substring(homeStart, homeEnd);
+    final header = source.substring(headerStart, headerEnd);
+    expect(home, contains('title: isLogin ? _kqPrivacyAccountLabel(user)'));
+    expect(home, isNot(contains('_kqPrivacyDisplayName(user)')));
+    expect(home, contains('subtitle: isLogin'));
+    expect(home, contains('? null'));
+    expect(header, contains('final String? subtitle;'));
+    expect(
+        header, contains('if (subtitle != null && subtitle!.isNotEmpty) ...['));
+  });
+
+  test('membership banner shows the current account expiry without raw data',
       () {
     final source = _readAccountPage();
     final bannerStart = source.indexOf('class _MembershipBanner');
@@ -33,8 +55,11 @@ void main() {
     expect(bannerEnd, greaterThan(bannerStart));
     final banner = source.substring(bannerStart, bannerEnd);
 
-    expect(banner, contains("_mineText('Membership benefits active')"));
-    expect(banner, isNot(contains('_formatMembershipExpireAt(expireAt)')));
-    expect(banner, isNot(contains("'Membership valid until'")));
+    expect(banner, isNot(contains("_mineText('Membership benefits active')")));
+    expect(source, contains('expireAt: user.memberExpireAt.value'));
+    expect(banner, contains('_membershipExpiryLabel(expireAt)'));
+    expect(source, contains('String? _membershipExpiryLabel(String value)'));
+    expect(source, contains("_mineText('Membership valid until')"));
+    expect(source, contains("_mineText('Unlimited')"));
   });
 }

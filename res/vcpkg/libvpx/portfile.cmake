@@ -9,6 +9,7 @@ vcpkg_from_github(
     PATCHES
         0003-add-uwp-v142-and-v143-support.patch
         0004-remove-library-suffixes.patch
+        0005-enable-arm64-ios-simulator.patch
 )
 
 if(CMAKE_HOST_WIN32)
@@ -214,7 +215,9 @@ else()
             set(LIBVPX_TARGET "${LIBVPX_TARGET_ARCH}-darwin17-gcc") # enable latest CPU instructions for best performance and less CPU usage on MacOS
         endif()
     elseif(VCPKG_TARGET_IS_IOS)
-        if(VCPKG_TARGET_ARCHITECTURE STREQUAL arm)
+        if(VCPKG_OSX_SYSROOT STREQUAL "iphonesimulator" AND VCPKG_TARGET_ARCHITECTURE STREQUAL arm64)
+            set(LIBVPX_TARGET "arm64-iphonesimulator-gcc")
+        elseif(VCPKG_TARGET_ARCHITECTURE STREQUAL arm)
             set(LIBVPX_TARGET "armv7-darwin-gcc")
         elseif(VCPKG_TARGET_ARCHITECTURE STREQUAL arm64)
             set(LIBVPX_TARGET "arm64-darwin-gcc")

@@ -8,6 +8,10 @@ BUILD_MODE="${BUILD_MODE:-ios}"
 BUILD_NAME="${FLUTTER_BUILD_NAME:-1.4.6}"
 BUILD_NUMBER="${FLUTTER_BUILD_NUMBER:-4073}"
 CARGO_TARGET="${CARGO_TARGET:-aarch64-apple-ios}"
+if [ "${KQ_IOS_IAP_LOCAL_STOREKIT_TEST:-false}" = "true" ]; then
+  echo "KQ_IOS_IAP_LOCAL_STOREKIT_TEST is debug-only and cannot be used for a release build." >&2
+  exit 2
+fi
 FLUTTER_ARGS=(
   --release
   --build-name "$BUILD_NAME"

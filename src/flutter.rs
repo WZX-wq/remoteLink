@@ -461,18 +461,16 @@ impl VideoRenderer {
         }
 
         if info.size.0 != rgba.w || info.size.1 != rgba.h {
-            log::error!(
-                "width/height mismatch: ({},{}) != ({},{})",
+            log::warn!(
+                "display metadata size differs from decoded frame, using frame size: ({},{}) -> ({},{})",
                 info.size.0,
                 info.size.1,
                 rgba.w,
                 rgba.h
             );
-            // Peer info's handling is async and may be late than video frame's handling.
-            // Once peer info is set, the decoded frame must keep the captured display size.
-            if info.size != (0, 0) {
-                return false;
-            }
+            // Encoded streams may be intentionally scaled while PeerInfo keeps
+            // the controlled display's physical size for layout and input.
+            info.size = (rgba.w, rgba.h);
         }
         if let Some(func) = &self.on_rgba_func {
             unsafe {
@@ -607,6 +605,40 @@ mod video_renderer_notification_tests {
 
         assert!(renderer.on_rgba(0, &rgba));
         assert!(renderer.on_rgba(0, &rgba));
+    }
+
+    #[test]
+    fn pixelbuffer_accepts_scaled_frame_dimensions() {
+        let renderer = VideoRenderer {
+            is_support_multi_ui_session: true,
+            map_display_sessions: Default::default(),
+            on_rgba_func: None,
+            #[cfg(feature = "vram")]
+            on_texture_func: None,
+        };
+        renderer.map_display_sessions.write().unwrap().insert(
+            0,
+            DisplaySessionInfo {
+                texture_rgba_ptr: 1,
+                size: (828, 1792),
+                #[cfg(feature = "vram")]
+                gpu_output_ptr: 0,
+                notify_render_type: None,
+            },
+        );
+        let rgba = scrap::ImageRgb {
+            raw: vec![0; 498 * 1080 * 4],
+            w: 498,
+            h: 1080,
+            fmt: scrap::ImageFormat::ABGR,
+            align: 1,
+        };
+
+        assert!(renderer.on_rgba(0, &rgba));
+        assert_eq!(
+            renderer.map_display_sessions.read().unwrap()[&0].size,
+            (498, 1080)
+        );
     }
 }
 

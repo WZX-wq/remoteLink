@@ -81,6 +81,22 @@ void main() {
     expect(preflight, contains('test_ios_release_config.py'));
   });
 
+  test('local TestFlight archive preserves the configured Apple IAP settings',
+      () {
+    final script =
+        File('../scripts/kq_ios_testflight_fast.sh').readAsStringSync();
+
+    expect(script, contains('prepare_ios_release_config.py'));
+    expect(
+      script,
+      contains(r'--dart-define=KQ_IOS_IAP_PRODUCTS="$KQ_IOS_IAP_PRODUCTS"'),
+    );
+    expect(
+      script,
+      contains(r'--dart-define=KQ_IOS_IAP_VERIFY_URL="$KQ_IOS_IAP_VERIFY_URL"'),
+    );
+  });
+
   test('TestFlight workflow uses Codemagic publishing instead of altool', () {
     final workflow = File('../codemagic.yaml').readAsStringSync();
     final testFlightWorkflow =
@@ -315,7 +331,7 @@ void main() {
         File('../scripts/ci/prepare-ios-rust-static-libs.sh').readAsStringSync();
 
     final staticRustLink = RegExp(
-      r'"-force_load",\s*"\$\(PROJECT_DIR\)/\.\./\.\./target/aarch64-apple-ios/release/liblibrustdesk\.a",',
+      r'"-force_load",\s*"\$\(PROJECT_DIR\)/\.\./\.\./target/\$\(KQ_RUST_IOS_TARGET\)/release/liblibrustdesk\.a",',
     );
     expect(staticRustLink.allMatches(project).length, 3);
     expect(staticPrepScript,

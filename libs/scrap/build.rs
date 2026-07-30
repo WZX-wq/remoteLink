@@ -38,6 +38,7 @@ fn link_vcpkg(mut path: PathBuf, name: &str) -> PathBuf {
     } else {
         target_arch = "arm".to_owned();
     }
+    let target_triple = std::env::var("TARGET").unwrap_or_default();
     let mut target = if target_os == "macos" {
         if target_arch == "x64" {
             "x64-osx".to_owned()
@@ -46,6 +47,8 @@ fn link_vcpkg(mut path: PathBuf, name: &str) -> PathBuf {
         } else {
             format!("{}-{}", target_arch, target_os)
         }
+    } else if target_os == "ios" && target_triple.ends_with("-ios-sim") {
+        format!("{}-ios-simulator", target_arch)
     } else if target_os == "windows" {
         "x64-windows-static".to_owned()
     } else {
@@ -429,6 +432,9 @@ fn ffmpeg() {
 fn main() {
     // in this crate, these are also valid configurations
     println!("cargo:rustc-check-cfg=cfg(dxgi,quartz,x11)");
+    println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
+    println!("cargo:rerun-if-env-changed=VCPKG_INSTALLED_ROOT");
+    println!("cargo:rerun-if-env-changed=VCPKG_TRIPLET");
 
     // there is problem with cfg(target_os) in build.rs, so use our workaround
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();

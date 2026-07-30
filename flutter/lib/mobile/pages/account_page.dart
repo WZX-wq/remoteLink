@@ -370,7 +370,8 @@ class _AccountPageState extends State<AccountPage> {
                         statusIsError = false;
                       });
                       Navigator.of(sheetContext).pop();
-                      showToast(translate('Membership benefits active'));
+                      showToast(translate(
+                          'Payment successful. Membership benefits refreshed.'));
                     }
                   } catch (e) {
                     if (alive) {
@@ -725,9 +726,9 @@ class _AccountPageState extends State<AccountPage> {
           const SizedBox(height: 22),
           _ProfileHeader(
             avatar: avatar,
-            title: isLogin ? _kqPrivacyDisplayName(user) : translate('Login'),
+            title: isLogin ? _kqPrivacyAccountLabel(user) : translate('Login'),
             subtitle: isLogin
-                ? _kqPrivacyAccountLabel(user)
+                ? null
                 : translate(
                     'Sign in to unlock device sync and membership tools.'),
             badge: user.membershipName,
@@ -737,13 +738,8 @@ class _AccountPageState extends State<AccountPage> {
           const SizedBox(height: 16),
           _MembershipBanner(
             isMember: user.isMember.value,
-            loading: user.isRefreshingMembership.value,
+            expireAt: user.memberExpireAt.value,
             onPrimaryTap: _openMembershipSheet,
-            onRefreshTap: isLogin
-                ? () async {
-                    await user.refreshMembership(showError: true);
-                  }
-                : null,
           ),
           const SizedBox(height: 14),
           _MenuSection(
@@ -817,7 +813,7 @@ class _ProfileHeader extends StatelessWidget {
 
   final String avatar;
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final String badge;
   final bool isMember;
   final VoidCallback onTap;
@@ -905,17 +901,19 @@ class _ProfileHeader extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: q.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: q.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -931,15 +929,13 @@ class _ProfileHeader extends StatelessWidget {
 class _MembershipBanner extends StatelessWidget {
   const _MembershipBanner({
     required this.isMember,
-    required this.loading,
+    required this.expireAt,
     required this.onPrimaryTap,
-    required this.onRefreshTap,
   });
 
   final bool isMember;
-  final bool loading;
+  final String expireAt;
   final VoidCallback onPrimaryTap;
-  final Future<void> Function()? onRefreshTap;
 
   @override
   Widget build(BuildContext context) {
@@ -947,136 +943,108 @@ class _MembershipBanner extends StatelessWidget {
         ? _mineText('Membership benefits unlocked')
         : _mineText('Upgrade Kunqiong Membership');
     final subtitle = isMember
-        ? _mineText('Membership benefits active')
+        ? _membershipExpiryLabel(expireAt)
         : _mineText(
             'Basic uses SD / 30 FPS. Membership unlocks 1080p HD / 60 FPS.');
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: const Color(0xFF141621),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFEACB74).withOpacity(0.36)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.16),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -42,
-            top: -58,
-            child: Container(
-              width: 154,
-              height: 154,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFFEACB74).withOpacity(0.12),
-                  width: 18,
-                ),
-              ),
+    return Semantics(
+      button: true,
+      label: _mineText(
+          isMember ? 'Renew membership' : 'Upgrade Kunqiong Membership'),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: const Color(0xFF141621),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFEACB74).withOpacity(0.36)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.16),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
-          ),
-          Positioned(
-            left: 0,
-            top: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: const BoxDecoration(
-                color: Color(0xFF2E2F37),
-                borderRadius: BorderRadius.only(
-                  bottomRight: Radius.circular(18),
-                ),
-              ),
-              child: Text(
-                isMember ? 'VIP' : _mineText('Free plan'),
-                style: const TextStyle(
-                  color: Color(0xFFEACB74),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 46, 18, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPrimaryTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
               children: [
-                Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFFFE7A4),
-                    fontSize: 21,
-                    fontWeight: FontWeight.w900,
-                    height: 1.16,
+                Positioned(
+                  right: -42,
+                  top: -58,
+                  child: Container(
+                    width: 154,
+                    height: 154,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFFEACB74).withOpacity(0.12),
+                        width: 18,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.76),
-                    fontSize: 13,
-                    height: 1.32,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: onPrimaryTap,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFFFD24D),
-                      foregroundColor: const Color(0xFF3A2B00),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF2E2F37),
+                      borderRadius: BorderRadius.only(
+                        bottomRight: Radius.circular(18),
                       ),
                     ),
                     child: Text(
-                      _mineText(isMember ? 'Renew membership' : 'Upgrade'),
-                      maxLines: 2,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ),
-                if (onRefreshTap != null) ...[
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: loading ? null : onRefreshTap,
-                      icon: loading
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh_rounded, size: 16),
-                      label: Text(translate('Refresh membership')),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFFFFE7A4),
-                        visualDensity: VisualDensity.compact,
+                      isMember ? 'VIP' : _mineText('Free plan'),
+                      style: const TextStyle(
+                        color: Color(0xFFEACB74),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
-                ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 46, 18, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFFFE7A4),
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
+                          height: 1.16,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          subtitle,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.76),
+                            fontSize: 13,
+                            height: 1.32,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2317,6 +2285,29 @@ String _priceLabel(double price) {
   return '¥${price.toStringAsFixed(2)}';
 }
 
+String? _membershipExpiryLabel(String value) {
+  final expireAt = value.trim();
+  if (expireAt.isEmpty) return null;
+  if (expireAt.toLowerCase() == 'unlimited') {
+    return _mineText('Unlimited');
+  }
+
+  final match =
+      RegExp(r'^(\d{4})-(\d{2})-(\d{2})(?:[ T]|$)').firstMatch(expireAt);
+  if (match == null) return null;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  final parsed = DateTime(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return null;
+  }
+
+  final date = '${match.group(1)!}-${match.group(2)!}-${match.group(3)!}';
+  return '${_mineText('Membership valid until')} $date';
+}
+
 String _mineText(String key) {
   if (kqUiPrefersSimplifiedChinese()) return _mineZh[key] ?? translate(key);
   if (kqUiPrefersChinese()) return _mineTw[key] ?? translate(key);
@@ -2336,7 +2327,7 @@ const _mineZh = {
   'No notifications': '暂无通知',
   'Free plan': '免费版',
   'Membership benefits unlocked': '会员权益已开通',
-  'Membership benefits active': '会员权益已生效',
+  'Membership valid until': '会员有效期至',
   'Upgrade Kunqiong Membership': '开通鲲穹会员',
   'Renew membership': '续费会员',
   'Upgrade': '开通会员',
@@ -2380,7 +2371,7 @@ const _mineTw = {
   'Remove your account and data': '刪除帳號及相關資料',
   'Not set': '未設定',
   'Membership benefits unlocked': '會員權益已開通',
-  'Membership benefits active': '會員權益已生效',
+  'Membership valid until': '會員有效期至',
   'Upgrade Kunqiong Membership': '開通鯤穹會員',
   'Renew membership': '續費會員',
   'Upgrade': '開通會員',

@@ -1080,6 +1080,9 @@ impl Connection {
                     }
                 }
                 Some((instant, value)) = rx_video.recv() => {
+                    #[cfg(target_os = "ios")]
+                    let is_video_frame =
+                        matches!(&value.union, Some(message::Union::VideoFrame(_)));
                     if !conn.video_ack_required {
                         if let Some(message::Union::VideoFrame(vf)) = &value.union {
                             video_service::notify_video_frame_fetched(vf.display as usize, id, Some(instant.into()));
@@ -1088,6 +1091,10 @@ impl Connection {
                     if let Err(err) = conn.stream.send(&value as &Message).await {
                         conn.on_close(&err.to_string(), false).await;
                         break;
+                    }
+                    #[cfg(target_os = "ios")]
+                    if is_video_frame {
+                        crate::ios_broadcast_status::note_video_frame_network_written();
                     }
                 },
                 Some((instant, value)) = rx.recv() => {
@@ -2795,6 +2802,8 @@ impl Connection {
             }
         }
         self.video_ack_required = lr.video_ack_required;
+        #[cfg(target_os = "ios")]
+        crate::ios_broadcast_status::note_video_ack_required(lr.video_ack_required);
     }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -3841,6 +3850,8 @@ impl Connection {
                         self.update_auto_disconnect_timer();
                     }
                     Some(misc::Union::VideoReceived(_)) => {
+                        #[cfg(target_os = "ios")]
+                        crate::ios_broadcast_status::note_video_frame_client_acked();
                         video_service::notify_video_frame_fetched_by_conn_id(
                             self.inner.id,
                             Some(Instant::now().into()),

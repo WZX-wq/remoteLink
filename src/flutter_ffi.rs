@@ -39,8 +39,8 @@ lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn install_kq_panic_hook() {
+#[cfg(not(target_os = "android"))]
+pub(crate) fn install_kq_panic_hook() {
     static INSTALL: Once = Once::new();
     let panic_log = config::Config::log_path().join("rust-panic.log");
     INSTALL.call_once(move || {
@@ -112,8 +112,8 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     }
     #[cfg(target_os = "ios")]
     {
-        use hbb_common::env_logger::*;
-        init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"));
+        hbb_common::init_log(false, "ios-rust-main");
+        install_kq_panic_hook();
         crate::common::test_nat_type();
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]

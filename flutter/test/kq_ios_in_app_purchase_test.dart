@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_hbb/mobile/kq_ios_in_app_purchase.dart';
@@ -30,6 +31,53 @@ void main() {
 
     expect(config.isConfigured, isFalse);
     expect(config.configurationError, isNotEmpty);
+  });
+
+  test('StoreKit verification status maps to an actionable safe state', () {
+    expect(
+      kqIosMembershipVerificationFeedbackForStatus(401),
+      KqIosMembershipPurchaseFeedback.accountAuthenticationRequired,
+    );
+    expect(
+      kqIosMembershipVerificationFeedbackForStatus(403),
+      KqIosMembershipPurchaseFeedback.accountAuthenticationRequired,
+    );
+    expect(
+      kqIosMembershipVerificationFeedbackForStatus(409),
+      KqIosMembershipPurchaseFeedback.purchaseAlreadyLinked,
+    );
+    expect(
+      kqIosMembershipVerificationFeedbackForStatus(503),
+      KqIosMembershipPurchaseFeedback.verificationServiceUnavailable,
+    );
+    expect(
+      kqIosMembershipVerificationFeedbackForStatus(400),
+      KqIosMembershipPurchaseFeedback.verificationFailed,
+    );
+  });
+
+  test('local StoreKit configuration matches the production product ID', () {
+    final configuration = jsonDecode(
+      File('ios/Runner/KQMembership.storekit').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final groups = configuration['subscriptionGroups'] as List<dynamic>;
+    final group = groups.single as Map<String, dynamic>;
+    final subscriptions = group['subscriptions'] as List<dynamic>;
+    final subscription = subscriptions.single as Map<String, dynamic>;
+    final scheme = File(
+      'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme',
+    ).readAsStringSync();
+
+    expect(subscription['productID'], 'com.kunqiong.remotelink.member.monthly');
+    expect(subscription['type'], 'RecurringSubscription');
+    expect(subscription['recurringSubscriptionPeriod'], 'P1M');
+    expect(scheme, contains('../Runner/KQMembership.storekit'));
+  });
+
+  test('release build rejects the local StoreKit test switch', () {
+    final script = File('build_ios.sh').readAsStringSync();
+
+    expect(script, contains('KQ_IOS_IAP_LOCAL_STOREKIT_TEST is debug-only'));
   });
 
   test(
@@ -70,6 +118,8 @@ void main() {
 
     expect(source, contains('purchase.pendingCompletePurchase &&'));
     expect(source, contains('!await _completePurchase(purchase)'));
+    expect(source, contains('_verifyingPurchaseKeys'));
+    expect(source, contains('localStoreKitTestMode && kDebugMode'));
   });
 
   test('iOS payment only presents mapped StoreKit plans and real prices', () {
@@ -98,6 +148,22 @@ void main() {
     expect(page, isNot(contains('Apple 未返回商品')));
     expect(page, isNot(contains('请确认 App Store Connect 商品 ID')));
     expect(page, contains('当前暂时无法购买会员，请稍后重试'));
+  });
+
+  test('iOS purchase page exposes subscription terms and restore affordance',
+      () {
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(page, contains('KQ_TERMS_OF_SERVICE_URL'));
+    expect(page, contains('_IosMembershipLegalFooter'));
+    expect(page, contains('订阅会按所选套餐周期自动续订'));
+    expect(page, contains('付款将在确认购买时从 Apple ID 扣款'));
+    expect(page, contains('隐私政策'));
+    expect(page, contains('用户协议'));
+    expect(page, contains('恢复购买'));
+    expect(page, contains('TextButton.icon('));
+    expect(page, isNot(contains('OutlinedButton.icon(')));
   });
 
   test('iOS membership and screen sharing pages compile', () {

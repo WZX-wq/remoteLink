@@ -69,6 +69,8 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     }
 
     *config::APP_DIR.write().unwrap() = config_dir.clone();
+    hbb_common::init_log(false, "ios-rust-broadcast");
+    crate::flutter_ffi::install_kq_panic_hook();
     crate::load_custom_client();
     let config_path = Config::file();
     if !config_path.is_file() {
@@ -96,6 +98,7 @@ pub extern "C" fn kq_ios_broadcast_start(config_dir: *const u8, config_dir_len: 
     );
     set_last_auth_result(AUTH_RESULT_NONE);
     crate::ios_voice_call::reset_voice_call();
+    crate::ios_broadcast_status::reset_video_diagnostics();
     PAUSED.store(false, Ordering::Release);
     ACTIVE.store(true, Ordering::Release);
     REGISTRATION_STARTED_AT_MS.store(hbb_common::get_time(), Ordering::Release);
@@ -199,6 +202,7 @@ pub extern "C" fn kq_ios_broadcast_push_bgra(
     let data = unsafe { slice::from_raw_parts(data.cast::<u8>(), data_len) };
     match scrap::submit_bgra_frame(data, width, height, stride) {
         Ok(_) => {
+            crate::ios_broadcast_status::note_video_frame_captured();
             if ACTIVE.load(Ordering::Acquire)
                 && previous_size.is_some()
                 && previous_size != Some((width, height))
@@ -259,6 +263,106 @@ pub extern "C" fn kq_ios_broadcast_voice_frames_sent() -> u64 {
 #[no_mangle]
 pub extern "C" fn kq_ios_broadcast_voice_frames_received() -> u64 {
     crate::ios_voice_call::peer_voice_frames_received()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_captured_video_frames() -> u64 {
+    crate::ios_broadcast_status::captured_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_video_service_starts() -> u64 {
+    crate::ios_broadcast_status::video_service_starts()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_video_service_failures() -> u64 {
+    crate::ios_broadcast_status::video_service_failures()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_fetched_video_frames() -> u64 {
+    crate::ios_broadcast_status::fetched_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_converted_video_frames() -> u64 {
+    crate::ios_broadcast_status::converted_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_encoded_video_frames() -> u64 {
+    crate::ios_broadcast_status::encoded_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_sent_video_frames() -> u64 {
+    crate::ios_broadcast_status::sent_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_network_written_video_frames() -> u64 {
+    crate::ios_broadcast_status::network_written_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_client_acked_video_frames() -> u64 {
+    crate::ios_broadcast_status::client_acked_video_frames()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_video_conversion_failures() -> u64 {
+    crate::ios_broadcast_status::video_conversion_failures()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_video_encoding_failures() -> u64 {
+    crate::ios_broadcast_status::video_encoding_failures()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_last_video_error() -> i32 {
+    crate::ios_broadcast_status::last_video_error()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_diagnostic_state() -> i32 {
+    crate::ios_broadcast_status::first_video_diagnostic_state()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_key_frame() -> i32 {
+    crate::ios_broadcast_status::first_video_key_frame()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_encoded_bytes() -> u64 {
+    crate::ios_broadcast_status::first_video_encoded_bytes()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_encoded_width() -> u64 {
+    crate::ios_broadcast_status::first_video_encoded_width()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_encoded_height() -> u64 {
+    crate::ios_broadcast_status::first_video_encoded_height()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_decoded_width() -> u64 {
+    crate::ios_broadcast_status::first_video_decoded_width()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_first_video_decoded_height() -> u64 {
+    crate::ios_broadcast_status::first_video_decoded_height()
+}
+
+#[no_mangle]
+pub extern "C" fn kq_ios_broadcast_video_ack_required() -> i32 {
+    crate::ios_broadcast_status::video_ack_required()
 }
 
 #[no_mangle]

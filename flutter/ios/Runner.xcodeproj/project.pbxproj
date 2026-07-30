@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		A1B2C3D40000000000000001 /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000006 /* SampleHandler.swift */; };
+		A1B2C3D40000000000000019 /* KQIOSDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000001B /* KQIOSDiagnostics.swift */; };
+		A1B2C3D4000000000000001A /* KQIOSDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000001B /* KQIOSDiagnostics.swift */; };
 		A1B2C3D40000000000000002 /* KQScreenBroadcast.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000009 /* KQScreenBroadcast.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A1B2C3D40000000000000012 /* liblibrustdesk.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A3A301029F021DD0095DDA5 /* liblibrustdesk.a */; };
 		A1B2C3D40000000000000014 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000015 /* PrivacyInfo.xcprivacy */; };
@@ -66,6 +68,7 @@
 		A1B2C3D40000000000000013 /* KQBroadcastBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = KQBroadcastBridge.h; sourceTree = "<group>"; };
 		A1B2C3D40000000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A1B2C3D40000000000000017 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A1B2C3D4000000000000001B /* KQIOSDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/KQIOSDiagnostics.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		25E069BDBEF2890938537ABB /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -136,6 +139,7 @@
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
 				A1B2C3D4000000000000000B /* KQScreenBroadcast */,
+				A1B2C3D4000000000000001B /* KQIOSDiagnostics.swift */,
 				97C146EF1CF9000F007C117D /* Products */,
 				FC03317C0FF27D4E19FBA24E /* Pods */,
 				F213315C743C5EC601AD8123 /* Frameworks */,
@@ -377,6 +381,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D40000000000000001 /* SampleHandler.swift in Sources */,
+				A1B2C3D40000000000000019 /* KQIOSDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -384,6 +389,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4000000000000001A /* KQIOSDiagnostics.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);

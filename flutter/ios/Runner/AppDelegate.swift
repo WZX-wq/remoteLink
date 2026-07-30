@@ -3,6 +3,15 @@ import Flutter
 import ReplayKit
 import AVFoundation
 
+private func kqMainLog(
+  _ message: String,
+  level: String = "info",
+  category: String = "native"
+) {
+  NSLog("%@", message)
+  KQIOSDiagnostics.log(level, category: category, message: message)
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private struct BroadcastConfigSource {
@@ -32,6 +41,7 @@ import AVFoundation
   private let configProfileMigrationMarkerFileName =
     "kq-ios-config-profile-migration-v1"
   private let broadcastStatusFileName = "kq-broadcast-status.json"
+  private let broadcastDiagnosticsFileName = "kq-broadcast-diagnostics.json"
   private let voiceCallRequestFileName = "kq-ios-voice-call-request.json"
   private let voiceCallResponseFileName = "kq-ios-voice-call-response.json"
   private let voiceCallStateFileName = "kq-ios-voice-call-state.json"
@@ -91,6 +101,9 @@ import AVFoundation
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    KQIOSDiagnostics.configure(component: "ios-main")
+    kqMainLog("application launched", category: "lifecycle")
+    KQIOSDiagnostics.flushAndSynchronizeForUSBAccess()
     GeneratedPluginRegistrant.register(with: self)
     dummyMethodToEnforceBundling();
     let launched = super.application(
@@ -108,7 +121,11 @@ import AVFoundation
     }
     guard let controller = window?.rootViewController as? FlutterViewController else {
       guard retryCount < 20 else {
-        NSLog("Failed to register mChannel: Flutter view controller is unavailable")
+        kqMainLog(
+          "Failed to register mChannel: Flutter view controller is unavailable",
+          level: "error",
+          category: "method-channel"
+        )
         return
       }
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -123,6 +140,12 @@ import AVFoundation
         result(false)
         return
       }
+      KQIOSDiagnostics.log(
+        "debug",
+        category: "method-channel",
+        message: "Flutter invoked native method",
+        metadata: ["method": call.method]
+      )
       switch call.method {
       case "show_broadcast_picker":
         self.showBroadcastPicker(result: result)
@@ -150,9 +173,61 @@ import AVFoundation
         self.getIOSVoiceCallMetrics(result: result)
       case "end_ios_voice_call":
         self.endIOSVoiceCall(result: result)
+      case "append_ios_diagnostic_logs":
+        self.appendIOSDiagnosticLogs(arguments: call.arguments)
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    kqMainLog("application became active", category: "lifecycle")
+  }
+
+  override func applicationWillResignActive(_ application: UIApplication) {
+    kqMainLog("application will resign active", category: "lifecycle")
+    super.applicationWillResignActive(application)
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    kqMainLog("application entered background", category: "lifecycle")
+    KQIOSDiagnostics.flushAndSynchronizeForUSBAccess()
+    super.applicationDidEnterBackground(application)
+  }
+
+  override func applicationWillEnterForeground(_ application: UIApplication) {
+    super.applicationWillEnterForeground(application)
+    kqMainLog("application will enter foreground", category: "lifecycle")
+  }
+
+  override func applicationWillTerminate(_ application: UIApplication) {
+    kqMainLog("application will terminate", category: "lifecycle")
+    KQIOSDiagnostics.flushAndSynchronizeForUSBAccess()
+    super.applicationWillTerminate(application)
+  }
+
+  override func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+    kqMainLog("application received memory warning", level: "warning", category: "lifecycle")
+    super.applicationDidReceiveMemoryWarning(application)
+  }
+
+  private func appendIOSDiagnosticLogs(arguments: Any?) {
+    guard let entries = arguments as? [[String: Any]] else {
+      KQIOSDiagnostics.log(
+        "warning",
+        category: "flutter",
+        message: "ignored malformed Flutter diagnostic payload"
+      )
+      return
+    }
+    for entry in entries.prefix(100) {
+      let level = entry["level"] as? String ?? "debug"
+      let category = entry["category"] as? String ?? "flutter"
+      let message = entry["message"] as? String ?? ""
+      KQIOSDiagnostics.log(level, category: category, message: message)
     }
   }
 
@@ -233,12 +308,13 @@ import AVFoundation
       voiceTapInstalled = true
       voiceAudioEngine.prepare()
       try voiceAudioEngine.start()
-      NSLog(
-        "Started iOS voice capture: rate=\(format.sampleRate), channels=\(format.channelCount)"
+      kqMainLog(
+        "Started iOS voice capture: rate=\(format.sampleRate), channels=\(format.channelCount)",
+        category: "voice"
       )
       return true
     } catch {
-      NSLog("Failed to start iOS voice capture: \(error)")
+      kqMainLog("Failed to start iOS voice capture: \(error)", level: "error", category: "voice")
       stopIOSVoiceCapture()
       return false
     }
@@ -367,7 +443,7 @@ import AVFoundation
   private func publishIOSVoiceInputLevel(_ samples: [Float], source: String) {
     voiceInputFrameCount += 1
     if voiceInputFrameCount == 1 {
-      NSLog("Captured first iOS voice input frame from \(source)")
+      kqMainLog("Captured first iOS voice input frame from \(source)", category: "voice")
     }
     let now = Date().timeIntervalSince1970
     guard now - voiceInputLevelPublishedAt >= 0.08,
@@ -384,7 +460,7 @@ import AVFoundation
   private func publishIOSVoiceOutputLevel(_ samples: [Float]) {
     voiceOutputFrameCount += 1
     if voiceOutputFrameCount == 1 {
-      NSLog("Scheduled first peer voice frame for iOS playback")
+      kqMainLog("Scheduled first peer voice frame for iOS playback", category: "voice")
     }
     let now = Date().timeIntervalSince1970
     guard now - voiceOutputLevelPublishedAt >= 0.08,
@@ -546,7 +622,7 @@ import AVFoundation
       if alert?.presentingViewController == nil,
          self.voiceInvitationRequestId == requestId {
         self.voiceInvitationRequestId = nil
-        NSLog("Failed to present iOS voice call invitation")
+        kqMainLog("Failed to present iOS voice call invitation", level: "error", category: "voice")
       }
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak alert] in
@@ -556,7 +632,7 @@ import AVFoundation
         return
       }
       self.voiceInvitationRequestId = nil
-      NSLog("Timed out presenting iOS voice call invitation")
+      kqMainLog("Timed out presenting iOS voice call invitation", level: "warning", category: "voice")
     }
   }
 
@@ -576,7 +652,7 @@ import AVFoundation
           guard let self = self else { return }
           self.voiceInvitationRequestId = nil
           if value as? Bool != true {
-            NSLog("Failed to respond to iOS voice call invitation")
+            kqMainLog("Failed to respond to iOS voice call invitation", level: "error", category: "voice")
           }
         }
       }
@@ -652,7 +728,7 @@ import AVFoundation
       }
       result(true)
     } catch {
-      NSLog("Failed to write iOS voice call response: \(error)")
+      kqMainLog("Failed to write iOS voice call response: \(error)", level: "error", category: "voice")
       result(false)
     }
   }
@@ -662,7 +738,7 @@ import AVFoundation
     remainingAttempts: Int = 30
   ) {
     guard remainingAttempts > 0 else {
-      NSLog("Timed out waiting to start iOS host voice capture")
+      kqMainLog("Timed out waiting to start iOS host voice capture", level: "error", category: "voice")
       return
     }
     guard let state = readVoiceCallJSON(voiceCallStateFileName),
@@ -681,12 +757,12 @@ import AVFoundation
     // call. Start fallback capture only after that cleanup has completed.
     if replayKitMicrophoneIsAvailable() {
       voiceBroadcastCaptureRequestId = nil
-      NSLog("ReplayKit microphone is active for iOS voice call")
+      kqMainLog("ReplayKit microphone is active for iOS voice call", category: "voice")
     } else if startIOSBroadcastHostVoiceCapture() {
       voiceBroadcastCaptureRequestId = requestId
     } else {
       voiceBroadcastCaptureRequestId = nil
-      NSLog("iOS host recorder unavailable; using ReplayKit microphone")
+      kqMainLog("iOS host recorder unavailable; using ReplayKit microphone", level: "warning", category: "voice")
     }
   }
 
@@ -773,7 +849,7 @@ import AVFoundation
         self.voicePlaybackEngine.prepare()
         try self.voicePlaybackEngine.start()
       } catch {
-        NSLog("Failed to start iOS voice playback: \(error)")
+        kqMainLog("Failed to start iOS voice playback: \(error)", level: "error", category: "voice")
         return
       }
       self.voicePlaybackRequestId = requestId
@@ -832,7 +908,7 @@ import AVFoundation
        FileManager.default.fileExists(atPath: marker.path) {
       stopIOSVoiceCapture(deactivateAudioSession: false)
       voiceBroadcastCaptureRequestId = nil
-      NSLog("Stopped iOS fallback recorder after ReplayKit microphone became active")
+      kqMainLog("Stopped iOS fallback recorder after ReplayKit microphone became active", category: "voice")
     }
     if let state = readVoiceCallJSON(voiceCallStateFileName),
        state["requestId"] as? String == requestId,
@@ -1042,7 +1118,9 @@ import AVFoundation
       defaultsStatus,
       fileStatus
     )
-    result(normalizeBroadcastStatus(selectedStatus))
+    let normalizedStatus = normalizeBroadcastStatus(selectedStatus)
+    mirrorBroadcastDiagnostics(normalizedStatus)
+    result(normalizedStatus)
   }
 
   private func replayKitMicrophoneIsAvailable() -> Bool {
@@ -1085,6 +1163,26 @@ import AVFoundation
       "remoteViewAvailable": defaults.bool(forKey: "kq_broadcast_remote_view_available"),
       "remoteViewerCount": defaults.integer(forKey: "kq_broadcast_remote_viewer_count"),
       "deviceId": defaults.string(forKey: "kq_broadcast_device_id") ?? "",
+      "capturedVideoFrames": defaults.integer(forKey: "kq_broadcast_captured_video_frames"),
+      "videoServiceStarts": defaults.integer(forKey: "kq_broadcast_video_service_starts"),
+      "videoServiceFailures": defaults.integer(forKey: "kq_broadcast_video_service_failures"),
+      "fetchedVideoFrames": defaults.integer(forKey: "kq_broadcast_fetched_video_frames"),
+      "convertedVideoFrames": defaults.integer(forKey: "kq_broadcast_converted_video_frames"),
+      "encodedVideoFrames": defaults.integer(forKey: "kq_broadcast_encoded_video_frames"),
+      "sentVideoFrames": defaults.integer(forKey: "kq_broadcast_sent_video_frames"),
+      "networkWrittenVideoFrames": defaults.integer(forKey: "kq_broadcast_network_written_video_frames"),
+      "clientAckedVideoFrames": defaults.integer(forKey: "kq_broadcast_client_acked_video_frames"),
+      "videoConversionFailures": defaults.integer(forKey: "kq_broadcast_video_conversion_failures"),
+      "videoEncodingFailures": defaults.integer(forKey: "kq_broadcast_video_encoding_failures"),
+      "lastVideoError": defaults.integer(forKey: "kq_broadcast_last_video_error"),
+      "firstVideoDiagnosticState": defaults.integer(forKey: "kq_broadcast_first_video_diagnostic_state"),
+      "firstVideoKeyFrame": defaults.integer(forKey: "kq_broadcast_first_video_key_frame"),
+      "firstVideoEncodedBytes": defaults.integer(forKey: "kq_broadcast_first_video_encoded_bytes"),
+      "firstVideoEncodedWidth": defaults.integer(forKey: "kq_broadcast_first_video_encoded_width"),
+      "firstVideoEncodedHeight": defaults.integer(forKey: "kq_broadcast_first_video_encoded_height"),
+      "firstVideoDecodedWidth": defaults.integer(forKey: "kq_broadcast_first_video_decoded_width"),
+      "firstVideoDecodedHeight": defaults.integer(forKey: "kq_broadcast_first_video_decoded_height"),
+      "videoAckRequired": defaults.integer(forKey: "kq_broadcast_video_ack_required"),
       "audioSupported": defaults.bool(forKey: "kq_broadcast_audio_supported"),
       "voiceMicrophoneActive": defaults.bool(
         forKey: "kq_broadcast_voice_microphone_active"
@@ -1111,6 +1209,24 @@ import AVFoundation
       return nil
     }
     return status
+  }
+
+  private func mirrorBroadcastDiagnostics(_ status: [String: Any]) {
+    guard JSONSerialization.isValidJSONObject(status),
+          let caches = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+          ).first,
+          let data = try? JSONSerialization.data(
+            withJSONObject: status,
+            options: [.sortedKeys]
+          ) else {
+      return
+    }
+    try? data.write(
+      to: caches.appendingPathComponent(broadcastDiagnosticsFileName),
+      options: .atomic
+    )
   }
 
   private func selectNewestBroadcastStatus(
@@ -1190,7 +1306,11 @@ import AVFoundation
       try migrateBroadcastConfiguration(from: legacyDirectory, to: destination)
       result(destination.path)
     } catch {
-      NSLog("Failed to prepare broadcast config directory: \(error)")
+      kqMainLog(
+        "Failed to prepare broadcast config directory: \(error)",
+        level: "error",
+        category: "configuration"
+      )
       result(FlutterError(
         code: "config_migration_failed",
         message: "屏幕共享配置准备失败，请重新打开应用后再试。",
@@ -1320,7 +1440,7 @@ import AVFoundation
     )
     try synchronizeSharedIdentityFiles(from: source, to: destination)
     try Data("1".utf8).write(to: migrationMarker, options: .atomic)
-    NSLog("[Config Migration] Unified iOS config profile from \(selected.configFileName)")
+    kqMainLog("Unified iOS config profile", category: "configuration")
   }
 
   private func synchronizeSharedIdentityFiles(from source: URL?, to destination: URL) throws {

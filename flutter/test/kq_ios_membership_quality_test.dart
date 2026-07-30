@@ -68,14 +68,28 @@ void main() {
     expect(source, contains('基礎版使用標清 / 30 FPS，會員可使用 1080p 高畫質 / 60 FPS。'));
     expect(source, contains("'Upgrade Kunqiong Membership': '开通鲲穹会员'"));
     expect(source, contains("'Membership benefits unlocked': '会员权益已开通'"));
-    expect(source, contains("'Membership benefits active': '会员权益已生效'"));
 
     final bannerStart = source.indexOf('class _MembershipBanner');
     final bannerEnd = source.indexOf('String _priceLabel', bannerStart);
     final banner = source.substring(bannerStart, bannerEnd);
     expect(banner, contains("_mineText('Membership benefits unlocked')"));
-    expect(banner, contains("_mineText('Membership benefits active')"));
+    expect(banner, isNot(contains("_mineText('Membership benefits active')")));
     expect(banner, contains("_mineText('Upgrade Kunqiong Membership')"));
+    expect(banner, contains('Semantics('));
+    expect(banner, contains('button: true'));
+    expect(banner, contains('InkWell('));
+    expect(banner, contains('onTap: onPrimaryTap'));
+    expect(banner, isNot(contains('FilledButton(')));
+    expect(banner, isNot(contains('TextButton.icon(')));
+    expect(banner, isNot(contains('onRefreshTap')));
+    expect(source, isNot(contains('onRefreshTap: isLogin')));
+    final paymentStart = source.indexOf('void startPolling');
+    final paymentEnd =
+        source.indexOf('void startPaymentLaunchWatchdog', paymentStart);
+    expect(paymentStart, greaterThanOrEqualTo(0));
+    expect(paymentEnd, greaterThan(paymentStart));
+    final paymentFlow = source.substring(paymentStart, paymentEnd);
+    expect(paymentFlow, isNot(contains('Membership benefits active')));
     expect(banner, isNot(contains('Membership valid until')));
   });
 

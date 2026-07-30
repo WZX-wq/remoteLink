@@ -2,7 +2,13 @@
 set -euo pipefail
 
 target_dir="${1:-target/aarch64-apple-ios/release}"
-vcpkg_triplet="${VCPKG_TRIPLET:-arm64-ios}"
+if [ -n "${VCPKG_TRIPLET:-}" ]; then
+  vcpkg_triplet="$VCPKG_TRIPLET"
+elif [[ "$target_dir" == *-apple-ios-sim/* ]]; then
+  vcpkg_triplet="arm64-ios-simulator"
+else
+  vcpkg_triplet="arm64-ios"
+fi
 vcpkg_installed_root="${VCPKG_INSTALLED_ROOT:-}"
 
 if [ ! -f "$target_dir/liblibrustdesk.a" ]; then

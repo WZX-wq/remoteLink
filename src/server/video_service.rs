@@ -255,7 +255,16 @@ pub fn new(source: VideoSource, idx: usize) -> GenericService {
         idx,
         source,
     };
-    GenericService::run(&vs, run);
+    GenericService::run(&vs, |vs| {
+        #[cfg(target_os = "ios")]
+        crate::ios_broadcast_status::note_video_service_started();
+        let result = run(vs);
+        #[cfg(target_os = "ios")]
+        if result.is_err() {
+            crate::ios_broadcast_status::note_video_service_failure();
+        }
+        result
+    });
     vs.sp
 }
 
@@ -624,6 +633,12 @@ fn run(vs: VideoService) -> ResultType<()> {
             target_height
         );
     }
+    #[cfg(target_os = "ios")]
+    if let Some(msg) = make_display_changed_msg(display_idx, None, vs.source) {
+        // Existing subscribers must learn the encoded stream dimensions before
+        // receiving frames. New subscribers receive the same snapshot below.
+        sp.send(msg);
+    }
     #[cfg(feature = "vram")]
     c.set_output_texture(encoder.input_texture());
     #[cfg(target_os = "android")]
@@ -743,6 +758,8 @@ fn run(vs: VideoService) -> ResultType<()> {
             Ok(frame) => {
                 repeat_encode_counter = 0;
                 if frame.valid() {
+                    #[cfg(target_os = "ios")]
+                    crate::ios_broadcast_status::note_video_frame_fetched();
                     let screenshot = SCREENSHOTS.lock().unwrap().remove(&display_idx);
                     if let Some(mut screenshot) = screenshot {
                         let restore_vram = screenshot.restore_vram;
@@ -786,20 +803,39 @@ fn run(vs: VideoService) -> ResultType<()> {
                         }
                     }
 
-                    let frame = if should_scale_frame {
+                    let converted_frame = if should_scale_frame {
                         frame.to_with_scale(
                             encoder.yuvfmt(),
                             &mut yuv,
                             &mut mid_data,
                             &mut scale_data,
-                        )?
+                        )
                     } else {
-                        frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)?
+                        frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)
                     };
+                    #[cfg(target_os = "ios")]
+                    let converted_frame = match converted_frame {
+                        Ok(frame) => frame,
+                        Err(err) => {
+                            let failures =
+                                crate::ios_broadcast_status::note_video_conversion_failure();
+                            if failures == 1 || failures % 30 == 0 {
+                                log::error!(
+                                    "iOS video frame conversion failed ({failures}): {err:?}"
+                                );
+                            }
+                            continue;
+                        }
+                    };
+                    #[cfg(not(target_os = "ios"))]
+                    let converted_frame = converted_frame?;
+                    #[cfg(target_os = "ios")]
+                    crate::ios_broadcast_status::note_video_frame_converted();
                     let send_conn_ids = handle_one_frame(
                         display_idx,
+                        vs.source,
                         &sp,
-                        frame,
+                        converted_frame,
                         ms,
                         &mut encoder,
                         recorder.clone(),
@@ -857,6 +893,7 @@ fn run(vs: VideoService) -> ResultType<()> {
                         repeat_encode_counter += 1;
                         let send_conn_ids = handle_one_frame(
                             display_idx,
+                            vs.source,
                             &sp,
                             EncodeInput::YUV(&yuv),
                             ms,
@@ -1179,6 +1216,7 @@ fn check_privacy_mode_changed(
 #[inline]
 fn handle_one_frame(
     display: usize,
+    source: VideoSource,
     sp: &GenericService,
     frame: EncodeInput,
     ms: i64,
@@ -1190,6 +1228,10 @@ fn handle_one_frame(
     height: usize,
 ) -> ResultType<HashSet<i32>> {
     sp.snapshot(|sps| {
+        #[cfg(target_os = "ios")]
+        if let Some(msg) = make_display_changed_msg(display, None, source) {
+            sps.send(msg);
+        }
         // so that new sub and old sub share the same encoder after switch
         if sps.has_subscribes() {
             log::info!("switch due to new subscriber");
@@ -1205,6 +1247,27 @@ fn handle_one_frame(
         Ok(mut vf) => {
             *encode_fail_counter = 0;
             vf.display = display as _;
+            #[cfg(target_os = "ios")]
+            if crate::ios_broadcast_status::begin_first_video_diagnostic() {
+                let diagnostic = scrap::vpxcodec::diagnose_video_frame(&vf);
+                match diagnostic {
+                    Ok((key_frame, encoded_bytes, decoded_width, decoded_height)) => {
+                        crate::ios_broadcast_status::finish_first_video_diagnostic(
+                            key_frame,
+                            encoded_bytes,
+                            width,
+                            height,
+                            Some((decoded_width, decoded_height)),
+                        );
+                    }
+                    Err(err) => {
+                        log::error!("iOS first encoded video frame failed self-decode: {err:?}");
+                        crate::ios_broadcast_status::finish_first_video_diagnostic(
+                            false, 0, width, height, None,
+                        );
+                    }
+                }
+            }
             let mut msg = Message::new();
             msg.set_video_frame(vf);
             recorder
@@ -1213,9 +1276,18 @@ fn handle_one_frame(
                 .as_mut()
                 .map(|r| r.write_message(&msg, width, height));
             send_conn_ids = sp.send_video_frame(msg);
+            #[cfg(target_os = "ios")]
+            crate::ios_broadcast_status::note_video_frame_encoded(!send_conn_ids.is_empty());
         }
         Err(e) => {
             *encode_fail_counter += 1;
+            #[cfg(target_os = "ios")]
+            {
+                let failures = crate::ios_broadcast_status::note_video_encoding_failure();
+                if failures == 1 || failures % 30 == 0 {
+                    log::error!("iOS video encoding failed ({failures}): {e:?}");
+                }
+            }
             // Encoding errors are not frequent except on Android
             if !cfg!(target_os = "android") {
                 log::error!("encode fail: {e:?}, times: {}", *encode_fail_counter,);
@@ -1339,13 +1411,26 @@ pub fn make_display_changed_msg(
                 .clone(),
         },
     };
+    #[cfg(target_os = "ios")]
+    let (stream_width, stream_height) =
+        if source.is_monitor() && display.width > 0 && display.height > 0 {
+            let (width, height) = VIDEO_QOS
+                .lock()
+                .unwrap()
+                .encoded_dimensions(display.width as usize, display.height as usize);
+            (width as i32, height as i32)
+        } else {
+            (display.width, display.height)
+        };
+    #[cfg(not(target_os = "ios"))]
+    let (stream_width, stream_height) = (display.width, display.height);
     let mut misc = Misc::new();
     misc.set_switch_display(SwitchDisplay {
         display: display_idx as _,
         x: display.x,
         y: display.y,
-        width: display.width,
-        height: display.height,
+        width: stream_width,
+        height: stream_height,
         cursor_embedded: match source {
             VideoSource::Monitor => display_service::capture_cursor_embedded(),
             VideoSource::Camera => false,

@@ -32,6 +32,7 @@ fail() {
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 flutter_dir="$repo_dir/flutter"
 ios_dir="$flutter_dir/ios"
+release_config_validator="$repo_dir/scripts/prepare_ios_release_config.py"
 
 mode="rust"
 build_name="${FLUTTER_BUILD_NAME:-1.4.6}"
@@ -161,6 +162,7 @@ ensure_flutter_pub_get() {
 
 prepare_flutter_build_config() {
   log "Refreshing Flutter iOS build settings for $build_name ($build_number) without compiling."
+  python3 "$release_config_validator"
   (
     cd "$flutter_dir"
     "$flutter_bin" build ios \
@@ -168,6 +170,11 @@ prepare_flutter_build_config() {
       --release \
       --build-name "$build_name" \
       --build-number "$build_number" \
+      --dart-define=KQ_PRIVACY_POLICY_URL="$KQ_PRIVACY_POLICY_URL" \
+      --dart-define=KQ_ACCOUNT_DELETE_URL="$KQ_ACCOUNT_DELETE_URL" \
+      --dart-define=KQ_IOS_IAP_PRODUCTS="$KQ_IOS_IAP_PRODUCTS" \
+      --dart-define=KQ_IOS_IAP_VERIFY_URL="$KQ_IOS_IAP_VERIFY_URL" \
+      --dart-define=KQ_IOS_INTERNAL_DIRECT_PAYMENT=false \
       --no-codesign \
       --no-pub
   )
@@ -385,7 +392,9 @@ require_tool perl
 require_tool uuidgen
 require_tool cargo
 require_tool rustc
+require_tool python3
 require_file "$flutter_bin"
+require_file "$release_config_validator"
 guard_existing_heavy_processes
 
 if [[ "$mode" == "upload-existing" ]]; then

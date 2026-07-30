@@ -6,6 +6,15 @@ import CoreVideo
 import Foundation
 import ReplayKit
 
+private func kqBroadcastLog(
+  _ message: String,
+  level: String = "info",
+  category: String = "broadcast"
+) {
+  NSLog("%@", message)
+  KQIOSDiagnostics.log(level, category: category, message: message)
+}
+
 final class SampleHandler: RPBroadcastSampleHandler {
   private let appGroupId = "group.com.kunqiong.remotelink"
   private let configDirectoryName = "remoteLink-config"
@@ -28,6 +37,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var convertedPixelBufferSize = (width: 0, height: 0)
   private var capturedWidth = 0
   private var capturedHeight = 0
+  private var lastLoggedState = ""
+  private var lastLoggedError = ""
   private let imageContext = CIContext(options: nil)
   private let outputAudioFormat = AVAudioFormat(
     commonFormat: .pcmFormatFloat32,
@@ -45,10 +56,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
   override init() {
     defaults = UserDefaults(suiteName: appGroupId)
     super.init()
+    KQIOSDiagnostics.configure(component: "ios-broadcast")
   }
 
   override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
-    NSLog("[KQBroadcast] broadcast started")
+    kqBroadcastLog("broadcast started", category: "lifecycle")
     videoFrameCount = 0
     appAudioFrameCount = 0
     micAudioFrameCount = 0
@@ -84,6 +96,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   override func broadcastPaused() {
+    kqBroadcastLog("broadcast paused", category: "lifecycle")
     if transportStarted {
       kq_ios_broadcast_pause()
     }
@@ -94,6 +107,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   override func broadcastResumed() {
+    kqBroadcastLog("broadcast resumed", category: "lifecycle")
     if transportStarted {
       kq_ios_broadcast_resume()
     }
@@ -106,6 +120,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   override func broadcastFinished() {
+    kqBroadcastLog("broadcast finished", category: "lifecycle")
     if transportStarted {
       kq_ios_broadcast_stop()
     }
@@ -129,11 +144,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
     let configPath = URL(fileURLWithPath: configDirectory)
       .appendingPathComponent(configFileName)
     guard FileManager.default.fileExists(atPath: configPath.path) else {
-      NSLog("[KQBroadcast] Canonical config is missing: \(configPath.path)")
+      kqBroadcastLog(
+        "canonical config is missing",
+        level: "error",
+        category: "configuration"
+      )
       publishFailure(code: "config_missing_please_restart_main_app")
       return false
     }
-    NSLog("[KQBroadcast] Using canonical config: \(configFileName)")
+    kqBroadcastLog("using canonical broadcast config", category: "configuration")
 
     let startResult = configDirectory.utf8CString.withUnsafeBufferPointer { buffer in
       guard let baseAddress = buffer.baseAddress else {
@@ -144,7 +163,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
         UInt(max(0, buffer.count - 1))
       )
     }
-    NSLog("[KQBroadcast] transport start result=\(startResult)")
+    kqBroadcastLog(
+      "broadcast transport start completed",
+      level: startResult == 0 ? "info" : "error",
+      category: "transport"
+    )
     guard startResult == 0 else {
       publishFailure(code: "transport_start_\(startResult)")
       return false
@@ -242,7 +265,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let becameActive = !micAudioForwardingActive
         micAudioForwardingActive = true
         if becameActive || micAudioFrameCount % 100 == 0 {
-          NSLog("[KQBroadcast] forwarded \(micAudioFrameCount) microphone buffers")
+          kqBroadcastLog(
+            "broadcast microphone forwarding active",
+            category: "voice"
+          )
           publishStatus(
             state: "capturing",
             transportState: registrationTransportState()
@@ -315,10 +341,52 @@ final class SampleHandler: RPBroadcastSampleHandler {
       "voiceMicrophoneActive": micAudioForwardingActive,
       "voiceFramesSent": Int(kq_ios_broadcast_voice_frames_sent()),
       "voiceFramesReceived": Int(kq_ios_broadcast_voice_frames_received()),
+      "capturedVideoFrames": Int(kq_ios_broadcast_captured_video_frames()),
+      "videoServiceStarts": Int(kq_ios_broadcast_video_service_starts()),
+      "videoServiceFailures": Int(kq_ios_broadcast_video_service_failures()),
+      "fetchedVideoFrames": Int(kq_ios_broadcast_fetched_video_frames()),
+      "convertedVideoFrames": Int(kq_ios_broadcast_converted_video_frames()),
+      "encodedVideoFrames": Int(kq_ios_broadcast_encoded_video_frames()),
+      "sentVideoFrames": Int(kq_ios_broadcast_sent_video_frames()),
+      "networkWrittenVideoFrames": Int(kq_ios_broadcast_network_written_video_frames()),
+      "clientAckedVideoFrames": Int(kq_ios_broadcast_client_acked_video_frames()),
+      "videoConversionFailures": Int(kq_ios_broadcast_video_conversion_failures()),
+      "videoEncodingFailures": Int(kq_ios_broadcast_video_encoding_failures()),
+      "lastVideoError": Int(kq_ios_broadcast_last_video_error()),
+      "firstVideoDiagnosticState": Int(kq_ios_broadcast_first_video_diagnostic_state()),
+      "firstVideoKeyFrame": Int(kq_ios_broadcast_first_video_key_frame()),
+      "firstVideoEncodedBytes": Int(kq_ios_broadcast_first_video_encoded_bytes()),
+      "firstVideoEncodedWidth": Int(kq_ios_broadcast_first_video_encoded_width()),
+      "firstVideoEncodedHeight": Int(kq_ios_broadcast_first_video_encoded_height()),
+      "firstVideoDecodedWidth": Int(kq_ios_broadcast_first_video_decoded_width()),
+      "firstVideoDecodedHeight": Int(kq_ios_broadcast_first_video_decoded_height()),
+      "videoAckRequired": Int(kq_ios_broadcast_video_ack_required()),
       "viewOnly": true,
       "errorCode": errorCode ?? registrationErrorCode(for: registrationState) ?? "",
     ]
     writeBroadcastStatusFile(status)
+    if state != lastLoggedState ||
+      (errorCode ?? "") != lastLoggedError ||
+      videoFrameCount == 1 ||
+      videoFrameCount % 300 == 0 {
+      KQIOSDiagnostics.log(
+        errorCode == nil ? "info" : "error",
+        category: "broadcast-status",
+        message: "broadcast status updated",
+        metadata: [
+          "state": state,
+          "transport": effectiveTransportState,
+          "registration": String(registrationState),
+          "error": errorCode ?? "",
+          "capturedFrames": String(videoFrameCount),
+          "encodedFrames": String(kq_ios_broadcast_encoded_video_frames()),
+          "sentFrames": String(kq_ios_broadcast_sent_video_frames()),
+          "viewers": String(viewerCount),
+        ]
+      )
+      lastLoggedState = state
+      lastLoggedError = errorCode ?? ""
+    }
 
     guard let defaults = defaults else { return }
     defaults.set(state, forKey: "kq_broadcast_state")
@@ -338,6 +406,26 @@ final class SampleHandler: RPBroadcastSampleHandler {
     defaults.set(viewerCount, forKey: "kq_broadcast_remote_viewer_count")
     defaults.set(viewerCount > 0, forKey: "kq_broadcast_remote_view_available")
     defaults.set(status["deviceId"], forKey: "kq_broadcast_device_id")
+    defaults.set(status["capturedVideoFrames"], forKey: "kq_broadcast_captured_video_frames")
+    defaults.set(status["videoServiceStarts"], forKey: "kq_broadcast_video_service_starts")
+    defaults.set(status["videoServiceFailures"], forKey: "kq_broadcast_video_service_failures")
+    defaults.set(status["fetchedVideoFrames"], forKey: "kq_broadcast_fetched_video_frames")
+    defaults.set(status["convertedVideoFrames"], forKey: "kq_broadcast_converted_video_frames")
+    defaults.set(status["encodedVideoFrames"], forKey: "kq_broadcast_encoded_video_frames")
+    defaults.set(status["sentVideoFrames"], forKey: "kq_broadcast_sent_video_frames")
+    defaults.set(status["networkWrittenVideoFrames"], forKey: "kq_broadcast_network_written_video_frames")
+    defaults.set(status["clientAckedVideoFrames"], forKey: "kq_broadcast_client_acked_video_frames")
+    defaults.set(status["videoConversionFailures"], forKey: "kq_broadcast_video_conversion_failures")
+    defaults.set(status["videoEncodingFailures"], forKey: "kq_broadcast_video_encoding_failures")
+    defaults.set(status["lastVideoError"], forKey: "kq_broadcast_last_video_error")
+    defaults.set(status["firstVideoDiagnosticState"], forKey: "kq_broadcast_first_video_diagnostic_state")
+    defaults.set(status["firstVideoKeyFrame"], forKey: "kq_broadcast_first_video_key_frame")
+    defaults.set(status["firstVideoEncodedBytes"], forKey: "kq_broadcast_first_video_encoded_bytes")
+    defaults.set(status["firstVideoEncodedWidth"], forKey: "kq_broadcast_first_video_encoded_width")
+    defaults.set(status["firstVideoEncodedHeight"], forKey: "kq_broadcast_first_video_encoded_height")
+    defaults.set(status["firstVideoDecodedWidth"], forKey: "kq_broadcast_first_video_decoded_width")
+    defaults.set(status["firstVideoDecodedHeight"], forKey: "kq_broadcast_first_video_decoded_height")
+    defaults.set(status["videoAckRequired"], forKey: "kq_broadcast_video_ack_required")
     defaults.set(audioForwardingActive, forKey: "kq_broadcast_audio_supported")
     defaults.set(
       micAudioForwardingActive,
@@ -360,11 +448,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
     guard let container = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupId
     ) else {
-      NSLog("[KQBroadcast] app group is unavailable")
+      kqBroadcastLog("app group is unavailable", level: "error", category: "storage")
       return
     }
     guard JSONSerialization.isValidJSONObject(status) else {
-      NSLog("[KQBroadcast] broadcast status is not serializable")
+      kqBroadcastLog("broadcast status is not serializable", level: "error", category: "storage")
       return
     }
     do {
@@ -374,7 +462,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
         options: .atomic
       )
     } catch {
-      NSLog("Failed to write broadcast status: \(error)")
+      kqBroadcastLog(
+        "failed to write broadcast status: \(error)",
+        level: "error",
+        category: "storage"
+      )
     }
   }
 
@@ -752,6 +844,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
   }
 
   private func publishFailure(code: String) {
+    kqBroadcastLog(
+      "broadcast failure: \(code)",
+      level: "error",
+      category: "failure"
+    )
     publishStatus(
       state: "failed",
       transportState: "failed",
@@ -763,7 +860,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     guard let container = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupId
     ) else {
-      NSLog("[KQBroadcast] app group is unavailable")
+      kqBroadcastLog("app group is unavailable", level: "error", category: "storage")
       return nil
     }
     let directory = container.appendingPathComponent(
@@ -777,7 +874,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
       )
       return directory.path
     } catch {
-      NSLog("[KQBroadcast] failed to prepare config directory: \(error)")
+      kqBroadcastLog(
+        "failed to prepare broadcast config directory: \(error)",
+        level: "error",
+        category: "storage"
+      )
       return nil
     }
   }

@@ -20,6 +20,16 @@ use std::{ptr, slice};
 generate_call_macro!(call_vpx, false);
 generate_call_ptr_macro!(call_vpx_ptr);
 
+fn vp9_tile_columns(width: usize) -> c_int {
+    match width {
+        0..=511 => 0,
+        512..=1023 => 1,
+        1024..=2047 => 2,
+        2048..=4095 => 3,
+        _ => 4,
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VpxVideoCodecId {
     VP8,
@@ -150,7 +160,7 @@ impl EncoderApi for VpxEncoder {
                     call_vpx!(vpx_codec_control_(
                         &mut ctx,
                         VP9E_SET_TILE_COLUMNS as _,
-                        4 as c_int
+                        vp9_tile_columns(config.width as usize)
                     ));
                 } else if config.codec == VpxVideoCodecId::VP8 {
                     // https://github.com/webmproject/libvpx/blob/972149cafeb71d6f08df89e91a0130d6a38c4b15/vpx/vp8cx.h#L172
@@ -228,6 +238,62 @@ impl EncoderApi for VpxEncoder {
     }
 
     fn disable(&self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        vp9_tile_columns, VpxDecoder, VpxDecoderConfig, VpxEncoder, VpxEncoderConfig,
+        VpxVideoCodecId,
+    };
+    use crate::codec::{EncoderApi, EncoderCfg};
+    use crate::STRIDE_ALIGN;
+
+    #[test]
+    fn vp9_tile_columns_fit_narrow_mobile_streams() {
+        assert_eq!(vp9_tile_columns(222), 0);
+        assert_eq!(vp9_tile_columns(480), 0);
+        assert_eq!(vp9_tile_columns(512), 1);
+        assert_eq!(vp9_tile_columns(1080), 2);
+        assert_eq!(vp9_tile_columns(1920), 2);
+        assert_eq!(vp9_tile_columns(4096), 4);
+    }
+
+    #[test]
+    fn vp9_mobile_portrait_stream_starts_with_decodable_key_frame() {
+        let codec = VpxVideoCodecId::VP9;
+        let mut encoder = VpxEncoder::new(
+            EncoderCfg::VPX(VpxEncoderConfig {
+                width: 222,
+                height: 480,
+                quality: 1.0,
+                codec,
+                keyframe_interval: None,
+            }),
+            false,
+        )
+        .unwrap();
+        let format = encoder.yuvfmt();
+        let yuv_len = format.v + format.stride[2] * (format.h / 2);
+        let mut yuv = vec![128; yuv_len];
+        yuv[..format.stride[0] * format.h].fill(96);
+
+        let frames = encoder
+            .encode(0, &yuv, STRIDE_ALIGN)
+            .unwrap()
+            .map(|frame| (frame.data.to_vec(), frame.key))
+            .collect::<Vec<_>>();
+        assert!(!frames.is_empty());
+        assert!(frames[0].1, "the first VP9 packet must be a key frame");
+
+        let mut decoder = VpxDecoder::new(VpxDecoderConfig { codec }).unwrap();
+        let mut decoded = 0;
+        for (data, _) in frames {
+            decoded += decoder.decode(&data).unwrap().count();
+        }
+        decoded += decoder.flush().unwrap().count();
+        assert!(decoded > 0, "the first VP9 packet must decode locally");
+    }
 }
 
 impl VpxEncoder {
@@ -507,6 +573,32 @@ impl VpxDecoder {
             iter: ptr::null(),
         })
     }
+}
+
+#[cfg(target_os = "ios")]
+pub fn diagnose_video_frame(vf: &VideoFrame) -> ResultType<(bool, usize, usize, usize)> {
+    use hbb_common::message_proto::video_frame;
+
+    let (codec, frames) = match &vf.union {
+        Some(video_frame::Union::Vp8s(frames)) => (VpxVideoCodecId::VP8, frames),
+        Some(video_frame::Union::Vp9s(frames)) => (VpxVideoCodecId::VP9, frames),
+        _ => return Err(anyhow!("not a VPX video frame")),
+    };
+    let key_frame = frames.frames.iter().any(|frame| frame.key);
+    let encoded_bytes = frames.frames.iter().map(|frame| frame.data.len()).sum();
+    let mut decoder = VpxDecoder::new(VpxDecoderConfig { codec })?;
+    let mut decoded_size = None;
+    for encoded in frames.frames.iter() {
+        for image in decoder.decode(&encoded.data)? {
+            decoded_size = Some((image.width(), image.height()));
+        }
+    }
+    for image in decoder.flush()? {
+        decoded_size = Some((image.width(), image.height()));
+    }
+    decoded_size
+        .map(|(width, height)| (key_frame, encoded_bytes, width, height))
+        .ok_or_else(|| anyhow!("VPX decoder produced no image"))
 }
 
 impl Drop for VpxDecoder {

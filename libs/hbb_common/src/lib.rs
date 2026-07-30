@@ -529,7 +529,7 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
     #[allow(unused_mut)]
     let mut logger_holder: Option<flexi_logger::LoggerHandle> = None;
     INIT.call_once(|| {
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, not(target_os = "ios")))]
         {
             use env_logger::*;
             init_from_env(Env::default().filter_or(
@@ -537,7 +537,7 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
                 "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
             ));
         }
-        #[cfg(not(debug_assertions))]
+        #[cfg(any(not(debug_assertions), target_os = "ios"))]
         {
             // https://docs.rs/flexi_logger/latest/flexi_logger/error_info/index.html#write
             // though async logger more efficient, but it also causes more problems, disable it for now
@@ -553,6 +553,14 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
             if let Ok(x) = Logger::try_with_env_or_str(
                 "debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
             ) {
+                #[cfg(target_os = "ios")]
+                let rotation_criterion = Criterion::Size(5_000_000);
+                #[cfg(not(target_os = "ios"))]
+                let rotation_criterion = Criterion::Age(Age::Day);
+                #[cfg(target_os = "ios")]
+                let retained_files = 5;
+                #[cfg(not(target_os = "ios"))]
+                let retained_files = 31;
                 logger_holder = x
                     .log_to_file(FileSpec::default().directory(path))
                     .write_mode(if _is_async {
@@ -562,9 +570,9 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
                     })
                     .format(opt_format)
                     .rotate(
-                        Criterion::Age(Age::Day),
+                        rotation_criterion,
                         Naming::Timestamps,
-                        Cleanup::KeepLogFiles(31),
+                        Cleanup::KeepLogFiles(retained_files),
                     )
                     .start()
                     .ok();

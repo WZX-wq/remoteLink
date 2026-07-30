@@ -7,6 +7,7 @@ for define_name in \
   KQ_ACCOUNT_DELETE_URL \
   KQ_IOS_IAP_PRODUCTS \
   KQ_IOS_IAP_VERIFY_URL \
+  KQ_IOS_IAP_LOCAL_STOREKIT_TEST \
   KQ_IOS_INTERNAL_DIRECT_PAYMENT
 do
   if [ -n "${!define_name:-}" ]; then
