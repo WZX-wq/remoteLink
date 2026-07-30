@@ -22,6 +22,7 @@ capture_runtime_overrides() {
   local name value_name set_name
   for name in "${KQ_RUNTIME_OVERRIDE_NAMES[@]}"; do
     [[ -v "${name}" ]] || continue
+    [[ -n "${!name:-}" ]] || continue
     value_name="KQ_RUNTIME_OVERRIDE_${name}"
     set_name="KQ_RUNTIME_OVERRIDE_SET_${name}"
     printf -v "${value_name}" '%s' "${!name}"

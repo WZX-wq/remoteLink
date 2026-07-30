@@ -162,6 +162,20 @@ test('deployment script restores workflow overrides after loading an existing se
   }
 });
 
+test('deployment script does not restore an empty workflow override over API defaults', () => {
+  const script = normalizeLineEndings(
+    fs.readFileSync(
+      path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),
+      'utf8',
+    ),
+  );
+
+  assert.equal(
+    script.includes('[[ -n "${!name:-}" ]] || continue\n    value_name="KQ_RUNTIME_OVERRIDE_${name}"'),
+    true,
+  );
+});
+
 test('compose deployment disables legacy systemd services before starting the test stack', () => {
   const script = normalizeLineEndings(
     fs.readFileSync(
