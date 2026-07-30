@@ -6,10 +6,12 @@ const APPLE_API_BASE_URLS = {
 };
 
 export class AppleIapError extends Error {
-  constructor(message, statusCode = 400) {
+  constructor(message, statusCode = 400, reason = 'validation', upstreamStatus = null) {
     super(message);
     this.name = 'AppleIapError';
     this.statusCode = statusCode;
+    this.reason = reason;
+    this.upstreamStatus = Number.isInteger(upstreamStatus) ? upstreamStatus : null;
   }
 }
 
@@ -36,7 +38,7 @@ function parseJwsPayload(value) {
 function requiredString(value, name) {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    throw new AppleIapError(`${name} is not configured.`, 503);
+    throw new AppleIapError(`${name} is not configured.`, 503, 'configuration');
   }
   return normalized;
 }
@@ -50,7 +52,11 @@ function normalizePrivateKey(value) {
 function normalizeEnvironment(value) {
   const normalized = String(value || 'sandbox').trim().toLowerCase();
   if (normalized !== 'sandbox' && normalized !== 'production') {
-    throw new AppleIapError('Apple purchase verification environment is invalid.', 503);
+    throw new AppleIapError(
+      'Apple purchase verification environment is invalid.',
+      503,
+      'configuration',
+    );
   }
   return normalized;
 }
@@ -160,6 +166,7 @@ export async function fetchAndValidateAppleTransaction({
   config,
   allowRevoked = false,
   fetchImpl = fetch,
+  timeoutMs = 10000,
 }) {
   const normalizedTransactionId = String(transactionId || '').trim();
   const normalizedProductId = String(expectedProductId || '').trim();
@@ -176,6 +183,8 @@ export async function fetchAndValidateAppleTransaction({
   const bundleId = requiredString(config?.bundleId, 'KQ_APPLE_IAP_BUNDLE_ID');
   const token = buildAppStoreServerApiToken(config);
   const apiBaseUrl = APPLE_API_BASE_URLS[environment];
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
   let response;
   try {
     response = await fetchImpl(
@@ -185,20 +194,51 @@ export async function fetchAndValidateAppleTransaction({
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        signal: abortController.signal,
       },
     );
   } catch (_) {
-    throw new AppleIapError('Unable to contact Apple purchase verification service.', 502);
+    clearTimeout(timeout);
+    if (abortController.signal.aborted) {
+      throw new AppleIapError(
+        'Apple purchase verification timed out.',
+        504,
+        'apple_upstream_timeout',
+      );
+    }
+    throw new AppleIapError(
+      'Unable to contact Apple purchase verification service.',
+      502,
+      'apple_upstream_unavailable',
+    );
   }
 
   let payload;
   try {
     payload = await response.json();
   } catch (_) {
-    throw new AppleIapError('Apple purchase verification returned invalid data.', 502);
+    clearTimeout(timeout);
+    if (abortController.signal.aborted) {
+      throw new AppleIapError(
+        'Apple purchase verification timed out.',
+        504,
+        'apple_upstream_timeout',
+      );
+    }
+    throw new AppleIapError(
+      'Apple purchase verification returned invalid data.',
+      502,
+      'apple_upstream_invalid_response',
+    );
   }
+  clearTimeout(timeout);
   if (!response.ok) {
-    throw new AppleIapError('Apple could not verify this purchase.', 502);
+    throw new AppleIapError(
+      'Apple could not verify this purchase.',
+      502,
+      'apple_upstream_rejected',
+      response.status,
+    );
   }
   const claims = parseJwsPayload(payload?.signedTransactionInfo);
   const appleTransactionId = String(claims.transactionId || '').trim();

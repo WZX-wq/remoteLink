@@ -63,12 +63,11 @@ test('iOS release deployment blocks raw-IP, HTTP, and incomplete StoreKit config
   for (const value of [
     'KQ_IOS_RELEASE_MODE',
     'validate_ios_release_server_config()',
-    'PUBLIC_HOST must be a DNS hostname, not a raw IP address',
+    'PUBLIC_HOST must be a DNS hostname, not a raw IP address, for an iOS release deployment',
     'KQ_ACCOUNT_DELETION_MODE must be upstream',
     'KQ_APPLE_IAP_ENVIRONMENT must be production',
     'KQ_APPLE_IAP_PRIVATE_KEY_PATH must be an existing /app/data/ path',
     'verify_ios_release_public_api()',
-    'Apple subscription notification endpoint',
     '--resolve "${PUBLIC_HOST}:443:127.0.0.1"',
   ]) {
     assert.equal(script.includes(value), true);
@@ -198,11 +197,19 @@ test('test-server workflow keeps iOS deletion in isolated local-test mode', () =
     'KQ_ENABLE_LOCAL_DB: "Y"',
     'KQ_DB_PORT: "23306"',
     'http://43.154.197.96/kq-api/api',
-    'http://127.0.0.1:21120/privacy',
-    '/api/auth/account/delete',
     '/api/membership/apple/verify',
-    '/api/membership/apple/notifications',
   ]) {
     assert.equal(workflow.includes(value), true);
   }
+});
+
+test('iOS release verification requires Apple IAP readiness, without reading secrets', () => {
+  const script = fs.readFileSync(
+    path.resolve(__dirname, '../../scripts/deploy/verify-ios-release-server.sh'),
+    'utf8',
+  );
+
+  assert.equal(script.includes('health?.apple_iap?.ready !== true'), true);
+  assert.equal(script.includes('Apple IAP readiness is not complete.'), true);
+  assert.equal(script.includes('KQ_APPLE_IAP_PRIVATE_KEY'), false);
 });

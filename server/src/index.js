@@ -19,6 +19,7 @@ import {
   parseAppleProductMap,
   resolveAppleTransactionId,
 } from './apple-iap.js';
+import { appleIapReadiness } from './apple-iap-readiness.js';
 import { parseAppleNotification } from './apple-notifications.js';
 import { claimAppleSubscriptionOwner } from './apple-entitlement.js';
 import { createRequestGate } from './request-gate.js';
@@ -123,6 +124,12 @@ const config = {
     bundleId: process.env.KQ_APPLE_IAP_BUNDLE_ID || '',
     issuerId: process.env.KQ_APPLE_IAP_ISSUER_ID || '',
     keyId: process.env.KQ_APPLE_IAP_KEY_ID || '',
+    privateKeyPath: process.env.KQ_APPLE_IAP_PRIVATE_KEY_PATH || '',
+    privateKeySource: process.env.KQ_APPLE_IAP_PRIVATE_KEY
+      ? 'inline'
+      : process.env.KQ_APPLE_IAP_PRIVATE_KEY_PATH
+        ? 'path'
+        : 'missing',
     privateKey:
       process.env.KQ_APPLE_IAP_PRIVATE_KEY ||
       readOptionalSecretFile(process.env.KQ_APPLE_IAP_PRIVATE_KEY_PATH),
@@ -583,6 +590,27 @@ function getAppleIapConfig() {
     ...config.appleIap,
     productMap: parseAppleProductMap(config.appleIap.productsJson),
   };
+}
+
+function appleTransactionDiagnosticId(transactionId) {
+  const value = String(transactionId || '').trim();
+  if (!value) return 'missing';
+  return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
+}
+
+function logAppleIapVerificationFailure({ error, packageId, transactionId }) {
+  const statusCode = Number(error?.statusCode) || 500;
+  const readiness = appleIapReadiness(config.appleIap);
+  const upstreamStatus = Number.isInteger(error?.upstreamStatus)
+    ? error.upstreamStatus
+    : 'none';
+  console.warn(
+    `KQ_IAP_VERIFY outcome=failed reason=${error?.reason || 'internal'} ` +
+      `status=${statusCode} package_present=${Boolean(packageId)} ` +
+      `transaction=${appleTransactionDiagnosticId(transactionId)} ` +
+      `ready=${readiness.ready} key_source=${readiness.private_key_source} ` +
+      `environment=${readiness.environment} apple_status=${upstreamStatus}`,
+  );
 }
 
 function appleMembershipOrderNo(originalTransactionId) {
@@ -2779,6 +2807,7 @@ app.get(['/health', '/api/health'], async (_req, res, next) => {
       ok: true,
       service: 'kq-remote-link-api',
       public_api_url: config.publicApiUrl,
+      apple_iap: appleIapReadiness(config.appleIap),
       time: new Date().toISOString(),
     });
   } catch (error) {
@@ -2977,10 +3006,12 @@ app.post(['/api/auth/account/delete', '/api/account/delete'], async (req, res, n
 });
 
 app.post('/api/membership/apple/verify', async (req, res, next) => {
+  let packageId = '';
+  let transactionId = '';
   try {
     const ctx = await loadUserContext(req);
     const appleConfig = getAppleIapConfig();
-    const packageId = String(req.body?.package_id || '').trim();
+    packageId = String(req.body?.package_id || '').trim();
     const expectedProductId = appleConfig.productMap.get(packageId);
     if (!expectedProductId) {
       throw Object.assign(new Error('Apple membership package is not configured.'), {
@@ -2993,7 +3024,7 @@ app.post('/api/membership/apple/verify', async (req, res, next) => {
         statusCode: 400,
       });
     }
-    const transactionId = resolveAppleTransactionId({
+    transactionId = resolveAppleTransactionId({
       transactionId: req.body?.transaction_id,
       signedTransaction: req.body?.server_verification_data,
     });
@@ -3023,6 +3054,7 @@ app.post('/api/membership/apple/verify', async (req, res, next) => {
       expire_at: entitlement.expireAt,
     });
   } catch (error) {
+    logAppleIapVerificationFailure({ error, packageId, transactionId });
     next(error);
   }
 });

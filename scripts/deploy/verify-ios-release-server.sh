@@ -32,8 +32,21 @@ try {
 NODE
 
 health_url="${KQ_PUBLIC_API_URL%/}/health"
-if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 20 "${health_url}" >/dev/null; then
+if ! health_payload="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 20 "${health_url}")"; then
   echo "KQ public API health endpoint is not reachable: ${health_url}" >&2
+  exit 1
+fi
+
+if ! node --input-type=module - "${health_payload}" <<'NODE'
+try {
+  const health = JSON.parse(process.argv[2] || '');
+  if (health?.apple_iap?.ready !== true) process.exit(1);
+} catch (_) {
+  process.exit(1);
+}
+NODE
+then
+  echo 'Apple IAP readiness is not complete. Check the API health apple_iap status.' >&2
   exit 1
 fi
 

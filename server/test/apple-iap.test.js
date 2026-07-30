@@ -8,6 +8,7 @@ import {
   parseAppleProductMap,
   resolveAppleTransactionId,
 } from '../src/apple-iap.js';
+import { appleIapReadiness } from '../src/apple-iap-readiness.js';
 
 function base64UrlJson(value) {
   return Buffer.from(JSON.stringify(value))
@@ -144,6 +145,114 @@ test('routes a TestFlight sandbox transaction to Apple sandbox when server defau
   assert.deepEqual(receivedUrls, [
     'https://api.storekit-sandbox.itunes.apple.com/inApps/v1/transactions/1000000123456790',
   ]);
+});
+
+test('times out an unresponsive Apple verification request', async () => {
+  await assert.rejects(
+    () =>
+      fetchAndValidateAppleTransaction({
+        transactionId: '1000000123456791',
+        expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+        config: appleConfig(),
+        timeoutMs: 5,
+        fetchImpl: (_url, options) =>
+          new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () =>
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+            );
+          }),
+      }),
+    (error) =>
+      error instanceof AppleIapError &&
+      error.statusCode === 504 &&
+      error.reason === 'apple_upstream_timeout',
+  );
+});
+
+test('times out while reading a stalled Apple verification response', async () => {
+  await assert.rejects(
+    () =>
+      fetchAndValidateAppleTransaction({
+        transactionId: '1000000123456792',
+        expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+        config: appleConfig(),
+        timeoutMs: 5,
+        fetchImpl: async (_url, options) => ({
+          ok: true,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              options.signal.addEventListener('abort', () =>
+                reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+              );
+            }),
+        }),
+      }),
+    (error) =>
+      error instanceof AppleIapError &&
+      error.statusCode === 504 &&
+      error.reason === 'apple_upstream_timeout',
+  );
+});
+
+test('retains an Apple upstream status without exposing its response body', async () => {
+  await assert.rejects(
+    () =>
+      fetchAndValidateAppleTransaction({
+        transactionId: '1000000123456793',
+        expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+        config: appleConfig(),
+        fetchImpl: async () => new Response('{}', { status: 401 }),
+      }),
+    (error) =>
+      error instanceof AppleIapError &&
+      error.statusCode === 502 &&
+      error.reason === 'apple_upstream_rejected' &&
+      error.upstreamStatus === 401,
+  );
+});
+
+test('reports only non-sensitive Apple IAP readiness fields', () => {
+  const result = appleIapReadiness({
+    productsJson: '{"1":"com.kunqiong.remotelink.member.monthly"}',
+    bundleId: 'com.kunqiong.remotelink',
+    issuerId: 'issuer-secret-value',
+    keyId: 'key-secret-value',
+    privateKey: 'private-key-secret-value',
+    privateKeySource: 'inline',
+    environment: 'production',
+  });
+
+  assert.deepEqual(result, {
+    products_configured: true,
+    bundle_id_configured: true,
+    issuer_id_configured: true,
+    key_id_configured: true,
+    private_key_configured: true,
+    private_key_source: 'inline',
+    private_key_path_readable: null,
+    environment: 'production',
+    ready: true,
+  });
+  assert.equal(JSON.stringify(result).includes('secret-value'), false);
+});
+
+test('marks an unreadable file-backed Apple key as not ready', () => {
+  const result = appleIapReadiness(
+    {
+      productsJson: '{"1":"com.kunqiong.remotelink.member.monthly"}',
+      bundleId: 'com.kunqiong.remotelink',
+      issuerId: 'issuer',
+      keyId: 'key',
+      privateKey: '',
+      privateKeyPath: '/app/data/AuthKey.p8',
+      privateKeySource: 'path',
+      environment: 'sandbox',
+    },
+    { constants: { R_OK: 4 }, accessSync: () => { throw new Error('missing'); } },
+  );
+
+  assert.equal(result.private_key_path_readable, false);
+  assert.equal(result.ready, false);
 });
 
 test('rejects an Apple transaction whose product does not match the selected package', async () => {
