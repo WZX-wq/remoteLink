@@ -80,6 +80,16 @@ function signedTransactionEnvironmentHint(value) {
   }
 }
 
+function shouldRetryAppleSandbox({
+  environment,
+  signedTransaction,
+  status,
+}) {
+  return environment === 'production' &&
+    !signedTransactionEnvironmentHint(signedTransaction) &&
+    status === 401;
+}
+
 function mysqlDateTimeFromMillis(value) {
   const milliseconds = Number(value);
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
@@ -178,17 +188,16 @@ export async function fetchAndValidateAppleTransaction({
   // production API is configured for live App Store transactions. Use the
   // signed data only to choose the Apple endpoint; the response from Apple is
   // still checked against the selected environment below.
-  const environment =
-    signedTransactionEnvironmentHint(signedTransaction) || configuredEnvironment;
+  const signedEnvironment = signedTransactionEnvironmentHint(signedTransaction);
+  let environment = signedEnvironment || configuredEnvironment;
   const bundleId = requiredString(config?.bundleId, 'KQ_APPLE_IAP_BUNDLE_ID');
   const token = buildAppStoreServerApiToken(config);
-  const apiBaseUrl = APPLE_API_BASE_URLS[environment];
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), timeoutMs);
   let response;
   try {
-    response = await fetchImpl(
-      `${apiBaseUrl}/inApps/v1/transactions/${encodeURIComponent(normalizedTransactionId)}`,
+    const requestTransaction = async (targetEnvironment) => await fetchImpl(
+      `${APPLE_API_BASE_URLS[targetEnvironment]}/inApps/v1/transactions/${encodeURIComponent(normalizedTransactionId)}`,
       {
         headers: {
           Accept: 'application/json',
@@ -197,6 +206,15 @@ export async function fetchAndValidateAppleTransaction({
         signal: abortController.signal,
       },
     );
+    response = await requestTransaction(environment);
+    if (shouldRetryAppleSandbox({
+      environment,
+      signedTransaction,
+      status: response.status,
+    })) {
+      environment = 'sandbox';
+      response = await requestTransaction(environment);
+    }
   } catch (_) {
     clearTimeout(timeout);
     if (abortController.signal.aborted) {

@@ -162,6 +162,40 @@ test('routes a TestFlight sandbox transaction to Apple sandbox when server defau
   ]);
 });
 
+test('retries the sandbox endpoint when TestFlight data has no environment hint', async () => {
+  const transactionId = '1000000123456795';
+  const receivedUrls = [];
+  const transaction = await fetchAndValidateAppleTransaction({
+    transactionId,
+    expectedProductId: 'com.kunqiong.remotelink.member.monthly',
+    config: appleConfig({ environment: 'production' }),
+    fetchImpl: async (url) => {
+      receivedUrls.push(String(url));
+      if (receivedUrls.length === 1) {
+        return new Response('{}', { status: 401 });
+      }
+      return new Response(
+        JSON.stringify({
+          signedTransactionInfo: fakeJws({
+            transactionId,
+            originalTransactionId: transactionId,
+            productId: 'com.kunqiong.remotelink.member.monthly',
+            bundleId: 'com.kunqiong.remotelink',
+            environment: 'Sandbox',
+          }),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    },
+  });
+
+  assert.equal(transaction.environment, 'Sandbox');
+  assert.deepEqual(receivedUrls, [
+    'https://api.storekit.itunes.apple.com/inApps/v1/transactions/1000000123456795',
+    'https://api.storekit-sandbox.itunes.apple.com/inApps/v1/transactions/1000000123456795',
+  ]);
+});
+
 test('times out an unresponsive Apple verification request', async () => {
   await assert.rejects(
     () =>
