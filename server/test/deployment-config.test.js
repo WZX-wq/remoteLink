@@ -132,7 +132,7 @@ test('production workflow forwards iOS release settings and only verifies enable
     'utf8',
   );
   for (const value of [
-    'INSTALL_DIR: /var/www/wwwroot1/remotelink.kunqiongai.com',
+    'INSTALL_DIR: /www/wwwroot/KQromoteLink',
     'KQ_IOS_RELEASE_MODE: ${{ secrets.KQ_IOS_RELEASE_MODE }}',
     'KQ_IDENTITY_ACCOUNT_DELETE_URL: ${{ secrets.KQ_IDENTITY_ACCOUNT_DELETE_URL }}',
     'KQ_IOS_IAP_PRODUCTS: ${{ secrets.KQ_IOS_IAP_PRODUCTS }}',

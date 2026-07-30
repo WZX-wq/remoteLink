@@ -13,7 +13,7 @@ jobs:
     runs-on: linux
     env:
       PROJECT_NAME: KQromoteLink
-      INSTALL_DIR: /var/www/wwwroot1/remotelink.kunqiongai.com
+      INSTALL_DIR: /www/wwwroot/KQromoteLink
       PUBLIC_HOST: remotelink.kunqiongai.com
     steps:
       - name: Checkout
