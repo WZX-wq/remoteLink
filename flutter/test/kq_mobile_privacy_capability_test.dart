@@ -26,8 +26,7 @@ void main() {
     expect(toolbar, contains('if (!isIOS &&'));
   });
 
-  test('block input requires elevated Windows capability and waits for ack',
-      () {
+  test('mobile more actions do not expose block user input', () {
     final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
     final start = toolbar.indexOf('// blockUserInput');
     final end = toolbar.indexOf('// switchSides', start);
@@ -36,6 +35,7 @@ void main() {
     expect(end, greaterThan(start));
     final blockInputMenu = toolbar.substring(start, end);
 
+    expect(blockInputMenu, contains('!isMobile'));
     expect(blockInputMenu, contains('pi.sasEnabled'));
     expect(blockInputMenu,
         isNot(contains('blockInput.value = !blockInput.value')));

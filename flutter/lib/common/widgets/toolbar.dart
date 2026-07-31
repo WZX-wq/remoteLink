@@ -261,6 +261,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
   }
   // blockUserInput
   if (isDefaultConn &&
+      !isMobile &&
       ffi.ffiModel.keyboard &&
       ffi.ffiModel.permissions['block_input'] != false &&
       pi.platform == kPeerPlatformWindows &&
