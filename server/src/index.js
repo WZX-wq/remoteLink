@@ -693,7 +693,6 @@ async function grantAppleMembershipOnce({ ctx, packageId, memberPackage, transac
       existingOrderExpireAt: existingOrders[0]?.expire_at,
       existingTransaction,
     });
-    const memberActive = isMembershipExpiryActive(expireAt);
     const packageName = String(memberPackage?.name || 'Kunqiong membership').slice(0, 128);
     const packageDays = Number(memberPackage?.days || 0);
     const payAmount = Number(memberPackage?.price_yuan || 0);
@@ -736,6 +735,12 @@ async function grantAppleMembershipOnce({ ctx, packageId, memberPackage, transac
         JSON.stringify(rawTransaction),
       ],
     );
+    const effectiveOrder = await latestPaidProjectMemberOrder(
+      ctx.user.id,
+      connection,
+    );
+    const effectiveExpireAt = effectiveOrder?.expire_at || expireAt;
+    const memberActive = isMembershipExpiryActive(effectiveExpireAt);
     await connection.execute(
       `
         INSERT INTO kq_apple_transactions (
@@ -773,10 +778,10 @@ async function grantAppleMembershipOnce({ ctx, packageId, memberPackage, transac
         SET member_active = ?, member_expire_at = ?, last_seen_at = NOW()
         WHERE id = ?
       `,
-      [memberActive ? 1 : 0, expireAt, ctx.user.id],
+      [memberActive ? 1 : 0, effectiveExpireAt, ctx.user.id],
     );
     await connection.commit();
-    return { expireAt, memberActive };
+    return { expireAt: effectiveExpireAt, memberActive };
   } catch (error) {
     await connection.rollback();
     throw error;

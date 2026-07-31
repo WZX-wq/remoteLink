@@ -160,3 +160,19 @@ test('Apple transaction retry retries deadlocks and stops on success', async () 
   assert.equal(isRetryableAppleTransactionError({ errno: 1213 }), true);
   assert.equal(isRetryableAppleTransactionError({ code: 'ER_BAD_FIELD_ERROR' }), false);
 });
+
+test('Apple verification returns the final entitlement across all active orders', () => {
+  const source = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  const grantStart = source.indexOf('async function grantAppleMembershipOnce');
+  const grantEnd = source.indexOf('async function grantAppleMembership(args)', grantStart);
+  const grantSource = source.slice(grantStart, grantEnd);
+  const membershipOrderWrite = grantSource.indexOf(
+    'INSERT INTO kq_member_orders',
+  );
+  const finalEntitlementRead = grantSource.indexOf('const effectiveOrder = await');
+
+  assert.ok(membershipOrderWrite >= 0);
+  assert.ok(finalEntitlementRead > membershipOrderWrite);
+  assert.match(grantSource, /latestPaidProjectMemberOrder\(/);
+  assert.match(grantSource, /return \{ expireAt: effectiveExpireAt, memberActive \}/);
+});
