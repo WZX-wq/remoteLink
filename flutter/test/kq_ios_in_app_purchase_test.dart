@@ -296,4 +296,14 @@ void main() {
     expect(lock, contains('  in_app_purchase_platform_interface:'));
     expect(lock, contains('  in_app_purchase_storekit:'));
   });
+
+  test(
+      'a successfully verified transaction is not verified again in the same page',
+      () {
+    final source =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+
+    expect(source, contains('_verifiedPurchaseKeys'));
+    expect(source, contains('duplicate_verified_purchase_ignored'));
+  });
 }

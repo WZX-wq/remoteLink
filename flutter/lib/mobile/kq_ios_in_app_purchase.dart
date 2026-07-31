@@ -224,6 +224,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
   final InAppPurchase _store;
   final Map<String, ProductDetails> _productsByStoreId = {};
   final Set<String> _verifyingPurchaseKeys = <String>{};
+  final Set<String> _verifiedPurchaseKeys = <String>{};
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   Set<String> _notFoundProductIds = const <String>{};
 
@@ -472,6 +473,10 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         continue;
       }
       final purchaseKey = _purchaseKey(purchase);
+      if (_verifiedPurchaseKeys.contains(purchaseKey)) {
+        _diagnostic('duplicate_verified_purchase_ignored');
+        continue;
+      }
       if (!_verifyingPurchaseKeys.add(purchaseKey)) {
         _diagnostic('duplicate_purchase_update_ignored');
         continue;
@@ -488,6 +493,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
             continue;
           }
           phase = KqIosMembershipPurchasePhase.completed;
+          _verifiedPurchaseKeys.add(purchaseKey);
           feedback = KqIosMembershipPurchaseFeedback.localStoreKitTestCompleted;
           statusMessage =
               'Local StoreKit test completed without granting membership.';
@@ -496,6 +502,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         }
         final verifiedMembership = await _verifyPurchase(packageId, purchase);
         await refreshMembership(verifiedMembership);
+        _verifiedPurchaseKeys.add(purchaseKey);
         if (purchase.pendingCompletePurchase &&
             !await _completePurchase(purchase)) {
           continue;

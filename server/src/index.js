@@ -24,6 +24,7 @@ import { parseAppleNotification } from './apple-notifications.js';
 import {
   claimAppleSubscriptionOwner,
   resolveAppleProjectMembershipExpiry,
+  withAppleTransactionRetry,
 } from './apple-entitlement.js';
 import { createRequestGate } from './request-gate.js';
 
@@ -656,10 +657,14 @@ function isMembershipExpiryActive(expireAt) {
   return Number.isFinite(timestamp) && timestamp > Date.now();
 }
 
-async function grantAppleMembership({ ctx, packageId, memberPackage, transaction }) {
+async function grantAppleMembershipOnce({ ctx, packageId, memberPackage, transaction }) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    await claimAppleSubscriptionOwner(connection, {
+      originalTransactionId: transaction.originalTransactionId,
+      userId: ctx.user.id,
+    });
     const [existingTransactions] = await connection.execute(
       'SELECT * FROM kq_apple_transactions WHERE transaction_id = ? FOR UPDATE',
       [transaction.transactionId],
@@ -671,11 +676,6 @@ async function grantAppleMembership({ ctx, packageId, memberPackage, transaction
         { statusCode: 409 },
       );
     }
-    await claimAppleSubscriptionOwner(connection, {
-      originalTransactionId: transaction.originalTransactionId,
-      userId: ctx.user.id,
-    });
-
     const orderNo = appleMembershipOrderNo(transaction.originalTransactionId);
     const [existingOrders] = await connection.execute(
       `
@@ -783,6 +783,17 @@ async function grantAppleMembership({ ctx, packageId, memberPackage, transaction
   } finally {
     connection.release();
   }
+}
+
+async function grantAppleMembership(args) {
+  return withAppleTransactionRetry(
+    () => grantAppleMembershipOnce(args),
+    {
+      onRetry: (_error, attempt) => {
+        console.warn(`KQ_IAP_VERIFY outcome=retry reason=database_deadlock attempt=${attempt}`);
+      },
+    },
+  );
 }
 
 function parseStoredMemberInfo(value) {

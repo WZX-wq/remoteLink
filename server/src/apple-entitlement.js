@@ -56,16 +56,28 @@ function addMembershipDays(date, days) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-function latestMembershipDate(...values) {
-  return values
-    .map(parseMembershipDate)
-    .filter(Boolean)
-    .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+export function isRetryableAppleTransactionError(error) {
+  return error?.code === 'ER_LOCK_DEADLOCK' ||
+    Number(error?.errno) === 1213 ||
+    error?.sqlState === '40001';
 }
 
-function formatLatestMembershipDate(...values) {
-  const latest = latestMembershipDate(...values);
-  return latest ? formatMembershipDate(latest) : '';
+export async function withAppleTransactionRetry(
+  operation,
+  { maxAttempts = 3, delayMs = 50, onRetry = null } = {},
+) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isRetryableAppleTransactionError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      if (onRetry) onRetry(error, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  throw new Error('Apple transaction retry exhausted.');
 }
 
 export function resolveAppleProjectMembershipExpiry({
@@ -84,18 +96,15 @@ export function resolveAppleProjectMembershipExpiry({
   if (isLifetime) {
     return '9999-12-31 23:59:59';
   }
-  if (existingTransaction) {
-    return formatLatestMembershipDate(
-      existingOrderExpireAt,
-      transaction?.expiresAt,
-      currentExpireAt,
-    ) || formatMembershipDate(parseMembershipDate(now) || new Date());
-  }
+  const appleExpireAt = parseMembershipDate(transaction?.expiresAt);
+  if (appleExpireAt) return formatMembershipDate(appleExpireAt);
 
-  const base = latestMembershipDate(currentExpireAt, now) || now;
-  const packageExpireAt = packageDays > 0
-    ? addMembershipDays(base, Math.max(1, packageDays))
-    : null;
-  const resolved = latestMembershipDate(packageExpireAt, transaction?.expiresAt, now);
-  return formatMembershipDate(resolved || now);
+  const storedExpireAt = parseMembershipDate(existingOrderExpireAt) ||
+    parseMembershipDate(currentExpireAt);
+  if (storedExpireAt) return formatMembershipDate(storedExpireAt);
+
+  const base = parseMembershipDate(now) || new Date();
+  return formatMembershipDate(
+    addMembershipDays(base, Math.max(1, packageDays)),
+  );
 }

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 import {
   claimAppleSubscriptionOwner,
+  isRetryableAppleTransactionError,
   resolveAppleProjectMembershipExpiry,
+  withAppleTransactionRetry,
 } from '../src/apple-entitlement.js';
 
 function ownerConnection() {
@@ -53,7 +56,7 @@ test('rejects a later renewal transaction when its Apple subscription belongs to
   );
 });
 
-test('Apple upgrade grants the selected package duration from the current entitlement', () => {
+test('Apple subscription expiry comes from Apple instead of extending stale local state', () => {
   assert.equal(
     resolveAppleProjectMembershipExpiry({
       memberPackage: { days: 90 },
@@ -66,11 +69,11 @@ test('Apple upgrade grants the selected package duration from the current entitl
       now: new Date('2026-07-31T00:00:00Z'),
       lifetimeProductId: 'com.kunqiong.remotelink.member.lifetime',
     }),
-    '2026-11-08 12:00:00',
+    '2026-08-01 00:00:00',
   );
 });
 
-test('Apple restore of an already verified transaction does not extend again', () => {
+test('Apple restore uses the current Apple expiry instead of stale order expiry', () => {
   assert.equal(
     resolveAppleProjectMembershipExpiry({
       memberPackage: { days: 90 },
@@ -84,7 +87,7 @@ test('Apple restore of an already verified transaction does not extend again', (
       now: new Date('2026-07-31T00:00:00Z'),
       lifetimeProductId: 'com.kunqiong.remotelink.member.lifetime',
     }),
-    '2026-11-08 12:00:00',
+    '2026-08-01 00:00:00',
   );
 });
 
@@ -102,7 +105,7 @@ test('Apple restore falls back safely when a stored order expiry is invalid', ()
       now: new Date('2026-07-31T00:00:00Z'),
       lifetimeProductId: 'com.kunqiong.remotelink.member.lifetime',
     }),
-    '2026-08-10 12:00:00',
+    '2026-08-01 00:00:00',
   );
 });
 
@@ -119,4 +122,41 @@ test('Apple lifetime restore keeps the lifetime expiry marker', () => {
     }),
     '9999-12-31 23:59:59',
   );
+});
+
+test('Apple membership claims the subscription owner before locking its transaction row', () => {
+  const source = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  const grantStart = source.indexOf('async function grantAppleMembership');
+  const claim = source.indexOf('await claimAppleSubscriptionOwner', grantStart);
+  const transactionLock = source.indexOf(
+    "SELECT * FROM kq_apple_transactions WHERE transaction_id = ? FOR UPDATE",
+    grantStart,
+  );
+
+  assert.ok(grantStart >= 0);
+  assert.ok(claim >= 0 && transactionLock >= 0);
+  assert.ok(claim < transactionLock);
+});
+
+test('Apple transaction retry retries deadlocks and stops on success', async () => {
+  let attempts = 0;
+  const result = await withAppleTransactionRetry(
+    async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw Object.assign(new Error('deadlock'), {
+          code: 'ER_LOCK_DEADLOCK',
+          errno: 1213,
+          sqlState: '40001',
+        });
+      }
+      return 'ok';
+    },
+    { delayMs: 0 },
+  );
+
+  assert.equal(result, 'ok');
+  assert.equal(attempts, 3);
+  assert.equal(isRetryableAppleTransactionError({ errno: 1213 }), true);
+  assert.equal(isRetryableAppleTransactionError({ code: 'ER_BAD_FIELD_ERROR' }), false);
 });
