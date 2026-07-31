@@ -120,6 +120,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Privacy mode", "隐私模式"),
         ("Block user input", "阻止用户输入"),
         ("Unblock user input", "取消阻止用户输入"),
+        ("block-input-admin-required-tip", "被控 Windows 当前无法阻止本机输入。请确认被控端已安装并启动后台服务，且桌面会话已正常登录后重试。"),
         ("Adjust Window", "调节窗口"),
         ("Original", "原始比例"),
         ("Shrink", "收缩"),

@@ -1962,7 +1962,7 @@ pub fn toggle_blank_screen(v: bool) {
     }
 }
 
-pub fn block_input(v: bool) -> (bool, String) {
+pub fn block_input_direct(v: bool) -> (bool, String) {
     let v = if v { TRUE } else { FALSE };
     unsafe {
         if BlockInput(v) == TRUE {
@@ -1971,6 +1971,24 @@ pub fn block_input(v: bool) -> (bool, String) {
             (false, format!("Error: {}", io::Error::last_os_error()))
         }
     }
+}
+
+pub fn block_input(v: bool) -> (bool, String) {
+    if is_root() {
+        if crate::portable_service::client::running() {
+            return crate::portable_service::client::block_input(v).unwrap_or_else(|err| {
+                (
+                    false,
+                    format!("block-input-portable-service-failed: {}", err),
+                )
+            });
+        }
+        return (
+            false,
+            "block-input-portable-service-not-ready".to_owned(),
+        );
+    }
+    block_input_direct(v)
 }
 
 pub fn add_recent_document(path: &str) {

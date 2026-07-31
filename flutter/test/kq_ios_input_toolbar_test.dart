@@ -99,8 +99,7 @@ void main() {
     expect(longPressHandlers, contains('_longPressLeftButtonDown = true'));
     expect(longPressHandlers, contains('_longPressLeftButtonStarting = true'));
     expect(longPressHandlers, contains('_longPressReleasePending = true'));
-    expect(longPressHandlers,
-        contains('if (_longPressLeftButtonStarting)'));
+    expect(longPressHandlers, contains('if (_longPressLeftButtonStarting)'));
     expect(longPressHandlers, contains('_longPressLeftButtonDown = false'));
   });
 
@@ -172,5 +171,30 @@ void main() {
       reason: 'The voice entry must include iOS instead of being Android-only.',
     );
     expect(rail, contains('showActions(widget.id)'));
+  });
+
+  test('mobile soft keyboard uses compact one-line shortcut chrome', () {
+    final rail = _section(
+      remotePage,
+      '  Widget _remoteSideActionRail() {',
+      '  Widget _remoteSideActionButton({',
+    );
+    final keyTools = _section(
+      remotePage,
+      'class _KeyHelpToolsState extends State<KeyHelpTools>',
+      'class ImagePaint extends StatelessWidget',
+    );
+
+    expect(
+      rail,
+      contains('if (_softKeyboardActive)'),
+      reason:
+          'The full side rail should not compete with the iOS/Android system keyboard.',
+    );
+    expect(keyTools, contains('Widget _compactKeyboardToolbar'));
+    expect(keyTools, contains('scrollDirection: Axis.horizontal'));
+    expect(keyTools, contains('widget.keyboardIsVisible'));
+    expect(keyTools, contains('const EdgeInsets.symmetric(horizontal: 8'));
+    expect(keyTools, contains('BoxConstraints(minHeight: 40'));
   });
 }

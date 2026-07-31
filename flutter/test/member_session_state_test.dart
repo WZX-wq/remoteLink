@@ -65,6 +65,29 @@ void main() {
     );
   });
 
+  test('Apple verification can immediately apply the returned expiry', () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final methodStart =
+        source.indexOf('  Future<void> applyVerifiedAppleMembership({');
+    final methodEnd = source.indexOf('  bool _memberBool(', methodStart);
+    expect(methodStart, greaterThanOrEqualTo(0));
+    expect(methodEnd, greaterThan(methodStart));
+    final methodSource = source.substring(methodStart, methodEnd);
+
+    expect(source, contains('Future<void> applyVerifiedAppleMembership'));
+    expect(source, contains("normalizedExpireAt.toLowerCase() == 'unlimited'"));
+    expect(source, contains("normalizedExpireAt == '9999-12-31 23:59:59'"));
+    final serialIncrement = methodSource.indexOf('_membershipRefreshSerial++;');
+    final memberStatusUpdate = methodSource.indexOf('await _setMemberStatus(');
+    expect(serialIncrement, greaterThanOrEqualTo(0));
+    expect(memberStatusUpdate, greaterThan(serialIncrement));
+    expect(
+      source,
+      contains(
+          "await _setMemberStatus(active, expireAt: normalizedExpireAt, error: '')"),
+    );
+  });
+
   test('desktop account page does not render cached user data as a login', () {
     final source =
         File('lib/desktop/pages/desktop_setting_page.dart').readAsStringSync();

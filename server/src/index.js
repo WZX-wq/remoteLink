@@ -21,7 +21,10 @@ import {
 } from './apple-iap.js';
 import { appleIapReadiness } from './apple-iap-readiness.js';
 import { parseAppleNotification } from './apple-notifications.js';
-import { claimAppleSubscriptionOwner } from './apple-entitlement.js';
+import {
+  claimAppleSubscriptionOwner,
+  resolveAppleProjectMembershipExpiry,
+} from './apple-entitlement.js';
 import { createRequestGate } from './request-gate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +45,23 @@ const defaultRequestGateStateFile = path.resolve(
   '../data/request-gate.json',
 );
 const defaultAdminGateToken = 'qwertyuiopasdfghjklzxcvbnm';
+const defaultIosIapProducts = Object.freeze({
+  1: 'com.kunqiong.remotelink.member.monthly',
+  2: 'com.kunqiong.remotelink.member.quarterly',
+  3: 'com.kunqiong.remotelink.member.halfyear',
+  4: 'com.kunqiong.remotelink.member.yearly',
+  5: 'com.kunqiong.remotelink.member.lifetime',
+});
+
+function appleIapProductsJsonWithDefaults(value) {
+  const configured = String(value || '').trim()
+    ? Object.fromEntries(parseAppleProductMap(value))
+    : {};
+  return JSON.stringify({
+    ...defaultIosIapProducts,
+    ...configured,
+  });
+}
 
 const config = {
   host: process.env.KQ_API_HOST || '0.0.0.0',
@@ -120,7 +140,7 @@ const config = {
     upstreamUrl: process.env.KQ_IDENTITY_ACCOUNT_DELETE_URL || '',
   },
   appleIap: {
-    productsJson: process.env.KQ_IOS_IAP_PRODUCTS || '',
+    productsJson: appleIapProductsJsonWithDefaults(process.env.KQ_IOS_IAP_PRODUCTS),
     bundleId: process.env.KQ_APPLE_IAP_BUNDLE_ID || '',
     issuerId: process.env.KQ_APPLE_IAP_ISSUER_ID || '',
     keyId: process.env.KQ_APPLE_IAP_KEY_ID || '',
@@ -617,11 +637,15 @@ function appleMembershipOrderNo(originalTransactionId) {
   return `APPLE-${String(originalTransactionId || '').trim()}`.slice(0, 64);
 }
 
-function appleMembershipExpiry(memberPackage, transaction) {
-  if (transaction.expiresAt) return transaction.expiresAt;
-  const packageDays = Number(memberPackage?.days || 0);
-  if (packageDays >= 999999) return '9999-12-31 23:59:59';
-  return formatMysqlDateTime(addDays(new Date(), Math.max(1, packageDays)));
+function appleMembershipExpiry(memberPackage, transaction, options = {}) {
+  return resolveAppleProjectMembershipExpiry({
+    memberPackage,
+    transaction,
+    currentExpireAt: options.currentExpireAt,
+    existingOrderExpireAt: options.existingOrderExpireAt,
+    existingTransaction: options.existingTransaction,
+    lifetimeProductId: defaultIosIapProducts[5],
+  });
 }
 
 function isMembershipExpiryActive(expireAt) {
@@ -653,7 +677,22 @@ async function grantAppleMembership({ ctx, packageId, memberPackage, transaction
     });
 
     const orderNo = appleMembershipOrderNo(transaction.originalTransactionId);
-    const expireAt = appleMembershipExpiry(memberPackage, transaction);
+    const [existingOrders] = await connection.execute(
+      `
+        SELECT *
+        FROM kq_member_orders
+        WHERE user_id = ? AND order_no = ? AND pay_type = 3
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [ctx.user.id, orderNo],
+    );
+    const activeOrder = await latestPaidProjectMemberOrder(ctx.user.id, connection);
+    const expireAt = appleMembershipExpiry(memberPackage, transaction, {
+      currentExpireAt: activeOrder?.expire_at,
+      existingOrderExpireAt: existingOrders[0]?.expire_at,
+      existingTransaction,
+    });
     const memberActive = isMembershipExpiryActive(expireAt);
     const packageName = String(memberPackage?.name || 'Kunqiong membership').slice(0, 128);
     const packageDays = Number(memberPackage?.days || 0);

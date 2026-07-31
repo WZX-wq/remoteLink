@@ -263,17 +263,17 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
   if (isDefaultConn &&
       ffi.ffiModel.keyboard &&
       ffi.ffiModel.permissions['block_input'] != false &&
-      pi.platform == kPeerPlatformWindows) // privacy-mode != true ??
+      pi.platform == kPeerPlatformWindows &&
+      pi.sasEnabled) // privacy-mode != true ??
   {
     v.add(TTextMenu(
         child: Obx(() => Text(translate(
             '${BlockInputState.find(id).value ? 'Unb' : 'B'}lock user input'))),
         onPressed: () {
-          RxBool blockInput = BlockInputState.find(id);
+          final blockInput = BlockInputState.find(id);
           bind.sessionToggleOption(
               sessionId: sessionId,
               value: '${blockInput.value ? 'un' : ''}block-input');
-          blockInput.value = !blockInput.value;
         }));
   }
   // switchSides

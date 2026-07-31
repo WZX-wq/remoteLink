@@ -206,6 +206,31 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     x == 0
 }
 
+#[cfg(target_os = "ios")]
+fn kq_ios_force_vp8_decoding(
+    mut decoding: hbb_common::message_proto::SupportedDecoding,
+) -> hbb_common::message_proto::SupportedDecoding {
+    use hbb_common::message_proto::supported_decoding::PreferCodec;
+
+    if decoding.ability_vp8 > 0 {
+        decoding.prefer = PreferCodec::VP8.into();
+        decoding.ability_vp9 = 0;
+        decoding.ability_av1 = 0;
+    }
+    decoding
+}
+
+#[cfg(target_os = "ios")]
+fn kq_ios_default_vp8_decoding() -> hbb_common::message_proto::SupportedDecoding {
+    use hbb_common::message_proto::supported_decoding::PreferCodec;
+
+    hbb_common::message_proto::SupportedDecoding {
+        ability_vp8: 1,
+        prefer: PreferCodec::VP8.into(),
+        ..Default::default()
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn should_check_linux_headless_os_auth_before_desktop_start(
     is_headless_allowed: bool,
@@ -2765,11 +2790,40 @@ impl Connection {
         use scrap::codec::{Encoder, EncodingUpdate::*};
         if let Some(o) = self.lr.clone().option.as_ref() {
             if let Some(q) = o.supported_decoding.clone().take() {
+                #[cfg(target_os = "ios")]
+                let q = {
+                    let forced = kq_ios_force_vp8_decoding(q.clone());
+                    log::info!(
+                        "KQ iOS controller codec policy: platform={}, version={}, vp8={}, vp9={} -> {}, av1={} -> {}, prefer={:?} -> {:?}",
+                        self.lr.my_platform,
+                        self.lr.version,
+                        q.ability_vp8,
+                        q.ability_vp9,
+                        forced.ability_vp9,
+                        q.ability_av1,
+                        forced.ability_av1,
+                        q.prefer,
+                        forced.prefer,
+                    );
+                    forced
+                };
                 Encoder::update(Update(self.inner.id(), q));
             } else {
+                #[cfg(target_os = "ios")]
+                {
+                    Encoder::update(Update(self.inner.id(), kq_ios_default_vp8_decoding()));
+                    return;
+                }
+                #[cfg(not(target_os = "ios"))]
                 Encoder::update(NewOnlyVP9(self.inner.id()));
             }
         } else {
+            #[cfg(target_os = "ios")]
+            {
+                Encoder::update(Update(self.inner.id(), kq_ios_default_vp8_decoding()));
+                return;
+            }
+            #[cfg(not(target_os = "ios"))]
             Encoder::update(NewOnlyVP9(self.inner.id()));
         }
     }

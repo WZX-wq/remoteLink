@@ -287,6 +287,8 @@ pub enum DataPortableService {
     Mouse((Vec<u8>, i32, String, u32, bool, bool)),
     Pointer((Vec<u8>, i32)),
     Key(Vec<u8>),
+    BlockInput((u64, bool)),
+    BlockInputResult((u64, bool, String)),
     RequestStart,
     WillClose,
     CmShowElevation(bool),

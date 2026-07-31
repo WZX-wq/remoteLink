@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/models/input_model.dart';
 import 'package:flutter_hbb/models/model.dart';
-import 'package:flutter_hbb/utils/image.dart';
-import 'package:provider/provider.dart';
 
 const int _kDotCount = 60;
 const double _kDotAngle = 2 * pi / _kDotCount;
@@ -194,7 +192,7 @@ class _FloatingMouseState extends State<FloatingMouse> {
   final GlobalKey _scrollWheelUpKey = GlobalKey();
   final GlobalKey _scrollWheelDownKey = GlobalKey();
   final GlobalKey _mouseWidgetKey = GlobalKey();
-  final GlobalKey _cursorPaintKey = GlobalKey();
+  final GlobalKey _mouseRootKey = GlobalKey();
 
   Offset _position = Offset.zero;
   bool _isInitialized = false;
@@ -315,7 +313,7 @@ class _FloatingMouseState extends State<FloatingMouse> {
 
   Offset _getMouseGlobalPosition() {
     final RenderBox? renderBox =
-        _cursorPaintKey.currentContext?.findRenderObject() as RenderBox?;
+        _mouseRootKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox != null) {
       return renderBox.localToGlobal(Offset.zero);
     } else {
@@ -647,6 +645,7 @@ class _FloatingMouseState extends State<FloatingMouse> {
     double minMouseScale = (_baseMouseScale * 0.3);
     if (!_isExpanded) {
       return SizedBox(
+          key: _mouseRootKey,
           width: mouseWidth,
           height: mouseHeight,
           child: GestureDetector(
@@ -670,6 +669,7 @@ class _FloatingMouseState extends State<FloatingMouse> {
           ));
     } else {
       return SizedBox(
+        key: _mouseRootKey,
         width: mouseWidth,
         height: mouseHeight,
         child: Column(
@@ -677,10 +677,6 @@ class _FloatingMouseState extends State<FloatingMouse> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CursorPaint(
-                  key: _cursorPaintKey,
-                  scale: _mouseScale,
-                ),
                 const Spacer(),
                 GestureDetector(
                   onTap: () {
@@ -1175,35 +1171,5 @@ class DragAreaTopIndentPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant DragAreaTopIndentPainter oldDelegate) {
     return oldDelegate.color != color || oldDelegate.scale != scale;
-  }
-}
-
-class CursorPaint extends StatelessWidget {
-  final double scale;
-  CursorPaint({super.key, required this.scale});
-
-  @override
-  Widget build(BuildContext context) {
-    final cursorModel = Provider.of<CursorModel>(context);
-    double hotx = cursorModel.hotx;
-    double hoty = cursorModel.hoty;
-    var image = cursorModel.image;
-    if (image == null) {
-      if (preDefaultCursor.image != null) {
-        image = preDefaultCursor.image;
-        hotx = preDefaultCursor.image!.width / 2;
-        hoty = preDefaultCursor.image!.height / 2;
-      }
-    }
-    if (image == null) {
-      return const Offstage();
-    }
-    assert(scale > 0, 'scale should always be positive');
-    if (scale <= 0) {
-      return const Offstage();
-    }
-    return CustomPaint(
-      painter: ImagePainter(image: image, x: -hotx, y: -hoty, scale: scale),
-    );
   }
 }

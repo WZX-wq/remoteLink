@@ -158,4 +158,18 @@ void main() {
     expect(section, contains("name: 'os-username', value: username"));
     expect(section, contains("name: 'os-password', value: password"));
   });
+
+  test('OS password auto login enables its required lock-after-session option',
+      () {
+    final dialog = File('lib/common/widgets/dialog.dart').readAsStringSync();
+    final start = dialog.indexOf('showSetOSPassword(');
+    final end = dialog.indexOf('showSetOSAccount(', start);
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+
+    final section = dialog.substring(start, end);
+    expect(section, contains("'lock-after-session-end'"));
+    expect(section, contains('sessionGetToggleOptionSync'));
+    expect(section, contains('sessionToggleOption'));
+  });
 }

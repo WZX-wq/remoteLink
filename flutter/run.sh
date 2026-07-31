@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export KQ_IOS_IAP_PRODUCTS="${KQ_IOS_IAP_PRODUCTS:-{\"1\":\"com.kunqiong.remotelink.member.monthly\",\"2\":\"com.kunqiong.remotelink.member.quarterly\",\"3\":\"com.kunqiong.remotelink.member.halfyear\",\"4\":\"com.kunqiong.remotelink.member.yearly\",\"5\":\"com.kunqiong.remotelink.member.lifetime\"}}"
+
 FLUTTER_ARGS=()
 for define_name in \
   KQ_PRIVACY_POLICY_URL \

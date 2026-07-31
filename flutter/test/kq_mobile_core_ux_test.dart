@@ -43,6 +43,18 @@ void main() {
     expect(source, isNot(contains('floating_mouse_widgets.dart')));
   });
 
+  test('mobile virtual mouse does not paint a duplicate local cursor', () {
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final floatingMouse =
+        File('lib/mobile/widgets/floating_mouse.dart').readAsStringSync();
+
+    expect(remotePage, contains('paints.add(CursorPaint(widget.id))'));
+    expect(remotePage, contains('paints.add(FloatingMouse('));
+    expect(floatingMouse, isNot(contains('class CursorPaint')));
+    expect(floatingMouse, isNot(contains('_cursorPaintKey')));
+  });
+
   test('mobile long labels use adaptive navigation and membership layout', () {
     final home = File('lib/mobile/pages/home_page.dart').readAsStringSync();
     final account =
@@ -52,11 +64,22 @@ void main() {
     expect(account, contains('width: double.infinity'));
   });
 
-  test('connection notes have a local mobile fallback', () {
+  test('connection-end notes are audit-only while manual peer notes remain',
+      () {
     final dialog = File('lib/common/widgets/dialog.dart').readAsStringSync();
-    expect(dialog, contains('supportsLocalMobileNote'));
-    expect(dialog, contains('bind.mainSetPeerAlias(id: ffi.id'));
-    expect(dialog, contains('await bind.mainLoadRecentPeers()'));
+    final settings =
+        File('lib/mobile/pages/settings_page.dart').readAsStringSync();
+    final peerCard =
+        File('lib/common/widgets/peer_card.dart').readAsStringSync();
+
+    expect(dialog, contains('final hasAuditContext ='));
+    expect(dialog, contains('hasAuditContext &&'));
+    expect(dialog, isNot(contains('supportsLocalMobileNote')));
+    expect(dialog, isNot(contains('bind.mainSetPeerAlias(id: ffi.id')));
+    expect(settings, isNot(contains('_allowAskForNoteAtEndOfConnection')));
+    expect(settings, isNot(contains('note-at-conn-end-tip')));
+    expect(peerCard, contains("translate('Edit note')"));
+    expect(peerCard, contains('bind.mainSetPeerAlias'));
   });
 
   test('mobile peer timeout is checked every second at five seconds', () {

@@ -2318,6 +2318,25 @@ impl<T: InvokeUiSession> Remote<T> {
         self.handler.update_block_input_state(on);
     }
 
+    fn block_input_failure_text(details: &str) -> &str {
+        if details.is_empty() {
+            return "Failed";
+        }
+        let details_lower = details.to_lowercase();
+        if details_lower.contains("os error 5")
+            || details_lower.contains("os error 1460")
+            || details_lower.contains("access is denied")
+            || details_lower.contains("block-input-portable-service")
+            || details_lower.contains("timeout period expired")
+            || details.contains("拒绝访问")
+            || details.contains("超时时间已过")
+        {
+            "block-input-admin-required-tip"
+        } else {
+            details
+        }
+    }
+
     async fn handle_back_msg_block_input(
         &mut self,
         state: back_notification::BlockInputState,
@@ -2331,11 +2350,7 @@ impl<T: InvokeUiSession> Remote<T> {
                 self.handler.msgbox(
                     "custom-error",
                     "Block user input",
-                    if details.is_empty() {
-                        "Failed"
-                    } else {
-                        &details
-                    },
+                    Self::block_input_failure_text(&details),
                     "",
                 );
                 self.update_block_input_state(false);
@@ -2347,11 +2362,7 @@ impl<T: InvokeUiSession> Remote<T> {
                 self.handler.msgbox(
                     "custom-error",
                     "Unblock user input",
-                    if details.is_empty() {
-                        "Failed"
-                    } else {
-                        &details
-                    },
+                    Self::block_input_failure_text(&details),
                     "",
                 );
             }

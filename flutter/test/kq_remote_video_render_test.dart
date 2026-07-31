@@ -328,7 +328,7 @@ void main() {
     );
   });
 
-  test('mobile keyboard does not resize or hide the side action rail', () {
+  test('mobile keyboard collapses the side action rail', () {
     final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
     expect(source, contains('resizeToAvoidBottomInset: false'));
 
@@ -341,7 +341,8 @@ void main() {
     expect(railEnd, greaterThan(railStart));
 
     final railSource = source.substring(railStart, railEnd);
-    expect(railSource, isNot(contains('keyboardIsVisible ||')));
+    expect(railSource, contains('if (_softKeyboardActive)'));
+    expect(railSource, contains('return const Offstage();'));
     expect(railSource, isNot(contains('MediaQuery.of(context)')));
     expect(railSource, contains('top: kMobileRemoteSideRailInset'));
     expect(railSource, contains('bottom: kMobileRemoteSideRailInset'));

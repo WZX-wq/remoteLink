@@ -24,7 +24,6 @@ import '../../models/platform_model.dart';
 import '../../models/remote_video_quality_policy.dart';
 import '../../models/user_model.dart';
 import '../../utils/image.dart';
-import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
 
 final initText = '1' * 1024;
@@ -459,10 +458,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     final keyboardIsVisible = _softKeyboardActive;
     final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
 
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
         clientClose(sessionId, gFFI);
-        return false;
       },
       child: Scaffold(
           resizeToAvoidBottomInset: false,
@@ -559,6 +561,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   Widget _remoteSideActionRail() {
+    if (_softKeyboardActive) {
+      return const Offstage();
+    }
+
     final ffiModel = Provider.of<FfiModel>(context);
     if (!_showBar || _showGestureHelp || gFFI.ffiModel.pi.displays.isEmpty) {
       return const Offstage();
@@ -723,7 +729,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
             : isWaiting
                 ? Colors.amberAccent
                 : Colors.white,
-        backgroundColor: isInVoice ? Colors.white.withOpacity(0.12) : null,
+        backgroundColor:
+            isInVoice ? Colors.white.withValues(alpha: 0.12) : null,
         onPressed: isInVoice ? _endMobileVoiceCall : _requestMobileVoiceCall,
       );
     });
@@ -1084,17 +1091,18 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
   var _more = true;
   var _fn = false;
   var _pin = false;
-  final _keyboardVisibilityController = KeyboardVisibilityController();
   final _key = GlobalKey();
 
   InputModel get inputModel => gFFI.inputModel;
 
   Widget wrap(String text, void Function() onPressed,
       {bool? active, IconData? icon}) {
+    final compact = widget.keyboardIsVisible;
     return TextButton(
         style: TextButton.styleFrom(
-          minimumSize: Size(0, 0),
-          padding: EdgeInsets.symmetric(vertical: 10, horizontal: 9.75),
+          minimumSize: compact ? const Size(36, 32) : Size(0, 0),
+          padding: EdgeInsets.symmetric(
+              vertical: compact ? 7 : 10, horizontal: compact ? 8 : 9.75),
           //adds padding inside the button
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           //limits the touch area to the button area
@@ -1106,8 +1114,34 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
         child: icon != null
             ? Icon(icon, size: 14, color: Colors.white)
             : Text(translate(text),
-                style: TextStyle(color: Colors.white, fontSize: 11)),
+                style: TextStyle(
+                    color: Colors.white, fontSize: compact ? 10.5 : 11)),
         onPressed: onPressed);
+  }
+
+  Widget _compactKeyboardToolbar(List<Widget> children, double space) {
+    final rowChildren = <Widget>[];
+    for (final child in children) {
+      if (rowChildren.isNotEmpty) {
+        rowChildren.add(SizedBox(width: space));
+      }
+      rowChildren.add(child);
+    }
+
+    return Container(
+      key: _key,
+      color: const Color(0xD9111317),
+      constraints: const BoxConstraints(minHeight: 40, maxHeight: 54),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: rowChildren,
+        ),
+      ),
+    );
   }
 
   _updateRect() {
@@ -1272,11 +1306,22 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
     Future.delayed(Duration(milliseconds: 500), () {
       _updateRect();
     });
+    if (widget.keyboardIsVisible) {
+      return _compactKeyboardToolbar(
+        <Widget>[
+          ...modifiers,
+          ...keys,
+          if (_fn) ...fn.where((child) => child is! SizedBox),
+          if (_more) ...more.where((child) => child is! SizedBox),
+        ],
+        space,
+      );
+    }
     return Container(
         key: _key,
         color: Color(0xAA000000),
-        padding: EdgeInsets.only(
-            top: _keyboardVisibilityController.isVisible ? 24 : 4, bottom: 8),
+        padding:
+            EdgeInsets.only(top: widget.keyboardIsVisible ? 6 : 4, bottom: 8),
         child: Wrap(
           spacing: space,
           runSpacing: space,

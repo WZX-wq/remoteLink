@@ -1374,13 +1374,21 @@ showSetOSPassword(
     }
 
     submit() {
-      var text = controller.text.trim();
+      final text = controller.text.trim();
       bind.sessionPeerOption(
           sessionId: sessionId, name: 'os-password', value: text);
       bind.sessionPeerOption(
           sessionId: sessionId,
           name: 'auto-login',
           value: autoLogin ? 'Y' : '');
+      if (autoLogin && text.isNotEmpty) {
+        final lockAfterSessionEnd = bind.sessionGetToggleOptionSync(
+            sessionId: sessionId, arg: 'lock-after-session-end');
+        if (!lockAfterSessionEnd) {
+          bind.sessionToggleOption(
+              sessionId: sessionId, value: 'lock-after-session-end');
+        }
+      }
       if (text != '' && login) {
         bind.sessionInputOsPassword(sessionId: sessionId, value: text);
       }
@@ -1602,10 +1610,8 @@ bool allowAskForNoteAtEndOfConnection(FFI? ffi, bool closedByControlling) {
           .isNotEmpty &&
       bind.sessionGetAuditGuid(sessionId: ffi.sessionId).isNotEmpty &&
       bind.sessionGetLastAuditNote(sessionId: ffi.sessionId).isEmpty;
-  final supportsLocalMobileNote =
-      isMobile && ffi.connType == ConnType.defaultConn;
   return mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection) &&
-      (hasAuditContext || supportsLocalMobileNote) &&
+      hasAuditContext &&
       (!closedByControlling ||
           bind.willSessionCloseCloseSession(sessionId: ffi.sessionId));
 }
@@ -1717,10 +1723,6 @@ Future<bool?> _showConnEndAuditDialogCloseCanceled({
               .timeout(const Duration(seconds: 6), onTimeout: () {
             debugPrint('updateAuditNoteByGuid timeout after 6s');
           });
-        }
-        if (isMobile && ffi.id.trim().isNotEmpty) {
-          await bind.mainSetPeerAlias(id: ffi.id, alias: text.trim());
-          await bind.mainLoadRecentPeers();
         }
       }
       // Save the "ask for note" preference

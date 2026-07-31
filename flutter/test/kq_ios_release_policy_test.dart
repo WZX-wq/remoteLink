@@ -87,6 +87,12 @@ void main() {
         File('../scripts/kq_ios_testflight_fast.sh').readAsStringSync();
 
     expect(script, contains('prepare_ios_release_config.py'));
+    expect(script, contains("default_iap_products='{\"1\""));
+    expect(
+        script,
+        contains(
+            r'export KQ_IOS_IAP_PRODUCTS="${KQ_IOS_IAP_PRODUCTS:-$default_iap_products}"'));
+    expect(script, isNot(contains(r'KQ_IOS_IAP_PRODUCTS:-{\"1\"')));
     expect(
       script,
       contains(r'--dart-define=KQ_IOS_IAP_PRODUCTS="$KQ_IOS_IAP_PRODUCTS"'),
@@ -253,6 +259,15 @@ void main() {
     expect(info, isNot(contains('屏幕共享音频')));
   });
 
+  test('iOS screen sharing forces VP8 for controller first-frame compatibility',
+      () {
+    final connection = File('../src/server/connection.rs').readAsStringSync();
+
+    expect(connection, contains('kq_ios_force_vp8_decoding'));
+    expect(connection, contains('prefer = PreferCodec::VP8.into()'));
+    expect(connection, contains('ability_vp9 = 0'));
+  });
+
   test('iOS ReplayKit frames keep YUV conversion available to video encoding',
       () {
     final converter =
@@ -322,13 +337,15 @@ void main() {
     }
   });
 
-  test('iOS broadcast extension statically links Rust before TestFlight upload', () {
+  test('iOS broadcast extension statically links Rust before TestFlight upload',
+      () {
     final project =
         File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
-    final workflow =
-        File('../.github/workflows/ios-testflight-build.yml').readAsStringSync();
+    final workflow = File('../.github/workflows/ios-testflight-build.yml')
+        .readAsStringSync();
     final staticPrepScript =
-        File('../scripts/ci/prepare-ios-rust-static-libs.sh').readAsStringSync();
+        File('../scripts/ci/prepare-ios-rust-static-libs.sh')
+            .readAsStringSync();
 
     final staticRustLink = RegExp(
       r'"-force_load",\s*"\$\(PROJECT_DIR\)/\.\./\.\./target/\$\(KQ_RUST_IOS_TARGET\)/release/liblibrustdesk\.a",',
@@ -422,5 +439,26 @@ void main() {
       contains(RegExp(
           r'#\[cfg\(not\(any\(target_os = "android", target_os = "ios"\)\)\)\]\s*crate::server::input_service::fix_key_down_timeout_at_exit')),
     );
+  });
+
+  test('iOS simulator build provides broadcast bridge stubs', () {
+    final runnerStubs =
+        File('ios/Runner/KQBroadcastSimulatorStubs.c').readAsStringSync();
+    final project =
+        File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+
+    expect(runnerStubs, contains('#if TARGET_OS_SIMULATOR'));
+    expect(
+        'KQBroadcastSimulatorStubs.c in Sources'.allMatches(project).length, 4);
+    for (final symbol in <String>[
+      'kq_ios_broadcast_start',
+      'kq_ios_broadcast_registration_state',
+      'kq_ios_broadcast_copy_device_id',
+      'kq_ios_broadcast_push_bgra',
+      'kq_ios_broadcast_push_audio_f32',
+      'kq_ios_broadcast_stop',
+    ]) {
+      expect(runnerStubs, contains('$symbol('));
+    }
   });
 }

@@ -21,11 +21,13 @@ use scrap::AdapterDevice;
 use scrap::{Capturer, Frame, TraitCapturer, TraitPixelBuffer};
 use shared_memory::*;
 use std::{
+    collections::HashMap,
     mem::size_of,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc as std_mpsc,
         Arc, Mutex,
     },
     time::Duration,
@@ -796,6 +798,16 @@ pub mod server {
                                             crate::input_service::handle_key_(&evt);
                                         }
                                     }
+                                    BlockInput((request_id, value)) => {
+                                        let (ok, msg) =
+                                            crate::platform::block_input_direct(value);
+                                        stream
+                                            .send(&Data::DataPortableService(BlockInputResult((
+                                                request_id, ok, msg,
+                                            ))))
+                                            .await
+                                            .ok();
+                                    },
                                     _ => {}
                                 },
                                 _ => {}
@@ -833,11 +845,14 @@ pub mod client {
         static ref RUNNING: Arc<Mutex<bool>> = Default::default();
         static ref STARTING: Arc<Mutex<bool>> = Default::default();
         static ref STARTING_TOKEN: AtomicU64 = AtomicU64::new(0);
+        static ref BLOCK_INPUT_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
         static ref SHMEM: Arc<Mutex<Option<SharedMemory>>> = Default::default();
         static ref SHMEM_RUNTIME_NAME: Arc<Mutex<Option<String>>> = Default::default();
         static ref IPC_RUNTIME_TOKEN: Arc<Mutex<Option<String>>> = Default::default();
         static ref SENDER : Mutex<mpsc::UnboundedSender<ipc::Data>> = Mutex::new(client::start_ipc_server());
         static ref QUICK_SUPPORT: Arc<Mutex<bool>> = Default::default();
+        static ref BLOCK_INPUT_WAITERS: Mutex<HashMap<u64, std_mpsc::Sender<(bool, String)>>> =
+            Default::default();
     }
 
     pub enum StartPara {
@@ -1416,6 +1431,15 @@ pub mod client {
                                                                     stream.send(&Data::DataPortableService(ConnCount(Some(remote_count)))).await.ok();
                                                                 }
                                                             },
+                                                            BlockInputResult((request_id, ok, msg)) => {
+                                                                if let Some(sender) = BLOCK_INPUT_WAITERS
+                                                                    .lock()
+                                                                    .unwrap()
+                                                                    .remove(&request_id)
+                                                                {
+                                                                    sender.send((ok, msg)).ok();
+                                                                }
+                                                            },
                                                             WillClose => {
                                                                 log::info!("portable service will close");
                                                                 break;
@@ -1462,6 +1486,27 @@ pub mod client {
         sender
             .send(data)
             .map_err(|e| anyhow!("ipc send error:{:?}", e))
+    }
+
+    pub fn block_input(v: bool) -> ResultType<(bool, String)> {
+        let request_id = BLOCK_INPUT_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
+        let (tx, rx) = std_mpsc::channel();
+        BLOCK_INPUT_WAITERS.lock().unwrap().insert(request_id, tx);
+
+        if let Err(err) = ipc_send(Data::DataPortableService(DataPortableService::BlockInput((
+            request_id, v,
+        )))) {
+            BLOCK_INPUT_WAITERS.lock().unwrap().remove(&request_id);
+            return Err(err);
+        }
+
+        match rx.recv_timeout(Duration::from_secs(3)) {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                BLOCK_INPUT_WAITERS.lock().unwrap().remove(&request_id);
+                bail!("portable service block input timeout: {}", err)
+            }
+        }
     }
 
     fn get_cursor_info_(shmem: &mut SharedMemory, pci: PCURSORINFO) -> BOOL {

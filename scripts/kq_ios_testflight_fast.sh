@@ -96,6 +96,8 @@ export PATH="$(dirname "$flutter_bin"):$PATH"
 export VCPKG_ROOT="$vcpkg_root"
 export CARGO_BUILD_JOBS="$cargo_jobs"
 export VCPKG_TRIPLET="${VCPKG_TRIPLET:-arm64-ios}"
+default_iap_products='{"1":"com.kunqiong.remotelink.member.monthly","2":"com.kunqiong.remotelink.member.quarterly","3":"com.kunqiong.remotelink.member.halfyear","4":"com.kunqiong.remotelink.member.yearly","5":"com.kunqiong.remotelink.member.lifetime"}'
+export KQ_IOS_IAP_PRODUCTS="${KQ_IOS_IAP_PRODUCTS:-$default_iap_products}"
 
 p12_file="$signing_dir/RemoteLink-Apple-Distribution.p12"
 p12_password_file="$signing_dir/CERTIFICATE_PASSWORD.txt"

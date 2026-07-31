@@ -1,135 +1,207 @@
 {
-  "appPolicies" : {
-    "eula" : "",
-    "policies" : [
+  "appPolicies": {
+    "eula": "",
+    "policies": [
       {
-        "locale" : "zh_Hans",
-        "policyText" : "",
-        "policyURL" : ""
+        "locale": "zh_Hans",
+        "policyText": "",
+        "policyURL": ""
       }
     ]
   },
-  "identifier" : "A7D1152C",
-  "nonRenewingSubscriptions" : [
-
-  ],
-  "products" : [
-
-  ],
-  "settings" : {
-    "_failTransactionsEnabled" : false,
-    "_locale" : "zh_Hans",
-    "_storefront" : "CHN",
-    "_storeKitErrors" : [
-      {
-        "current" : {
-          "index" : 2,
-          "type" : "generic"
-        },
-        "enabled" : false,
-        "name" : "Load Products"
-      },
-      {
-        "current" : {
-          "index" : 1,
-          "type" : "purchase"
-        },
-        "enabled" : false,
-        "name" : "Purchase"
-      },
-      {
-        "current" : {
-          "index" : 0,
-          "type" : "verification"
-        },
-        "enabled" : false,
-        "name" : "Verification"
-      },
-      {
-        "current" : null,
-        "enabled" : false,
-        "name" : "App Store Sync"
-      },
-      {
-        "current" : {
-          "index" : 2,
-          "type" : "generic"
-        },
-        "enabled" : false,
-        "name" : "Subscription Status"
-      },
-      {
-        "current" : {
-          "index" : 3,
-          "type" : "generic"
-        },
-        "enabled" : false,
-        "name" : "App Transaction"
-      },
-      {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Manage Subscriptions Sheet"
-      },
-      {
-        "current" : null,
-        "enabled" : false,
-        "name" : "Refund Request Sheet"
-      },
-      {
-        "current" : {
-          "index" : 4,
-          "type" : "generic"
-        },
-        "enabled" : false,
-        "name" : "Offer Code Redeem Sheet"
-      }
-    ]
-  },
-  "subscriptionGroups" : [
+  "identifier": "A7D1152C",
+  "nonRenewingSubscriptions": [],
+  "products": [
     {
-      "id" : "8D8F27B1",
-      "localizations" : [
+      "displayPrice": "159.00",
+      "familyShareable": false,
+      "internalID": "KQLIFETIME",
+      "localizations": [
         {
-          "displayName" : "鲲穹会员",
-          "locale" : "zh_Hans"
+          "description": "永久会员权益，解锁1080p高清画质、60 FPS和高级远程连接能力。",
+          "displayName": "永久会员",
+          "locale": "zh_Hans"
         }
       ],
-      "name" : "鲲穹会员",
-      "subscriptions" : [
+      "productID": "com.kunqiong.remotelink.member.lifetime",
+      "referenceName": "永久会员",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "zh_Hans",
+    "_storefront": "CHN",
+    "_storeKitErrors": [
+      {
+        "current": {
+          "index": 2,
+          "type": "generic"
+        },
+        "enabled": false,
+        "name": "Load Products"
+      },
+      {
+        "current": {
+          "index": 1,
+          "type": "purchase"
+        },
+        "enabled": false,
+        "name": "Purchase"
+      },
+      {
+        "current": {
+          "index": 0,
+          "type": "verification"
+        },
+        "enabled": false,
+        "name": "Verification"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "App Store Sync"
+      },
+      {
+        "current": {
+          "index": 2,
+          "type": "generic"
+        },
+        "enabled": false,
+        "name": "Subscription Status"
+      },
+      {
+        "current": {
+          "index": 3,
+          "type": "generic"
+        },
+        "enabled": false,
+        "name": "App Transaction"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Manage Subscriptions Sheet"
+      },
+      {
+        "current": null,
+        "enabled": false,
+        "name": "Refund Request Sheet"
+      },
+      {
+        "current": {
+          "index": 4,
+          "type": "generic"
+        },
+        "enabled": false,
+        "name": "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups": [
+    {
+      "id": "8D8F27B1",
+      "localizations": [
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "18.00",
-          "familyShareable" : false,
-          "groupNumber" : 1,
-          "internalID" : "FA28C71D",
-          "introductoryOffer" : null,
-          "localizations" : [
+          "displayName": "鲲穹会员",
+          "locale": "zh_Hans"
+        }
+      ],
+      "name": "鲲穹会员",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "1.00",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "FA28C71D",
+          "introductoryOffer": null,
+          "localizations": [
             {
-              "description" : "解锁鲲穹远程桌面会员高清画质与高级功能。",
-              "displayName" : "鲲穹会员月度",
-              "locale" : "zh_Hans"
+              "description": "解锁鲲穹远程桌面会员高清画质与高级功能。",
+              "displayName": "鲲穹会员月度",
+              "locale": "zh_Hans"
             }
           ],
-          "productID" : "com.kunqiong.remotelink.member.monthly",
-          "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "鲲穹会员月度",
-          "subscriptionGroupID" : "8D8F27B1",
-          "type" : "RecurringSubscription",
-          "winbackOffers" : [
-
-          ]
+          "productID": "com.kunqiong.remotelink.member.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "鲲穹会员月度",
+          "subscriptionGroupID": "8D8F27B1",
+          "type": "RecurringSubscription",
+          "winbackOffers": []
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "familyShareable": false,
+          "introductoryOffer": null,
+          "subscriptionGroupID": "8D8F27B1",
+          "type": "RecurringSubscription",
+          "winbackOffers": [],
+          "displayPrice": "49.00",
+          "groupNumber": 2,
+          "internalID": "KQQUARTER",
+          "localizations": [
+            {
+              "description": "3个月会员权益，解锁1080p高清画质、60 FPS和高级远程连接能力。",
+              "displayName": "成长季卡",
+              "locale": "zh_Hans"
+            }
+          ],
+          "productID": "com.kunqiong.remotelink.member.quarterly",
+          "recurringSubscriptionPeriod": "P3M",
+          "referenceName": "成长季卡"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "familyShareable": false,
+          "introductoryOffer": null,
+          "subscriptionGroupID": "8D8F27B1",
+          "type": "RecurringSubscription",
+          "winbackOffers": [],
+          "displayPrice": "79.00",
+          "groupNumber": 3,
+          "internalID": "KQHALFYEAR",
+          "localizations": [
+            {
+              "description": "6个月会员权益，解锁1080p高清画质、60 FPS和高级远程连接能力。",
+              "displayName": "进阶半年卡",
+              "locale": "zh_Hans"
+            }
+          ],
+          "productID": "com.kunqiong.remotelink.member.halfyear",
+          "recurringSubscriptionPeriod": "P6M",
+          "referenceName": "进阶半年卡"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "familyShareable": false,
+          "introductoryOffer": null,
+          "subscriptionGroupID": "8D8F27B1",
+          "type": "RecurringSubscription",
+          "winbackOffers": [],
+          "displayPrice": "129.00",
+          "groupNumber": 4,
+          "internalID": "KQYEARLY",
+          "localizations": [
+            {
+              "description": "1年会员权益，解锁1080p高清画质、60 FPS和高级远程连接能力。",
+              "displayName": "守护年卡",
+              "locale": "zh_Hans"
+            }
+          ],
+          "productID": "com.kunqiong.remotelink.member.yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "守护年卡"
         }
       ]
     }
   ],
-  "version" : {
-    "major" : 4,
-    "minor" : 0
+  "version": {
+    "major": 4,
+    "minor": 0
   }
 }

@@ -318,6 +318,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("rel-mouse-lock-failed-tip", "Failed to lock cursor. Relative Mouse Mode has been disabled."),
         ("rel-mouse-exit-{}-tip", "Press {} to exit."),
         ("rel-mouse-permission-lost-tip", "Keyboard permission was revoked. Relative Mouse Mode has been disabled."),
+        ("block-input-admin-required-tip", "The controlled Windows device cannot block local input right now. Make sure the background service is installed and running, and that an interactive desktop session is signed in, then try again."),
         ("keep-awake-during-outgoing-sessions-label", "Keep screen awake during outgoing sessions"),
         ("keep-awake-during-incoming-sessions-label", "Keep screen awake during incoming sessions"),
         ("password-hidden-tip", "Permanent password is set (hidden)."),

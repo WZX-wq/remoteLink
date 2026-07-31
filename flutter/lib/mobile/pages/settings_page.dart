@@ -100,7 +100,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _fingerprint = "";
   var _buildDate = "";
   var _autoDisconnectTimeout = "";
-  var _allowAskForNoteAtEndOfConnection = false;
   var _preventSleepWhileConnected = true;
 
   _SettingsState() {
@@ -119,8 +118,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
     _autoDisconnectTimeout =
         bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
-    _allowAskForNoteAtEndOfConnection =
-        mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection);
     _preventSleepWhileConnected =
         mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
     _showTerminalExtraKeys =
@@ -588,24 +585,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   showThemeSettings(gFFI.dialogManager);
                 },
               ),
-              if (!bind.isDisableAccount())
-                SettingsTile.switchTile(
-                  title: Text(_settingsText('note-at-conn-end-tip')),
-                  initialValue: _allowAskForNoteAtEndOfConnection,
-                  onToggle: (v) async {
-                    if (v && !isMobile && !gFFI.userModel.isLogin) {
-                      final res = await loginDialog();
-                      if (res != true) return;
-                    }
-                    await mainSetLocalBoolOption(
-                        kOptionAllowAskForNoteAtEndOfConnection, v);
-                    final newValue = mainGetLocalBoolOptionSync(
-                        kOptionAllowAskForNoteAtEndOfConnection);
-                    setState(() {
-                      _allowAskForNoteAtEndOfConnection = newValue;
-                    });
-                  },
-                ),
               if (!incomingOnly)
                 SettingsTile.switchTile(
                   title: Text(_settingsText(
@@ -1266,7 +1245,6 @@ const _settingsZh = {
   'Show terminal extra keys': '显示终端扩展按键',
   'Floating window': '悬浮窗',
   'floating_window_tip': '关闭后，被控时不会显示悬浮控制窗',
-  'note-at-conn-end-tip': '连接结束后询问备注',
   'keep-awake-during-outgoing-sessions-label': '远控期间保持屏幕唤醒',
 };
 

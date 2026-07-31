@@ -458,6 +458,23 @@ class UserModel {
         preferMemberDefaults: active && !wasMember);
   }
 
+  Future<void> applyVerifiedAppleMembership({
+    required String expireAt,
+  }) async {
+    final normalizedExpireAt = expireAt.trim();
+    if (normalizedExpireAt.isEmpty) return;
+    _membershipRefreshSerial++;
+    final parsedExpireAt =
+        DateTime.tryParse(normalizedExpireAt.replaceFirst(' ', 'T'));
+    final active = normalizedExpireAt.toLowerCase() == 'unlimited' ||
+        normalizedExpireAt == '9999-12-31 23:59:59' ||
+        (parsedExpireAt != null &&
+            parsedExpireAt.isAfter(DateTime.now().subtract(
+              const Duration(minutes: 1),
+            )));
+    await _setMemberStatus(active, expireAt: normalizedExpireAt, error: '');
+  }
+
   bool _memberBool(dynamic value) {
     if (value == true || value == 1) return true;
     final s = value?.toString().trim().toLowerCase() ?? '';

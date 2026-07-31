@@ -56,21 +56,56 @@ void main() {
     );
   });
 
-  test('local StoreKit configuration matches the production product ID', () {
+  test('local StoreKit configuration matches production product IDs', () {
     final configuration = jsonDecode(
       File('ios/Runner/KQMembership.storekit').readAsStringSync(),
     ) as Map<String, dynamic>;
     final groups = configuration['subscriptionGroups'] as List<dynamic>;
     final group = groups.single as Map<String, dynamic>;
     final subscriptions = group['subscriptions'] as List<dynamic>;
-    final subscription = subscriptions.single as Map<String, dynamic>;
+    final subscriptionsByProductId = {
+      for (final subscription in subscriptions.cast<Map<String, dynamic>>())
+        subscription['productID'] as String: subscription,
+    };
+    final products = configuration['products'] as List<dynamic>;
+    final productsByProductId = {
+      for (final product in products.cast<Map<String, dynamic>>())
+        product['productID'] as String: product,
+    };
     final scheme = File(
       'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme',
     ).readAsStringSync();
 
-    expect(subscription['productID'], 'com.kunqiong.remotelink.member.monthly');
-    expect(subscription['type'], 'RecurringSubscription');
-    expect(subscription['recurringSubscriptionPeriod'], 'P1M');
+    expect(subscriptionsByProductId.keys, {
+      'com.kunqiong.remotelink.member.monthly',
+      'com.kunqiong.remotelink.member.quarterly',
+      'com.kunqiong.remotelink.member.halfyear',
+      'com.kunqiong.remotelink.member.yearly',
+    });
+    expect(
+      subscriptionsByProductId['com.kunqiong.remotelink.member.monthly']
+          ?['recurringSubscriptionPeriod'],
+      'P1M',
+    );
+    expect(
+      subscriptionsByProductId['com.kunqiong.remotelink.member.quarterly']
+          ?['recurringSubscriptionPeriod'],
+      'P3M',
+    );
+    expect(
+      subscriptionsByProductId['com.kunqiong.remotelink.member.halfyear']
+          ?['recurringSubscriptionPeriod'],
+      'P6M',
+    );
+    expect(
+      subscriptionsByProductId['com.kunqiong.remotelink.member.yearly']
+          ?['recurringSubscriptionPeriod'],
+      'P1Y',
+    );
+    expect(
+      productsByProductId['com.kunqiong.remotelink.member.lifetime']?['type'],
+      'NonConsumable',
+    );
     expect(scheme, contains('../Runner/KQMembership.storekit'));
   });
 
@@ -100,6 +135,37 @@ void main() {
       'local_verification_data': 'local-transaction',
       'source': 'app_store',
     });
+  });
+
+  test('StoreKit verification result applies the server-issued expiry', () {
+    final controller =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(controller, contains('class KqIosPurchaseVerificationResult'));
+    expect(controller, contains("expireAt: (body['expire_at'] ?? '')"));
+    expect(controller, contains('final verifiedMembership ='));
+    expect(
+        controller, contains('await refreshMembership(verifiedMembership);'));
+    expect(page, contains('KqIosPurchaseVerificationResult verification'));
+    expect(page, contains('applyVerifiedAppleMembership'));
+  });
+
+  test('Apple verification does not overwrite the server-issued expiry', () {
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+    final callbackStart = page.indexOf(
+      'refreshMembership: (KqIosPurchaseVerificationResult verification) async',
+    );
+    final callbackEnd = page.indexOf('    )..addListener', callbackStart);
+    expect(callbackStart, greaterThanOrEqualTo(0));
+    expect(callbackEnd, greaterThan(callbackStart));
+
+    final callbackSource = page.substring(callbackStart, callbackEnd);
+    expect(callbackSource, contains('applyVerifiedAppleMembership'));
+    expect(
+        callbackSource, isNot(contains('refreshMembership(showError: true)')));
   });
 
   test(
@@ -196,6 +262,21 @@ void main() {
     expect(controller, contains('store_error_source='));
     expect(page, contains('Apple 付款可能已完成，但会员验证服务暂不可用'));
     expect(page, contains('请不要重复购买'));
+  });
+
+  test(
+      'iOS purchase page allows changing membership plan after verified purchase',
+      () {
+    final controller =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(controller,
+        isNot(contains('phase != KqIosMembershipPurchasePhase.completed')));
+    expect(controller, contains('bool get hasVerifiedMembership'));
+    expect(page, contains('isMembershipActive:'));
+    expect(page, contains("text('升级', 'Upgrade')"));
   });
 
   test('iOS membership and screen sharing pages compile', () {

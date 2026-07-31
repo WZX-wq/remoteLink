@@ -41,8 +41,11 @@ class _KqIosMembershipPurchasePageState
       config: KqIosInAppPurchaseConfig.fromEnvironment(),
       accessTokenProvider: () =>
           bind.mainGetLocalOption(key: 'access_token').trim(),
-      refreshMembership: () =>
-          gFFI.userModel.refreshMembership(showError: true),
+      refreshMembership: (KqIosPurchaseVerificationResult verification) async {
+        await gFFI.userModel.applyVerifiedAppleMembership(
+          expireAt: verification.expireAt,
+        );
+      },
     )..addListener(_onControllerChanged);
     unawaited(_controller.initialize());
   }
@@ -85,7 +88,8 @@ class _KqIosMembershipPurchasePageState
       case KqIosMembershipPurchasePhase.restoring:
         return _text('正在恢复 Apple 购买记录...', 'Restoring Apple purchases...');
       case KqIosMembershipPurchasePhase.completed:
-        return _text('会员权益已更新。', 'Membership benefits have been updated.');
+        return _text('会员权益已更新，可继续升级套餐。',
+            'Membership benefits have been updated. You can still upgrade plans.');
       case KqIosMembershipPurchasePhase.failed:
         if (_controller.hasUnavailableProducts) {
           return _text(
@@ -210,6 +214,7 @@ class _KqIosMembershipPurchasePageState
                             _controller.isPackageAvailable(
                               packageId,
                             ),
+                        isMembershipActive: _controller.hasVerifiedMembership,
                         onBuy: () => _controller.buy(packageId),
                         text: _text,
                       ),
@@ -361,6 +366,7 @@ class _IosMembershipPackageTile extends StatelessWidget {
     required this.product,
     required this.unavailable,
     required this.enabled,
+    required this.isMembershipActive,
     required this.onBuy,
     required this.text,
   });
@@ -369,6 +375,7 @@ class _IosMembershipPackageTile extends StatelessWidget {
   final ProductDetails? product;
   final bool unavailable;
   final bool enabled;
+  final bool isMembershipActive;
   final VoidCallback onBuy;
   final String Function(String zh, String en) text;
 
@@ -445,7 +452,11 @@ class _IosMembershipPackageTile extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: Text(text('购买', 'Buy')),
+                  child: Text(
+                    isMembershipActive
+                        ? text('升级', 'Upgrade')
+                        : text('购买', 'Buy'),
+                  ),
                 ),
               ),
             ],

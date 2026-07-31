@@ -186,6 +186,16 @@ class KqIosPurchaseVerificationPayload {
       };
 }
 
+class KqIosPurchaseVerificationResult {
+  const KqIosPurchaseVerificationResult({
+    required this.active,
+    required this.expireAt,
+  });
+
+  final bool active;
+  final String expireAt;
+}
+
 enum KqIosMembershipPurchasePhase {
   initial,
   loading,
@@ -209,7 +219,8 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   final KqIosInAppPurchaseConfig config;
   final String Function() accessTokenProvider;
-  final Future<void> Function() refreshMembership;
+  final Future<void> Function(KqIosPurchaseVerificationResult verification)
+      refreshMembership;
   final InAppPurchase _store;
   final Map<String, ProductDetails> _productsByStoreId = {};
   final Set<String> _verifyingPurchaseKeys = <String>{};
@@ -227,10 +238,10 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   bool get isReady => phase == KqIosMembershipPurchasePhase.ready;
 
-  bool get canPurchase =>
-      !isBusy &&
-      phase != KqIosMembershipPurchasePhase.completed &&
-      _productsByStoreId.isNotEmpty;
+  bool get hasVerifiedMembership =>
+      phase == KqIosMembershipPurchasePhase.completed;
+
+  bool get canPurchase => !isBusy && _productsByStoreId.isNotEmpty;
 
   bool get hasUnavailableProducts => _notFoundProductIds.isNotEmpty;
 
@@ -483,8 +494,8 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           notifyListeners();
           continue;
         }
-        await _verifyPurchase(packageId, purchase);
-        await refreshMembership();
+        final verifiedMembership = await _verifyPurchase(packageId, purchase);
+        await refreshMembership(verifiedMembership);
         if (purchase.pendingCompletePurchase &&
             !await _completePurchase(purchase)) {
           continue;
@@ -510,7 +521,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
     }
   }
 
-  Future<void> _verifyPurchase(
+  Future<KqIosPurchaseVerificationResult> _verifyPurchase(
     String packageId,
     PurchaseDetails purchase,
   ) async {
@@ -596,12 +607,17 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           KqIosMembershipPurchaseFeedback.verificationFailed,
         );
       }
+      _diagnostic('server_verification_succeeded');
+      return KqIosPurchaseVerificationResult(
+        active:
+            (body['status'] ?? '').toString().trim().toLowerCase() != 'expired',
+        expireAt: (body['expire_at'] ?? '').toString(),
+      );
     } on FormatException {
       throw const KqIosPurchaseVerificationException(
         KqIosMembershipPurchaseFeedback.verificationFailed,
       );
     }
-    _diagnostic('server_verification_succeeded');
   }
 
   String _purchaseKey(PurchaseDetails purchase) {

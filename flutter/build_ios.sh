@@ -8,6 +8,7 @@ BUILD_MODE="${BUILD_MODE:-ios}"
 BUILD_NAME="${FLUTTER_BUILD_NAME:-1.4.6}"
 BUILD_NUMBER="${FLUTTER_BUILD_NUMBER:-4073}"
 CARGO_TARGET="${CARGO_TARGET:-aarch64-apple-ios}"
+export KQ_IOS_IAP_PRODUCTS="${KQ_IOS_IAP_PRODUCTS:-{\"1\":\"com.kunqiong.remotelink.member.monthly\",\"2\":\"com.kunqiong.remotelink.member.quarterly\",\"3\":\"com.kunqiong.remotelink.member.halfyear\",\"4\":\"com.kunqiong.remotelink.member.yearly\",\"5\":\"com.kunqiong.remotelink.member.lifetime\"}}"
 if [ "${KQ_IOS_IAP_LOCAL_STOREKIT_TEST:-false}" = "true" ]; then
   echo "KQ_IOS_IAP_LOCAL_STOREKIT_TEST is debug-only and cannot be used for a release build." >&2
   exit 2
