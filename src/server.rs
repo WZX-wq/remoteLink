@@ -557,6 +557,18 @@ pub fn check_zombie() {
     });
 }
 
+#[cfg(target_os = "windows")]
+fn kq_clear_windows_stopped_service_for_foreground_launch() -> bool {
+    if Config::get_option("stop-service") == "Y" {
+        log::info!(
+            "Clearing stop-service for Windows foreground relaunch so the device can register while the app is open"
+        );
+        Config::set_option("stop-service".into(), "".into());
+        return true;
+    }
+    false
+}
+
 /// Start the host server that allows the remote peer to control the current machine.
 ///
 /// # Arguments
@@ -592,6 +604,11 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         #[cfg(windows)]
         hbb_common::platform::windows::start_cpu_performance_monitor();
     });
+
+    #[cfg(target_os = "windows")]
+    if !is_server && !no_server {
+        kq_clear_windows_stopped_service_for_foreground_launch();
+    }
 
     if is_server {
         crate::common::set_server_running(true);
@@ -630,6 +647,23 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                                 }
                                 if Config2::set(config2) {
                                     log::info!("config2 synced");
+                                }
+                                #[cfg(target_os = "windows")]
+                                if !no_server
+                                    && kq_clear_windows_stopped_service_for_foreground_launch()
+                                {
+                                    if let Err(err) = conn
+                                        .send(&Data::SyncConfig(Some(
+                                            (Config::get(), Config2::get()).into(),
+                                        )))
+                                        .await
+                                    {
+                                        log::warn!(
+                                            "Failed to sync restored Windows stop-service state to running server: {err}"
+                                        );
+                                    } else {
+                                        let _ = conn.next_timeout(1000).await;
+                                    }
                                 }
                             }
                             _ => {}
