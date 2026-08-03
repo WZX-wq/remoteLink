@@ -219,8 +219,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
     if (!await _ensureLoggedIn()) return;
     if (!mounted) return;
     setState(() => _checkingRemoteId = true);
-    final supportsOnlineLookup =
-        kqRemoteIdentifierSupportsOnlineLookup(remoteId);
     final online = await _queryRemoteOnline(remoteId);
     if (!mounted) return;
     setState(() => _checkingRemoteId = false);
@@ -228,13 +226,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
       _setRemoteIdError(kqLocaleText(
         zhCn: '识别码不存在或设备当前不在线。',
         en: 'The device ID does not exist or the device is offline.',
-      ));
-      return;
-    }
-    if (online == null && supportsOnlineLookup) {
-      _setRemoteIdError(kqLocaleText(
-        zhCn: '暂时无法核验识别码，请检查当前网络后重试。',
-        en: 'The device ID could not be verified. Check your network and try again.',
       ));
       return;
     }

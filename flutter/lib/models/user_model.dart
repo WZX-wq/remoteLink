@@ -818,17 +818,20 @@ class UserModel {
         throw _KqDeletedAccountSessionException(message);
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        return null;
+        throw StateError(
+          'KQ project membership API returned HTTP ${response.statusCode}.',
+        );
       }
       final body = jsonDecode(decode_http_response(response));
       if (body is Map && body['ok'] == true && body['member'] is Map) {
         return body['member'] as Map;
       }
+      throw StateError('KQ project membership API returned invalid data.');
     } catch (e) {
       if (e is _KqDeletedAccountSessionException) rethrow;
-      debugPrint('KQ project API member refresh fallback: $e');
+      debugPrint('KQ project API member refresh failed: $e');
+      rethrow;
     }
-    return null;
   }
 
   Future<KqMemberOrder?> _createProjectMemberOrder({

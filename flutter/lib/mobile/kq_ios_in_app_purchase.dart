@@ -472,7 +472,6 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
     _diagnostic('purchase_update_received', purchaseCount: purchases.length);
-    _cancelPurchaseUpdateTimeout();
     for (final purchase in purchases) {
       _diagnostic(
         'purchase_details_received',
@@ -488,6 +487,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         continue;
       }
       if (purchase.status == PurchaseStatus.canceled) {
+        _cancelPurchaseUpdateTimeout();
         _diagnostic('purchase_cancelled');
         _setFailure(
           KqIosMembershipPurchaseFeedback.paymentCancelled,
@@ -496,6 +496,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         continue;
       }
       if (purchase.status == PurchaseStatus.error) {
+        _cancelPurchaseUpdateTimeout();
         _diagnostic(
           'purchase_error',
           productId: purchase.productID,
@@ -515,6 +516,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           purchase.status != PurchaseStatus.restored) {
         continue;
       }
+      _cancelPurchaseUpdateTimeout();
       final packageId = config.packageForProduct(purchase.productID);
       if (packageId == null) {
         _pendingVerificationPurchaseKeys.add(_purchaseKey(purchase));

@@ -84,6 +84,23 @@ void main() {
     );
   });
 
+  test('configured project membership API does not fall back to upstream data on outage',
+      () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final methodStart = source.indexOf('  Future<Map?> _getProjectMemberInfo(');
+    final methodEnd = source.indexOf('  Future<KqMemberOrder?> _createProjectMemberOrder(',
+        methodStart);
+    expect(methodStart, greaterThanOrEqualTo(0));
+    expect(methodEnd, greaterThan(methodStart));
+    final methodSource = source.substring(methodStart, methodEnd);
+
+    expect(methodSource,
+        contains("throw StateError('KQ project membership API returned"));
+    expect(methodSource, contains('rethrow;'));
+    expect(methodSource,
+        isNot(contains('KQ project API member refresh fallback')));
+  });
+
   test('membership refresh clears login state when project account was deleted',
       () {
     final source = File('lib/models/user_model.dart').readAsStringSync();

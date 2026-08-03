@@ -377,7 +377,24 @@ void main() {
       source.indexOf('_pendingVerificationPurchaseKeys.add(purchaseKey)',
           verificationCatch),
       lessThan(verificationFinally),
-    );
+      );
+    });
+
+  test('a pending Apple update keeps the purchase recovery timeout armed', () {
+    final source =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final updateStart =
+        source.indexOf('Future<void> _handlePurchaseUpdates(');
+    final updateEnd = source.indexOf('  Future<KqIosPurchaseVerificationResult>',
+        updateStart);
+    expect(updateStart, greaterThanOrEqualTo(0));
+    expect(updateEnd, greaterThan(updateStart));
+    final updateSource = source.substring(updateStart, updateEnd);
+    final pendingBranch =
+        updateSource.indexOf('if (purchase.status == PurchaseStatus.pending)');
+    final firstCancel = updateSource.indexOf('_cancelPurchaseUpdateTimeout()');
+    expect(pendingBranch, greaterThanOrEqualTo(0));
+    expect(firstCancel, greaterThan(pendingBranch));
   });
 
   test(

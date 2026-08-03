@@ -28,12 +28,12 @@ void main() {
     );
   });
 
-  test('lookup timeout stops rendezvous IDs instead of blindly connecting', () {
+  test('lookup timeout does not block the native rendezvous connection', () {
     final source =
         File('lib/mobile/pages/connection_page.dart').readAsStringSync();
-    expect(source, contains('final supportsOnlineLookup ='));
-    expect(source, contains('if (online == null && supportsOnlineLookup)'));
-    expect(source, contains('暂时无法核验识别码'));
+    expect(source, contains('if (online == false)'));
+    expect(source, isNot(contains('if (online == null && supportsOnlineLookup)')));
+    expect(source, isNot(contains('暂时无法核验识别码')));
   });
 
   test('mobile remote controls use one integrated mouse in both modes', () {
@@ -82,12 +82,13 @@ void main() {
     expect(peerCard, contains('bind.mainSetPeerAlias'));
   });
 
-  test('mobile peer timeout is checked every second at five seconds', () {
+  test('mobile peer timeout gives the first session packet the normal grace period', () {
     final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
     expect(ioLoop, contains('KQ_MOBILE_PEER_TIMEOUT'));
+    expect(ioLoop, contains('KQ_MOBILE_INITIAL_PEER_TIMEOUT'));
     expect(ioLoop, contains('Duration::from_secs(5)'));
-    expect(
-        ioLoop, contains('last_recv_time.elapsed() >= KQ_MOBILE_PEER_TIMEOUT'));
+    expect(ioLoop,
+        contains('kq_mobile_peer_timed_out(received, last_recv_time.elapsed())'));
   });
 
   test('iOS broadcast registration has a visible timeout state', () {

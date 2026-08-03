@@ -11,8 +11,19 @@ use crate::{
     ui_session_interface::{InvokeUiSession, Session},
 };
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
 const KQ_MOBILE_PEER_TIMEOUT: Duration = Duration::from_secs(5);
+const KQ_MOBILE_INITIAL_PEER_TIMEOUT: Duration = SEC30;
+
+#[inline]
+fn kq_mobile_peer_timed_out(received: bool, elapsed: Duration) -> bool {
+    elapsed
+        >= if received {
+            KQ_MOBILE_PEER_TIMEOUT
+        } else {
+            KQ_MOBILE_INITIAL_PEER_TIMEOUT
+        }
+}
+
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
 #[cfg(any(
@@ -296,7 +307,7 @@ impl<T: InvokeUiSession> Remote<T> {
                         _ = status_timer.tick() => {
                             #[cfg(any(target_os = "android", target_os = "ios"))]
                             if crate::get_app_name() == crate::common::KQ_APP_NAME
-                                && last_recv_time.elapsed() >= KQ_MOBILE_PEER_TIMEOUT
+                                && kq_mobile_peer_timed_out(received, last_recv_time.elapsed())
                             {
                                 self.handler.msgbox("error", "Connection Error", "Timeout", "");
                                 break;
