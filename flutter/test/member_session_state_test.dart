@@ -3,6 +3,21 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+      'expired local membership is not treated as active while refresh is unavailable',
+      () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final activeStart =
+        source.indexOf('  static bool get isLocalMemberActiveForCurrentUser {');
+    final activeEnd = source.indexOf('\n  _updateLocalUserInfo()', activeStart);
+    expect(activeStart, greaterThanOrEqualTo(0));
+    expect(activeEnd, greaterThan(activeStart));
+    final activeSource = source.substring(activeStart, activeEnd);
+
+    expect(source, contains('static bool _isMembershipExpired('));
+    expect(activeSource, contains('_isMembershipExpired('));
+  });
+
   test('membership refresh clears a stale account session without credentials',
       () {
     final source = File('lib/models/user_model.dart').readAsStringSync();
@@ -84,12 +99,13 @@ void main() {
     );
   });
 
-  test('configured project membership API does not fall back to upstream data on outage',
+  test(
+      'configured project membership API does not fall back to upstream data on outage',
       () {
     final source = File('lib/models/user_model.dart').readAsStringSync();
     final methodStart = source.indexOf('  Future<Map?> _getProjectMemberInfo(');
-    final methodEnd = source.indexOf('  Future<KqMemberOrder?> _createProjectMemberOrder(',
-        methodStart);
+    final methodEnd = source.indexOf(
+        '  Future<KqMemberOrder?> _createProjectMemberOrder(', methodStart);
     expect(methodStart, greaterThanOrEqualTo(0));
     expect(methodEnd, greaterThan(methodStart));
     final methodSource = source.substring(methodStart, methodEnd);

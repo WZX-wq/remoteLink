@@ -234,6 +234,24 @@ class UserModel {
   static bool get isKqTestUnlimitedMember =>
       _localUserPrimaryId() == kqTestUnlimitedMemberUserId;
 
+  static bool _isMembershipExpired(String expireAt, [DateTime? now]) {
+    final normalized = expireAt.trim();
+    if (normalized.isEmpty ||
+        normalized.toLowerCase() == 'unlimited' ||
+        normalized == '9999-12-31 23:59:59') {
+      return false;
+    }
+    final parsed = DateTime.tryParse(normalized.replaceFirst(' ', 'T'));
+    if (parsed == null) {
+      // Preserve a server-issued state if an older API returns an unknown date
+      // format; the next membership refresh remains the source of truth.
+      return false;
+    }
+    return !parsed.isAfter((now ?? DateTime.now()).subtract(
+      const Duration(minutes: 1),
+    ));
+  }
+
   static bool get isLocalMemberActiveForCurrentUser {
     final userId = _localUserPrimaryId();
     if (userId == kqTestUnlimitedMemberUserId) {
@@ -243,7 +261,8 @@ class UserModel {
       return false;
     }
     return bind.mainGetLocalOption(key: memberActiveKey) == 'Y' &&
-        bind.mainGetLocalOption(key: memberUserIdKey).trim() == userId;
+        bind.mainGetLocalOption(key: memberUserIdKey).trim() == userId &&
+        !_isMembershipExpired(bind.mainGetLocalOption(key: memberExpireAtKey));
   }
 
   _updateLocalUserInfo() {
@@ -490,20 +509,22 @@ class UserModel {
   }) async {
     bool canApply() => shouldApply == null || shouldApply();
     if (!canApply()) return;
+    final effectiveActive = active && !_isMembershipExpired(expireAt);
     final wasMember = isLocalMemberActiveForCurrentUser;
     final userId = _localUserPrimaryId();
     if (!canApply()) return;
-    isMember.value = active;
+    isMember.value = effectiveActive;
     memberExpireAt.value = expireAt;
     memberSubsite.value =
         subsite == null || subsite.isEmpty ? memberSubsiteName : subsite;
     memberLastError.value = error;
     if (!canApply()) return;
     await bind.mainSetLocalOption(
-        key: memberActiveKey, value: active ? 'Y' : 'N');
+        key: memberActiveKey, value: effectiveActive ? 'Y' : 'N');
     if (!canApply()) return;
     await bind.mainSetLocalOption(
-        key: memberUserIdKey, value: active && userId.isNotEmpty ? userId : '');
+        key: memberUserIdKey,
+        value: effectiveActive && userId.isNotEmpty ? userId : '');
     if (!canApply()) return;
     await bind.mainSetLocalOption(key: memberExpireAtKey, value: expireAt);
     if (!canApply()) return;
@@ -512,8 +533,8 @@ class UserModel {
     if (!canApply()) return;
     await bind.mainSetLocalOption(key: memberLastErrorKey, value: error);
     if (!canApply()) return;
-    await _syncRemoteQualityDefaults(active,
-        preferMemberDefaults: active && !wasMember);
+    await _syncRemoteQualityDefaults(effectiveActive,
+        preferMemberDefaults: effectiveActive && !wasMember);
   }
 
   Future<void> applyVerifiedAppleMembership({

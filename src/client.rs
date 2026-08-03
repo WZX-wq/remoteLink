@@ -5179,19 +5179,7 @@ pub mod peer_online {
             {
                 match msg_in.union {
                     Some(rendezvous_message::Union::OnlineResponse(online_response)) => {
-                        let states = online_response.states;
-                        let mut onlines = Vec::new();
-                        let mut offlines = Vec::new();
-                        for i in 0..ids.len() {
-                            // bytes index from left to right
-                            let bit_value = 0x01 << (7 - i % 8);
-                            if (states[i / 8] & bit_value) == bit_value {
-                                onlines.push(ids[i].clone());
-                            } else {
-                                offlines.push(ids[i].clone());
-                            }
-                        }
-                        return Ok((onlines, offlines));
+                        return split_online_states(ids, &online_response.states);
                     }
                     _ => {
                         // ignore
@@ -5206,9 +5194,45 @@ pub mod peer_online {
         bail!("Failed to query online states, no online response");
     }
 
+    fn split_online_states(
+        ids: &[String],
+        states: &[u8],
+    ) -> ResultType<(Vec<String>, Vec<String>)> {
+        let required_state_bytes = ids.len().div_ceil(8);
+        if states.len() < required_state_bytes {
+            bail!(
+                "Online response state bitmap shorter than requested peers: expected at least {}, got {}",
+                required_state_bytes,
+                states.len()
+            );
+        }
+
+        let mut onlines = Vec::new();
+        let mut offlines = Vec::new();
+        for (index, id) in ids.iter().enumerate() {
+            // Bytes index from left to right.
+            let bit_value = 0x01 << (7 - index % 8);
+            if (states[index / 8] & bit_value) == bit_value {
+                onlines.push(id.clone());
+            } else {
+                offlines.push(id.clone());
+            }
+        }
+        Ok((onlines, offlines))
+    }
+
     #[cfg(test)]
     mod tests {
         use hbb_common::tokio;
+
+        #[test]
+        fn short_online_response_is_rejected() {
+            let ids = (0..9).map(|index| index.to_string()).collect::<Vec<_>>();
+
+            let error = super::split_online_states(&ids, &[0b1000_0000]).unwrap_err();
+
+            assert!(error.to_string().contains("shorter than requested peers"));
+        }
 
         #[tokio::test]
         async fn test_query_onlines() {
