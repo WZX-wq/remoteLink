@@ -37,6 +37,20 @@ class KqProjectApi {
   static int get recentHistoryLimit =>
       UserModel.isLocalMemberActiveForCurrentUser ? 50 : 5;
 
+  static void clearAccountLocalState() {
+    _lastSyncAt = null;
+    _lastSyncSignature = '';
+    _lastAccountDeviceSyncAt = null;
+    _deletedRecentPeers = null;
+    for (final key in [
+      _deletedRecentPeerOptionKey,
+      _cachedAccountDevicesOptionKey,
+      _hiddenAccountDevicesOptionKey,
+    ]) {
+      bind.setLocalFlutterOption(k: key, v: '');
+    }
+  }
+
   static Future<void> syncRecentPeers(List<Peer> peers) async {
     if (!isEnabled || peers.isEmpty) return;
     final token = _apiWebToken();

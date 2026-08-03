@@ -326,6 +326,14 @@ class Peers extends ChangeNotifier {
     return peers.length;
   }
 
+  void clear() {
+    peers.clear();
+    restPeerIds.clear();
+    event = UpdateEvent.load;
+    loadGeneration += 1;
+    notifyListeners();
+  }
+
   bool removePeerById(String id, {bool notifyIfMissing = false}) {
     final peerId = kqNormalizePeerId(id);
     if (peerId.isEmpty) {

@@ -55,6 +55,19 @@ test('deployment script preserves iOS account and Apple verification environment
   assert.equal(allVariablesPresent, true);
 });
 
+test('production environment template enables the configured upstream account deletion API', () => {
+  const template = fs.readFileSync(
+    path.resolve(__dirname, '../../docs/kq-production.env.example'),
+    'utf8',
+  );
+
+  assert.equal(configuredValue(template, 'KQ_ACCOUNT_DELETION_MODE'), 'upstream');
+  assert.equal(
+    configuredValue(template, 'KQ_IDENTITY_ACCOUNT_DELETE_URL'),
+    'https://api-web.kunqiongai.com/user/delete_account',
+  );
+});
+
 test('iOS release deployment blocks raw-IP, HTTP, and incomplete StoreKit configuration', () => {
   const script = fs.readFileSync(
     path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),
@@ -64,7 +77,7 @@ test('iOS release deployment blocks raw-IP, HTTP, and incomplete StoreKit config
     'KQ_IOS_RELEASE_MODE',
     'validate_ios_release_server_config()',
     'PUBLIC_HOST must be a DNS hostname, not a raw IP address, for an iOS release deployment',
-    'KQ_ACCOUNT_DELETION_MODE must be upstream',
+    'KQ_ACCOUNT_DELETION_MODE must be upstream or local_project',
     'KQ_APPLE_IAP_ENVIRONMENT must be production',
     'KQ_APPLE_IAP_PRIVATE_KEY_PATH must be an existing /app/data/ path',
     'verify_ios_release_public_api()',

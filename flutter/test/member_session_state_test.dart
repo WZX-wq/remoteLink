@@ -65,6 +65,34 @@ void main() {
     );
   });
 
+  test('membership refresh clears login state when project account was deleted',
+      () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final refreshStart = source.indexOf('  Future<void> refreshMembership({');
+    final refreshEnd =
+        source.indexOf('  Future<http.Response> _postMemberApi(', refreshStart);
+    expect(refreshStart, greaterThanOrEqualTo(0));
+    expect(refreshEnd, greaterThan(refreshStart));
+    final refreshSource = source.substring(refreshStart, refreshEnd);
+
+    expect(source, contains('class _KqDeletedAccountSessionException'));
+    expect(source, contains('response.statusCode == 410'));
+    expect(source, contains('账号已注销，请重新注册后再登录。'));
+    expect(
+      refreshSource,
+      contains('} on _KqDeletedAccountSessionException catch (e) {'),
+    );
+    final deletedStart = refreshSource
+        .indexOf('} on _KqDeletedAccountSessionException catch (e) {');
+    final deletedEnd = refreshSource.indexOf('} catch (e) {', deletedStart);
+    expect(deletedStart, greaterThanOrEqualTo(0));
+    expect(deletedEnd, greaterThan(deletedStart));
+    final deletedHandler = refreshSource.substring(deletedStart, deletedEnd);
+    expect(deletedHandler, contains('await reset();'));
+    expect(deletedHandler, contains('showToast(e.message);'));
+    expect(deletedHandler, contains('return;'));
+  });
+
   test('Apple verification can immediately apply the returned expiry', () {
     final source = File('lib/models/user_model.dart').readAsStringSync();
     final methodStart =

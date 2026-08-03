@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
+import 'package:flutter_hbb/common/kq_secure_login_credentials.dart';
 import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/kq_oauth.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
@@ -29,8 +30,6 @@ const kOpSvgList = [
 bool _isKqOauthCancellation(Object err) =>
     err is KqOauthException && err.message == 'Authorization canceled.';
 
-const _kqNativeLoginAccountKey = 'kq-native-login-account';
-
 String _kqLoginText(String key) {
   if (kqUiPrefersChinese()) return _kqLoginZh[key] ?? translate(key);
   return translate(key);
@@ -38,7 +37,7 @@ String _kqLoginText(String key) {
 
 String _initialKqLoginAccount() {
   final remembered =
-      bind.mainGetLocalOption(key: _kqNativeLoginAccountKey).trim();
+      bind.mainGetLocalOption(key: kKqNativeLoginAccountKey).trim();
   if (remembered.isNotEmpty) {
     return remembered;
   }
@@ -59,7 +58,7 @@ Future<void> _rememberKqNativeLoginAccount(String account) async {
   if (value.isEmpty) {
     return;
   }
-  await bind.mainSetLocalOption(key: _kqNativeLoginAccountKey, value: value);
+  await bind.mainSetLocalOption(key: kKqNativeLoginAccountKey, value: value);
 }
 
 const _kqLoginZh = {
@@ -77,6 +76,7 @@ const _kqLoginZh = {
   'Username / phone / email': '请输入账号 / 手机号 / 邮箱',
   'Password': '密码',
   'Enter your password': '请输入密码',
+  'Remember password': '记住密码',
   'Phone number': '手机号',
   'Enter phone number': '请输入手机号',
   'SMS code': '验证码',
@@ -621,6 +621,7 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
 
   bool _useSms = false;
   bool _passwordVisible = false;
+  bool _rememberPassword = false;
   bool _isSubmitting = false;
   bool _isSendingSms = false;
   int _smsCountdown = 0;
@@ -630,10 +631,31 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
   @override
   void initState() {
     super.initState();
+    _loadRememberedLoginCredentials();
     Timer(const Duration(milliseconds: 220), () {
       if (!mounted) return;
       (_useSms ? _phoneFocusNode : _accountFocusNode).requestFocus();
     });
+  }
+
+  Future<void> _loadRememberedLoginCredentials() async {
+    try {
+      final remembered = await KqSecureLoginCredentials.loadDefault();
+      if (!mounted) return;
+      setState(() {
+        if (remembered.account.isNotEmpty &&
+            (_accountController.text.trim().isEmpty ||
+                remembered.rememberPassword)) {
+          _accountController.text = remembered.account;
+        }
+        if (remembered.rememberPassword) {
+          _passwordController.text = remembered.password;
+          _rememberPassword = true;
+        }
+      });
+    } catch (err) {
+      debugPrint('Failed to load remembered Kunqiong credentials: $err');
+    }
   }
 
   @override
@@ -690,7 +712,11 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
               username: normalizedAccount,
               password: password,
             );
-      await _rememberKqNativeLoginAccount(_useSms ? phone : normalizedAccount);
+      await _persistKqNativeLoginCredentials(
+        account: _useSms ? phone : normalizedAccount,
+        password: _useSms ? '' : password,
+        rememberPassword: !_useSms && _rememberPassword,
+      );
       await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
       await UserModel.updateOtherModels();
       if (!mounted) return;
@@ -702,6 +728,35 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
       if (mounted) {
         setState(() => _isSubmitting = false);
       }
+    }
+  }
+
+  Future<void> _persistKqNativeLoginCredentials({
+    required String account,
+    required String password,
+    required bool rememberPassword,
+  }) async {
+    await _rememberKqNativeLoginAccount(account);
+    try {
+      await KqSecureLoginCredentials().save(
+        account: account,
+        password: password,
+        rememberPassword: rememberPassword,
+      );
+    } catch (err) {
+      debugPrint('Failed to persist Kunqiong login credentials: $err');
+    }
+  }
+
+  void _setRememberPassword(bool value) {
+    if (_rememberPassword == value) return;
+    setState(() => _rememberPassword = value);
+    if (!value) {
+      unawaited(KqSecureLoginCredentials().save(
+        account: _normalizeAccountInput(_accountController.text),
+        password: '',
+        rememberPassword: false,
+      ));
     }
   }
 
@@ -827,6 +882,7 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
                   q: q,
                   useSms: _useSms,
                   passwordVisible: _passwordVisible,
+                  rememberPassword: _rememberPassword,
                   isSubmitting: _isSubmitting,
                   isSendingSms: _isSendingSms,
                   smsCountdown: _smsCountdown,
@@ -844,6 +900,7 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
                   onSendSms: _sendSmsCode,
                   onTogglePassword: () =>
                       setState(() => _passwordVisible = !_passwordVisible),
+                  onRememberPasswordChanged: _setRememberPassword,
                   onRegister: () => _openAccountFlow(_KqAccountFlow.register),
                   onForgotPassword: () =>
                       _openAccountFlow(_KqAccountFlow.resetPassword),
@@ -947,6 +1004,7 @@ class _KqNativeLoginPanel extends StatelessWidget {
   final KqTheme q;
   final bool useSms;
   final bool passwordVisible;
+  final bool rememberPassword;
   final bool isSubmitting;
   final bool isSendingSms;
   final int smsCountdown;
@@ -963,6 +1021,7 @@ class _KqNativeLoginPanel extends StatelessWidget {
   final Future<void> Function() onSubmit;
   final Future<void> Function() onSendSms;
   final VoidCallback onTogglePassword;
+  final ValueChanged<bool> onRememberPasswordChanged;
   final VoidCallback onRegister;
   final VoidCallback onForgotPassword;
 
@@ -970,6 +1029,7 @@ class _KqNativeLoginPanel extends StatelessWidget {
     required this.q,
     required this.useSms,
     required this.passwordVisible,
+    required this.rememberPassword,
     required this.isSubmitting,
     required this.isSendingSms,
     required this.smsCountdown,
@@ -986,6 +1046,7 @@ class _KqNativeLoginPanel extends StatelessWidget {
     required this.onSubmit,
     required this.onSendSms,
     required this.onTogglePassword,
+    required this.onRememberPasswordChanged,
     required this.onRegister,
     required this.onForgotPassword,
   });
@@ -1104,6 +1165,13 @@ class _KqNativeLoginPanel extends StatelessWidget {
                           color: q.muted,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      _KqRememberPasswordRow(
+                        q: q,
+                        value: rememberPassword,
+                        enabled: !isBusy,
+                        onChanged: onRememberPasswordChanged,
+                      ),
                     ],
                   ),
           ),
@@ -1197,6 +1265,60 @@ class _KqNativeLoginPanel extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _KqRememberPasswordRow extends StatelessWidget {
+  final KqTheme q;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _KqRememberPasswordRow({
+    required this.q,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: enabled ? () => onChanged(!value) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 36,
+              height: 36,
+              child: Checkbox(
+                value: value,
+                onChanged:
+                    enabled ? (checked) => onChanged(checked ?? false) : null,
+                activeColor: q.primary,
+                side: BorderSide(color: q.line),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                _kqLoginText('Remember password'),
+                style: TextStyle(
+                  color: enabled ? q.ink : q.muted,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

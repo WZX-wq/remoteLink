@@ -1,0 +1,73 @@
+diff --git a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -101,6 +101,7 @@
+ all_platforms="${all_platforms} arm64-darwin-gcc"
+ all_platforms="${all_platforms} arm64-darwin20-gcc"
+ all_platforms="${all_platforms} arm64-darwin21-gcc"
++all_platforms="${all_platforms} arm64-iphonesimulator-gcc"
+ all_platforms="${all_platforms} arm64-darwin22-gcc"
+ all_platforms="${all_platforms} arm64-darwin23-gcc"
+ all_platforms="${all_platforms} arm64-darwin24-gcc"
+diff --git a/build/make/configure.sh b/build/make/configure.sh
+--- a/build/make/configure.sh
++++ b/build/make/configure.sh
+@@ -996,8 +996,8 @@ process_common_toolchain() {
+       add_ldflags "-arch ${toolchain%%-*}"
+       ;;
+     *-iphonesimulator-*)
+-      add_cflags  "-miphoneos-version-min=${IOS_VERSION_MIN}"
+-      add_ldflags "-miphoneos-version-min=${IOS_VERSION_MIN}"
++      add_cflags  "-mios-simulator-version-min=${IOS_VERSION_MIN}"
++      add_ldflags "-mios-simulator-version-min=${IOS_VERSION_MIN}"
+       iossim_sdk_dir="$(show_darwin_sdk_path iphonesimulator)"
+       if [ -d "${iossim_sdk_dir}" ]; then
+         add_cflags  "-isysroot ${iossim_sdk_dir}"
+@@ -1239,6 +1239,33 @@ process_common_toolchain() {
+           asm_conversion_cmd="${source_path_mk}/build/make/ads2gas_apple.pl"
+           ;;
+
++        iphonesimulator)
++          if ! enabled external_build; then
++            XCRUN_FIND="xcrun --sdk iphonesimulator --find"
++            CXX="$(${XCRUN_FIND} clang++)"
++            CC="$(${XCRUN_FIND} clang)"
++            AR="$(${XCRUN_FIND} ar)"
++            AS="$(${XCRUN_FIND} as)"
++            STRIP="$(${XCRUN_FIND} strip)"
++            AS_SFX=.S
++            LD="${CXX:-$(${XCRUN_FIND} ld)}"
++
++            ASFLAGS="-arch ${tgt_isa} -g"
++            add_cflags -arch ${tgt_isa}
++            add_ldflags -arch ${tgt_isa}
++
++            alt_libc="$(show_darwin_sdk_path iphonesimulator)"
++            if [ -d "${alt_libc}" ]; then
++              add_cflags -isysroot ${alt_libc}
++              add_ldflags -isysroot ${alt_libc}
++            fi
++
++            add_ldflags -mios-simulator-version-min="${IOS_VERSION_MIN}"
++          fi
++
++          asm_conversion_cmd="${source_path_mk}/build/make/ads2gas_apple.pl"
++          ;;
++
+         linux*)
+           enable_feature linux
+           if enabled rvct; then
+@@ -1528,7 +1528,13 @@
+           ;;
+         iphonesimulator)
+           add_asflags -f macho${bits}
+-          enabled x86 && sim_arch="-arch i386" || sim_arch="-arch x86_64"
++          if enabled x86; then
++            sim_arch="-arch i386"
++          elif enabled x86_64; then
++            sim_arch="-arch x86_64"
++          else
++            sim_arch="-arch arm64"
++          fi
+           add_cflags  ${sim_arch}
+           add_ldflags ${sim_arch}

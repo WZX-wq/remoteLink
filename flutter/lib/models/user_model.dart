@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
+import 'package:flutter_hbb/common/kq_secure_login_credentials.dart';
 import 'package:flutter_hbb/common/kq_project_api.dart';
 import 'package:flutter_hbb/common/kq_oauth.dart';
 import 'package:flutter_hbb/common/kq_oauth_payload.dart';
@@ -22,6 +23,15 @@ import 'platform_model.dart';
 import 'remote_video_quality_policy.dart';
 
 bool refreshingUser = false;
+
+class _KqDeletedAccountSessionException implements Exception {
+  const _KqDeletedAccountSessionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 class UserModel {
   static const memberActiveKey = 'kq_member_active';
@@ -264,6 +274,54 @@ class UserModel {
     userName.value = '';
     displayName.value = '';
     avatar.value = '';
+    isAdmin.value = false;
+  }
+
+  Future<void> clearLocalAccountDataAfterDeletion() async {
+    try {
+      if (KqOauth.isActive) {
+        await KqOauth.logout();
+      }
+      final peerIds = <String>{
+        ...parent.target?.recentPeersModel.peers.map((peer) => peer.id) ??
+            const [],
+        ...parent.target?.recentPeersModel.restPeerIds ?? const [],
+        ...parent.target?.favoritePeersModel.peers.map((peer) => peer.id) ??
+            const [],
+        ...parent.target?.favoritePeersModel.restPeerIds ?? const [],
+      };
+      try {
+        final allPeers =
+            await bind.mainLoadRecentPeersForAb(filter: jsonEncode(const []));
+        final decoded = allPeers.isEmpty ? null : jsonDecode(allPeers);
+        if (decoded is List) {
+          peerIds.addAll(decoded
+              .whereType<Map>()
+              .map((peer) => (peer['id'] ?? '').toString()));
+        }
+      } catch (error) {
+        debugPrint('Failed to load all peers while deleting account: $error');
+      }
+      for (final peerId in peerIds
+          .map((id) => id.replaceAll(RegExp(r'\s+'), '').trim())
+          .where((id) => id.isNotEmpty)) {
+        try {
+          await bind.mainRemovePeer(id: peerId);
+        } catch (error) {
+          debugPrint('Failed to remove local peer $peerId: $error');
+        }
+      }
+      await bind.mainStoreFav(favs: const []);
+      KqProjectApi.clearAccountLocalState();
+    } catch (error) {
+      debugPrint('Failed to clear optional local account data: $error');
+    } finally {
+      parent.target?.recentPeersModel.clear();
+      parent.target?.favoritePeersModel.clear();
+      memberPackages.clear();
+      await KqSecureLoginCredentials.clearDefault();
+      await reset(resetOther: true);
+    }
   }
 
   Future<void> _parseAndUpdateUser(UserPayload user) async {
@@ -623,6 +681,14 @@ class UserModel {
           }
           await _applyMemberInfo(data, shouldApply: isCurrentRefresh);
           return;
+        } on _KqDeletedAccountSessionException catch (e) {
+          if (isCurrentRefresh()) {
+            await reset();
+            if (showError) {
+              showToast(e.message);
+            }
+          }
+          return;
         } catch (e) {
           allCredentialsRejected = false;
           lastError = e;
@@ -739,6 +805,20 @@ class UserModel {
             headers: _projectApiHeaders(token),
           )
           .timeout(const Duration(seconds: 6));
+      if (response.statusCode == 410) {
+        var message = '账号已注销，请重新注册后再登录。';
+        try {
+          final body = jsonDecode(decode_http_response(response));
+          if (body is Map) {
+            message =
+                (body['error'] ?? body['message'] ?? body['msg'] ?? message)
+                    .toString();
+          }
+        } catch (_) {
+          // Keep the explicit deleted-account fallback message.
+        }
+        throw _KqDeletedAccountSessionException(message);
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return null;
       }
@@ -747,6 +827,7 @@ class UserModel {
         return body['member'] as Map;
       }
     } catch (e) {
+      if (e is _KqDeletedAccountSessionException) rethrow;
       debugPrint('KQ project API member refresh fallback: $e');
     }
     return null;

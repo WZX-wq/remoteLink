@@ -21,7 +21,6 @@ KQ_RUNTIME_OVERRIDE_NAMES=(
 capture_runtime_overrides() {
   local name value_name set_name
   for name in "${KQ_RUNTIME_OVERRIDE_NAMES[@]}"; do
-    [[ -v "${name}" ]] || continue
     [[ -n "${!name:-}" ]] || continue
     value_name="KQ_RUNTIME_OVERRIDE_${name}"
     set_name="KQ_RUNTIME_OVERRIDE_SET_${name}"
@@ -123,11 +122,17 @@ validate_ios_release_server_config() {
     return 1
   fi
   require_https_url KQ_PUBLIC_API_URL
-  require_https_url KQ_IDENTITY_ACCOUNT_DELETE_URL
-  if [[ "${KQ_ACCOUNT_DELETION_MODE:-}" != "upstream" ]]; then
-    echo "KQ_ACCOUNT_DELETION_MODE must be upstream for an iOS release deployment." >&2
-    return 1
-  fi
+  case "${KQ_ACCOUNT_DELETION_MODE:-local_project}" in
+    upstream)
+      require_https_url KQ_IDENTITY_ACCOUNT_DELETE_URL
+      ;;
+    local_project|disabled|"")
+      ;;
+    *)
+      echo "KQ_ACCOUNT_DELETION_MODE must be upstream or local_project for an iOS release deployment." >&2
+      return 1
+      ;;
+  esac
   if [[ "${KQ_APPLE_IAP_ENVIRONMENT:-}" != "production" ]]; then
     echo "KQ_APPLE_IAP_ENVIRONMENT must be production for an iOS release deployment." >&2
     return 1

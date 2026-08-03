@@ -6,6 +6,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
+  test('account deletion has a production endpoint when Dart define is omitted',
+      () {
+    expect(
+      KqAccountDeletionApi.endpointUrl,
+      'https://remotelink.kunqiongai.com/kq-api/api/auth/account/delete',
+    );
+    expect(KqAccountDeletionApi.fromEnvironment().isConfigured, isTrue);
+  });
+
   test('account deletion requires a logged-in token and confirmation',
       () async {
     final api = KqAccountDeletionApi(
@@ -49,6 +58,43 @@ void main() {
     expect(result.message, 'Deletion request received.');
   });
 
+  test('account deletion treats upstream deleted response as completed',
+      () async {
+    Uri? sentUri;
+    Map<String, String>? sentHeaders;
+    String? sentBody;
+    final api = KqAccountDeletionApi(
+      endpoint: Uri.parse('https://api.example.com/account/delete'),
+      post: (uri, headers, body) async {
+        sentUri = uri;
+        sentHeaders = headers;
+        sentBody = body;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'success': true,
+            'status': 'deleted',
+            'message': '账号已注销',
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      },
+    );
+
+    final result = await api.requestDeletion(
+      token: 'access-token',
+      confirmation: 'DELETE',
+    );
+
+    expect(sentUri.toString(), 'https://api.example.com/account/delete');
+    expect(sentHeaders?['Authorization'], 'Bearer access-token');
+    expect(sentHeaders?['Content-Type'], 'application/json');
+    expect(sentHeaders?['Accept'], 'application/json');
+    expect(jsonDecode(sentBody!), <String, dynamic>{'confirmation': 'DELETE'});
+    expect(result.pending, isFalse);
+    expect(result.message, '账号已注销');
+  });
+
   test('account deletion surfaces a server message', () async {
     final api = KqAccountDeletionApi(
       endpoint: Uri.parse('https://api.example.com/account/delete'),
@@ -76,5 +122,34 @@ void main() {
 
     expect(source, contains('AccountDeletionPage'));
     expect(source, contains('Delete account'));
+  });
+
+  test('successful deletion clears all account-scoped local data', () {
+    final page =
+        File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();
+    final userModel = File('lib/models/user_model.dart').readAsStringSync();
+    final projectApi =
+        File('lib/common/kq_project_api.dart').readAsStringSync();
+
+    expect(page, contains('clearLocalAccountDataAfterDeletion()'));
+    expect(page, isNot(contains('await gFFI.userModel.logOut();')));
+    expect(userModel,
+        contains('Future<void> clearLocalAccountDataAfterDeletion()'));
+    expect(userModel, contains('await KqOauth.logout();'));
+    expect(userModel,
+        contains('if (e is _KqDeletedAccountSessionException) rethrow;'));
+    expect(userModel, contains('mainLoadRecentPeersForAb'));
+    expect(userModel, contains('await bind.mainRemovePeer(id: peerId);'));
+    expect(userModel, contains('await bind.mainStoreFav(favs: const []);'));
+    expect(userModel, contains('KqProjectApi.clearAccountLocalState();'));
+    expect(userModel, contains('recentPeersModel.clear();'));
+    expect(userModel, contains('favoritePeersModel.clear();'));
+    expect(userModel, contains('memberPackages.clear();'));
+    expect(userModel, contains('await reset(resetOther: true);'));
+    expect(userModel, contains('} finally {'));
+    expect(projectApi, contains('static void clearAccountLocalState()'));
+    expect(projectApi, contains('_cachedAccountDevicesOptionKey'));
+    expect(projectApi, contains('_hiddenAccountDevicesOptionKey'));
+    expect(projectApi, contains('_deletedRecentPeerOptionKey'));
   });
 }

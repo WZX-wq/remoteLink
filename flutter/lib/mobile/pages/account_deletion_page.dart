@@ -57,7 +57,7 @@ class _AccountDeletionPageState extends State<AccountDeletionPage> {
         confirmation: _confirmationController.text,
       );
       if (!mounted) return;
-      await gFFI.userModel.logOut();
+      await gFFI.userModel.clearLocalAccountDataAfterDeletion();
       if (!mounted) return;
       Navigator.of(context).pop();
       showToast(

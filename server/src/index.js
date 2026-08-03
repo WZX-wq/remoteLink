@@ -11,6 +11,7 @@ import {
   verifyAlipaySignature,
 } from './alipay.js';
 import {
+  accountDeletionBlocksLogin,
   normalizeAccountDeletionMode,
   submitAccountDeletion,
 } from './account-deletion.js';
@@ -1286,7 +1287,9 @@ function clearCachedIdentityContext(tokenHash) {
 }
 
 async function assertAccountDeletionDoesNotBlock(user) {
-  if (config.accountDeletion.mode === 'local_test') return;
+  if (!accountDeletionBlocksLogin(config.accountDeletion.mode)) {
+    return;
+  }
   const [rows] = await pool.execute(
     `
       SELECT status
@@ -1300,7 +1303,7 @@ async function assertAccountDeletionDoesNotBlock(user) {
   );
   if (rows.length) {
     throw Object.assign(
-      new Error('This account has a pending deletion request.'),
+      new Error('账号已注销，请重新注册后再登录。'),
       { statusCode: 410 },
     );
   }
@@ -1325,14 +1328,14 @@ async function loadUserIdentityContextForToken(
   const refreshPromise = (async () => {
     const userInfo = await postApiWeb('user_all_info', token);
     const user = normalizeUserPayload(userInfo, token);
+    if (!allowPendingDeletion) {
+      await assertAccountDeletionDoesNotBlock(user);
+    }
     const dbUser = await upsertUserIdentity({
       ...user,
       tokenHash,
     });
     await mergeLegacyAccountRowsForUser(dbUser, user);
-    if (!allowPendingDeletion) {
-      await assertAccountDeletionDoesNotBlock(dbUser);
-    }
     const ctx = { token, user: dbUser, userInfo };
     cacheIdentityContext(tokenHash, ctx);
     return ctx;
@@ -1396,7 +1399,8 @@ async function loadUserIdentityContext(req, options = {}) {
 }
 
 async function recordAccountDeletionRequest(ctx, outcome) {
-  const requestScope = outcome.localOnly ? 'local_test' : 'identity_service';
+  const requestScope =
+    outcome.requestScope || (outcome.localOnly ? 'local_test' : 'identity_service');
   await pool.execute(
     `
       INSERT INTO kq_account_deletion_requests (
@@ -1427,7 +1431,56 @@ async function recordAccountDeletionRequest(ctx, outcome) {
 }
 
 async function deleteLocalProjectAccount(userId) {
+  await pool.execute('DELETE FROM kq_apple_subscription_owners WHERE user_id = ?', [userId]);
   await pool.execute('DELETE FROM kq_users WHERE id = ?', [userId]);
+}
+
+async function cleanupDeletedAccountRebuilds() {
+  if (!accountDeletionBlocksLogin(config.accountDeletion.mode)) {
+    return;
+  }
+  const [orphanOwnerResult] = await pool.execute(
+    `
+      DELETE subscription_owner
+      FROM kq_apple_subscription_owners AS subscription_owner
+      LEFT JOIN kq_users AS owner_user
+        ON owner_user.id = subscription_owner.user_id
+      WHERE owner_user.id IS NULL
+    `,
+  );
+  const [deletedAccountOwnerResult] = await pool.execute(
+    `
+      DELETE subscription_owner
+      FROM kq_apple_subscription_owners AS subscription_owner
+      INNER JOIN kq_users AS deleted_user
+        ON deleted_user.id = subscription_owner.user_id
+      INNER JOIN kq_account_deletion_requests AS deletion
+        ON deletion.external_provider = deleted_user.external_provider
+        AND deletion.external_user_id = deleted_user.external_user_id
+      WHERE deletion.status IN ('pending', 'processing', 'deleted')
+        AND deletion.request_scope IN ('project_account', 'identity_service')
+    `,
+  );
+  const [userResult] = await pool.execute(
+    `
+      DELETE deleted_user
+      FROM kq_users AS deleted_user
+      INNER JOIN kq_account_deletion_requests AS deletion
+        ON deletion.external_provider = deleted_user.external_provider
+        AND deletion.external_user_id = deleted_user.external_user_id
+      WHERE deletion.status IN ('pending', 'processing', 'deleted')
+        AND deletion.request_scope IN ('project_account', 'identity_service')
+    `,
+  );
+  const deletedUsers = Number(userResult.affectedRows || 0);
+  const deletedOwners =
+    Number(orphanOwnerResult.affectedRows || 0) +
+    Number(deletedAccountOwnerResult.affectedRows || 0);
+  if (deletedUsers || deletedOwners) {
+    console.warn(
+      `KQ_ACCOUNT_DELETION cleanup removed recreated_users=${deletedUsers} subscription_owners=${deletedOwners}`,
+    );
+  }
 }
 
 async function ensureDatabase() {
@@ -1621,6 +1674,8 @@ async function ensureDatabase() {
       KEY idx_apple_subscription_owner_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await cleanupDeletedAccountRebuilds();
 }
 
 async function upsertUser(user) {

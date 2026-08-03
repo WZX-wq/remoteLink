@@ -7,11 +7,18 @@ export class AccountDeletionError extends Error {
 }
 
 export function normalizeAccountDeletionMode(value) {
-  const mode = String(value || 'disabled').trim().toLowerCase();
-  if (mode === 'local_test' || mode === 'upstream' || mode === 'disabled') {
+  const mode = String(value || 'local_project').trim().toLowerCase();
+  if (mode === 'local_test' || mode === 'local_project' || mode === 'upstream') {
     return mode;
   }
-  return 'disabled';
+  if (mode === 'disabled') {
+    return 'local_project';
+  }
+  return 'local_project';
+}
+
+export function accountDeletionBlocksLogin(mode) {
+  return normalizeAccountDeletionMode(mode) !== 'local_test';
 }
 
 function readMessage(body, fallback) {
@@ -47,12 +54,27 @@ export async function submitAccountDeletion({
       statusCode: 202,
       message: 'Test environment deletion request accepted.',
       localOnly: true,
+      requestScope: 'local_test',
+    };
+  }
+  if (normalizedMode === 'local_project') {
+    return {
+      status: 'deleted',
+      statusCode: 200,
+      message: 'Account deleted.',
+      localOnly: false,
+      requestScope: 'project_account',
     };
   }
   if (normalizedMode !== 'upstream') {
     throw new AccountDeletionError('Account deletion is not configured on the server.', 503);
   }
-  const target = new URL(String(upstreamUrl || '').trim());
+  let target;
+  try {
+    target = new URL(String(upstreamUrl || '').trim());
+  } catch (_) {
+    throw new AccountDeletionError('Account deletion service must use HTTPS.', 503);
+  }
   if (target.protocol !== 'https:') {
     throw new AccountDeletionError('Account deletion service must use HTTPS.', 503);
   }
@@ -97,5 +119,6 @@ export async function submitAccountDeletion({
     statusCode: response.status === 202 || status !== 'deleted' ? 202 : 200,
     message,
     localOnly: false,
+    requestScope: 'identity_service',
   };
 }

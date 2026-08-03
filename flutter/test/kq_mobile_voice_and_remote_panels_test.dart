@@ -72,6 +72,22 @@ void main() {
     expect(options, isNot(contains('getRadio<String>(')));
   });
 
+  test(
+      'virtual display action is disabled until driver installation is reliable',
+      () {
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+    final start = toolbar.indexOf('bool showVirtualDisplayMenu(FFI ffi)');
+    final end =
+        toolbar.indexOf('List<Widget> getVirtualDisplayMenuChildren', start);
+
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final menuGate = toolbar.substring(start, end);
+    expect(menuGate, contains('return false;'));
+    expect(menuGate, isNot(contains('isRustDeskIdd')));
+    expect(menuGate, isNot(contains('isAmyuniIdd')));
+  });
+
   test('mobile more and display actions are backed by session APIs', () {
     final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
     final page = File('lib/mobile/pages/remote_page.dart').readAsStringSync();

@@ -24,7 +24,7 @@ void main() {
     expect(source, isNot(contains('value: _localUserPhoneNumber()')));
   });
 
-  test('mobile account header shows only the masked username', () {
+  test('mobile account header shows the full username without ellipsis', () {
     final source = _readAccountPage();
     final homeStart = source.indexOf('return ListView(');
     final homeEnd = source.indexOf('class _MineToolbar', homeStart);
@@ -37,13 +37,27 @@ void main() {
 
     final home = source.substring(homeStart, homeEnd);
     final header = source.substring(headerStart, headerEnd);
-    expect(home, contains('title: isLogin ? _kqPrivacyAccountLabel(user)'));
-    expect(home, isNot(contains('_kqPrivacyDisplayName(user)')));
+    expect(
+      home,
+      contains(
+          'title: isLogin ? user.userName.value.trim() : translate(\'Login\')'),
+    );
+    expect(
+        home, isNot(contains('title: isLogin ? _kqPrivacyAccountLabel(user)')));
     expect(home, contains('subtitle: isLogin'));
     expect(home, contains('? null'));
     expect(header, contains('final String? subtitle;'));
     expect(
         header, contains('if (subtitle != null && subtitle!.isNotEmpty) ...['));
+
+    final titleStart = header.indexOf('Text(\n                      title,');
+    final titleEnd = header.indexOf('const SizedBox(height: 6),', titleStart);
+    expect(titleStart, greaterThanOrEqualTo(0));
+    expect(titleEnd, greaterThan(titleStart));
+    final title = header.substring(titleStart, titleEnd);
+    expect(title, contains('maxLines: 2'));
+    expect(title, contains('overflow: TextOverflow.visible'));
+    expect(title, isNot(contains('TextOverflow.ellipsis')));
   });
 
   test('membership banner shows the current account expiry without raw data',

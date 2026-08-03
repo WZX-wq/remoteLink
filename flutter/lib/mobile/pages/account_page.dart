@@ -793,7 +793,7 @@ class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
           const SizedBox(height: 22),
           _ProfileHeader(
             avatar: avatar,
-            title: isLogin ? _kqPrivacyAccountLabel(user) : translate('Login'),
+            title: isLogin ? user.userName.value.trim() : translate('Login'),
             subtitle: isLogin
                 ? null
                 : translate(
@@ -928,45 +928,39 @@ class _ProfileHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: q.ink,
-                              fontSize: 23,
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
-                            ),
-                          ),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.visible,
+                      style: TextStyle(
+                        color: q.ink,
+                        fontSize: 23,
+                        fontWeight: FontWeight.w900,
+                        height: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: badgeColor.withOpacity(0.26),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: badgeColor.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: badgeColor.withOpacity(0.26),
-                            ),
-                          ),
-                          child: Text(
-                            isMember ? 'VIP' : badge,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: badgeColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                              height: 1,
-                            ),
-                          ),
+                      ),
+                      child: Text(
+                        isMember ? 'VIP' : badge,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: badgeColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          height: 1,
                         ),
-                      ],
+                      ),
                     ),
                     if (subtitle != null && subtitle!.isNotEmpty) ...[
                       const SizedBox(height: 6),

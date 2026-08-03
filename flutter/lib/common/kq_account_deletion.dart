@@ -46,7 +46,12 @@ class KqAccountDeletionApi {
   })  : _endpoint = endpoint,
         _post = post;
 
-  static const endpointUrl = String.fromEnvironment('KQ_ACCOUNT_DELETE_URL');
+  static const defaultEndpointUrl =
+      'https://remotelink.kunqiongai.com/kq-api/api/auth/account/delete';
+  static const endpointUrl = String.fromEnvironment(
+    'KQ_ACCOUNT_DELETE_URL',
+    defaultValue: defaultEndpointUrl,
+  );
 
   factory KqAccountDeletionApi.fromEnvironment() {
     final parsed = Uri.tryParse(endpointUrl.trim());
