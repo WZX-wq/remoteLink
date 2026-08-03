@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   AccountDeletionError,
+  accountDeletionIdentity,
   accountDeletionBlocksLogin,
   normalizeAccountDeletionMode,
   submitAccountDeletion,
@@ -22,6 +23,29 @@ test('project account deletion blocks future automatic login rebuilds', () => {
   assert.equal(accountDeletionBlocksLogin('disabled'), true);
   assert.equal(accountDeletionBlocksLogin('upstream'), true);
   assert.equal(accountDeletionBlocksLogin('local_test'), false);
+});
+
+test('deletion lookup accepts normalized and persisted user identities', () => {
+  assert.deepEqual(
+    accountDeletionIdentity({
+      externalUserId: 'upstream-user-1',
+    }),
+    {
+      externalProvider: 'kunqiong',
+      externalUserId: 'upstream-user-1',
+    },
+  );
+  assert.deepEqual(
+    accountDeletionIdentity({
+      external_provider: 'kunqiong',
+      external_user_id: 'database-user-1',
+    }),
+    {
+      externalProvider: 'kunqiong',
+      externalUserId: 'database-user-1',
+    },
+  );
+  assert.equal(accountDeletionIdentity({}), null);
 });
 
 test('identity login checks deletion tombstone before recreating a local user', () => {

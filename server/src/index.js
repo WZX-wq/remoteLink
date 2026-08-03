@@ -11,6 +11,7 @@ import {
   verifyAlipaySignature,
 } from './alipay.js';
 import {
+  accountDeletionIdentity,
   accountDeletionBlocksLogin,
   normalizeAccountDeletionMode,
   submitAccountDeletion,
@@ -1290,6 +1291,10 @@ async function assertAccountDeletionDoesNotBlock(user) {
   if (!accountDeletionBlocksLogin(config.accountDeletion.mode)) {
     return;
   }
+  const identity = accountDeletionIdentity(user);
+  if (!identity) {
+    return;
+  }
   const [rows] = await pool.execute(
     `
       SELECT status
@@ -1299,7 +1304,7 @@ async function assertAccountDeletionDoesNotBlock(user) {
         AND status IN ('pending', 'processing', 'deleted')
       LIMIT 1
     `,
-    [user.external_provider, user.external_user_id],
+    [identity.externalProvider, identity.externalUserId],
   );
   if (rows.length) {
     throw Object.assign(

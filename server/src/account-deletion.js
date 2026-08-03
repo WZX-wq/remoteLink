@@ -21,6 +21,17 @@ export function accountDeletionBlocksLogin(mode) {
   return normalizeAccountDeletionMode(mode) !== 'local_test';
 }
 
+export function accountDeletionIdentity(user) {
+  const externalProvider = String(
+    user?.externalProvider ?? user?.external_provider ?? 'kunqiong',
+  ).trim() || 'kunqiong';
+  const externalUserId = String(
+    user?.externalUserId ?? user?.external_user_id ?? '',
+  ).trim();
+  if (!externalUserId) return null;
+  return { externalProvider, externalUserId };
+}
+
 function readMessage(body, fallback) {
   if (!body || typeof body !== 'object') return fallback;
   for (const key of ['message', 'msg', 'error']) {
