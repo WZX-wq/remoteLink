@@ -474,6 +474,9 @@ class App extends StatefulWidget {
 }
 
 class _AppState extends State<App> with WidgetsBindingObserver {
+  Timer? _membershipRefreshTimer;
+  bool _appIsActive = true;
+
   @override
   void initState() {
     super.initState();
@@ -498,13 +501,45 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       }
     };
     WidgetsBinding.instance.addObserver(this);
+    _membershipRefreshTimer = Timer.periodic(
+      const Duration(seconds: 45),
+      (_) => unawaited(_refreshMembershipIfNeeded('periodic')),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateOrientation());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _membershipRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _appIsActive = true;
+      unawaited(_refreshMembershipIfNeeded('resume'));
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _appIsActive = false;
+    }
+  }
+
+  Future<void> _refreshMembershipIfNeeded(String reason) async {
+    if (!_appIsActive ||
+        !gFFI.userModel.isLogin ||
+        gFFI.userModel.isRefreshingMembership.value) {
+      return;
+    }
+    try {
+      await gFFI.userModel.refreshMembership(keepExistingOnFailure: true);
+    } catch (error, stackTrace) {
+      debugPrint('Membership refresh after $reason failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   @override

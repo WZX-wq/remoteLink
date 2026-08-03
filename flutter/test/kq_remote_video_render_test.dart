@@ -116,7 +116,7 @@ void main() {
     );
   });
 
-  testWidgets('standard quality is visibly rendered as SD on the viewer',
+  testWidgets('standard quality is rendered without artificial blur',
       (tester) async {
     await tester.pumpWidget(const Directionality(
       textDirection: TextDirection.ltr,
@@ -127,9 +127,8 @@ void main() {
       ),
     ));
 
-    expect(kqStandardRemoteBlurSigma, greaterThan(0));
-    expect(find.byType(ImageFiltered), findsOneWidget);
-    expect(find.byType(ClipRect), findsOneWidget);
+    expect(find.byType(ImageFiltered), findsNothing);
+    expect(find.byType(ClipRect), findsNothing);
     expect(find.byType(Stack), findsNothing);
     expect(find.byType(BackdropFilter), findsNothing);
     expect(find.byKey(const Key('standard-video')), findsOneWidget);
@@ -179,7 +178,7 @@ void main() {
     expect(yuvHeader, contains('scale_argb.h'));
   });
 
-  test('Windows blur stays outside the Android video widget', () {
+  test('KQ video presentation does not add artificial blur', () {
     final desktop =
         File('lib/desktop/pages/remote_page.dart').readAsStringSync();
     final desktopStart =
@@ -207,9 +206,9 @@ void main() {
     expect(mobileImagePaint, isNot(contains('KqRemoteQualityPresentation(')));
     expect(mobileImagePaint, isNot(contains('ImageFiltered(')));
     expect(mobileImagePaint, isNot(contains('BackdropFilter(')));
-    expect(mobileImagePaint, contains('blurSigma:'));
+    expect(mobileImagePaint, isNot(contains('blurSigma:')));
     expect(mobileImagePaint, contains('remoteResolutionSelection'));
-    expect(mobileImagePaint, contains('kqStandardRemoteBlurSigma'));
+    expect(mobileImagePaint, isNot(contains('kqStandardRemoteBlurSigma')));
 
     expect(
       File('lib/common/widgets/kq_remote_quality_presentation.dart')

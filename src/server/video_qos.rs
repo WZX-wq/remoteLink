@@ -687,3 +687,16 @@ impl RttCalculator {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::kq_scaled_dimensions;
+
+    #[test]
+    fn kq_quality_profiles_scale_encoder_frames_without_touching_display_size() {
+        assert_eq!(kq_scaled_dimensions(1920, 1080, 480), (852, 480));
+        assert_eq!(kq_scaled_dimensions(1920, 1080, 1080), (1920, 1080));
+        assert_eq!(kq_scaled_dimensions(1280, 720, 480), (852, 480));
+        assert_eq!(kq_scaled_dimensions(1280, 720, 1080), (1280, 720));
+    }
+}

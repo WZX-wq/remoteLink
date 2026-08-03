@@ -21,7 +21,6 @@ import '../../models/input_model.dart';
 import '../../models/mobile_remote_layout_policy.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
-import '../../models/remote_video_quality_policy.dart';
 import '../../models/user_model.dart';
 import '../../utils/image.dart';
 import '../widgets/custom_scale_widget.dart';
@@ -1367,7 +1366,6 @@ class ImagePaint extends StatelessWidget {
     final adjust = c.getAdjustY();
     final isStandardTier = gFFI.userModel.remoteResolutionSelection ==
         UserModel.remoteResolution720p;
-    final blurSigma = isStandardTier ? kqStandardRemoteBlurSigma : 0.0;
     return SizedBox.expand(
       child: CustomPaint(
         painter: ImagePainter(
@@ -1379,7 +1377,6 @@ class ImagePaint extends StatelessWidget {
             s,
             isStandardTier: isStandardTier,
           ),
-          blurSigma: blurSigma,
           targetWidth: c.getDisplayWidth().toDouble(),
           targetHeight: c.getDisplayHeight().toDouble(),
           onPaint: () => onPaint?.call(m),

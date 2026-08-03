@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/main.dart';
 import 'package:flutter_hbb/mobile/pages/settings_page.dart';
@@ -19,6 +20,7 @@ import '../mobile/pages/server_page.dart';
 import 'model.dart';
 
 const kLoginDialogTag = "LOGIN";
+const _kqIOSVoiceCallChannel = MethodChannel('mChannel');
 
 const kUseTemporaryPassword = "use-temporary-password";
 const kUsePermanentPassword = "use-permanent-password";
@@ -1098,9 +1100,51 @@ class ServerModel with ChangeNotifier {
     );
   }
 
-  handleVoiceCall(Client client, bool accept) {
+  Future<void> handleVoiceCall(Client client, bool accept) async {
     parent.target?.invokeMethod("cancel_notification", client.id);
-    bind.cmHandleIncomingVoiceCall(id: client.id, accept: accept);
+    if (isIOS) {
+      try {
+        final pending = await _kqIOSVoiceCallChannel
+            .invokeMethod<Map<dynamic, dynamic>>('get_pending_ios_voice_call');
+        final requestId = pending?['requestId']?.toString().trim() ?? '';
+        if (requestId.isEmpty) {
+          showToast(translate('The voice call invitation has expired'));
+          return;
+        }
+        final responded = await _kqIOSVoiceCallChannel.invokeMethod<bool>(
+          'respond_to_ios_voice_call',
+          {'requestId': requestId, 'accepted': accept},
+        );
+        if (responded != true) {
+          showToast(
+              translate('The voice call invitation is no longer available'));
+        }
+      } on PlatformException catch (error) {
+        debugPrint('Failed to respond to iOS voice call: $error');
+        showToast(translate('Unable to respond to the voice call'));
+      }
+      return;
+    }
+    await bind.cmHandleIncomingVoiceCall(id: client.id, accept: accept);
+  }
+
+  Future<void> closeVoiceCall(Client client) async {
+    parent.target?.invokeMethod("cancel_notification", client.id);
+    if (isIOS) {
+      try {
+        final ended = await _kqIOSVoiceCallChannel
+                .invokeMethod<bool>('end_ios_voice_call') ??
+            false;
+        if (!ended) {
+          showToast(translate('The voice call has already ended'));
+        }
+      } on PlatformException catch (error) {
+        debugPrint('Failed to end iOS voice call: $error');
+        showToast(translate('Unable to end the voice call'));
+      }
+      return;
+    }
+    await bind.cmCloseVoiceCall(id: client.id);
   }
 
   showVoiceCallDialog(Client client) {

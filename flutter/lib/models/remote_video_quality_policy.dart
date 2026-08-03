@@ -2,7 +2,6 @@ const int kqStandardRemoteStreamQuality = 35;
 const int kqHighDefinitionRemoteStreamQuality = 150;
 const int kqStandardRemoteMaxFrameHeight = 480;
 const int kqHighDefinitionRemoteMaxFrameHeight = 1080;
-const double kqStandardRemoteBlurSigma = 0.9;
 
 int kqRemoteStreamQuality({required bool highDefinition}) {
   return highDefinition

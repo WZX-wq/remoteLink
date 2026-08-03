@@ -1391,12 +1391,7 @@ class FfiModel with ChangeNotifier {
       if (waitForFirstImage.isTrue &&
           !isRefreshing &&
           parent.target?.closed != true) {
-        if (appName == '鲲穹远程桌面' && isDesktop && !isWeb) {
-          _notifyConnectionFailureAndClose(
-              'error', 'Connection Error', 'KQ_VIDEO_FIRST_FRAME_TIMEOUT');
-        } else {
-          _showWaitingForImageTimeout(dialogManager, sessionId);
-        }
+        _showWaitingForImageTimeout(dialogManager, sessionId);
       }
     });
     bind.sessionOnWaitingForImageDialogShow(sessionId: sessionId);

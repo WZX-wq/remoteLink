@@ -473,7 +473,7 @@ class _ConnectionPageState extends State<ConnectionPage>
       bool isViewCamera = false,
       bool isTerminal = false}) {
     var id = _idController.id;
-    final password = _passwordController.text.trim().toLowerCase();
+    final password = _passwordController.text.trim();
     connect(context, id,
         isFileTransfer: isFileTransfer,
         isViewCamera: isViewCamera,

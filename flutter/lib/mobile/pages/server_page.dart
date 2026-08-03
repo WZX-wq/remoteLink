@@ -2562,10 +2562,11 @@ class ConnectionManager extends StatelessWidget {
               prompt: clients[i].authorized
                   ? null
                   : translate("android_new_connection_tip"),
-              voiceCallPrompt:
-                  clients[i].incomingVoiceCall && !clients[i].inVoiceCall
-                      ? _buildNewVoiceCallHint(context, serverModel, clients[i])
-                      : const [],
+              voiceCallPrompt: !isIOS &&
+                      clients[i].incomingVoiceCall &&
+                      !clients[i].inVoiceCall
+                  ? _buildNewVoiceCallHint(context, serverModel, clients[i])
+                  : const [],
             ),
           ],
         ],
@@ -2603,7 +2604,7 @@ class ConnectionManager extends StatelessWidget {
           icon: const Icon(Icons.phone_disabled_rounded, size: 18),
           label: Text(translate("Stop")),
           onPressed: () {
-            bind.cmCloseVoiceCall(id: client.id);
+            unawaited(gFFI.serverModel.closeVoiceCall(client));
             gFFI.invokeMethod("cancel_notification", client.id);
           },
         ),

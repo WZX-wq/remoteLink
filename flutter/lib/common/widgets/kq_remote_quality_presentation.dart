@@ -1,8 +1,4 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/widgets.dart';
-
-import '../../models/remote_video_quality_policy.dart';
 
 class KqRemoteQualityPresentation extends StatelessWidget {
   const KqRemoteQualityPresentation({
@@ -18,20 +14,6 @@ class KqRemoteQualityPresentation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isStandardTier ||
-        streamQuality != kqStandardRemoteStreamQuality ||
-        kqStandardRemoteBlurSigma <= 0) {
-      return child;
-    }
-    return ClipRect(
-      child: ImageFiltered(
-        imageFilter: ui.ImageFilter.blur(
-          sigmaX: kqStandardRemoteBlurSigma,
-          sigmaY: kqStandardRemoteBlurSigma,
-          tileMode: TileMode.clamp,
-        ),
-        child: child,
-      ),
-    );
+    return child;
   }
 }

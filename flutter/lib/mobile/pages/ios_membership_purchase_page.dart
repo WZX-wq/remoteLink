@@ -391,15 +391,26 @@ class _IosMembershipPackageTile extends StatelessWidget {
     final packageName = package?.displayName ??
         product?.title ??
         text('鲲穹会员', 'Kunqiong Membership');
-    final durationLabel =
-        package?.durationLabel ?? text('自动续订套餐', 'Auto-renewing plan');
+    final memberPackage = package;
+    final isLifetime = (memberPackage?.days ?? 0) >= 999999 ||
+        (product?.id.endsWith('.lifetime') ?? false);
+    final durationLabel = memberPackage == null
+        ? text('自动续订套餐', 'Auto-renewing plan')
+        : isLifetime
+            ? text('永久有效', 'Lifetime')
+            : memberPackage.durationLabel;
     final subtitle = unavailable
         ? text('Apple 暂未返回此套餐，请稍后重新获取。',
             'Apple has not made this plan available yet. Reload later.')
-        : text(
-            '自动续订。开通后可使用 1080p 高清 / 60 FPS 远程控制。',
-            'Auto-renews. Unlock 1080p HD / 60 FPS remote control.',
-          );
+        : isLifetime
+            ? text(
+                '一次性购买，永久有效。开通后可使用 1080p 高清 / 60 FPS 远程控制。',
+                'One-time purchase with permanent access. Unlock 1080p HD / 60 FPS remote control.',
+              )
+            : text(
+                '自动续订。开通后可使用 1080p 高清 / 60 FPS 远程控制。',
+                'Auto-renews. Unlock 1080p HD / 60 FPS remote control.',
+              );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(

@@ -12,7 +12,7 @@ void main() {
     expect(kqRemoteMaxFrameHeight(highDefinition: true), 1080);
     expect(UserModel.freeMaxFps, 30);
     expect(UserModel.memberDefaultFps, 60);
-    expect(kqStandardRemoteBlurSigma, greaterThan(0));
+    expect(kqStandardRemoteMaxFrameHeight, 480);
   });
 
   test('Rust connection option message uses the selected tier parameters', () {
