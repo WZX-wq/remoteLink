@@ -60,6 +60,14 @@ void main() {
     expect(title, isNot(contains('TextOverflow.ellipsis')));
   });
 
+  test('contact us opens the customer service page', () {
+    final source = _readAccountPage();
+
+    expect(source, contains(
+        "const _kqContactUsUrl = 'https://www.kunqiongai.com/custom/';"));
+    expect(source, contains('launchUrl(Uri.parse(_kqContactUsUrl))'));
+  });
+
   test('membership banner shows the current account expiry without raw data',
       () {
     final source = _readAccountPage();

@@ -25,6 +25,7 @@ import 'privacy_policy_page.dart';
 import 'settings_page.dart';
 
 const _kqMobilePaymentChannel = MethodChannel('mChannel');
+const _kqContactUsUrl = 'https://www.kunqiongai.com/custom/';
 
 enum _KqPaymentLaunchState { opened, cancelled, failed, unavailable }
 
@@ -832,7 +833,7 @@ class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
               ),
               _MenuRow(
                 title: _mineText('Contact us'),
-                onTap: () => launchUrl(Uri.parse('https://kunqiongai.com/')),
+                onTap: () => launchUrl(Uri.parse(_kqContactUsUrl)),
                 showDivider: false,
               ),
             ],
