@@ -120,6 +120,29 @@ void main() {
       expect(parseKqCheckLoginResult({'code': 404, 'data': null}), isFalse);
     });
 
+    test('identifies an unregistered phone without treating bad SMS as one', () {
+      expect(
+        isKqUnregisteredAccountError({
+          'code': 404,
+          'message': '手机号未注册',
+        }),
+        isTrue,
+      );
+      expect(
+        isKqUnregisteredAccountError({
+          'code': 400,
+          'message': '验证码错误',
+        }),
+        isFalse,
+      );
+      expect(
+        isKqUnregisteredAccountError({
+          'code': 'PHONE_NOT_REGISTERED',
+        }),
+        isTrue,
+      );
+    });
+
     test('preserves API error messages', () {
       expect(
         () => extractKqApiData({

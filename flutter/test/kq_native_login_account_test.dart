@@ -6,7 +6,7 @@ void main() {
   test('native mobile password login uses a real login account seed', () {
     final source = File('lib/common/widgets/login.dart').readAsStringSync();
 
-    expect(source, contains("const _kqNativeLoginAccountKey"));
+    expect(source, contains('kKqNativeLoginAccountKey'));
     expect(source, contains('String _initialKqLoginAccount()'));
     expect(
       source,

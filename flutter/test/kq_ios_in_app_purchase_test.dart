@@ -146,8 +146,7 @@ void main() {
     expect(controller, contains('class KqIosPurchaseVerificationResult'));
     expect(controller, contains("expireAt: (body['expire_at'] ?? '')"));
     expect(controller, contains('final verifiedMembership ='));
-    expect(
-        controller, contains('await refreshMembership(verifiedMembership);'));
+    expect(controller, contains('refreshMembership(verifiedMembership)'));
     expect(page, contains('KqIosPurchaseVerificationResult verification'));
     expect(page, contains('applyVerifiedAppleMembership'));
   });
@@ -186,6 +185,26 @@ void main() {
     expect(source, contains('!await _completePurchase(purchase)'));
     expect(source, contains('_verifyingPurchaseKeys'));
     expect(source, contains('localStoreKitTestMode && kDebugMode'));
+  });
+
+  test(
+      'server-verified Apple transactions finish before local membership state sync',
+      () {
+    final source =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final verificationStart = source.indexOf('final verifiedMembership =');
+    final completionStart = source.indexOf(
+      'await _completePurchase(purchase)',
+      verificationStart,
+    );
+    final membershipSyncStart = source.indexOf(
+      'refreshMembership(verifiedMembership)',
+      verificationStart,
+    );
+
+    expect(verificationStart, greaterThanOrEqualTo(0));
+    expect(completionStart, greaterThan(verificationStart));
+    expect(membershipSyncStart, greaterThan(completionStart));
   });
 
   test('iOS payment only presents mapped StoreKit plans and real prices', () {
@@ -304,6 +323,82 @@ void main() {
         File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
 
     expect(source, contains('_verifiedPurchaseKeys'));
-    expect(source, contains('duplicate_verified_purchase_ignored'));
+    expect(source, contains('duplicate_verified_purchase_completed'));
+  });
+
+  test(
+      'a duplicate verified Apple transaction is still completed and leaves the purchasing state',
+      () {
+    final source =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final duplicateStart =
+        source.indexOf('if (_verifiedPurchaseKeys.contains(purchaseKey))');
+    final duplicateEnd = source.indexOf(
+      'if (!_verifyingPurchaseKeys.add(purchaseKey))',
+      duplicateStart,
+    );
+
+    expect(duplicateStart, greaterThanOrEqualTo(0));
+    expect(duplicateEnd, greaterThan(duplicateStart));
+    final duplicateBranch = source.substring(duplicateStart, duplicateEnd);
+    expect(duplicateBranch, contains('duplicate_verified_purchase_completed'));
+    expect(duplicateBranch, contains('await _completePurchase(purchase)'));
+    expect(duplicateBranch, isNot(contains('_verifyPurchase(')));
+    expect(
+      duplicateBranch,
+      contains('phase = KqIosMembershipPurchasePhase.completed'),
+    );
+  });
+
+  test(
+      'an unverified Apple transaction blocks another checkout until it is restored',
+      () {
+    final source =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final buyStart = source.indexOf('Future<void> buy(String packageId) async');
+    final checkoutStart = source.indexOf('_store.buyNonConsumable', buyStart);
+    final verificationCatch = source.indexOf(
+        '} catch (error) {', source.indexOf('final verifiedMembership ='));
+    final verificationFinally =
+        source.indexOf('} finally {', verificationCatch);
+
+    expect(source, contains('_pendingVerificationPurchaseKeys'));
+    expect(source, contains('bool get hasPendingVerification'));
+    expect(source, contains('!hasPendingVerification'));
+    expect(buyStart, greaterThanOrEqualTo(0));
+    expect(checkoutStart, greaterThan(buyStart));
+    expect(
+      source.indexOf('if (hasPendingVerification)', buyStart),
+      lessThan(checkoutStart),
+    );
+    expect(verificationCatch, greaterThanOrEqualTo(0));
+    expect(verificationFinally, greaterThan(verificationCatch));
+    expect(
+      source.indexOf('_pendingVerificationPurchaseKeys.add(purchaseKey)',
+          verificationCatch),
+      lessThan(verificationFinally),
+    );
+  });
+
+  test(
+      'an existing Apple subscription times out into restore instead of waiting forever',
+      () {
+    final controller =
+        File('lib/mobile/kq_ios_in_app_purchase.dart').readAsStringSync();
+    final page = File('lib/mobile/pages/ios_membership_purchase_page.dart')
+        .readAsStringSync();
+
+    expect(controller, contains('existingSubscriptionRequiresRestore'));
+    expect(controller, contains('_requiresRestoreBeforePurchase'));
+    expect(controller, contains('!requiresRestoreBeforePurchase'));
+    expect(controller, contains('purchase_update_timeout'));
+    expect(controller, contains('_schedulePurchaseUpdateTimeout'));
+    expect(controller, contains('_restoreExistingSubscriptionAfterTimeout'));
+    expect(
+        controller,
+        contains(
+            'KqIosMembershipPurchaseFeedback.existingSubscriptionRequiresRestore'));
+    expect(page, contains('此 Apple ID 已有有效订阅'));
+    expect(page, contains('同步会员权益'));
   });
 }

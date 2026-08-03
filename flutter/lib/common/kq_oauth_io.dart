@@ -29,8 +29,9 @@ const _serviceUnavailableMessage =
 
 class KqOauthException implements Exception {
   final String message;
+  final bool requiresRegistration;
 
-  KqOauthException(this.message);
+  KqOauthException(this.message, {this.requiresRegistration = false});
 
   @override
   String toString() => message;
@@ -317,7 +318,10 @@ class KqOauth {
     if (resp.statusCode < 200 ||
         resp.statusCode >= 300 ||
         (decoded.containsKey('code') && !isKqSuccessCode(decoded['code']))) {
-      throw KqOauthException(_extractLoginErrorMessage(decoded));
+      throw KqOauthException(
+        _extractLoginErrorMessage(decoded),
+        requiresRegistration: isKqUnregisteredAccountError(decoded),
+      );
     }
     return decoded;
   }

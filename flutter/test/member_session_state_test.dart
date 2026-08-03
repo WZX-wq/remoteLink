@@ -42,6 +42,25 @@ void main() {
     expect(refreshSource, contains('await reset();'));
   });
 
+  test('deleted accounts remain visible when login refreshes automatically',
+      () {
+    final source = File('lib/models/user_model.dart').readAsStringSync();
+    final refreshStart = source.indexOf('  Future<void> refreshMembership({');
+    final refreshEnd =
+        source.indexOf('  Future<http.Response> _postMemberApi(', refreshStart);
+    final refreshSource = source.substring(refreshStart, refreshEnd);
+    final deletedStart = refreshSource
+        .indexOf('} on _KqDeletedAccountSessionException catch (e) {');
+    final deletedEnd = refreshSource.indexOf('} catch (e) {', deletedStart);
+
+    expect(deletedStart, greaterThanOrEqualTo(0));
+    expect(deletedEnd, greaterThan(deletedStart));
+    final deletedHandler = refreshSource.substring(deletedStart, deletedEnd);
+    expect(deletedHandler, contains('await reset();'));
+    expect(deletedHandler, contains('showToast(e.message);'));
+    expect(deletedHandler, isNot(contains('if (showError)')));
+  });
+
   test('membership refresh preserves cached benefits on transient errors', () {
     final source = File('lib/models/user_model.dart').readAsStringSync();
     final refreshStart = source.indexOf('  Future<void> refreshMembership({');

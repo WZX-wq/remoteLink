@@ -136,11 +136,30 @@ Future<void> _closeLoginWebView() async {
   }
 }
 
+Future<void> _applyKqLoginResponse(LoginResponse response) async {
+  await gFFI.userModel.applyLoginResponse(
+    response,
+    storeLocalUserInfo: false,
+    refreshMembership: false,
+  );
+  unawaited(_syncKqLoginSupplementaryState());
+}
+
+Future<void> _syncKqLoginSupplementaryState() async {
+  try {
+    await Future.wait([
+      gFFI.userModel.refreshMembership(),
+      UserModel.updateOtherModels(),
+    ]).timeout(const Duration(seconds: 8));
+  } catch (error) {
+    debugPrint('KQ login supplementary sync failed: $error');
+  }
+}
+
 Future<bool?> _loginWithKqOauthDirect() async {
   try {
     final resp = await KqOauth.login();
-    await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
-    await UserModel.updateOtherModels();
+    await _applyKqLoginResponse(resp);
     return true;
   } catch (err) {
     if (_isKqOauthCancellation(err)) {
@@ -717,12 +736,24 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
         password: _useSms ? '' : password,
         rememberPassword: !_useSms && _rememberPassword,
       );
-      await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
-      await UserModel.updateOtherModels();
+      await _applyKqLoginResponse(resp);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (err) {
       if (!mounted) return;
+      final registrationPhone = _useSms
+          ? phone
+          : (_isValidPhone(normalizedAccount) ? normalizedAccount : null);
+      if (err is KqOauthException &&
+          err.requiresRegistration &&
+          registrationPhone != null) {
+        await _openAccountFlow(
+          _KqAccountFlow.register,
+          initialPhone: registrationPhone,
+          allowWhileBusy: true,
+        );
+        return;
+      }
       setState(() => _errorText = _formatKqLoginError(err));
     } finally {
       if (mounted) {
@@ -781,6 +812,14 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
       _startSmsCountdown();
     } catch (err) {
       if (!mounted) return;
+      if (err is KqOauthException && err.requiresRegistration) {
+        await _openAccountFlow(
+          _KqAccountFlow.register,
+          initialPhone: phone,
+          allowWhileBusy: true,
+        );
+        return;
+      }
       setState(() => _errorText = _formatKqLoginError(err));
     } finally {
       if (mounted) {
@@ -842,11 +881,20 @@ class _KqNativeMobileLoginPageState extends State<_KqNativeMobileLoginPage> {
     });
   }
 
-  Future<void> _openAccountFlow(_KqAccountFlow flow) async {
-    if (_isSubmitting || _isSendingSms) return;
+  Future<void> _openAccountFlow(
+    _KqAccountFlow flow, {
+    String? initialPhone,
+    bool allowWhileBusy = false,
+  }) async {
+    if (!allowWhileBusy && (_isSubmitting || _isSendingSms)) return;
     FocusScope.of(context).unfocus();
     final ok = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => _KqAccountFlowPage(flow: flow)),
+      MaterialPageRoute(
+        builder: (_) => _KqAccountFlowPage(
+          flow: flow,
+          initialPhone: initialPhone,
+        ),
+      ),
     );
     if (!mounted || ok != true) return;
     Navigator.of(context).pop(true);
@@ -1418,8 +1466,9 @@ class _KqLoginModeButton extends StatelessWidget {
 
 class _KqAccountFlowPage extends StatefulWidget {
   final _KqAccountFlow flow;
+  final String? initialPhone;
 
-  const _KqAccountFlowPage({required this.flow});
+  const _KqAccountFlowPage({required this.flow, this.initialPhone});
 
   @override
   State<_KqAccountFlowPage> createState() => _KqAccountFlowPageState();
@@ -1464,6 +1513,10 @@ class _KqAccountFlowPageState extends State<_KqAccountFlowPage> {
   @override
   void initState() {
     super.initState();
+    final initialPhone = widget.initialPhone?.trim() ?? '';
+    if (initialPhone.isNotEmpty) {
+      _phoneController.text = initialPhone;
+    }
     Timer(const Duration(milliseconds: 220), () {
       if (!mounted) return;
       (_isRegister ? _usernameFocusNode : _phoneFocusNode).requestFocus();
@@ -1585,8 +1638,7 @@ class _KqAccountFlowPageState extends State<_KqAccountFlowPage> {
               password: _passwordController.text,
             );
       await _rememberKqNativeLoginAccount(_phoneController.text.trim());
-      await gFFI.userModel.applyLoginResponse(resp, storeLocalUserInfo: false);
-      await UserModel.updateOtherModels();
+      await _applyKqLoginResponse(resp);
       if (!mounted) return;
       showToast(_isRegister
           ? _kqLoginText('Registration completed')
@@ -2070,10 +2122,7 @@ Future<bool?> loginDialog() async {
       try {
         final resp = await KqOauth.login();
         if (isDialogClosed) return;
-        await gFFI.userModel.applyLoginResponse(
-          resp,
-          storeLocalUserInfo: false,
-        );
+        await _applyKqLoginResponse(resp);
         close(true);
         return;
       } catch (err) {

@@ -684,9 +684,7 @@ class UserModel {
         } on _KqDeletedAccountSessionException catch (e) {
           if (isCurrentRefresh()) {
             await reset();
-            if (showError) {
-              showToast(e.message);
-            }
+            showToast(e.message);
           }
           return;
         } catch (e) {
@@ -1103,7 +1101,7 @@ class UserModel {
   }
 
   Future<void> applyLoginResponse(LoginResponse loginResponse,
-      {bool storeLocalUserInfo = true}) async {
+      {bool storeLocalUserInfo = true, bool refreshMembership = true}) async {
     if (loginResponse.type == HttpType.kAuthResTypeToken &&
         loginResponse.user != null) {
       if (storeLocalUserInfo) {
@@ -1117,7 +1115,9 @@ class UserModel {
       isMember.value = isLocalMemberActiveForCurrentUser;
       memberExpireAt.value = bind.mainGetLocalOption(key: memberExpireAtKey);
       memberLastError.value = bind.mainGetLocalOption(key: memberLastErrorKey);
-      return refreshMembership();
+      if (refreshMembership) {
+        return this.refreshMembership();
+      }
     }
     return Future.value();
   }

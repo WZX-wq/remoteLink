@@ -6,8 +6,9 @@ const kKqOauthProviderKey = 'external_auth_provider';
 
 class KqOauthException implements Exception {
   final String message;
+  final bool requiresRegistration;
 
-  KqOauthException(this.message);
+  KqOauthException(this.message, {this.requiresRegistration = false});
 
   @override
   String toString() => message;

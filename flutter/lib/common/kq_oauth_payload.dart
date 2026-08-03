@@ -159,6 +159,68 @@ bool kqLooksLikeJwtToken(String token) {
 bool parseKqCheckLoginResult(Map<String, dynamic> body) =>
     isKqSuccessCode(body['code']);
 
+bool isKqUnregisteredAccountError(Map<String, dynamic> body) {
+  final parts = <String>[];
+
+  void collect(dynamic value) {
+    if (value is Map) {
+      for (final item in value.values) {
+        collect(item);
+      }
+    } else if (value is Iterable) {
+      for (final item in value) {
+        collect(item);
+      }
+    } else if (value != null) {
+      final text = value.toString().trim().toLowerCase();
+      if (text.isNotEmpty) parts.add(text);
+    }
+  }
+
+  for (final key in [
+    'code',
+    'status',
+    'error',
+    'error_code',
+    'errorCode',
+    'msg',
+    'message',
+    'errors',
+  ]) {
+    collect(body[key]);
+  }
+
+  final text = parts.join(' ');
+  const markers = [
+    'phone_not_registered',
+    'phone-not-registered',
+    'not_registered',
+    'not-registered',
+    'unregistered',
+    'user_not_found',
+    'user-not-found',
+    'account_not_found',
+    'account-not-found',
+    'phone_not_found',
+    'phone-not-found',
+    'user not found',
+    'account not found',
+    'phone not found',
+    'user does not exist',
+    'account does not exist',
+    'phone does not exist',
+    'not registered',
+    '未注册',
+    '不存在',
+    '未找到该用户',
+    '用户不存在',
+    '账号不存在',
+    '手机号不存在',
+    '请先注册',
+  ];
+  return markers.any(text.contains);
+}
+
 KqOauthLoginPayload parseKqOauthLoginPayload({
   required String token,
   required Map<String, dynamic> userInfoResponse,

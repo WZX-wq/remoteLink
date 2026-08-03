@@ -121,6 +121,11 @@ class _KqIosMembershipPurchasePageState
       case KqIosMembershipPurchaseFeedback.paymentFailed:
         return _text('Apple 支付未完成，请重试。',
             'Apple payment could not be completed. Please try again.');
+      case KqIosMembershipPurchaseFeedback.existingSubscriptionRequiresRestore:
+        return _text(
+          '此 Apple ID 已有有效订阅，请点击“恢复购买”同步会员权益；如需变更套餐，请在 Apple 订阅管理中操作。',
+          'This Apple ID already has an active subscription. Restore purchases to sync benefits, or manage the subscription in Apple settings to change plans.',
+        );
       case KqIosMembershipPurchaseFeedback.accountAuthenticationRequired:
         return _text('登录已失效，请重新登录后再购买。',
             'Your login has expired. Please sign in again before purchasing.');

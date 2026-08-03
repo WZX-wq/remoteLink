@@ -112,6 +112,7 @@ enum KqIosMembershipPurchaseFeedback {
   productUnavailable,
   paymentCancelled,
   paymentFailed,
+  existingSubscriptionRequiresRestore,
   accountAuthenticationRequired,
   purchaseAlreadyLinked,
   verificationServiceUnavailable,
@@ -224,9 +225,12 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
   final InAppPurchase _store;
   final Map<String, ProductDetails> _productsByStoreId = {};
   final Set<String> _verifyingPurchaseKeys = <String>{};
+  final Set<String> _pendingVerificationPurchaseKeys = <String>{};
   final Set<String> _verifiedPurchaseKeys = <String>{};
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
+  Timer? _purchaseUpdateTimeout;
   Set<String> _notFoundProductIds = const <String>{};
+  bool _requiresRestoreBeforePurchase = false;
 
   KqIosMembershipPurchasePhase phase = KqIosMembershipPurchasePhase.initial;
   KqIosMembershipPurchaseFeedback? feedback;
@@ -242,7 +246,16 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
   bool get hasVerifiedMembership =>
       phase == KqIosMembershipPurchasePhase.completed;
 
-  bool get canPurchase => !isBusy && _productsByStoreId.isNotEmpty;
+  bool get hasPendingVerification =>
+      _pendingVerificationPurchaseKeys.isNotEmpty;
+
+  bool get requiresRestoreBeforePurchase => _requiresRestoreBeforePurchase;
+
+  bool get canPurchase =>
+      !isBusy &&
+      !hasPendingVerification &&
+      !requiresRestoreBeforePurchase &&
+      _productsByStoreId.isNotEmpty;
 
   bool get hasUnavailableProducts => _notFoundProductIds.isNotEmpty;
 
@@ -334,6 +347,10 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
         );
         return;
       }
+      if (phase != KqIosMembershipPurchasePhase.loading) {
+        notifyListeners();
+        return;
+      }
       phase = KqIosMembershipPurchasePhase.ready;
       feedback = null;
       statusMessage = null;
@@ -349,6 +366,22 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   Future<void> buy(String packageId) async {
     if (isBusy) return;
+    if (hasPendingVerification) {
+      _diagnostic('purchase_blocked_pending_verification');
+      _setFailure(
+        KqIosMembershipPurchaseFeedback.verificationServiceUnavailable,
+        'An earlier Apple purchase is waiting for server verification.',
+      );
+      return;
+    }
+    if (requiresRestoreBeforePurchase) {
+      _diagnostic('purchase_blocked_restore_required');
+      _setFailure(
+        KqIosMembershipPurchaseFeedback.existingSubscriptionRequiresRestore,
+        'An existing Apple subscription must be restored before another purchase.',
+      );
+      return;
+    }
     final product = productForPackage(packageId);
     if (product == null) {
       _setFailure(
@@ -379,8 +412,11 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           KqIosMembershipPurchaseFeedback.paymentFailed,
           'Apple could not start the purchase.',
         );
+      } else {
+        _schedulePurchaseUpdateTimeout();
       }
     } catch (error) {
+      _cancelPurchaseUpdateTimeout();
       _diagnostic(
         'purchase_start_failed',
         exceptionType: error.runtimeType.toString(),
@@ -402,6 +438,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       return;
     }
     phase = KqIosMembershipPurchasePhase.restoring;
+    _cancelPurchaseUpdateTimeout();
     feedback = null;
     statusMessage = null;
     notifyListeners();
@@ -409,9 +446,17 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       _diagnostic('restore_started');
       await _store.restorePurchases();
       if (phase == KqIosMembershipPurchasePhase.restoring) {
-        phase = KqIosMembershipPurchasePhase.ready;
-        statusMessage = 'Restore request sent. Checking Apple purchases.';
-        notifyListeners();
+        if (requiresRestoreBeforePurchase) {
+          _diagnostic('restore_finished_without_transaction');
+          _setFailure(
+            KqIosMembershipPurchaseFeedback.existingSubscriptionRequiresRestore,
+            'Apple did not return the existing subscription for restoration.',
+          );
+        } else {
+          phase = KqIosMembershipPurchasePhase.ready;
+          statusMessage = 'Restore request sent. Checking Apple purchases.';
+          notifyListeners();
+        }
       }
     } catch (error) {
       _diagnostic(
@@ -427,7 +472,14 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
     _diagnostic('purchase_update_received', purchaseCount: purchases.length);
+    _cancelPurchaseUpdateTimeout();
     for (final purchase in purchases) {
+      _diagnostic(
+        'purchase_details_received',
+        productId: purchase.productID,
+        purchaseStatus: purchase.status.name,
+        pendingComplete: purchase.pendingCompletePurchase,
+      );
       if (purchase.status == PurchaseStatus.pending) {
         phase = KqIosMembershipPurchasePhase.purchasing;
         feedback = null;
@@ -465,6 +517,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       }
       final packageId = config.packageForProduct(purchase.productID);
       if (packageId == null) {
+        _pendingVerificationPurchaseKeys.add(_purchaseKey(purchase));
         _diagnostic('unknown_product_received');
         _setFailure(
           KqIosMembershipPurchaseFeedback.unknownProduct,
@@ -474,13 +527,27 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       }
       final purchaseKey = _purchaseKey(purchase);
       if (_verifiedPurchaseKeys.contains(purchaseKey)) {
-        _diagnostic('duplicate_verified_purchase_ignored');
+        _diagnostic(
+          'duplicate_verified_purchase_completed',
+          pendingComplete: purchase.pendingCompletePurchase,
+        );
+        if (purchase.pendingCompletePurchase &&
+            !await _completePurchase(purchase)) {
+          continue;
+        }
+        _pendingVerificationPurchaseKeys.remove(purchaseKey);
+        _requiresRestoreBeforePurchase = false;
+        phase = KqIosMembershipPurchasePhase.completed;
+        feedback = null;
+        statusMessage = 'Membership benefits are active.';
+        notifyListeners();
         continue;
       }
       if (!_verifyingPurchaseKeys.add(purchaseKey)) {
         _diagnostic('duplicate_purchase_update_ignored');
         continue;
       }
+      _pendingVerificationPurchaseKeys.add(purchaseKey);
       phase = KqIosMembershipPurchasePhase.purchasing;
       feedback = null;
       statusMessage = 'Verifying Apple purchase.';
@@ -492,6 +559,8 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
               !await _completePurchase(purchase)) {
             continue;
           }
+          _pendingVerificationPurchaseKeys.remove(purchaseKey);
+          _requiresRestoreBeforePurchase = false;
           phase = KqIosMembershipPurchasePhase.completed;
           _verifiedPurchaseKeys.add(purchaseKey);
           feedback = KqIosMembershipPurchaseFeedback.localStoreKitTestCompleted;
@@ -501,11 +570,23 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
           continue;
         }
         final verifiedMembership = await _verifyPurchase(packageId, purchase);
-        await refreshMembership(verifiedMembership);
-        _verifiedPurchaseKeys.add(purchaseKey);
         if (purchase.pendingCompletePurchase &&
             !await _completePurchase(purchase)) {
           continue;
+        }
+        _pendingVerificationPurchaseKeys.remove(purchaseKey);
+        _requiresRestoreBeforePurchase = false;
+        _verifiedPurchaseKeys.add(purchaseKey);
+        try {
+          await refreshMembership(verifiedMembership)
+              .timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          _diagnostic('membership_state_sync_timed_out');
+        } catch (error) {
+          _diagnostic(
+            'membership_state_sync_failed',
+            exceptionType: error.runtimeType.toString(),
+          );
         }
         phase = KqIosMembershipPurchasePhase.completed;
         feedback = null;
@@ -655,6 +736,57 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
     }
   }
 
+  void _schedulePurchaseUpdateTimeout() {
+    _purchaseUpdateTimeout?.cancel();
+    _purchaseUpdateTimeout = Timer(const Duration(seconds: 30), () {
+      if (phase != KqIosMembershipPurchasePhase.purchasing ||
+          hasPendingVerification ||
+          _verifyingPurchaseKeys.isNotEmpty) {
+        return;
+      }
+      _requiresRestoreBeforePurchase = true;
+      _diagnostic('purchase_update_timeout');
+      unawaited(_restoreExistingSubscriptionAfterTimeout());
+    });
+  }
+
+  Future<void> _restoreExistingSubscriptionAfterTimeout() async {
+    if (phase != KqIosMembershipPurchasePhase.purchasing ||
+        hasPendingVerification ||
+        _verifyingPurchaseKeys.isNotEmpty) {
+      return;
+    }
+    phase = KqIosMembershipPurchasePhase.restoring;
+    feedback = null;
+    statusMessage = 'Checking the existing Apple subscription.';
+    notifyListeners();
+    try {
+      _diagnostic('restore_started_after_purchase_timeout');
+      await _store.restorePurchases();
+      if (phase == KqIosMembershipPurchasePhase.restoring) {
+        _diagnostic('restore_finished_without_transaction');
+        _setFailure(
+          KqIosMembershipPurchaseFeedback.existingSubscriptionRequiresRestore,
+          'Apple did not return the existing subscription for restoration.',
+        );
+      }
+    } catch (error) {
+      _diagnostic(
+        'restore_failed_after_purchase_timeout',
+        exceptionType: error.runtimeType.toString(),
+      );
+      _setFailure(
+        KqIosMembershipPurchaseFeedback.existingSubscriptionRequiresRestore,
+        'Unable to restore the existing Apple subscription.',
+      );
+    }
+  }
+
+  void _cancelPurchaseUpdateTimeout() {
+    _purchaseUpdateTimeout?.cancel();
+    _purchaseUpdateTimeout = null;
+  }
+
   void _diagnostic(
     String event, {
     int? requestedProducts,
@@ -668,6 +800,8 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
     bool? transactionPresent,
     String? storeErrorSource,
     String? storeErrorCode,
+    String? purchaseStatus,
+    bool? pendingComplete,
     String? exceptionType,
     String? endpointHost,
     String? endpointPath,
@@ -684,6 +818,8 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
       if (transactionPresent != null) 'transaction_present=$transactionPresent',
       if (storeErrorSource != null) 'store_error_source=$storeErrorSource',
       if (storeErrorCode != null) 'store_error_code=$storeErrorCode',
+      if (purchaseStatus != null) 'purchase_status=$purchaseStatus',
+      if (pendingComplete != null) 'pending_complete=$pendingComplete',
       if (exceptionType != null) 'exception_type=$exceptionType',
       if (endpointHost != null) 'endpoint_host=$endpointHost',
       if (endpointPath != null) 'endpoint_path=$endpointPath',
@@ -704,6 +840,7 @@ class KqIosMembershipPurchaseController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _cancelPurchaseUpdateTimeout();
     _purchaseSubscription?.cancel();
     super.dispose();
   }
