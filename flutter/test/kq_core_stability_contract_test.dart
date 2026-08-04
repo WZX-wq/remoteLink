@@ -40,12 +40,12 @@ void main() {
     expect(remotePage, isNot(contains('blurSigma: blurSigma')));
   });
 
-  test('desktop verification code preserves exact case', () {
+  test('desktop verification code is normalized to lowercase', () {
     final source = _read('lib/desktop/pages/connection_page.dart');
     expect(
-        source, contains('final password = _passwordController.text.trim();'));
-    expect(source,
-        isNot(contains('_passwordController.text.trim().toLowerCase()')));
+        source,
+        contains(
+            'final password = _passwordController.text.trim().toLowerCase();'));
   });
 
   test('membership cards distinguish lifetime purchases from subscriptions',
