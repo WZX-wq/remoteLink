@@ -1,8 +1,26 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_hbb/models/user_model.dart';
 
 void main() {
+  test('membership expiry treats timezone-free server timestamps as UTC', () {
+    expect(
+      UserModel.isMembershipExpiredForServerTime(
+        '2026-08-04 09:43:42',
+        DateTime.utc(2026, 8, 4, 9, 44),
+      ),
+      isFalse,
+    );
+    expect(
+      UserModel.isMembershipExpiredForServerTime(
+        '2026-08-04 09:43:42',
+        DateTime.utc(2026, 8, 4, 9, 45),
+      ),
+      isTrue,
+    );
+  });
+
   test(
       'expired local membership is not treated as active while refresh is unavailable',
       () {

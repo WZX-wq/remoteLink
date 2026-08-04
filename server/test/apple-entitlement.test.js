@@ -3,10 +3,22 @@ import fs from 'node:fs';
 import test from 'node:test';
 import {
   claimAppleSubscriptionOwner,
+  formatAppleMembershipExpiryForClient,
   isRetryableAppleTransactionError,
   resolveAppleProjectMembershipExpiry,
   withAppleTransactionRetry,
 } from '../src/apple-entitlement.js';
+
+test('formats Apple membership expiry with an explicit UTC offset for clients', () => {
+  assert.equal(
+    formatAppleMembershipExpiryForClient('2026-08-04 09:43:42'),
+    '2026-08-04T09:43:42Z',
+  );
+  assert.equal(
+    formatAppleMembershipExpiryForClient('9999-12-31 23:59:59'),
+    '9999-12-31 23:59:59',
+  );
+});
 
 function ownerConnection() {
   const owners = new Map();

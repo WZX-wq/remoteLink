@@ -25,6 +25,7 @@ import { appleIapReadiness } from './apple-iap-readiness.js';
 import { parseAppleNotification } from './apple-notifications.js';
 import {
   claimAppleSubscriptionOwner,
+  formatAppleMembershipExpiryForClient,
   resolveAppleProjectMembershipExpiry,
   withAppleTransactionRetry,
 } from './apple-entitlement.js';
@@ -3166,7 +3167,7 @@ app.post('/api/membership/apple/verify', async (req, res, next) => {
       message: entitlement.memberActive
         ? 'Apple membership entitlement updated.'
         : 'Apple purchase was verified, but the membership has expired.',
-      expire_at: entitlement.expireAt,
+      expire_at: formatAppleMembershipExpiryForClient(entitlement.expireAt),
     });
   } catch (error) {
     logAppleIapVerificationFailure({ error, packageId, transactionId });
@@ -3213,7 +3214,7 @@ app.post('/api/membership/apple/notifications', async (req, res, next) => {
       success: true,
       status: transaction.revoked ? 'revoked' : 'updated',
       notification_type: notification.notificationType,
-      expire_at: entitlement.expireAt,
+      expire_at: formatAppleMembershipExpiryForClient(entitlement.expireAt),
       member_active: entitlement.memberActive,
     });
   } catch (error) {

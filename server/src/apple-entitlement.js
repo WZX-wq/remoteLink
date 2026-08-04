@@ -52,6 +52,15 @@ function formatMembershipDate(date) {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
 }
 
+export function formatAppleMembershipExpiryForClient(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.toLowerCase() === 'unlimited' || raw === '9999-12-31 23:59:59') {
+    return raw;
+  }
+  const parsed = parseMembershipDate(raw);
+  return parsed ? parsed.toISOString().replace('.000Z', 'Z') : raw;
+}
+
 function addMembershipDays(date, days) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }

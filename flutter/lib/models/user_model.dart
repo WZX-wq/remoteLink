@@ -234,23 +234,36 @@ class UserModel {
   static bool get isKqTestUnlimitedMember =>
       _localUserPrimaryId() == kqTestUnlimitedMemberUserId;
 
-  static bool _isMembershipExpired(String expireAt, [DateTime? now]) {
+  static DateTime? _parseServerMembershipExpiry(String expireAt) {
+    final normalized = expireAt.trim();
+    if (normalized.isEmpty) return null;
+    final isoValue = normalized.replaceFirst(' ', 'T');
+    final hasTimeZone = RegExp(r'(?:Z|[+-]\d{2}:?\d{2})$', caseSensitive: false)
+        .hasMatch(isoValue);
+    return DateTime.tryParse(hasTimeZone ? isoValue : '${isoValue}Z')?.toUtc();
+  }
+
+  static bool isMembershipExpiredForServerTime(String expireAt,
+      [DateTime? now]) {
     final normalized = expireAt.trim();
     if (normalized.isEmpty ||
         normalized.toLowerCase() == 'unlimited' ||
         normalized == '9999-12-31 23:59:59') {
       return false;
     }
-    final parsed = DateTime.tryParse(normalized.replaceFirst(' ', 'T'));
+    final parsed = _parseServerMembershipExpiry(normalized);
     if (parsed == null) {
       // Preserve a server-issued state if an older API returns an unknown date
       // format; the next membership refresh remains the source of truth.
       return false;
     }
-    return !parsed.isAfter((now ?? DateTime.now()).subtract(
-      const Duration(minutes: 1),
-    ));
+    return !parsed.isAfter((now ?? DateTime.now()).toUtc().subtract(
+          const Duration(minutes: 1),
+        ));
   }
+
+  static bool _isMembershipExpired(String expireAt, [DateTime? now]) =>
+      isMembershipExpiredForServerTime(expireAt, now);
 
   static bool get isLocalMemberActiveForCurrentUser {
     final userId = _localUserPrimaryId();
@@ -543,14 +556,13 @@ class UserModel {
     final normalizedExpireAt = expireAt.trim();
     if (normalizedExpireAt.isEmpty) return;
     _membershipRefreshSerial++;
-    final parsedExpireAt =
-        DateTime.tryParse(normalizedExpireAt.replaceFirst(' ', 'T'));
+    final parsedExpireAt = _parseServerMembershipExpiry(normalizedExpireAt);
     final active = normalizedExpireAt.toLowerCase() == 'unlimited' ||
         normalizedExpireAt == '9999-12-31 23:59:59' ||
         (parsedExpireAt != null &&
-            parsedExpireAt.isAfter(DateTime.now().subtract(
-              const Duration(minutes: 1),
-            )));
+            parsedExpireAt.isAfter(DateTime.now().toUtc().subtract(
+                  const Duration(minutes: 1),
+                )));
     await _setMemberStatus(active, expireAt: normalizedExpireAt, error: '');
   }
 
