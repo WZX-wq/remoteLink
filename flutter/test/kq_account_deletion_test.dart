@@ -124,6 +124,13 @@ void main() {
     expect(source, contains('Delete account'));
   });
 
+  test('account deletion warns that membership data will be removed', () {
+    final page =
+        File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();
+
+    expect(page, contains('注销账号会清理掉鲲穹账户的所有会员数据，请您谨慎注销。'));
+  });
+
   test('successful deletion clears all account-scoped local data', () {
     final page =
         File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();

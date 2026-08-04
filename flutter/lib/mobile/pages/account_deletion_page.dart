@@ -98,8 +98,8 @@ class _AccountDeletionPageState extends State<AccountDeletionPage> {
                     _DeletionWarningCard(
                       title: _text('此操作不可撤销', 'This action cannot be undone'),
                       message: _text(
-                        '提交后将删除账号及不再需要保留的相关数据。账号注销不会自动取消 Apple 自动续订，请先在 Apple 订阅管理中取消。',
-                        'The request removes your account and related data that no longer needs to be retained. It does not cancel an Apple auto-renewing subscription; cancel that in Apple subscription management first.',
+                        '注销账号会清理掉鲲穹账户的所有会员数据，请您谨慎注销。提交后将删除账号及不再需要保留的相关数据。账号注销不会自动取消 Apple 自动续订，请先在 Apple 订阅管理中取消。',
+                        'Deleting the account clears all Kunqiong membership data. Proceed carefully. The request removes your account and related data that no longer needs to be retained. It does not cancel an Apple auto-renewing subscription; cancel that in Apple subscription management first.',
                       ),
                     ),
                     const SizedBox(height: 14),
