@@ -68,6 +68,24 @@ test('production environment template enables the configured upstream account de
   );
 });
 
+test('TestFlight builds route account deletion through the project API proxy', () => {
+  const workflow = fs.readFileSync(
+    path.resolve(__dirname, '../../.github/workflows/ios-testflight-build.yml'),
+    'utf8',
+  );
+
+  assert.equal(
+    workflow.includes(
+      'KQ_ACCOUNT_DELETE_URL: https://remotelink.kunqiongai.com/kq-api/api/auth/account/delete',
+    ),
+    true,
+  );
+  assert.equal(
+    workflow.includes('KQ_ACCOUNT_DELETE_URL: ${{ vars.KQ_ACCOUNT_DELETE_URL }}'),
+    false,
+  );
+});
+
 test('iOS release deployment blocks raw-IP, HTTP, and incomplete StoreKit configuration', () => {
   const script = fs.readFileSync(
     path.resolve(__dirname, '../../deploy/deploy-rustdesk-server.sh'),

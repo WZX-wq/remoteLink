@@ -42,7 +42,9 @@ env:
   IOS_MAIN_BUNDLE_ID: "com.kunqiong.remotelink"
   IOS_BROADCAST_BUNDLE_ID: "com.kunqiong.remotelink.broadcast"
   KQ_PRIVACY_POLICY_URL: ${{ vars.KQ_PRIVACY_POLICY_URL }}
-  KQ_ACCOUNT_DELETE_URL: ${{ vars.KQ_ACCOUNT_DELETE_URL }}
+  # Account deletion must pass through the project API so it can release
+  # local Apple subscription ownership after the upstream deletion succeeds.
+  KQ_ACCOUNT_DELETE_URL: https://remotelink.kunqiongai.com/kq-api/api/auth/account/delete
   KQ_IOS_IAP_PRODUCTS: ${{ vars.KQ_IOS_IAP_PRODUCTS }}
   KQ_IOS_IAP_VERIFY_URL: ${{ vars.KQ_IOS_IAP_VERIFY_URL }}
   KQ_IOS_INTERNAL_DIRECT_PAYMENT: "false"
