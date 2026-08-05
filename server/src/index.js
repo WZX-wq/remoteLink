@@ -1446,6 +1446,15 @@ async function cleanupDeletedAccountRebuilds() {
   if (!accountDeletionBlocksLogin(config.accountDeletion.mode)) {
     return;
   }
+  const [orphanTransactionResult] = await pool.execute(
+    `
+      DELETE apple_transaction
+      FROM kq_apple_transactions AS apple_transaction
+      LEFT JOIN kq_users AS owner_user
+        ON owner_user.id = apple_transaction.user_id
+      WHERE owner_user.id IS NULL
+    `,
+  );
   const [orphanOwnerResult] = await pool.execute(
     `
       DELETE subscription_owner
@@ -1483,9 +1492,12 @@ async function cleanupDeletedAccountRebuilds() {
   const deletedOwners =
     Number(orphanOwnerResult.affectedRows || 0) +
     Number(deletedAccountOwnerResult.affectedRows || 0);
-  if (deletedUsers || deletedOwners) {
+  const deletedTransactions = Number(orphanTransactionResult.affectedRows || 0);
+  if (deletedUsers || deletedOwners || deletedTransactions) {
     console.warn(
-      `KQ_ACCOUNT_DELETION cleanup removed recreated_users=${deletedUsers} subscription_owners=${deletedOwners}`,
+      'KQ_ACCOUNT_DELETION cleanup removed recreated_users=' + deletedUsers +
+        ' subscription_owners=' + deletedOwners +
+        ' apple_transactions=' + deletedTransactions,
     );
   }
 }

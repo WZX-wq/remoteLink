@@ -81,12 +81,15 @@ test('database startup removes users recreated after account deletion', () => {
 
   const cleanupBody = source.slice(cleanupStart, ensureStart);
   assert.equal(cleanupBody.includes('kq_account_deletion_requests'), true);
+  assert.equal(cleanupBody.includes('DELETE apple_transaction'), true);
+  assert.equal(cleanupBody.includes('kq_apple_transactions AS apple_transaction'), true);
   assert.equal(cleanupBody.includes('LEFT JOIN kq_users AS owner_user'), true);
   assert.equal(cleanupBody.includes('WHERE owner_user.id IS NULL'), true);
   assert.equal(cleanupBody.includes("deletion.status IN ('pending', 'processing', 'deleted')"), true);
   assert.equal(cleanupBody.includes("deletion.request_scope IN ('project_account', 'identity_service')"), true);
   assert.equal(cleanupBody.includes('DELETE subscription_owner'), true);
   assert.equal(cleanupBody.includes('DELETE deleted_user'), true);
+  assert.equal(cleanupBody.includes('apple_transactions='), true);
 
   const ensureBody = source.slice(ensureStart, listenStart);
   const ownerTable = ensureBody.indexOf('CREATE TABLE IF NOT EXISTS kq_apple_subscription_owners');
