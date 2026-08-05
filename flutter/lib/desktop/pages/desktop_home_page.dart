@@ -1513,7 +1513,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     busy: busy,
                     onPressed: () => _runPostInstallAction(() async {
                       final result = await repairKqFirewallRules();
-                      showToast(result.message);
+                      showToast(translate(result.message));
                     }),
                   ),
                 ),
@@ -1544,7 +1544,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               busy: busy,
               onPressed: () => _runPostInstallAction(() async {
                 final result = await registerKqBrowserRemoteProtocols();
-                showToast(result.message);
+                showToast(translate(result.message));
               }),
             ),
           ],

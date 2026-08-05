@@ -35,7 +35,7 @@ class _ScanPageState extends State<ScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan QR'),
+        title: Text(translate('Scan QR')),
         actions: [
           _buildImagePickerButton(),
           _buildFlashToggleButton(),
@@ -78,7 +78,7 @@ class _ScanPageState extends State<ScanPage> {
 
   void _onPermissionSet(BuildContext context, QRViewController ctrl, bool p) {
     if (!p) {
-      showToast('No permission');
+      showToast(translate('No permission'));
     }
   }
 
@@ -103,7 +103,7 @@ class _ScanPageState extends State<ScanPage> {
           showServerSettingFromQr(result.text);
         }
       } catch (e) {
-        showToast('No QR code found');
+        showToast(translate('No QR code found'));
       }
     }
   }
@@ -150,7 +150,7 @@ class _ScanPageState extends State<ScanPage> {
     closeConnection();
     await controller?.pauseCamera();
     if (!data.startsWith('config=')) {
-      showToast('Invalid QR code');
+      showToast(translate('Invalid QR code'));
       return;
     }
     try {
@@ -159,7 +159,7 @@ class _ScanPageState extends State<ScanPage> {
         showServerSettingsWithValue(sc, gFFI.dialogManager, null);
       });
     } catch (e) {
-      showToast('Invalid QR code');
+      showToast(translate('Invalid QR code'));
     }
   }
 }

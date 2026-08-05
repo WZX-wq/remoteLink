@@ -1467,7 +1467,10 @@ class _DevicePasswordTileState extends State<_DevicePasswordTile> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: PopupMenuButton<KqPasswordKind>(
-                  tooltip: '选择验证码类型',
+                  tooltip: kqLocaleText(
+                    zhCn: '选择验证码类型',
+                    en: 'Select password type',
+                  ),
                   initialValue: serverModel.selectedPasswordKind,
                   onSelected: serverModel.setSelectedPasswordKind,
                   color: q.panelStrong,
@@ -1689,7 +1692,7 @@ void _showMobileKqPasswordDialog(ServerModel model) {
           final value = controller.text.trim();
           if (value.isEmpty) {
             setState(() {
-              errMsg = '验证码不能为空';
+              errMsg = translate('Verification code cannot be empty.');
               submitting = false;
             });
             return;
@@ -1716,7 +1719,7 @@ void _showMobileKqPasswordDialog(ServerModel model) {
             });
             return;
           }
-          showToast('已更新$title');
+          showToast('${translate('Updated')} $title');
           close();
         }
 
@@ -1768,7 +1771,9 @@ void _showMobileKqPasswordDialog(ServerModel model) {
                   ).workaroundFreezeLinuxMint(),
                   const SizedBox(height: 4),
                   Text(
-                    '长期验证码会同时更新远程连接使用的长期密码，并在本机可见。',
+                    translate(
+                      'The long-term verification code also updates the permanent password used for remote connections and is visible on this device.',
+                    ),
                     style: TextStyle(
                       color: q.muted,
                       fontSize: 12,
@@ -1836,7 +1841,7 @@ class _MobileKqPasswordDialogHeader extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            '修改$title',
+            '${translate('Change')} $title',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(

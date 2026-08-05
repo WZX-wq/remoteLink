@@ -15,10 +15,11 @@ class KqPrivacyPolicySection {
   final List<String> paragraphsZh;
   final List<String> paragraphsEn;
 
-  String titleForCurrentLanguage() => kqUiPrefersChinese() ? titleZh : titleEn;
+  String titleForCurrentLanguage() =>
+      kqUiPrefersChinese() ? titleZh : translate(titleEn);
 
   List<String> paragraphsForCurrentLanguage() =>
-      kqUiPrefersChinese() ? paragraphsZh : paragraphsEn;
+      kqUiPrefersChinese() ? paragraphsZh : paragraphsEn.map(translate).toList();
 }
 
 /// The public URL must host the same text shown in the app before App Store
@@ -110,10 +111,13 @@ class KqPrivacyPolicy {
     ),
   ];
 
-  static String titleForCurrentLanguage() =>
-      kqUiPrefersChinese() ? '隐私政策' : 'Privacy policy';
+  static String titleForCurrentLanguage() => kqUiPrefersChinese()
+      ? '隐私政策'
+      : translate('Privacy policy');
 
   static String summaryForCurrentLanguage() => kqUiPrefersChinese()
       ? '了解我们如何处理账号、远程协助和会员服务相关的数据。'
-      : 'Learn how we handle data for accounts, remote assistance, and membership services.';
+      : translate(
+          'Learn how we handle data for accounts, remote assistance, and membership services.',
+        );
 }

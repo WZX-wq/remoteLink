@@ -1306,14 +1306,19 @@ class FfiModel with ChangeNotifier {
         if (isRepairing) return;
         setState(() {
           isRepairing = true;
-          repairMessage = '正在请求系统授权并修复本机防火墙...';
+          repairMessage = translate(
+              'Requesting system authorization and repairing the local firewall...');
         });
         final result = await repairKqFirewallRules();
         setState(() {
           isRepairing = false;
-          repairMessage = result.message;
+          repairMessage = translate(result.message);
         });
-        showToast(result.success ? '本机防火墙规则已修复，请重试直连。' : result.message,
+        showToast(
+            result.success
+                ? translate(
+                    'Local firewall rules have been repaired. Try the direct connection again.')
+                : translate(result.message),
             timeout: const Duration(seconds: 5));
       }
 
@@ -2087,42 +2092,49 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
 
     final items = <_KqDiagnosticsItem>[
       if (isOffline)
-        const _KqDiagnosticsItem(
-          title: '远程桌面不在线',
-          detail: '对方设备未连接到鲲穹服务器，或服务/网络已断开。请确认对方已开机、已登录系统、鲲穹远程桌面正在运行且网络可访问。',
+        _KqDiagnosticsItem(
+          title: translate('Remote desktop is offline'),
+          detail: translate(
+              'The peer is not connected to the Kunqiong server, or its service/network is disconnected. Make sure it is powered on, signed in, running Kunqiong Remote Desktop, and reachable on the network.'),
           state: _KqDiagnosticsState.warning,
         ),
       _KqDiagnosticsItem(
-        title: '本机防火墙',
+        title: translate('Local firewall'),
         detail: risk.firewallRulesMissing
-            ? '检测到系统网络放行规则不完整，可点击下方按钮自动修复。'
-            : '已检查本机规则；如果安全软件另有拦截，请在安全软件中放行鲲穹远程桌面。',
+            ? translate(
+                'The system network allow rules are incomplete. Use the button below to repair them automatically.')
+            : translate(
+                'Local rules were checked. If security software blocks the app, allow Kunqiong Remote Desktop there.'),
         state: risk.firewallRulesMissing
             ? _KqDiagnosticsState.warning
             : _KqDiagnosticsState.ok,
       ),
       _KqDiagnosticsItem(
-        title: '代理 / VPN',
+        title: translate('Network proxy or VPN'),
         detail: risk.hasProxy || risk.hasVpn
-            ? '检测到代理或 VPN，可能导致连接不稳定或变慢。建议关闭后重试。'
-            : '未发现明显代理或 VPN 风险。',
+            ? translate(
+                'A proxy or VPN was detected and may make connections unstable or slow. Disable it and try again.')
+            : translate('No obvious proxy or VPN risk was found.'),
         state: risk.hasProxy || risk.hasVpn
             ? _KqDiagnosticsState.warning
             : _KqDiagnosticsState.ok,
       ),
-      const _KqDiagnosticsItem(
-        title: '网络通信',
-        detail: '两端网络需要允许远程桌面通信。如果被公司网络、路由器或运营商限制，连接可能失败或明显变慢。',
+      _KqDiagnosticsItem(
+        title: translate('Network communication'),
+        detail: translate(
+            'Both networks must allow remote desktop traffic. Company networks, routers, or carriers may restrict it and cause connection failures or slowdowns.'),
         state: _KqDiagnosticsState.info,
       ),
-      const _KqDiagnosticsItem(
-        title: '路由器/运营商网络',
-        detail: '公司网、校园网或部分运营商网络可能限制远程连接。可尝试换网络，或让网络管理员放行。',
+      _KqDiagnosticsItem(
+        title: translate('Router / carrier network'),
+        detail: translate(
+            'Company, campus, or some carrier networks may restrict remote connections. Try another network or ask the network administrator to allow it.'),
         state: _KqDiagnosticsState.info,
       ),
-      const _KqDiagnosticsItem(
-        title: '转接服务器状态',
-        detail: '如果无法直接连接，会通过服务器转接。服务器拥挤时可能出现延迟高、画面卡顿。',
+      _KqDiagnosticsItem(
+        title: translate('Relay server status'),
+        detail: translate(
+            'If a direct connection is unavailable, the session uses a relay server. A busy server can cause high latency or choppy video.'),
         state: _KqDiagnosticsState.info,
       ),
     ];
@@ -2160,7 +2172,7 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '网络连接诊断',
+                        translate('Network connection diagnostics'),
                         style: TextStyle(
                           color: titleColor,
                           fontSize: 19,
@@ -2170,8 +2182,10 @@ class _KqNetworkDiagnosticsContent extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         isOffline
-                            ? '对方当前不在线或无法被服务器确认在线。请先检查对方设备状态，再按清单排查网络。'
-                            : '连接失败可能是本机网络、防火墙或对方网络异常。请按清单处理后重试。',
+                            ? translate(
+                                'The peer is offline or the server cannot confirm its online status. Check the peer first, then review the network checklist.')
+                            : translate(
+                                'The connection may have failed because of this device\'s network, firewall, or the peer\'s network. Follow the checklist and try again.'),
                         style: TextStyle(color: bodyColor, height: 1.35),
                       ),
                     ],

@@ -6957,14 +6957,14 @@ class _PostInstallPermissionActionsState
   Future<void> _repairFirewall() async {
     await _runAction(() async {
       final result = await repairKqFirewallRules();
-      showToast(result.message);
+      showToast(translate(result.message));
     }, (value) => _repairingFirewall = value);
   }
 
   Future<void> _registerBrowserRemoteProtocol() async {
     await _runAction(() async {
       final result = await registerKqBrowserRemoteProtocols();
-      showToast(result.message);
+      showToast(translate(result.message));
     }, (value) => _registeringBrowserProtocol = value);
   }
 

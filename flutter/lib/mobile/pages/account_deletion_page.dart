@@ -26,7 +26,8 @@ class _AccountDeletionPageState extends State<AccountDeletionPage> {
     super.dispose();
   }
 
-  String _text(String zh, String en) => kqUiPrefersChinese() ? zh : en;
+  String _text(String zh, String en) =>
+      kqUiPrefersChinese() ? zh : translate(en);
 
   String _errorText(KqAccountDeletionException error) {
     switch (error.failure) {

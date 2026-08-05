@@ -750,7 +750,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Future<void> _requestMobileVoiceCall() async {
     if (!await _ensureMobileVoicePermission()) {
-      showToast('无法使用麦克风，请在系统设置中允许麦克风权限后重试');
+      showToast(
+        translate(
+          'Microphone is unavailable. Allow microphone access in system settings and try again.',
+        ),
+      );
       return;
     }
     if (!mounted) return;
@@ -759,7 +763,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       _showEdit = false;
     });
     bind.sessionRequestVoiceCall(sessionId: sessionId);
-    showToast('已发起语音通话，等待对方接听');
+    showToast(
+      translate('Voice call started. Waiting for the other side to answer.'),
+    );
   }
 
   void _endMobileVoiceCall() {

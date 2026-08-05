@@ -62,7 +62,8 @@ class _KqIosMembershipPurchasePageState
     if (mounted) setState(() {});
   }
 
-  String _text(String zh, String en) => kqUiPrefersChinese() ? zh : en;
+  String _text(String zh, String en) =>
+      kqUiPrefersChinese() ? zh : translate(en);
 
   Future<void> _openLegalUrl(String url) async {
     final uri = Uri.tryParse(url);

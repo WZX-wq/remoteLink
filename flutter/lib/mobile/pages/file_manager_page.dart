@@ -175,7 +175,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
       }
       showToast(kqLocaleText(
         zhCn: '已开始发送 ${entries.length} 个文件',
-        en: 'Sending ${entries.length} file(s)',
+        en: 'Sending {${entries.length}} file(s)',
       ));
     } catch (error, stackTrace) {
       debugPrint('Failed to import selected documents: $error');
@@ -218,7 +218,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
     }
     showToast(kqLocaleText(
       zhCn: '已开始传输 $itemCount 个项目',
-      en: 'Transferring $itemCount item(s)',
+      en: 'Transferring {$itemCount} item(s)',
     ));
   }
 
@@ -440,17 +440,17 @@ class _FileManagerPageState extends State<FileManagerPage> {
         final isSendingToRemote = selectedItems.isLocal;
         final destination =
             isSendingToRemote ? model.remoteController : model.localController;
+        final destinationLabel = _displayDirectory(destination);
+        final transferAction = isSendingToRemote
+            ? kqLocaleText(zhCn: '发送到', en: 'Send to')
+            : kqLocaleText(zhCn: '保存到', en: 'Save to');
         return _FileTransferPanel(
           icon: isSendingToRemote ? Icons.send_rounded : Icons.download_rounded,
           title: kqLocaleText(
             zhCn: '已选择 ${selectedItems.items.length} 个项目',
-            en: '${selectedItems.items.length} item(s) selected',
+            en: '{${selectedItems.items.length}} item(s) selected',
           ),
-          subtitle: kqLocaleText(
-            zhCn:
-                '${isSendingToRemote ? '发送到' : '保存到'} ${_displayDirectory(destination)}',
-            en: '${isSendingToRemote ? 'Send to' : 'Save to'} ${_displayDirectory(destination)}',
-          ),
+          subtitle: '$transferAction $destinationLabel',
           primaryLabel: isSendingToRemote
               ? kqLocaleText(zhCn: '发送', en: 'Send')
               : kqLocaleText(zhCn: '保存', en: 'Save'),
@@ -474,8 +474,10 @@ class _FileManagerPageState extends State<FileManagerPage> {
           title: kqLocaleText(zhCn: '选择文件并发送', en: 'Choose files to send'),
           subtitle: _canPickAndSend
               ? kqLocaleText(
-                  zhCn: '文件会直接发送到 ${_displayDirectory(model.remoteController)}',
-                  en: 'Files will be sent to ${_displayDirectory(model.remoteController)}',
+                  zhCn:
+                      '文件会直接发送到 ${_displayDirectory(model.remoteController)}',
+                  en:
+                      'Files will be sent to {${_displayDirectory(model.remoteController)}}',
                 )
               : kqLocaleText(
                   zhCn: '正在准备远端文件夹',
@@ -498,9 +500,9 @@ class _FileManagerPageState extends State<FileManagerPage> {
         case JobState.inProgress:
           return _FileTransferPanel(
             icon: Icons.sync_rounded,
-            title: kqLocaleText(
+              title: kqLocaleText(
               zhCn: '正在传输 ${activeJob.fileName}',
-              en: 'Transferring ${activeJob.fileName}',
+              en: 'Transferring {${activeJob.fileName}}',
             ),
             subtitle: activeJob.totalSize > 0
                 ? '${activeJob.percentText}  ${readableFileSize(activeJob.finishedSize.toDouble())} / ${readableFileSize(activeJob.totalSize.toDouble())}  ${readableFileSize(activeJob.speed)}/s'

@@ -188,3 +188,14 @@ test('Apple verification returns the final entitlement across all active orders'
   assert.match(grantSource, /latestPaidProjectMemberOrder\(/);
   assert.match(grantSource, /return \{ expireAt: effectiveExpireAt, memberActive \}/);
 });
+
+test('Apple membership expiry queries compare UTC timestamps', () => {
+  const source = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  const helperStart = source.indexOf('async function latestPaidProjectMemberOrder');
+  const helperEnd = source.indexOf('async function markProjectMemberOrderPaid', helperStart);
+  const helperSource = source.slice(helperStart, helperEnd);
+
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  assert.match(helperSource, /expire_at > UTC_TIMESTAMP\(\)/);
+  assert.doesNotMatch(helperSource, /expire_at > NOW\(\)/);
+});

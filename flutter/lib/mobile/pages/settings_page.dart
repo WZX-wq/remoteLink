@@ -503,7 +503,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               : onFloatingWindowChanged));
 
       enhancementsTiles.add(_getPopupDialogRadioEntry(
-        title: 'Keep screen on',
+        title: _settingsText('Keep screen on'),
         list: [
           _RadioEntry('Never', _keepScreenOnToOption(KeepScreenOn.never)),
           _RadioEntry('During controlled',
@@ -1581,7 +1581,7 @@ class __DisplayPageState extends State<_DisplayPage> {
         SettingsSection(
           tiles: [
             _getPopupDialogRadioEntry(
-              title: 'Default View Style',
+              title: _settingsText('Default View Style'),
               list: [
                 _RadioEntry('Scale original', kRemoteViewStyleOriginal),
                 _RadioEntry('Scale adaptive', kRemoteViewStyleAdaptive)
@@ -1596,7 +1596,7 @@ class __DisplayPageState extends State<_DisplayPage> {
                     },
             ),
             _getPopupDialogRadioEntry(
-              title: 'Default Image Quality',
+              title: _settingsText('Default Image Quality'),
               list: [
                 _RadioEntry('Good image quality', kRemoteImageQualityBest),
                 _RadioEntry('Balanced', kRemoteImageQualityBalanced),
@@ -1622,7 +1622,7 @@ class __DisplayPageState extends State<_DisplayPage> {
               notCloseValue: kRemoteImageQualityCustom,
             ),
             _getPopupDialogRadioEntry(
-              title: 'Default Codec',
+              title: _settingsText('Default Codec'),
               list: codecList,
               getter: () =>
                   bind.mainGetUserDefaultOption(key: kOptionCodecPreference),
@@ -1696,7 +1696,9 @@ class __ManageTrustedDevicesState extends State<_ManageTrustedDevices> {
               return Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
+              return Center(
+                child: Text('${_settingsText('Error')}: ${snapshot.error}'),
+              );
             }
             final devices = snapshot.data as List<TrustedDevice>;
             trustedDevices = devices.obs;

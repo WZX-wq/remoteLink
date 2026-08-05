@@ -39,7 +39,7 @@ class KqBrowserProtocolRegistrationResult {
 Future<KqFirewallRepairResult> repairKqFirewallRules() async {
   return const KqFirewallRepairResult(
     success: false,
-    message: '当前系统不支持自动修复防火墙。',
+    message: 'Automatic firewall repair is not supported on this system.',
   );
 }
 
@@ -47,6 +47,7 @@ Future<KqBrowserProtocolRegistrationResult>
     registerKqBrowserRemoteProtocols() async {
   return const KqBrowserProtocolRegistrationResult(
     success: false,
-    message: '当前系统不支持注册浏览器远控入口。',
+    message:
+        'Browser remote-control registration is not supported on this system.',
   );
 }

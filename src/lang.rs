@@ -2,105 +2,66 @@ use hbb_common::regex::Regex;
 use std::ops::Deref;
 
 mod ar;
-mod be;
-mod bg;
-mod ca;
+mod bn;
 mod cn;
-mod cs;
-mod da;
 mod de;
-mod el;
 mod en;
-mod eo;
 mod es;
-mod et;
-mod eu;
 mod fa;
-mod fi;
 mod fr;
-mod ge;
-mod gu;
 mod he;
 mod hi;
-mod hr;
-mod hu;
 mod id;
 mod it;
 mod ja;
 mod ko;
-mod kz;
-mod lt;
-mod lv;
-mod ml;
-mod nb;
+mod ms;
 mod nl;
 mod pl;
+#[path = "lang/pt_PT.rs"]
+mod pt;
 mod ptbr;
-mod ro;
 mod ru;
-mod sc;
-mod sk;
-mod sl;
-mod sq;
-mod sr;
-mod sv;
+mod sw;
 mod ta;
 mod th;
+mod tl;
 mod tr;
 mod tw;
 mod uk;
+mod ur;
 mod vi;
 
 pub const LANGS: &[(&str, &str)] = &[
-    ("en", "English"),
-    ("it", "Italiano"),
-    ("fr", "Français"),
+    ("ar", "العربية"),
+    ("bn", "বাংলা"),
     ("de", "Deutsch"),
-    ("nl", "Nederlands"),
-    ("nb", "Norsk bokmål"),
-    ("zh-cn", "简体中文"),
-    ("zh-tw", "繁體中文"),
-    ("pt", "Português"),
+    ("en", "English"),
     ("es", "Español"),
-    ("et", "Eesti keel"),
-    ("eu", "Euskara"),
-    ("hu", "Magyar"),
-    ("bg", "Български"),
-    ("be", "Беларуская"),
-    ("ru", "Русский"),
-    ("sk", "Slovenčina"),
-    ("id", "Indonesia"),
-    ("cs", "Čeština"),
-    ("da", "Dansk"),
-    ("eo", "Esperanto"),
-    ("tr", "Türkçe"),
-    ("vi", "Tiếng Việt"),
-    ("pl", "Polski"),
+    ("fa", "فارسی"),
+    ("fr", "Français"),
+    ("he", "עברית"),
+    ("hi", "हिंदी"),
+    ("id", "Bahasa Indonesia"),
+    ("it", "Italiano"),
     ("ja", "日本語"),
     ("ko", "한국어"),
-    ("kz", "Қазақ"),
-    ("uk", "Українська"),
-    ("fa", "فارسی"),
-    ("ca", "Català"),
-    ("el", "Ελληνικά"),
-    ("sv", "Svenska"),
-    ("sq", "Shqip"),
-    ("sr", "Srpski"),
-    ("th", "ภาษาไทย"),
-    ("sl", "Slovenščina"),
-    ("ro", "Română"),
-    ("lt", "Lietuvių"),
-    ("lv", "Latviešu"),
-    ("ar", "العربية"),
-    ("he", "עברית"),
-    ("hr", "Hrvatski"),
-    ("sc", "Sardu"),
+    ("ms", "Bahasa Melayu"),
+    ("nl", "Nederlands"),
+    ("pl", "Polski"),
+    ("pt", "Português (Portugal)"),
+    ("pt-br", "Português (Brasil)"),
+    ("ru", "Русский"),
+    ("sw", "Kiswahili"),
     ("ta", "தமிழ்"),
-    ("ge", "ქართული"),
-    ("fi", "Suomi"),
-    ("ml", "മലയാളം"),
-    ("hi", "हिंदी"),
-    ("gu", "ગુજરાતી"),
+    ("th", "ไทย"),
+    ("tl", "Filipino"),
+    ("tr", "Türkçe"),
+    ("uk", "Українська"),
+    ("ur", "اردو"),
+    ("vi", "Tiếng Việt"),
+    ("zh-cn", "简体中文"),
+    ("zh-tw", "繁體中文"),
 ];
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -141,6 +102,10 @@ fn lang_from_locale(locale: &str) -> String {
         })
         .to_owned();
     }
+    if locale.starts_with("pt") {
+        let locale = locale.replace('_', "-");
+        return if locale == "pt-br" { "pt-br" } else { "pt" }.to_owned();
+    }
     locale
         .split("-")
         .next()
@@ -152,55 +117,35 @@ fn lang_from_locale(locale: &str) -> String {
 fn translate_with_lang(name: String, lang: &str) -> String {
     let lang = lang.to_lowercase();
     let m = match lang.as_str() {
-        "fr" => fr::T.deref(),
-        "zh-cn" => cn::T.deref(),
-        "it" => it::T.deref(),
-        "zh-tw" => tw::T.deref(),
+        "ar" => ar::T.deref(),
+        "bn" => bn::T.deref(),
         "de" => de::T.deref(),
-        "nb" => nb::T.deref(),
-        "nl" => nl::T.deref(),
+        "en" => en::T.deref(),
         "es" => es::T.deref(),
-        "et" => et::T.deref(),
-        "eu" => eu::T.deref(),
-        "hu" => hu::T.deref(),
-        "ru" => ru::T.deref(),
-        "eo" => eo::T.deref(),
+        "fa" => fa::T.deref(),
+        "fr" => fr::T.deref(),
+        "he" => he::T.deref(),
+        "hi" => hi::T.deref(),
         "id" => id::T.deref(),
-        "br" => ptbr::T.deref(),
-        "pt" => ptbr::T.deref(),
-        "tr" => tr::T.deref(),
-        "cs" => cs::T.deref(),
-        "da" => da::T.deref(),
-        "sk" => sk::T.deref(),
-        "vi" => vi::T.deref(),
-        "pl" => pl::T.deref(),
+        "it" => it::T.deref(),
         "ja" => ja::T.deref(),
         "ko" => ko::T.deref(),
-        "kz" => kz::T.deref(),
-        "uk" => uk::T.deref(),
-        "fa" => fa::T.deref(),
-        "fi" => fi::T.deref(),
-        "ca" => ca::T.deref(),
-        "el" => el::T.deref(),
-        "sv" => sv::T.deref(),
-        "sq" => sq::T.deref(),
-        "sr" => sr::T.deref(),
-        "th" => th::T.deref(),
-        "sl" => sl::T.deref(),
-        "ro" => ro::T.deref(),
-        "lt" => lt::T.deref(),
-        "lv" => lv::T.deref(),
-        "ar" => ar::T.deref(),
-        "bg" => bg::T.deref(),
-        "be" => be::T.deref(),
-        "he" => he::T.deref(),
-        "hr" => hr::T.deref(),
-        "sc" => sc::T.deref(),
+        "ms" => ms::T.deref(),
+        "nl" => nl::T.deref(),
+        "pl" => pl::T.deref(),
+        "pt" | "pt-pt" | "pt_pt" => pt::T.deref(),
+        "pt-br" | "pt_br" | "ptbr" | "br" => ptbr::T.deref(),
+        "ru" => ru::T.deref(),
+        "sw" => sw::T.deref(),
         "ta" => ta::T.deref(),
-        "ge" => ge::T.deref(),
-        "ml" => ml::T.deref(),
-        "hi" => hi::T.deref(),
-        "gu" => gu::T.deref(),
+        "th" => th::T.deref(),
+        "tl" => tl::T.deref(),
+        "tr" => tr::T.deref(),
+        "uk" => uk::T.deref(),
+        "ur" => ur::T.deref(),
+        "vi" => vi::T.deref(),
+        "zh-cn" => cn::T.deref(),
+        "zh-tw" => tw::T.deref(),
         _ => en::T.deref(),
     };
     let (name, placeholder_value) = extract_placeholder(&name);
@@ -271,7 +216,79 @@ fn extract_placeholder(input: &str) -> (String, Option<String>) {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use hbb_common::config::LocalConfig;
+
+    fn supported_tables() -> Vec<(&'static str, &'static HashMap<&'static str, &'static str>)> {
+        vec![
+            ("ar", ar::T.deref()),
+            ("bn", bn::T.deref()),
+            ("de", de::T.deref()),
+            ("en", en::T.deref()),
+            ("es", es::T.deref()),
+            ("fa", fa::T.deref()),
+            ("fr", fr::T.deref()),
+            ("he", he::T.deref()),
+            ("hi", hi::T.deref()),
+            ("id", id::T.deref()),
+            ("it", it::T.deref()),
+            ("ja", ja::T.deref()),
+            ("ko", ko::T.deref()),
+            ("ms", ms::T.deref()),
+            ("nl", nl::T.deref()),
+            ("pl", pl::T.deref()),
+            ("pt", pt::T.deref()),
+            ("pt-br", ptbr::T.deref()),
+            ("ru", ru::T.deref()),
+            ("sw", sw::T.deref()),
+            ("ta", ta::T.deref()),
+            ("th", th::T.deref()),
+            ("tl", tl::T.deref()),
+            ("tr", tr::T.deref()),
+            ("uk", uk::T.deref()),
+            ("ur", ur::T.deref()),
+            ("vi", vi::T.deref()),
+            ("zh-cn", cn::T.deref()),
+            ("zh-tw", tw::T.deref()),
+        ]
+    }
+
+    fn placeholders(value: &str) -> Vec<&str> {
+        ["{}", "%min%", "%max%"]
+            .into_iter()
+            .filter(|placeholder| value.contains(placeholder))
+            .collect()
+    }
+
+    #[test]
+    fn every_supported_locale_covers_the_english_key_set() {
+        let tables = supported_tables();
+        let english = tables
+            .iter()
+            .find(|(locale, _)| *locale == "en")
+            .expect("English translation table must exist")
+            .1;
+
+        for (locale, table) in tables {
+            for key in table.keys() {
+                assert!(
+                    english.contains_key(key),
+                    "locale {locale} has key outside the English baseline {key:?}",
+                );
+            }
+            for (key, english_value) in english {
+                let value = table.get(key).unwrap_or_else(|| {
+                    panic!("locale {locale} is missing canonical key {key:?}")
+                });
+                assert!(!value.is_empty(), "locale {locale} has empty key {key:?}");
+                assert_eq!(
+                    placeholders(english_value),
+                    placeholders(value),
+                    "locale {locale} changed placeholders for {key:?}",
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_extract_placeholders() {
@@ -305,5 +322,12 @@ mod test {
 
         LocalConfig::set_option("lang".to_owned(), prev_lang);
         assert_eq!(translated, "目前連線");
+    }
+
+    #[test]
+    fn test_portuguese_locale_selects_the_correct_region_table() {
+        assert_eq!(super::lang_from_locale("pt"), "pt");
+        assert_eq!(super::lang_from_locale("pt-PT"), "pt");
+        assert_eq!(super::lang_from_locale("pt_BR"), "pt-br");
     }
 }

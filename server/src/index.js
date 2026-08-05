@@ -556,7 +556,7 @@ async function latestPaidProjectMemberOrder(userId, executor = pool) {
       SELECT *
       FROM kq_member_orders
       WHERE user_id = ? AND pay_status = 1
-        AND (expire_at IS NULL OR expire_at > NOW())
+        AND (expire_at IS NULL OR expire_at > UTC_TIMESTAMP())
       ORDER BY expire_at DESC, updated_at DESC
       LIMIT 1
     `,

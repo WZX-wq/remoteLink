@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../common.dart';
 import '../../common/kq_theme.dart';
 import '../privacy/kq_privacy_policy.dart';
 
@@ -94,7 +95,7 @@ class _PrivacyHeader extends StatelessWidget {
           ),
           IconButton(
             onPressed: () => onOpenPublicPolicy(),
-            tooltip: 'Open public policy',
+            tooltip: translate('Open public policy'),
             icon: Icon(Icons.open_in_new_rounded, color: q.primary),
           ),
         ],

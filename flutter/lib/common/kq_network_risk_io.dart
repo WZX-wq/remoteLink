@@ -50,7 +50,7 @@ Future<KqFirewallRepairResult> repairKqFirewallRules() async {
   if (!Platform.isWindows) {
     return const KqFirewallRepairResult(
       success: false,
-      message: '当前系统不支持自动修复防火墙。',
+      message: 'Automatic firewall repair is not supported on this system.',
     );
   }
   try {
@@ -62,17 +62,17 @@ Future<KqFirewallRepairResult> repairKqFirewallRules() async {
     if (result.exitCode == 0) {
       return const KqFirewallRepairResult(
         success: true,
-        message: '本机防火墙规则已修复。',
+        message: 'Local firewall rules have been repaired.',
       );
     }
     return KqFirewallRepairResult(
       success: false,
-      message: output.isEmpty ? '修复命令执行失败。' : output,
+      message: output.isEmpty ? 'Firewall repair command failed.' : output,
     );
   } catch (e) {
     return KqFirewallRepairResult(
       success: false,
-      message: '修复命令启动失败：$e',
+      message: 'Failed to start the firewall repair command.',
     );
   }
 }
@@ -82,7 +82,8 @@ Future<KqBrowserProtocolRegistrationResult>
   if (!Platform.isWindows) {
     return const KqBrowserProtocolRegistrationResult(
       success: false,
-      message: '当前系统不支持注册浏览器远控入口。',
+      message:
+          'Browser remote-control registration is not supported on this system.',
     );
   }
   final exe = Platform.resolvedExecutable;
@@ -133,12 +134,12 @@ Future<KqBrowserProtocolRegistrationResult>
     }
     return const KqBrowserProtocolRegistrationResult(
       success: true,
-      message: '浏览器远控入口已启用。',
+      message: 'Browser remote-control entry has been enabled.',
     );
   } catch (e) {
     return KqBrowserProtocolRegistrationResult(
       success: false,
-      message: '注册浏览器远控入口失败：$e',
+      message: 'Failed to register the browser remote-control entry.',
     );
   }
 }

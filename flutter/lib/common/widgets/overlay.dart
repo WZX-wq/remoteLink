@@ -140,7 +140,7 @@ class DraggableChatWindow extends StatelessWidget {
           Padding(
               padding: EdgeInsets.all(2),
               child: ActionIcon(
-                message: 'Close',
+                message: translate('Close'),
                 icon: IconFont.close,
                 onTap: chatModel.hideChatWindowOverlay,
                 isClose: true,

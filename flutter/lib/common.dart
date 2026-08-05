@@ -2743,7 +2743,8 @@ Future<bool> _blockKqRecursiveRemoteDesktopIfNeeded(
   if (!isControlledByTarget) {
     return false;
   }
-  showToast('当前设备正在被该伙伴远程控制。为避免画面循环，请先断开当前连接，或使用工具栏里的切换控制方向。');
+  showToast(translate(
+      'This device is already controlled by this peer. Disconnect the current session or switch control direction to avoid a display loop.'));
   return true;
 }
 
@@ -3030,7 +3031,9 @@ Future<void> _showKqNetworkRiskToastIfNeeded() async {
       return const KqNetworkRisk(hasProxy: false, hasVpn: false);
     });
     if (appProxy || risk.hasRisk) {
-      showToast('检测到代理/VPN 或防火墙风险，远程连接可能变慢或不稳定，建议处理后重试。',
+      showToast(
+          translate(
+              'A proxy, VPN, or firewall risk was detected. Remote connections may be slow or unstable; resolve it and try again.'),
           timeout: const Duration(seconds: 5));
     }
   } catch (_) {
@@ -3966,60 +3969,39 @@ ColorFilter? svgColor(Color? color) {
 }
 
 const Map<String, String> _kqLanguageChineseHints = {
-  'en': '英语 / 美国、英国',
-  'it': '意大利语 / 意大利',
-  'fr': '法语 / 法国',
+  'ar': '阿拉伯语 / 阿拉伯地区',
+  'bn': '孟加拉语 / 孟加拉国',
   'de': '德语 / 德国',
+  'en': '英语 / 美国、英国',
+  'es': '西班牙语 / 西班牙',
+  'fa': '波斯语 / 伊朗',
+  'fr': '法语 / 法国',
+  'he': '希伯来语 / 以色列',
+  'hi': '印地语 / 印度',
+  'id': '印度尼西亚语 / 印度尼西亚',
+  'it': '意大利语 / 意大利',
+  'ja': '日语 / 日本',
+  'ko': '韩语 / 韩国',
+  'ms': '马来语 / 马来西亚',
   'nl': '荷兰语 / 荷兰',
-  'nb': '挪威语 / 挪威',
-  'zh-cn': '简体中文 / 中国大陆',
-  'zh-tw': '繁体中文 / 中国台湾',
+  'pl': '波兰语 / 波兰',
   'pt': '葡萄牙语 / 葡萄牙',
   'pt-pt': '葡萄牙语 / 葡萄牙',
   'pt_pt': '葡萄牙语 / 葡萄牙',
   'ptbr': '葡萄牙语 / 巴西',
   'pt-br': '葡萄牙语 / 巴西',
-  'es': '西班牙语 / 西班牙',
-  'et': '爱沙尼亚语 / 爱沙尼亚',
-  'eu': '巴斯克语 / 巴斯克地区',
-  'hu': '匈牙利语 / 匈牙利',
-  'bg': '保加利亚语 / 保加利亚',
-  'be': '白俄罗斯语 / 白俄罗斯',
+  'pt_br': '葡萄牙语 / 巴西',
   'ru': '俄语 / 俄罗斯',
-  'sk': '斯洛伐克语 / 斯洛伐克',
-  'id': '印尼语 / 印度尼西亚',
-  'cs': '捷克语 / 捷克',
-  'da': '丹麦语 / 丹麦',
-  'eo': '世界语 / 国际',
-  'tr': '土耳其语 / 土耳其',
-  'vi': '越南语 / 越南',
-  'pl': '波兰语 / 波兰',
-  'ja': '日语 / 日本',
-  'ko': '韩语 / 韩国',
-  'kz': '哈萨克语 / 哈萨克斯坦',
-  'uk': '乌克兰语 / 乌克兰',
-  'fa': '波斯语 / 伊朗',
-  'ca': '加泰罗尼亚语 / 加泰罗尼亚',
-  'el': '希腊语 / 希腊',
-  'sv': '瑞典语 / 瑞典',
-  'sq': '阿尔巴尼亚语 / 阿尔巴尼亚',
-  'sr': '塞尔维亚语 / 塞尔维亚',
-  'th': '泰语 / 泰国',
-  'sl': '斯洛文尼亚语 / 斯洛文尼亚',
-  'ro': '罗马尼亚语 / 罗马尼亚',
-  'lt': '立陶宛语 / 立陶宛',
-  'lv': '拉脱维亚语 / 拉脱维亚',
-  'ar': '阿拉伯语 / 阿拉伯地区',
-  'he': '希伯来语 / 以色列',
-  'hr': '克罗地亚语 / 克罗地亚',
-  'sc': '撒丁语 / 意大利撒丁岛',
+  'sw': '斯瓦希里语 / 东非',
   'ta': '泰米尔语 / 印度、斯里兰卡',
-  'ge': '格鲁吉亚语 / 格鲁吉亚',
-  'ka': '格鲁吉亚语 / 格鲁吉亚',
-  'fi': '芬兰语 / 芬兰',
-  'ml': '马拉雅拉姆语 / 印度',
-  'hi': '印地语 / 印度',
-  'gu': '古吉拉特语 / 印度',
+  'th': '泰语 / 泰国',
+  'tl': '他加禄语 / 菲律宾',
+  'tr': '土耳其语 / 土耳其',
+  'uk': '乌克兰语 / 乌克兰',
+  'ur': '乌尔都语 / 巴基斯坦',
+  'vi': '越南语 / 越南',
+  'zh-cn': '简体中文 / 中国大陆',
+  'zh-tw': '繁体中文 / 中国台湾',
 };
 
 ({String title, String? subtitle}) kqLanguageDisplayParts(
