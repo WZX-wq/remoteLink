@@ -96,7 +96,7 @@ test('database startup removes users recreated after account deletion', () => {
   assert.ok(ownerTable < cleanupCall, 'cleanup must run after related tables exist');
 });
 
-test('local project deletion removes orphan-prone Apple subscription owners before user rows', () => {
+test('local project deletion releases Apple ownership and transactions before user rows', () => {
   const source = fs.readFileSync(
     path.resolve(__dirname, '../src/index.js'),
     'utf8',
@@ -107,10 +107,13 @@ test('local project deletion removes orphan-prone Apple subscription owners befo
   assert.ok(end > start);
   const body = source.slice(start, end);
   const ownerDelete = body.indexOf('DELETE FROM kq_apple_subscription_owners WHERE user_id = ?');
+  const transactionDelete = body.indexOf('DELETE FROM kq_apple_transactions WHERE user_id = ?');
   const userDelete = body.indexOf('DELETE FROM kq_users WHERE id = ?');
   assert.notEqual(ownerDelete, -1);
+  assert.notEqual(transactionDelete, -1);
   assert.notEqual(userDelete, -1);
   assert.ok(ownerDelete < userDelete, 'subscription owners have no FK cascade and must be removed first');
+  assert.ok(transactionDelete < userDelete, 'Apple transactions must be released before deleting the account');
 });
 
 test('defaults to project account deletion instead of failing when upstream is absent', async () => {

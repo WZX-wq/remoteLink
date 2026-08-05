@@ -1438,6 +1438,7 @@ async function recordAccountDeletionRequest(ctx, outcome) {
 
 async function deleteLocalProjectAccount(userId) {
   await pool.execute('DELETE FROM kq_apple_subscription_owners WHERE user_id = ?', [userId]);
+  await pool.execute('DELETE FROM kq_apple_transactions WHERE user_id = ?', [userId]);
   await pool.execute('DELETE FROM kq_users WHERE id = ?', [userId]);
 }
 
