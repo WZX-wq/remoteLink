@@ -16,8 +16,6 @@ const KQ_MOBILE_INITIAL_PEER_TIMEOUT: Duration = SEC30;
 const KQ_STALLED_VIDEO_REFRESH_TICKS: usize = 3;
 const KQ_STALLED_VIDEO_REFRESH_COOLDOWN_SECS: u64 = 5;
 const KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY: usize = 3;
-const KQ_STALLED_VIDEO_RECONNECT_AFTER_REFRESHES: usize = 3;
-const KQ_STALLED_VIDEO_RECENT_INPUT_SECS: u64 = 20;
 
 #[inline]
 fn kq_mobile_peer_timed_out(received: bool, elapsed: Duration) -> bool {
@@ -100,8 +98,6 @@ pub struct Remote<T: InvokeUiSession> {
     chroma: Arc<RwLock<Option<Chroma>>>,
     last_record_state: bool,
     sent_close_reason: bool,
-    last_video_input_instant: Option<Instant>,
-    last_stalled_video_reconnect_instant: Option<Instant>,
     #[cfg(target_os = "ios")]
     ios_voice_call_encoder: Option<Encoder>,
     #[cfg(target_os = "ios")]
@@ -156,8 +152,6 @@ impl<T: InvokeUiSession> Remote<T> {
             chroma: Default::default(),
             last_record_state: false,
             sent_close_reason: false,
-            last_video_input_instant: None,
-            last_stalled_video_reconnect_instant: None,
             #[cfg(target_os = "ios")]
             ios_voice_call_encoder: None,
             #[cfg(target_os = "ios")]
@@ -669,14 +663,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 self.check_clipboard_file_context();
             }
             Data::Message(msg) => {
-                let is_remote_input = matches!(
-                    msg.union.as_ref(),
-                    Some(
-                        message::Union::MouseEvent(_)
-                            | message::Union::KeyEvent(_)
-                            | message::Union::PointerDeviceEvent(_)
-                    )
-                );
                 match &msg.union {
                     Some(message::Union::Misc(misc)) => match misc.union {
                         Some(misc::Union::RefreshVideo(_)) => {
@@ -694,9 +680,6 @@ impl<T: InvokeUiSession> Remote<T> {
                         _ => {}
                     },
                     _ => {}
-                }
-                if is_remote_input {
-                    self.last_video_input_instant = Some(Instant::now());
                 }
                 allow_err!(peer.send(&msg).await);
             }
@@ -1414,17 +1397,6 @@ impl<T: InvokeUiSession> Remote<T> {
         }
         let mut refresh_displays = Vec::new();
         let mut renegotiate_codec = false;
-        let recent_remote_input = self
-            .last_video_input_instant
-            .map(|instant| {
-                instant.elapsed() <= Duration::from_secs(KQ_STALLED_VIDEO_RECENT_INPUT_SECS)
-            })
-            .unwrap_or(false);
-        let reconnect_cooldown_elapsed = self
-            .last_stalled_video_reconnect_instant
-            .map(|instant| instant.elapsed() >= Duration::from_secs(60))
-            .unwrap_or(true);
-        let mut should_reconnect = false;
         for (display, thread) in self.video_threads.iter_mut() {
             let ctl = &mut thread.fps_control;
             if thread.last_frame_instant.read().unwrap().is_none() {
@@ -1447,12 +1419,6 @@ impl<T: InvokeUiSession> Remote<T> {
             if ctl.stalled_refresh_times % KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY == 0 {
                 renegotiate_codec = true;
             }
-            if recent_remote_input
-                && reconnect_cooldown_elapsed
-                && ctl.stalled_refresh_times >= KQ_STALLED_VIDEO_RECONNECT_AFTER_REFRESHES
-            {
-                should_reconnect = true;
-            }
             refresh_displays.push(*display);
         }
         for display in refresh_displays {
@@ -1463,16 +1429,9 @@ impl<T: InvokeUiSession> Remote<T> {
             self.sender
                 .send(Data::Message(
                     self.handler.lc.read().unwrap().update_supported_decodings(),
-                ))
+            ))
                 .ok();
             log::info!("KQ video idle/stalled; renegotiating supported decodings");
-        }
-        if should_reconnect {
-            self.last_stalled_video_reconnect_instant = Some(Instant::now());
-            log::warn!(
-                "KQ video refresh recovery failed after recent remote input; reconnecting session"
-            );
-            self.handler.reconnect(false);
         }
     }
 

@@ -145,6 +145,20 @@ void main() {
     expect(videoService, contains('let refresh_requested = sp.is_option_true(OPTION_REFRESH);'));
   });
 
+  test('stalled video recovery keeps the current remote session open', () {
+    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
+    final recoveryStart =
+        ioLoop.indexOf('fn kq_refresh_stalled_zero_fps_displays(&mut self)');
+    final recoveryEnd = ioLoop.indexOf('fn check_view_camera_support', recoveryStart);
+    final recovery = ioLoop.substring(recoveryStart, recoveryEnd);
+
+    expect(recoveryStart, greaterThanOrEqualTo(0));
+    expect(recoveryEnd, greaterThan(recoveryStart));
+    expect(recovery, isNot(contains('reconnect(')));
+    expect(recovery,
+        isNot(contains('KQ_STALLED_VIDEO_RECONNECT_AFTER_REFRESHES')));
+  });
+
   test('quality monitor does not show fake zero delay for stalled video', () {
     final model = File('lib/models/model.dart').readAsStringSync();
     final overlay = File('lib/common/widgets/overlay.dart').readAsStringSync();
