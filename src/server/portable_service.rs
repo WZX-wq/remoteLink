@@ -597,6 +597,7 @@ pub mod server {
                 let para_ptr = shmem.as_ptr().add(ADDR_CAPTURER_PARA);
                 let para = para_ptr as *const CapturerPara;
                 let recreate = (*para).recreate;
+                let force_gdi = (*para).force_gdi;
                 let current_display = (*para).current_display;
                 let timeout_ms = (*para).timeout_ms;
                 if c.is_none() {
@@ -618,7 +619,17 @@ pub mod server {
                             c = {
                                 last_current_display = current_display;
                                 first_frame_captured = false;
-                                if dxgi_failed_times > MAX_DXGI_FAIL_TIME {
+                                if force_gdi {
+                                    if v.set_gdi() {
+                                        log::info!(
+                                            "KQ portable capture: recreated capture with forced GDI"
+                                        );
+                                    } else {
+                                        log::warn!(
+                                            "KQ portable capture: failed to recreate capture with forced GDI"
+                                        );
+                                    }
+                                } else if dxgi_failed_times > MAX_DXGI_FAIL_TIME {
                                     dxgi_failed_times = 0;
                                     v.set_gdi();
                                 }
@@ -626,6 +637,7 @@ pub mod server {
                                     &shmem,
                                     CapturerPara {
                                         recreate: false,
+                                        force_gdi,
                                         current_display: (*para).current_display,
                                         timeout_ms: (*para).timeout_ms,
                                     },
@@ -1222,6 +1234,7 @@ pub mod client {
                     shmem,
                     CapturerPara {
                         recreate: true,
+                        force_gdi: false,
                         current_display,
                         timeout_ms: 33,
                     },
@@ -1255,6 +1268,7 @@ pub mod client {
                         shmem,
                         CapturerPara {
                             recreate: (*para).recreate,
+                            force_gdi: (*para).force_gdi,
                             current_display: (*para).current_display,
                             timeout_ms: timeout.as_millis() as _,
                         },
@@ -1314,12 +1328,30 @@ pub mod client {
             }
         }
 
-        // control by itself
         fn is_gdi(&self) -> bool {
             true
         }
 
         fn set_gdi(&mut self) -> bool {
+            let mut lock = SHMEM.lock().unwrap();
+            let Some(shmem) = lock.as_mut() else {
+                log::warn!("KQ portable capture: cannot force GDI; shared memory dropped");
+                return false;
+            };
+            unsafe {
+                let para_ptr = shmem.as_ptr().add(ADDR_CAPTURER_PARA);
+                let para = para_ptr as *const CapturerPara;
+                utils::set_para(
+                    shmem,
+                    CapturerPara {
+                        recreate: true,
+                        force_gdi: true,
+                        current_display: (*para).current_display,
+                        timeout_ms: (*para).timeout_ms,
+                    },
+                );
+            }
+            log::info!("KQ portable capture: forcing GDI recreation");
             true
         }
 
@@ -1625,6 +1657,7 @@ pub mod client {
 #[repr(C)]
 pub struct CapturerPara {
     recreate: bool,
+    force_gdi: bool,
     current_display: usize,
     timeout_ms: i32,
 }

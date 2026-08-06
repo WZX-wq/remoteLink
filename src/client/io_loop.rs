@@ -1397,6 +1397,7 @@ impl<T: InvokeUiSession> Remote<T> {
         }
         let mut refresh_displays = Vec::new();
         let mut renegotiate_codec = false;
+        let mut legacy_full_stream_refresh = false;
         for (display, thread) in self.video_threads.iter_mut() {
             let ctl = &mut thread.fps_control;
             if thread.last_frame_instant.read().unwrap().is_none() {
@@ -1418,6 +1419,7 @@ impl<T: InvokeUiSession> Remote<T> {
             ctl.last_stalled_refresh_instant = Some(Instant::now());
             if ctl.stalled_refresh_times % KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY == 0 {
                 renegotiate_codec = true;
+                legacy_full_stream_refresh = true;
             }
             refresh_displays.push(*display);
         }
@@ -1429,9 +1431,15 @@ impl<T: InvokeUiSession> Remote<T> {
             self.sender
                 .send(Data::Message(
                     self.handler.lc.read().unwrap().update_supported_decodings(),
-            ))
+                ))
                 .ok();
             log::info!("KQ video idle/stalled; renegotiating supported decodings");
+        }
+        if legacy_full_stream_refresh {
+            self.sender
+                .send(Data::Message(client::LoginConfigHandler::refresh()))
+                .ok();
+            log::info!("KQ video idle/stalled; issuing legacy full-stream refresh");
         }
     }
 

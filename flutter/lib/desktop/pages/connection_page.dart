@@ -339,12 +339,6 @@ class _ConnectionPageState extends State<ConnectionPage>
         : windowResizeEdgeSize;
   }
 
-  @override
-  void onWindowClose() {
-    super.onWindowClose();
-    bind.mainOnMainWindowClose();
-  }
-
   void onFocusChanged() {
     _idInputFocused.value = _idFocusNode.hasFocus;
     if (_idFocusNode.hasFocus) {

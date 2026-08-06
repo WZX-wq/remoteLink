@@ -149,7 +149,8 @@ void main() {
     final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
     final recoveryStart =
         ioLoop.indexOf('fn kq_refresh_stalled_zero_fps_displays(&mut self)');
-    final recoveryEnd = ioLoop.indexOf('fn check_view_camera_support', recoveryStart);
+    final recoveryEnd =
+        ioLoop.indexOf('fn check_view_camera_support', recoveryStart);
     final recovery = ioLoop.substring(recoveryStart, recoveryEnd);
 
     expect(recoveryStart, greaterThanOrEqualTo(0));
@@ -157,6 +158,54 @@ void main() {
     expect(recovery, isNot(contains('reconnect(')));
     expect(recovery,
         isNot(contains('KQ_STALLED_VIDEO_RECONNECT_AFTER_REFRESHES')));
+  });
+
+  test('stalled video recovery falls back to legacy full-stream refresh', () {
+    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
+    final recoveryStart =
+        ioLoop.indexOf('fn kq_refresh_stalled_zero_fps_displays(&mut self)');
+    final recoveryEnd = ioLoop.indexOf('fn check_view_camera_support', recoveryStart);
+    final recovery = ioLoop.substring(recoveryStart, recoveryEnd);
+
+    expect(recoveryStart, greaterThanOrEqualTo(0));
+    expect(recoveryEnd, greaterThan(recoveryStart));
+    expect(recovery, contains('client::LoginConfigHandler::refresh()'));
+    expect(recovery,
+        contains('KQ video idle/stalled; issuing legacy full-stream refresh'));
+  });
+
+  test('Windows portable capture refresh forces the service to recreate with GDI',
+      () {
+    final portable =
+        File('../src/server/portable_service.rs').readAsStringSync();
+    final videoService =
+        File('../src/server/video_service.rs').readAsStringSync();
+
+    expect(portable, contains('force_gdi: bool'));
+    expect(portable, contains('force_gdi: true'));
+    expect(portable, contains('KQ portable capture: forcing GDI recreation'));
+    expect(portable,
+        contains('KQ portable capture: recreated capture with forced GDI'));
+
+    final refreshStart =
+        videoService.indexOf('if refresh_requested && vs.source.is_monitor()');
+    final refreshEnd = videoService.indexOf('let mut video_qos', refreshStart);
+    final refresh = videoService.substring(refreshStart, refreshEnd);
+    expect(refreshStart, greaterThanOrEqualTo(0));
+    expect(refreshEnd, greaterThan(refreshStart));
+    expect(refresh, contains('c.set_gdi()'));
+    expect(refresh, isNot(contains('!c.is_gdi()')));
+  });
+
+  test('Windows main-window close keeps the portable service alive', () {
+    final tabbar =
+        File('lib/desktop/widgets/tabbar_widget.dart').readAsStringSync();
+    final connection =
+        File('lib/desktop/pages/connection_page.dart').readAsStringSync();
+
+    expect(tabbar,
+        contains('mainWindowClose() async => await windowManager.hide()'));
+    expect(connection, isNot(contains('bind.mainOnMainWindowClose();')));
   });
 
   test('quality monitor does not show fake zero delay for stalled video', () {

@@ -580,7 +580,7 @@ fn run(vs: VideoService) -> ResultType<()> {
         c.set_gdi();
     }
     #[cfg(windows)]
-    if refresh_requested && vs.source.is_monitor() && !c.is_gdi() {
+    if refresh_requested && vs.source.is_monitor() {
         if c.set_gdi() {
             log::info!(
                 "KQ video refresh recovery: forcing fresh GDI capture for display {}",
