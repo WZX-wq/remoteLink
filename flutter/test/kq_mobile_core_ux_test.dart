@@ -32,7 +32,8 @@ void main() {
     final source =
         File('lib/mobile/pages/connection_page.dart').readAsStringSync();
     expect(source, contains('if (online == false)'));
-    expect(source, isNot(contains('if (online == null && supportsOnlineLookup)')));
+    expect(
+        source, isNot(contains('if (online == null && supportsOnlineLookup)')));
     expect(source, isNot(contains('暂时无法核验识别码')));
   });
 
@@ -53,6 +54,25 @@ void main() {
     expect(remotePage, contains('paints.add(FloatingMouse('));
     expect(floatingMouse, isNot(contains('class CursorPaint')));
     expect(floatingMouse, isNot(contains('_cursorPaintKey')));
+  });
+
+  test('remote cursor switch controls its mobile paint layer immediately', () {
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+
+    expect(remotePage, contains('ShowRemoteCursorState.find(widget.id).value'));
+    expect(remotePage, contains('? CursorPaint(widget.id)'));
+    expect(remotePage, contains(': const SizedBox.shrink()'));
+    expect(
+        toolbar, contains('bool supportsRemoteCursorBroadcast(PeerInfo pi)'));
+    expect(toolbar, contains('pi.platform != kPeerPlatformIOS'));
+  });
+
+  test('true color option is only shown for the supported VP9 codec', () {
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+    expect(toolbar, contains('codec_format == "VP9"'));
+    expect(toolbar, isNot(contains('codec_format == "AV1"')));
   });
 
   test('mobile long labels use adaptive navigation and membership layout', () {
@@ -82,13 +102,17 @@ void main() {
     expect(peerCard, contains('bind.mainSetPeerAlias'));
   });
 
-  test('mobile peer timeout gives the first session packet the normal grace period', () {
+  test(
+      'mobile peer timeout gives the first session packet the normal grace period',
+      () {
     final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
     expect(ioLoop, contains('KQ_MOBILE_PEER_TIMEOUT'));
     expect(ioLoop, contains('KQ_MOBILE_INITIAL_PEER_TIMEOUT'));
     expect(ioLoop, contains('Duration::from_secs(5)'));
-    expect(ioLoop,
-        contains('kq_mobile_peer_timed_out(received, last_recv_time.elapsed())'));
+    expect(
+        ioLoop,
+        contains(
+            'kq_mobile_peer_timed_out(received, last_recv_time.elapsed())'));
   });
 
   test('iOS broadcast registration has a visible timeout state', () {
@@ -100,5 +124,33 @@ void main() {
     expect(rust, contains('REGISTRATION_TIMED_OUT'));
     expect(swift, contains('server_registration_timeout'));
     expect(page, contains('设备接入服务超时'));
+  });
+
+  test('mobile zero-fps video stall requests a stream refresh', () {
+    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
+    final videoService = File('../src/server/video_service.rs').readAsStringSync();
+    expect(ioLoop, contains('KQ_STALLED_VIDEO_REFRESH_TICKS'));
+    expect(ioLoop, contains('kq_refresh_stalled_zero_fps_displays'));
+    expect(ioLoop, contains('last_frame_instant'));
+    expect(ioLoop, contains('last_seen_frame_instant'));
+    expect(ioLoop, isNot(contains('KQ_STALLED_VIDEO_REFRESH_MAX_TIMES')));
+    expect(ioLoop, contains('KQ video idle/stalled; refreshing display'));
+    expect(ioLoop, contains('KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY'));
+    expect(ioLoop,
+        contains('KQ video idle/stalled; renegotiating supported decodings'));
+    expect(ioLoop, contains('self.kq_refresh_stalled_zero_fps_displays()'));
+    expect(ioLoop, contains('v.video_sender.send(MediaData::Reset).ok();'));
+    expect(videoService,
+        contains('KQ video refresh recovery: forcing fresh GDI capture'));
+    expect(videoService, contains('let refresh_requested = sp.is_option_true(OPTION_REFRESH);'));
+  });
+
+  test('quality monitor does not show fake zero delay for stalled video', () {
+    final model = File('lib/models/model.dart').readAsStringSync();
+    final overlay = File('lib/common/widgets/overlay.dart').readAsStringSync();
+    expect(model, contains('hasActiveVideoFrames'));
+    expect(model, contains('displayDelay'));
+    expect(overlay, contains('qualityMonitorModel.data.displayDelay'));
+    expect(overlay, isNot(contains('let delay be 0 if fps is 0')));
   });
 }

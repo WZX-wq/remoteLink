@@ -4220,6 +4220,19 @@ class QualityMonitorData {
   String? targetBitrate;
   String? codecFormat;
   String? chroma;
+
+  bool get hasActiveVideoFrames {
+    final text = fps?.trim();
+    if (text == null || text.isEmpty || text == '-') return false;
+    return text
+        .split(RegExp(r'\s+'))
+        .any((value) => (int.tryParse(value) ?? 0) > 0);
+  }
+
+  String get displayDelay {
+    if (delay == null || !hasActiveVideoFrames) return '-';
+    return '${delay}ms';
+  }
 }
 
 class QualityMonitorModel with ChangeNotifier {

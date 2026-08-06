@@ -22,6 +22,12 @@ bool allowDisplaySwitchInPrivacyMode(PeerInfo pi) {
   return pi.platform == kPeerPlatformMacOS;
 }
 
+// Mobile controlled-side implementations do not broadcast cursor position or
+// cursor image data, so exposing this switch for them would be misleading.
+bool supportsRemoteCursorBroadcast(PeerInfo pi) {
+  return pi.platform != kPeerPlatformAndroid && pi.platform != kPeerPlatformIOS;
+}
+
 class TTextMenu {
   final Widget child;
   final VoidCallback? onPressed;
@@ -508,7 +514,7 @@ Future<List<TToggleMenu>> toolbarCursor(
   final sessionId = ffi.sessionId;
 
   // show remote cursor
-  if (pi.platform != kPeerPlatformAndroid &&
+  if (supportsRemoteCursorBroadcast(pi) &&
       !ffi.canvasModel.cursorEmbedded &&
       !pi.isWayland) {
     final state = ShowRemoteCursorState.find(id);
@@ -533,7 +539,7 @@ Future<List<TToggleMenu>> toolbarCursor(
             : null));
   }
   // follow remote cursor
-  if (pi.platform != kPeerPlatformAndroid &&
+  if (supportsRemoteCursorBroadcast(pi) &&
       !ffi.canvasModel.cursorEmbedded &&
       !pi.isWayland &&
       versionCmp(pi.version, "1.2.4") >= 0 &&
@@ -573,7 +579,7 @@ Future<List<TToggleMenu>> toolbarCursor(
         }));
   }
   // follow remote window focus
-  if (pi.platform != kPeerPlatformAndroid &&
+  if (supportsRemoteCursorBroadcast(pi) &&
       !ffi.canvasModel.cursorEmbedded &&
       !pi.isWayland &&
       versionCmp(pi.version, "1.2.4") >= 0 &&
@@ -742,8 +748,7 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
 
   // 444
   final codec_format = ffi.qualityMonitorModel.data.codecFormat;
-  if (versionCmp(pi.version, "1.2.4") >= 0 &&
-      (codec_format == "AV1" || codec_format == "VP9")) {
+  if (versionCmp(pi.version, "1.2.4") >= 0 && codec_format == "VP9") {
     final option = 'i444';
     final value =
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);

@@ -572,11 +572,26 @@ fn run(vs: VideoService) -> ResultType<()> {
 
     let display_idx = vs.idx;
     let sp = vs.sp;
+    let refresh_requested = sp.is_option_true(OPTION_REFRESH);
     let mut c = get_capturer(vs.source, display_idx, last_portable_service_running)?;
     #[cfg(windows)]
     if !scrap::codec::enable_directx_capture() && !c.is_gdi() {
         log::info!("disable dxgi with option, fall back to gdi");
         c.set_gdi();
+    }
+    #[cfg(windows)]
+    if refresh_requested && vs.source.is_monitor() && !c.is_gdi() {
+        if c.set_gdi() {
+            log::info!(
+                "KQ video refresh recovery: forcing fresh GDI capture for display {}",
+                display_idx
+            );
+        } else {
+            log::warn!(
+                "KQ video refresh recovery: failed to create fresh GDI capture for display {}",
+                display_idx
+            );
+        }
     }
     let mut video_qos = VIDEO_QOS.lock().unwrap();
     let mut spf = video_qos.spf();
@@ -656,7 +671,7 @@ fn run(vs: VideoService) -> ResultType<()> {
         .set_support_changing_quality(&sp.name(), encoder.support_changing_quality());
     log::info!("initial quality: {quality:?}, target bitrate: {initial_bitrate}kbps");
 
-    if sp.is_option_true(OPTION_REFRESH) {
+    if refresh_requested {
         sp.set_option_bool(OPTION_REFRESH, false);
     }
 
@@ -1334,6 +1349,13 @@ pub fn request_refresh(source: VideoSource, display: Option<usize>) {
             log::warn!("Failed to refresh iOS display metadata: {err}");
         }
     }
+    log::info!(
+        "KQ video refresh requested: source={}, display={}",
+        source.service_name_prefix(),
+        display
+            .map(|display| display.to_string())
+            .unwrap_or_else(|| "all".to_owned())
+    );
     let target = display.map(|display| (source, display));
     if let Ok(server) = crate::server::CLIENT_SERVER.read() {
         server.set_video_service_opt(

@@ -43,8 +43,9 @@ void main() {
       () {
     final connection =
         File('lib/mobile/pages/connection_page.dart').readAsStringSync();
-    final membership = File('lib/mobile/pages/ios_membership_purchase_page.dart')
-        .readAsStringSync();
+    final membership =
+        File('lib/mobile/pages/ios_membership_purchase_page.dart')
+            .readAsStringSync();
     final deletion =
         File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();
     final server = File('lib/mobile/pages/server_page.dart').readAsStringSync();
@@ -61,7 +62,8 @@ void main() {
     expect(privacy, contains("tooltip: translate('Open public policy')"));
   });
 
-  test('account-route pages translate non-Chinese copy through the language table',
+  test(
+      'account-route pages translate non-Chinese copy through the language table',
       () {
     final deletion =
         File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();
@@ -71,5 +73,20 @@ void main() {
     expect(deletion, contains('kqUiPrefersChinese() ? zh : translate(en)'));
     expect(policy, contains('titleZh : translate(titleEn)'));
     expect(policy, contains('paragraphsEn.map(translate).toList()'));
+  });
+
+  test('settings detail pages keep translation keys instead of cached labels',
+      () {
+    final account =
+        File('lib/mobile/pages/account_page.dart').readAsStringSync();
+    final settings =
+        File('lib/mobile/pages/settings_page.dart').readAsStringSync();
+
+    expect(account, contains("title: 'General settings'"));
+    expect(account, contains("title: 'Security settings'"));
+    expect(account, contains('detailTitle: title'));
+    expect(settings, contains('_settingsText(widget.detailTitle!)'));
+    expect(settings, contains("'General settings': '通用设置'"));
+    expect(settings, contains("'Security settings': '安全设置'"));
   });
 }

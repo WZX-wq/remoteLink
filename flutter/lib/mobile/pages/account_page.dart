@@ -820,14 +820,14 @@ class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
               _MenuRow(
                 title: _mineText('General settings'),
                 onTap: () => _openSettingsDetail(
-                  title: _mineText('General settings'),
+                  title: 'General settings',
                   groupTitle: kqMobileSettingsGroupAppearance,
                 ),
               ),
               _MenuRow(
                 title: _mineText('Security settings'),
                 onTap: () => _openSettingsDetail(
-                  title: _mineText('Security settings'),
+                  title: 'Security settings',
                   groupTitle: kqMobileSettingsGroupRemoteAccess,
                 ),
               ),
@@ -2328,7 +2328,7 @@ class _SettingsDetailPage extends StatelessWidget {
                     showAccountGroup: false,
                     initialGroupTitle: groupTitle,
                     singleGroupOnly: true,
-                    detailTitle: resolvedTitle,
+                    detailTitle: title,
                   ),
                 ),
               ],

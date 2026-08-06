@@ -775,7 +775,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   bool get showCursorPaint =>
-      !gFFI.ffiModel.isPeerAndroid &&
+      supportsRemoteCursorBroadcast(gFFI.ffiModel.pi) &&
       !gFFI.canvasModel.cursorEmbedded &&
       !gFFI.inputModel.relativeMouseMode.value;
 
@@ -829,7 +829,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
             ),
           ];
           if (showCursorPaint) {
-            paints.add(CursorPaint(widget.id));
+            paints.add(Obx(() => ShowRemoteCursorState.find(widget.id).value
+                ? CursorPaint(widget.id)
+                : const SizedBox.shrink()));
           }
           paints.add(FloatingMouse(
             ffi: gFFI,
@@ -1400,20 +1402,10 @@ class CursorPaint extends StatelessWidget {
   Widget build(BuildContext context) {
     final m = Provider.of<CursorModel>(context);
     final c = Provider.of<CanvasModel>(context);
-    final ffiModel = Provider.of<FfiModel>(context);
     final s = c.scale;
     double hotx = m.hotx;
     double hoty = m.hoty;
     var image = m.image;
-    final showForbiddenCursor = preForbiddenCursor.image != null &&
-        !ffiModel.viewOnly &&
-        !ffiModel.keyboard &&
-        !ShowRemoteCursorState.find(id).value;
-    if (image == null && showForbiddenCursor) {
-      image = preForbiddenCursor.image;
-      hotx = preForbiddenCursor.image!.width / 2;
-      hoty = preForbiddenCursor.image!.height / 2;
-    }
     if (image == null) {
       return Offstage();
     }

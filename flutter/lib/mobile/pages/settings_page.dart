@@ -563,9 +563,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
 
       final appearanceSections = <AbstractSettingsSection>[
         SettingsSection(
-            title: Text(widget.singleGroupOnly
-                ? (widget.detailTitle ?? _settingsText("General preferences"))
-                : _settingsText("General preferences")),
+            title: Text(widget.detailTitle == null
+                ? _settingsText("General preferences")
+                : _settingsText(widget.detailTitle!)),
             tiles: [
               SettingsTile(
                   title: Text(_settingsText('Language')),
@@ -1183,6 +1183,8 @@ const _settingsZh = {
   'Display & Performance': '显示与性能',
   'About & Support': '关于与支持',
   'General preferences': '常用偏好',
+  'General settings': '通用设置',
+  'Security settings': '安全设置',
   'Background service': '后台服务',
   'Hardware Codec': '硬件编解码',
   'Recording': '录制',
