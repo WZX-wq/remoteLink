@@ -927,14 +927,15 @@ class _PeerCardState extends State<_PeerCard>
     }
   }
 
-  Widget _actionMore(Peer peer) => Listener(
-      onPointerDown: (e) {
-        final x = e.position.dx;
-        final y = e.position.dy;
-        _menuPos = RelativeRect.fromLTRB(x, y, x, y);
-      },
-      onPointerUp: (_) => _showPeerMenu(peer.id),
-      child: build_more(context));
+  Widget _actionMore(Peer peer) => build_more(
+        context,
+        onTapDown: (details) {
+          final position = details.globalPosition;
+          _menuPos = RelativeRect.fromLTRB(
+              position.dx, position.dy, position.dx, position.dy);
+        },
+        onTap: () => _showPeerMenu(peer.id),
+      );
 
   Future<void> _refreshFavoriteState() async {
     final favs = (await bind.mainGetFav()).map((id) => id.toString()).toSet();
@@ -2138,12 +2139,18 @@ Widget getOnline(double rightPadding, bool online, {bool known = true}) {
           child: CircleAvatar(radius: 3, backgroundColor: color)));
 }
 
-Widget build_more(BuildContext context, {bool invert = false}) {
+Widget build_more(
+  BuildContext context, {
+  bool invert = false,
+  GestureTapCallback? onTap,
+  GestureTapDownCallback? onTapDown,
+}) {
   final RxBool hover = false.obs;
   final q = KqTheme.of(context);
   return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: () {},
+      onTap: onTap,
+      onTapDown: onTapDown,
       onHover: (value) => hover.value = value,
       child: Obx(() => CircleAvatar(
           radius: 14,

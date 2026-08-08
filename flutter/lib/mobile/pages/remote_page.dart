@@ -208,16 +208,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       return;
     }
     final display = gFFI.ffiModel.pi.currentDisplay;
-    platformFFI.logRgbaStage(sessionId, 'ios-video-refresh-$reason', display);
+    platformFFI.logRgbaStage(sessionId, 'ios-video-repaint-$reason', display);
     gFFI.imageModel.requestRepaint();
-    unawaited(() async {
-      try {
-        await sessionRefreshVideo(sessionId, gFFI.ffiModel.pi);
-      } catch (error, stackTrace) {
-        debugPrint('Failed to refresh iOS remote video after $reason: $error');
-        debugPrintStack(stackTrace: stackTrace);
-      }
-    }());
   }
 
   void _scheduleOrientationRefresh(Orientation orientation) {
@@ -450,6 +442,16 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     });
   }
 
+  void _hideSoftKeyboard() {
+    _timer?.cancel();
+    setState(() => _showEdit = false);
+    _mobileFocusNode.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    gFFI.invokeMethod("enable_soft_keyboard", false);
+    _physicalFocusNode.requestFocus();
+  }
+
   Widget _bottomWidget() => _showGestureHelp ? getGestureHelp() : Offstage();
 
   @override
@@ -561,7 +563,16 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   Widget _remoteSideActionRail() {
     if (_softKeyboardActive) {
-      return const Offstage();
+      final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+      return Positioned(
+        right: 12,
+        bottom: keyboardInset + 12,
+        child: _remoteSideActionButton(
+          icon: Icons.keyboard_hide,
+          label: kqLocaleText(zhCn: '收起键盘', en: 'Hide keyboard'),
+          onPressed: _hideSoftKeyboard,
+        ),
+      );
     }
 
     final ffiModel = Provider.of<FfiModel>(context);

@@ -13,9 +13,6 @@ use crate::{
 
 const KQ_MOBILE_PEER_TIMEOUT: Duration = Duration::from_secs(5);
 const KQ_MOBILE_INITIAL_PEER_TIMEOUT: Duration = SEC30;
-const KQ_STALLED_VIDEO_REFRESH_TICKS: usize = 3;
-const KQ_STALLED_VIDEO_REFRESH_COOLDOWN_SECS: u64 = 5;
-const KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY: usize = 3;
 
 #[inline]
 fn kq_mobile_peer_timed_out(received: bool, elapsed: Duration) -> bool {
@@ -1258,16 +1255,10 @@ impl<T: InvokeUiSession> Remote<T> {
     fn fps_control(&mut self, direct: bool, real_fps_map: HashMap<usize, i32>) {
         self.video_threads.iter_mut().for_each(|(k, v)| {
             let real_fps = real_fps_map.get(k).cloned().unwrap_or_default();
-            let last_frame_instant = v.last_frame_instant.read().unwrap().clone();
-            let has_new_frame = last_frame_instant.is_some()
-                && last_frame_instant != v.fps_control.last_seen_frame_instant;
-            if has_new_frame || real_fps > 0 {
-                v.fps_control.inactive_counter = 0;
-                v.fps_control.stalled_refresh_times = 0;
-                v.fps_control.last_stalled_refresh_instant = None;
-                v.fps_control.last_seen_frame_instant = last_frame_instant;
-            } else if real_fps == 0 {
+            if real_fps == 0 {
                 v.fps_control.inactive_counter += 1;
+            } else {
+                v.fps_control.inactive_counter = 0;
             }
         });
         let custom_fps = self.handler.lc.read().unwrap().custom_fps.clone();
@@ -1292,7 +1283,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 );
                 self.handler.lc.write().unwrap().last_auto_fps = Some(custom_fps);
             }
-            self.kq_refresh_stalled_zero_fps_displays();
             return;
         }
         let inactive_threshold = 15;
@@ -1388,58 +1378,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 ctl.refresh_times += 1;
                 ctl.last_refresh_instant = Some(Instant::now());
             }
-        }
-    }
-
-    fn kq_refresh_stalled_zero_fps_displays(&mut self) {
-        if !self.first_decoded_frame.load(Ordering::SeqCst) {
-            return;
-        }
-        let mut refresh_displays = Vec::new();
-        let mut renegotiate_codec = false;
-        let mut legacy_full_stream_refresh = false;
-        for (display, thread) in self.video_threads.iter_mut() {
-            let ctl = &mut thread.fps_control;
-            if thread.last_frame_instant.read().unwrap().is_none() {
-                continue;
-            }
-            if ctl.inactive_counter < KQ_STALLED_VIDEO_REFRESH_TICKS {
-                continue;
-            }
-            let can_refresh = ctl
-                .last_stalled_refresh_instant
-                .map(|last| {
-                    last.elapsed() >= Duration::from_secs(KQ_STALLED_VIDEO_REFRESH_COOLDOWN_SECS)
-                })
-                .unwrap_or(true);
-            if !can_refresh {
-                continue;
-            }
-            ctl.stalled_refresh_times += 1;
-            ctl.last_stalled_refresh_instant = Some(Instant::now());
-            if ctl.stalled_refresh_times % KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY == 0 {
-                renegotiate_codec = true;
-                legacy_full_stream_refresh = true;
-            }
-            refresh_displays.push(*display);
-        }
-        for display in refresh_displays {
-            self.handler.refresh_video(display as _);
-            log::info!("KQ video idle/stalled; refreshing display {display}");
-        }
-        if renegotiate_codec {
-            self.sender
-                .send(Data::Message(
-                    self.handler.lc.read().unwrap().update_supported_decodings(),
-                ))
-                .ok();
-            log::info!("KQ video idle/stalled; renegotiating supported decodings");
-        }
-        if legacy_full_stream_refresh {
-            self.sender
-                .send(Data::Message(client::LoginConfigHandler::refresh()))
-                .ok();
-            log::info!("KQ video idle/stalled; issuing legacy full-stream refresh");
         }
     }
 
@@ -2639,14 +2577,12 @@ impl<T: InvokeUiSession> Remote<T> {
         let (video_sender, video_receiver) = std::sync::mpsc::channel::<MediaData>();
         let decode_fps = Arc::new(RwLock::new(None));
         let frame_count = Arc::new(RwLock::new(0));
-        let last_frame_instant = Arc::new(RwLock::new(None));
         let discard_queue = Arc::new(RwLock::new(false));
         let video_thread = VideoThread {
             video_queue: video_queue.clone(),
             video_sender,
             decode_fps: decode_fps.clone(),
             frame_count: frame_count.clone(),
-            last_frame_instant: last_frame_instant.clone(),
             fps_control: Default::default(),
             discard_queue: discard_queue.clone(),
         };
@@ -2665,7 +2601,6 @@ impl<T: InvokeUiSession> Remote<T> {
                   _texture: *mut c_void,
                   pixelbuffer: bool| {
                 *frame_count.write().unwrap() += 1;
-                *last_frame_instant.write().unwrap() = Some(Instant::now());
                 if pixelbuffer {
                     handler.on_rgba(display, data);
                 } else {
@@ -2762,9 +2697,6 @@ struct FpsControl {
     last_refresh_instant: Option<Instant>,
     idle_counter: usize,
     inactive_counter: usize,
-    stalled_refresh_times: usize,
-    last_stalled_refresh_instant: Option<Instant>,
-    last_seen_frame_instant: Option<Instant>,
 }
 
 struct VideoThread {
@@ -2772,7 +2704,6 @@ struct VideoThread {
     video_sender: MediaSender,
     decode_fps: Arc<RwLock<Option<usize>>>,
     frame_count: Arc<RwLock<usize>>,
-    last_frame_instant: Arc<RwLock<Option<Instant>>>,
     discard_queue: Arc<RwLock<bool>>,
     fps_control: FpsControl,
 }

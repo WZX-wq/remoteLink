@@ -2023,49 +2023,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Future<void> _copyRemoteAssistShare(ServerModel model) async {
     final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
-    final password = model.selectedPasswordText.trim();
-    if (id.isEmpty || id == '--' || !model.selectedPasswordCanShare) {
+    if (id.isEmpty || id == '--') {
       showToast(_kqHomeText(
-          '设备号或验证码还未就绪', 'Device ID or verification code is not ready yet'));
+          '设备号还未就绪', 'Device ID is not ready yet'));
       return;
     }
-    final link = _buildKqInviteLink(id: id, password: password);
     final text = [
       _kqHomeText('使用 鲲穹远程桌面 即可对我发起远程协助',
           'Use Kunqiong Remote Desktop to start remote assistance with me'),
       '${_kqHomeText('设备ID', 'Device ID')}: ${formatID(id)}',
-      '${_kqHomeText('设备验证码', 'Verification code')}: $password',
-      '${_kqHomeText('点击链接可直接发起远程协助', 'Open the link to start remote assistance')}: $link',
+      _kqHomeText('验证码需由设备所有者通过受信任渠道单独提供。',
+          'The device owner must provide the verification code separately through a trusted channel.'),
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: text));
-    showToast(
-        _kqHomeText('已复制远程协助分享信息', 'Remote assistance share info copied'));
-  }
-
-  String _buildKqInviteLink({required String id, required String password}) {
-    final base = _kqInviteBaseUrl();
-    final payload = base64UrlEncode(utf8.encode(jsonEncode({
-      'id': id,
-      'password': password,
-      'ts': DateTime.now().millisecondsSinceEpoch,
-    })));
-    return '$base?i=$payload';
-  }
-
-  String _kqInviteBaseUrl() {
-    final configured =
-        bind.mainGetBuildinOption(key: 'kq-share-invite-url').trim();
-    if (configured.isNotEmpty) {
-      return configured.replaceFirst(RegExp(r'/+$'), '');
-    }
-    final apiBase = bind
-        .mainGetBuildinOption(key: 'kq-project-api-server')
-        .trim()
-        .replaceFirst(RegExp(r'/+$'), '');
-    if (apiBase.endsWith('/api')) {
-      return '${apiBase.substring(0, apiBase.length - 4)}/invite';
-    }
-    return 'https://remotelink.kunqiongai.com/kq-api/invite';
+    showToast(_kqHomeText('已复制设备协助信息', 'Device assistance info copied'));
   }
 
   String _kqPasswordKindLabel(KqPasswordKind kind) {

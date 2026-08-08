@@ -333,7 +333,10 @@ Future<String> changeDirectAccessPort(
 }
 
 Future<String> changeAutoDisconnectTimeout(String old) async {
-  final controller = TextEditingController(text: old);
+  final controller =
+      TextEditingController(text: normalizeAutoDisconnectTimeout(old));
+  var result = controller.text;
+  String errorText = '';
   await gFFI.dialogManager.show((setState, close, context) {
     return CustomAlertDialog(
       title: Text(translate("Timeout in minutes")),
@@ -349,6 +352,7 @@ Future<String> changeAutoDisconnectTimeout(String old) async {
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
                             hintText: '10',
+                            errorText: errorText.isEmpty ? null : errorText,
                             isCollapsed: true,
                             suffix: IconButton(
                                 padding: EdgeInsets.zero,
@@ -359,6 +363,11 @@ Future<String> changeAutoDisconnectTimeout(String old) async {
                               r'^([0-9]|[1-9]\d|[1-9]\d{2}|[1-9]\d{3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$')),
                         ],
                         controller: controller,
+                        onChanged: (_) {
+                          if (errorText.isNotEmpty) {
+                            setState(() => errorText = '');
+                          }
+                        },
                         autofocus: true)
                     .workaroundFreezeLinuxMint(),
               ),
@@ -369,15 +378,20 @@ Future<String> changeAutoDisconnectTimeout(String old) async {
       actions: [
         dialogButton("Cancel", onPressed: close, isOutline: true),
         dialogButton("OK", onPressed: () async {
+          if (!isAutoDisconnectTimeoutInRange(controller.text)) {
+            setState(() => errorText = autoDisconnectTimeoutBoundsText());
+            return;
+          }
+          result = normalizeAutoDisconnectTimeout(controller.text);
           await bind.mainSetOption(
-              key: kOptionAutoDisconnectTimeout, value: controller.text);
+              key: kOptionAutoDisconnectTimeout, value: result);
           close();
         }),
       ],
       onCancel: close,
     );
   });
-  return controller.text;
+  return result;
 }
 
 class DialogTextField extends StatelessWidget {

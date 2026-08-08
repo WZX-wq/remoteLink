@@ -1702,6 +1702,34 @@ String kqLocaleText({required String zhCn, required String en}) {
   return kqUiPrefersChinese() ? zhCn : translate(en);
 }
 
+const int kAutoDisconnectTimeoutMinimumMinutes = 10;
+const int kAutoDisconnectTimeoutMaximumMinutes = 65535;
+
+bool isAutoDisconnectTimeoutInRange(String value) {
+  final minutes = int.tryParse(value.trim());
+  return minutes != null &&
+      minutes >= kAutoDisconnectTimeoutMinimumMinutes &&
+      minutes <= kAutoDisconnectTimeoutMaximumMinutes;
+}
+
+String normalizeAutoDisconnectTimeout(String value) {
+  final minutes =
+      int.tryParse(value.trim()) ?? kAutoDisconnectTimeoutMinimumMinutes;
+  return minutes
+      .clamp(kAutoDisconnectTimeoutMinimumMinutes,
+          kAutoDisconnectTimeoutMaximumMinutes)
+      .toString();
+}
+
+String autoDisconnectTimeoutBoundsText() =>
+    translate('Enter a value from 10 to 65535 minutes');
+
+String autoDisconnectTimeoutRangeText() =>
+    translate('Automatic disconnect range: 10-65535 minutes');
+
+String autoDisconnectTimeoutSummaryText(String value) =>
+    translate('Auto disconnect: {$value} minutes (range 10-65535)');
+
 // This function must be kept the same as the one in rust and sciter code.
 // rust: libs/hbb_common/src/config.rs -> option2bool()
 // sciter: Does not have the function, but it should be kept the same.

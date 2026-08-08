@@ -3895,11 +3895,20 @@ impl Connection {
                         if r {
                             // Refresh all videos.
                             // Compatibility with old versions and sciter(remote).
+                            log::info!(
+                                "KQ video refresh command received: conn_id={}, display=all",
+                                self.inner.id
+                            );
                             self.refresh_video_display(None);
                         }
                         self.update_auto_disconnect_timer();
                     }
                     Some(misc::Union::RefreshVideoDisplay(display)) => {
+                        log::info!(
+                            "KQ video refresh command received: conn_id={}, display={}",
+                            self.inner.id,
+                            display
+                        );
                         self.refresh_video_display(Some(display as usize));
                         self.update_auto_disconnect_timer();
                     }
@@ -5798,20 +5807,11 @@ impl Connection {
     }
 
     fn get_auto_disconenct_timer() -> Option<(Instant, u64)> {
-        if crate::get_app_name() == crate::common::KQ_APP_NAME {
-            return None;
-        }
-        if Config::get_option("allow-auto-disconnect") == "Y" {
-            let mut minute: u64 = Config::get_option("auto-disconnect-timeout")
-                .parse()
-                .unwrap_or(10);
-            if minute == 0 {
-                minute = 10;
-            }
-            Some((Instant::now(), minute))
-        } else {
-            None
-        }
+        auto_disconnect_timeout_minutes(
+            &Config::get_option("allow-auto-disconnect"),
+            &Config::get_option("auto-disconnect-timeout"),
+        )
+        .map(|minute| (Instant::now(), minute))
     }
 
     fn update_auto_disconnect_timer(&mut self) {
@@ -6909,6 +6909,22 @@ mod raii {
     }
 }
 
+fn auto_disconnect_timeout_minutes(
+    allow_auto_disconnect: &str,
+    configured_timeout: &str,
+) -> Option<u64> {
+    if allow_auto_disconnect != "Y" {
+        return None;
+    }
+
+    Some(
+        configured_timeout
+            .parse::<u64>()
+            .unwrap_or(10)
+            .clamp(10, 65_535),
+    )
+}
+
 mod test {
     #[allow(unused)]
     use super::*;
@@ -6950,5 +6966,60 @@ mod test {
         assert!(Ipv6Addr::from_str("::1").is_ok());
         assert!(Ipv6Addr::from_str("127.0.0.1").is_err());
         assert!(Ipv6Addr::from_str("0").is_err());
+    }
+
+    #[test]
+    fn kq_auto_disconnect_uses_the_configured_timeout() {
+        let old_app_name = config::APP_NAME.read().unwrap().clone();
+        *config::APP_NAME.write().unwrap() = crate::common::KQ_APP_NAME.to_owned();
+
+        let (old_allow, old_timeout) = {
+            let mut overwritten = config::OVERWRITE_SETTINGS.write().unwrap();
+            let old_allow =
+                overwritten.insert("allow-auto-disconnect".to_owned(), "Y".to_owned());
+            let old_timeout =
+                overwritten.insert("auto-disconnect-timeout".to_owned(), "15".to_owned());
+            (old_allow, old_timeout)
+        };
+
+        let timeout = Connection::get_auto_disconenct_timer().map(|(_, timeout)| timeout);
+
+        let mut overwritten = config::OVERWRITE_SETTINGS.write().unwrap();
+        match old_allow {
+            Some(value) => {
+                overwritten.insert("allow-auto-disconnect".to_owned(), value);
+            }
+            None => {
+                overwritten.remove("allow-auto-disconnect");
+            }
+        }
+        match old_timeout {
+            Some(value) => {
+                overwritten.insert("auto-disconnect-timeout".to_owned(), value);
+            }
+            None => {
+                overwritten.remove("auto-disconnect-timeout");
+            }
+        }
+        drop(overwritten);
+        *config::APP_NAME.write().unwrap() = old_app_name;
+
+        assert_eq!(timeout, Some(15));
+    }
+
+    #[test]
+    fn kq_auto_disconnect_timeout_stays_within_supported_bounds() {
+        assert_eq!(auto_disconnect_timeout_minutes("Y", "1"), Some(10));
+        assert_eq!(auto_disconnect_timeout_minutes("Y", "10"), Some(10));
+        assert_eq!(
+            auto_disconnect_timeout_minutes("Y", "65535"),
+            Some(65535)
+        );
+        assert_eq!(
+            auto_disconnect_timeout_minutes("Y", "65536"),
+            Some(65535)
+        );
+        assert_eq!(auto_disconnect_timeout_minutes("Y", "invalid"), Some(10));
+        assert_eq!(auto_disconnect_timeout_minutes("N", "15"), None);
     }
 }

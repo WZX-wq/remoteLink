@@ -2672,6 +2672,7 @@ pub fn load_custom_client() {
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
+        apply_kq_remote_link_security_policy();
         #[cfg(target_os = "ios")]
         {
             *config::APP_NAME.write().unwrap() = KQ_APP_NAME.to_owned();
@@ -2692,6 +2693,7 @@ pub fn load_custom_client() {
         };
         read_custom_client(&data.trim());
     }
+    apply_kq_remote_link_security_policy();
     // The main app and ReplayKit extension are separate executables. A custom
     // app name would make them derive different config file names in App Group.
     #[cfg(target_os = "ios")]
@@ -2717,20 +2719,7 @@ fn apply_kq_remote_link_defaults() {
     );
     overwrite_settings.insert(keys::OPTION_DISABLE_UDP.to_owned(), "N".to_owned());
     overwrite_settings.insert(keys::OPTION_ALLOW_WEBSOCKET.to_owned(), "N".to_owned());
-    overwrite_settings.insert(
-        keys::OPTION_ALLOW_AUTO_DISCONNECT.to_owned(),
-        "N".to_owned(),
-    );
-    overwrite_settings.insert(
-        keys::OPTION_AUTO_DISCONNECT_TIMEOUT.to_owned(),
-        "0".to_owned(),
-    );
     overwrite_settings.insert(keys::OPTION_AV1_TEST.to_owned(), "N".to_owned());
-    overwrite_settings.insert(
-        keys::OPTION_HIDE_WEBSOCKET_SETTINGS.to_owned(),
-        "Y".to_owned(),
-    );
-    overwrite_settings.insert(keys::OPTION_HIDE_SERVER_SETTINGS.to_owned(), "Y".to_owned());
     overwrite_settings.insert(
         keys::OPTION_ALLOW_DEEP_LINK_SERVER_SETTINGS.to_owned(),
         "N".to_owned(),
@@ -2757,20 +2746,102 @@ fn apply_kq_remote_link_defaults() {
         keys::OPTION_REGISTER_DEVICE.to_owned(),
         register_device.to_owned(),
     );
-    let mut builtin_settings = config::BUILTIN_SETTINGS.write().unwrap();
-    builtin_settings.insert(
+    config::BUILTIN_SETTINGS.write().unwrap().insert(
         keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW.to_owned(),
         "Y".to_owned(),
     );
-    builtin_settings.insert(
-        keys::OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION.to_owned(),
-        "N".to_owned(),
-    );
-    drop(builtin_settings);
     config::BUILTIN_SETTINGS.write().unwrap().insert(
         "kq-project-api-server".to_owned(),
         "https://remotelink.kunqiongai.com/kq-api/api".to_owned(),
     );
+}
+
+fn apply_kq_remote_link_security_policy() {
+    let mut overwrite_settings = config::OVERWRITE_SETTINGS.write().unwrap();
+    overwrite_settings.insert(
+        keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK.to_owned(),
+        "N".to_owned(),
+    );
+    overwrite_settings.insert(keys::OPTION_ENABLE_TERMINAL.to_owned(), "N".to_owned());
+    overwrite_settings.insert(keys::OPTION_ENABLE_TUNNEL.to_owned(), "N".to_owned());
+    overwrite_settings.insert(
+        keys::OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION.to_owned(),
+        "N".to_owned(),
+    );
+    drop(overwrite_settings);
+
+    let mut builtin_settings = config::BUILTIN_SETTINGS.write().unwrap();
+    builtin_settings.insert(
+        keys::OPTION_HIDE_WEBSOCKET_SETTINGS.to_owned(),
+        "Y".to_owned(),
+    );
+    builtin_settings.insert(keys::OPTION_HIDE_SERVER_SETTINGS.to_owned(), "Y".to_owned());
+    builtin_settings.insert(keys::OPTION_HIDE_PROXY_SETTINGS.to_owned(), "Y".to_owned());
+}
+
+#[cfg(test)]
+mod kq_remote_link_policy_tests {
+    use super::*;
+
+    #[test]
+    fn auto_disconnect_settings_remain_user_editable() {
+        apply_kq_remote_link_defaults();
+
+        let overwritten = config::OVERWRITE_SETTINGS.read().unwrap();
+        assert!(!overwritten.contains_key(keys::OPTION_ALLOW_AUTO_DISCONNECT));
+        assert!(!overwritten.contains_key(keys::OPTION_AUTO_DISCONNECT_TIMEOUT));
+    }
+
+    #[test]
+    fn security_sensitive_options_are_locked_off() {
+        apply_kq_remote_link_security_policy();
+
+        let overwritten = config::OVERWRITE_SETTINGS.read().unwrap();
+        assert_eq!(
+            overwritten
+                .get(keys::OPTION_ENABLE_TERMINAL)
+                .map(String::as_str),
+            Some("N")
+        );
+        assert_eq!(
+            overwritten
+                .get(keys::OPTION_ENABLE_TUNNEL)
+                .map(String::as_str),
+            Some("N")
+        );
+        assert_eq!(
+            overwritten
+                .get(keys::OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION)
+                .map(String::as_str),
+            Some("N")
+        );
+        assert_eq!(
+            overwritten
+                .get(keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK)
+                .map(String::as_str),
+            Some("N")
+        );
+
+        let builtin = config::BUILTIN_SETTINGS.read().unwrap();
+        assert_eq!(
+            builtin
+                .get(keys::OPTION_HIDE_SERVER_SETTINGS)
+                .map(String::as_str),
+            Some("Y")
+        );
+        assert_eq!(
+            builtin
+                .get(keys::OPTION_HIDE_PROXY_SETTINGS)
+                .map(String::as_str),
+            Some("Y")
+        );
+        assert_eq!(
+            builtin
+                .get(keys::OPTION_HIDE_WEBSOCKET_SETTINGS)
+                .map(String::as_str),
+            Some("Y")
+        );
+    }
 }
 
 fn read_custom_client_advanced_settings(

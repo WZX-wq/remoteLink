@@ -2177,49 +2177,20 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
 
   Future<void> _copyRemoteAssistShare(ServerModel model) async {
     final id = model.serverId.text.replaceAll(RegExp(r'\s+'), '').trim();
-    final password = model.selectedPasswordText.trim();
-    if (id.isEmpty || id == '--' || !model.selectedPasswordCanShare) {
+    if (id.isEmpty || id == '--') {
       showToast(_kqSettingText(
-          '设备号或验证码还未就绪', 'Device ID or verification code is not ready yet'));
+          '设备号还未就绪', 'Device ID is not ready yet'));
       return;
     }
-    final link = _buildKqInviteLink(id: id, password: password);
     final text = [
       _kqSettingText('使用 鲲穹远程桌面 即可对我发起远程协助',
           'Use Kunqiong Remote Desktop to start remote assistance with me'),
       '${_kqSettingText('设备ID', 'Device ID')}: ${formatID(id)}',
-      '${_kqSettingText('设备验证码', 'Verification code')}: $password',
-      '${_kqSettingText('点击链接可直接发起远程协助', 'Open the link to start remote assistance')}: $link',
+      _kqSettingText('验证码需由设备所有者通过受信任渠道单独提供。',
+          'The device owner must provide the verification code separately through a trusted channel.'),
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: text));
-    showToast(
-        _kqSettingText('已复制远程协助分享信息', 'Remote assistance share info copied'));
-  }
-
-  String _buildKqInviteLink({required String id, required String password}) {
-    final base = _kqInviteBaseUrl();
-    final payload = base64UrlEncode(utf8.encode(jsonEncode({
-      'id': id,
-      'password': password,
-      'ts': DateTime.now().millisecondsSinceEpoch,
-    })));
-    return '$base?i=$payload';
-  }
-
-  String _kqInviteBaseUrl() {
-    final configured =
-        bind.mainGetBuildinOption(key: 'kq-share-invite-url').trim();
-    if (configured.isNotEmpty) {
-      return configured.replaceFirst(RegExp(r'/+$'), '');
-    }
-    final apiBase = bind
-        .mainGetBuildinOption(key: 'kq-project-api-server')
-        .trim()
-        .replaceFirst(RegExp(r'/+$'), '');
-    if (apiBase.endsWith('/api')) {
-      return '${apiBase.substring(0, apiBase.length - 4)}/invite';
-    }
-    return 'https://remotelink.kunqiongai.com/kq-api/invite';
+    showToast(_kqSettingText('已复制设备协助信息', 'Device assistance info copied'));
   }
 
   String _settingsPasswordKindLabel(KqPasswordKind kind) {
@@ -2619,12 +2590,6 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                     enabled: enabled, fakeValue: fakeValue),
                 _SettingSectionDivider(context),
                 _SettingSectionTitle(context, 'Other'),
-                _OptionCheckBox(
-                    context, 'Enable terminal', kOptionEnableTerminal,
-                    enabled: enabled, fakeValue: fakeValue),
-                _OptionCheckBox(
-                    context, 'Enable TCP tunneling', kOptionEnableTunnel,
-                    enabled: enabled, fakeValue: fakeValue),
                 _OptionCheckBox(context, 'Enable remote restart',
                     kOptionEnableRemoteRestart,
                     enabled: enabled, fakeValue: fakeValue),
@@ -2639,12 +2604,6 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                   _OptionCheckBox(
                       context, 'Enable privacy mode', kOptionEnablePrivacyMode,
                       enabled: enabled, fakeValue: fakeValue),
-                _OptionCheckBox(
-                    context,
-                    'Enable remote configuration modification',
-                    kOptionAllowRemoteConfigModification,
-                    enabled: enabled,
-                    fakeValue: fakeValue),
               ],
             ),
           ]);
@@ -2874,6 +2833,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
     TextEditingController controller = TextEditingController();
     update(bool v) => setState(() {});
     RxBool applyEnabled = false.obs;
+    RxBool timeoutInRange = true.obs;
     return [
       _OptionCheckBox(
           context, 'auto_disconnect_option_tip', kOptionAllowAutoDisconnect,
@@ -2882,46 +2842,70 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
         bool enabled = option2bool(kOptionAllowAutoDisconnect,
             bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
         if (!enabled) applyEnabled.value = false;
-        controller.text =
-            bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
+        controller.text = normalizeAutoDisconnectTimeout(
+            bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout));
         final isOptFixed = isOptionFixed(kOptionAutoDisconnectTimeout);
         return Offstage(
           offstage: !enabled,
           child: _SubLabeledWidget(
             context,
             'Timeout in minutes',
-            Row(children: [
-              SizedBox(
-                width: 95,
-                child: TextField(
-                  controller: controller,
-                  enabled: enabled && !locked && !isOptFixed,
-                  onChanged: (_) => applyEnabled.value = true,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(
-                        r'^([0-9]|[1-9]\d|[1-9]\d{2}|[1-9]\d{3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$')),
-                  ],
-                  decoration: const InputDecoration(
-                    hintText: '10',
-                    contentPadding:
-                        EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                  ),
-                ).workaroundFreezeLinuxMint().marginOnly(right: 15),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                autoDisconnectTimeoutRangeText(),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-              Obx(() => ElevatedButton(
-                    onPressed:
-                        applyEnabled.value && enabled && !locked && !isOptFixed
-                            ? () async {
-                                applyEnabled.value = false;
-                                await bind.mainSetOption(
-                                    key: kOptionAutoDisconnectTimeout,
-                                    value: controller.text);
-                              }
-                            : null,
-                    child: Text(
-                      translate('Apply'),
-                    ),
-                  ))
+              const SizedBox(height: 8),
+              Row(children: [
+                SizedBox(
+                  width: 95,
+                  child: Obx(() => TextField(
+                        controller: controller,
+                        enabled: enabled && !locked && !isOptFixed,
+                        onChanged: (value) {
+                          applyEnabled.value = true;
+                          timeoutInRange.value =
+                              isAutoDisconnectTimeoutInRange(value);
+                        },
+                        inputFormatters: [
+                          LengthLimitingTextInputFormatter(5),
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: InputDecoration(
+                          hintText: '10',
+                          errorText: timeoutInRange.value
+                              ? null
+                              : autoDisconnectTimeoutBoundsText(),
+                          contentPadding: const EdgeInsets.symmetric(
+                              vertical: 12, horizontal: 12),
+                        ),
+                      )).workaroundFreezeLinuxMint().marginOnly(right: 15),
+                ),
+                Obx(() => ElevatedButton(
+                      onPressed: applyEnabled.value &&
+                              timeoutInRange.value &&
+                              enabled &&
+                              !locked &&
+                              !isOptFixed
+                          ? () async {
+                              final timeout = normalizeAutoDisconnectTimeout(
+                                  controller.text);
+                              controller.value = TextEditingValue(
+                                text: timeout,
+                                selection: TextSelection.collapsed(
+                                    offset: timeout.length),
+                              );
+                              applyEnabled.value = false;
+                              await bind.mainSetOption(
+                                  key: kOptionAutoDisconnectTimeout,
+                                  value: timeout);
+                            }
+                          : null,
+                      child: Text(
+                        translate('Apply'),
+                      ),
+                    ))
+              ]),
             ]),
             enabled: enabled && !locked && !isOptFixed,
           ),
@@ -3071,14 +3055,12 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         children: [
           _SettingsReferenceControlRow(
             label: 'Quality',
-            control: SizedBox(
-              width: 220,
-              child: ComboBox(
-                keys: const ['auto'],
-                values: [_kqSettingText('自动', 'Auto')],
-                initialKey: 'auto',
-                enabled: false,
-                onChanged: (_) {},
+            control: Text(
+              _kqSettingText('自动', 'Auto'),
+              style: TextStyle(
+                color: _settingPalette(context).mutedText,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -3098,6 +3080,8 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
   }
 
   Widget _advancedNetworkReferenceCard(BuildContext context) {
+    final hideWebSocket =
+        isWeb || bind.mainGetBuildinOption(key: kOptionHideWebSocketSetting) == 'Y';
     return _SettingsReferenceCard(
       icon: Icons.wifi_tethering_rounded,
       title: _kqSettingText('高级网络', 'Advanced network'),
@@ -3133,7 +3117,7 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
               kOptionDirectxCapture,
               enabled: !locked,
             ),
-          if (!isWeb)
+          if (!hideWebSocket)
             _OptionCheckBox(
               context,
               'Use WebSocket',

@@ -247,6 +247,75 @@ struct RgbaData {
     valid: bool,
     width: usize,
     height: usize,
+    // Dart reads `data` asynchronously. Keep the newest frame received during
+    // that read instead of dropping it, then promote it on `next_rgba`.
+    pending_data: Vec<u8>,
+    pending_valid: bool,
+    pending_width: usize,
+    pending_height: usize,
+}
+
+impl RgbaData {
+    fn queue_frame(&mut self, rgba: &mut scrap::ImageRgb) -> bool {
+        if self.valid {
+            std::mem::swap(&mut rgba.raw, &mut self.pending_data);
+            self.pending_width = rgba.w;
+            self.pending_height = rgba.h;
+            self.pending_valid = true;
+            true
+        } else {
+            std::mem::swap(&mut rgba.raw, &mut self.data);
+            self.width = rgba.w;
+            self.height = rgba.h;
+            self.valid = true;
+            false
+        }
+    }
+
+    fn promote_pending_frame(&mut self) -> bool {
+        if !self.pending_valid {
+            self.valid = false;
+            return false;
+        }
+        std::mem::swap(&mut self.data, &mut self.pending_data);
+        self.width = self.pending_width;
+        self.height = self.pending_height;
+        self.pending_valid = false;
+        self.valid = true;
+        true
+    }
+}
+
+#[cfg(test)]
+mod rgba_tests {
+    use super::RgbaData;
+
+    #[test]
+    fn keeps_latest_frame_while_flutter_consumes_previous_frame() {
+        let mut data = RgbaData::default();
+
+        let mut first = scrap::ImageRgb::new(scrap::ImageFormat::Raw, 4);
+        first.raw = vec![1];
+        first.w = 1;
+        first.h = 1;
+        data.queue_frame(&mut first);
+        assert_eq!(data.data, vec![1]);
+        assert!(data.valid);
+
+        let mut second = scrap::ImageRgb::new(scrap::ImageFormat::Raw, 4);
+        second.raw = vec![2];
+        second.w = 1;
+        second.h = 1;
+        data.queue_frame(&mut second);
+        assert_eq!(data.data, vec![1]);
+        assert_eq!(data.pending_data, vec![2]);
+        assert!(data.pending_valid);
+
+        assert!(data.promote_pending_frame());
+        assert_eq!(data.data, vec![2]);
+        assert!(!data.pending_valid);
+        assert!(data.valid);
+    }
 }
 
 pub type FlutterRgbaRendererPluginOnRgba = unsafe extern "C" fn(
@@ -1212,9 +1281,22 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     #[inline]
-    fn next_rgba(&self, _display: usize) {
-        if let Some(rgba_data) = self.display_rgbas.write().unwrap().get_mut(&_display) {
-            rgba_data.valid = false;
+    fn next_rgba(&self, display: usize) {
+        let promoted = self
+            .display_rgbas
+            .write()
+            .unwrap()
+            .get_mut(&display)
+            .map(|rgba_data| rgba_data.promote_pending_frame())
+            .unwrap_or(false);
+        if promoted {
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                log::debug!(
+                    "KQ software video renderer promoted latest pending RGBA frame: display={}",
+                    display
+                );
+            }
+            self.notify_rgba(display);
         }
     }
 
@@ -1313,62 +1395,7 @@ impl FlutterHandler {
         (0, 0)
     }
 
-    #[inline]
-    fn on_rgba_soft_render(&self, display: usize, rgba: &mut scrap::ImageRgb) {
-        // Give a chance for plugins or etc to hook a rgba data.
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        for (key, hook) in self.hooks.read().unwrap().iter() {
-            match hook {
-                SessionHook::OnSessionRgba(cb) => {
-                    cb(key.to_owned(), rgba);
-                }
-            }
-        }
-        // If the current rgba is not fetched by flutter, i.e., is valid.
-        // We give up sending a new event to flutter.
-        let mut rgba_write_lock = self.display_rgbas.write().unwrap();
-        if let Some(rgba_data) = rgba_write_lock.get_mut(&display) {
-            if rgba_data.valid {
-                return;
-            } else {
-                rgba_data.valid = true;
-            }
-            rgba_data.width = rgba.w;
-            rgba_data.height = rgba.h;
-            // Return the rgba buffer to the video handler for reusing allocated rgba buffer.
-            std::mem::swap::<Vec<u8>>(&mut rgba.raw, &mut rgba_data.data);
-        } else {
-            let mut rgba_data = RgbaData::default();
-            rgba_data.width = rgba.w;
-            rgba_data.height = rgba.h;
-            std::mem::swap::<Vec<u8>>(&mut rgba.raw, &mut rgba_data.data);
-            rgba_data.valid = true;
-            if crate::get_app_name() == crate::common::KQ_APP_NAME {
-                let first_pixel = rgba_data.data.get(0..4).unwrap_or_default();
-                let (alpha_min, alpha_max) = rgba_data
-                    .data
-                    .chunks_exact(4)
-                    .map(|pixel| pixel[3])
-                    .fold((u8::MAX, u8::MIN), |(min, max), alpha| {
-                        (min.min(alpha), max.max(alpha))
-                    });
-                log::info!(
-                    "KQ software video renderer queued first RGBA frame: display={}, size={}x{}, bytes={}, fmt={:?}, align={}, first_pixel={:?}, alpha={}..{}",
-                    display,
-                    rgba.w,
-                    rgba.h,
-                    rgba_data.data.len(),
-                    rgba.fmt(),
-                    rgba.align(),
-                    first_pixel,
-                    alpha_min,
-                    alpha_max
-                );
-            }
-            rgba_write_lock.insert(display, rgba_data);
-        }
-        drop(rgba_write_lock);
-
+    fn notify_rgba(&self, display: usize) {
         let mut is_sent = false;
         let is_multi_sessions = self.is_multi_ui_session();
         for h in self.session_handlers.read().unwrap().values() {
@@ -1377,10 +1404,8 @@ impl FlutterHandler {
                 continue;
             }
             // If there're multiple ui sessions, we only notify the ui session that has the display.
-            if is_multi_sessions {
-                if !h.displays.contains(&display) {
-                    continue;
-                }
+            if is_multi_sessions && !h.displays.contains(&display) {
+                continue;
             }
             if let Some(stream) = &h.event_stream {
                 stream.add(EventToUI::Rgba(display));
@@ -1397,8 +1422,76 @@ impl FlutterHandler {
         if !is_sent {
             if let Some(rgba_data) = self.display_rgbas.write().unwrap().get_mut(&display) {
                 rgba_data.valid = false;
+                rgba_data.pending_valid = false;
             }
         }
+    }
+
+    #[inline]
+    fn on_rgba_soft_render(&self, display: usize, rgba: &mut scrap::ImageRgb) {
+        // Give a chance for plugins or etc to hook a rgba data.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        for (key, hook) in self.hooks.read().unwrap().iter() {
+            match hook {
+                SessionHook::OnSessionRgba(cb) => {
+                    cb(key.to_owned(), rgba);
+                }
+            }
+        }
+        let mut first_frame_log = None;
+        let buffered_latest = {
+            let mut rgba_write_lock = self.display_rgbas.write().unwrap();
+            if let Some(rgba_data) = rgba_write_lock.get_mut(&display) {
+                rgba_data.queue_frame(rgba)
+            } else {
+                let mut rgba_data = RgbaData::default();
+                rgba_data.queue_frame(rgba);
+                if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                    let first_pixel = rgba_data.data.get(0..4).unwrap_or_default();
+                    let (alpha_min, alpha_max) = rgba_data
+                        .data
+                        .chunks_exact(4)
+                        .map(|pixel| pixel[3])
+                        .fold((u8::MAX, u8::MIN), |(min, max), alpha| {
+                            (min.min(alpha), max.max(alpha))
+                        });
+                    first_frame_log = Some((
+                        rgba_data.data.len(),
+                        first_pixel.to_vec(),
+                        alpha_min,
+                        alpha_max,
+                    ));
+                }
+                rgba_write_lock.insert(display, rgba_data);
+                false
+            }
+        };
+        if let Some((bytes, first_pixel, alpha_min, alpha_max)) = first_frame_log {
+            log::info!(
+                "KQ software video renderer queued first RGBA frame: display={}, size={}x{}, bytes={}, fmt={:?}, align={}, first_pixel={:?}, alpha={}..{}",
+                display,
+                rgba.w,
+                rgba.h,
+                bytes,
+                rgba.fmt(),
+                rgba.align(),
+                first_pixel,
+                alpha_min,
+                alpha_max
+            );
+        }
+        if buffered_latest {
+            if crate::get_app_name() == crate::common::KQ_APP_NAME {
+                log::debug!(
+                    "KQ software video renderer buffered latest RGBA frame while Flutter decodes: display={}, size={}x{}",
+                    display,
+                    rgba.w,
+                    rgba.h
+                );
+            }
+            return;
+        }
+        self.notify_rgba(display);
     }
 
     #[inline]

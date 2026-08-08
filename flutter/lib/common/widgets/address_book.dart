@@ -303,14 +303,16 @@ class _AddressBookState extends State<AddressBook> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(translate('Tags')),
-        Listener(
-            onPointerDown: (e) {
-              final x = e.position.dx;
-              final y = e.position.dy;
-              menuPos = RelativeRect.fromLTRB(x, y, x, y);
-            },
-            onPointerUp: (_) => _showMenu(menuPos),
-            child: build_more(context, invert: true)),
+        build_more(
+          context,
+          invert: true,
+          onTapDown: (details) {
+            final position = details.globalPosition;
+            menuPos = RelativeRect.fromLTRB(
+                position.dx, position.dy, position.dx, position.dy);
+          },
+          onTap: () => _showMenu(menuPos),
+        ),
       ],
     );
   }

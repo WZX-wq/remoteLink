@@ -700,6 +700,11 @@ pub mod server {
                             shmem.write(ADDR_CAPTURE_FRAME, f.data());
                             shmem.write(ADDR_CAPTURE_WOULDBLOCK, &utils::i32_to_vec(TRUE));
                             utils::increase_counter(shmem.as_ptr().add(ADDR_CAPTURE_FRAME_COUNTER));
+                            if force_gdi && !first_frame_captured {
+                                log::info!(
+                                    "KQ portable capture: forced recreation produced first frame"
+                                );
+                            }
                             first_frame_captured = true;
                             dxgi_failed_times = 0;
                         }

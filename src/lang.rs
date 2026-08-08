@@ -149,6 +149,13 @@ fn translate_with_lang(name: String, lang: &str) -> String {
         _ => en::T.deref(),
     };
     let (name, placeholder_value) = extract_placeholder(&name);
+    if let Some(value) = kq_timeout_translation(&name, &lang) {
+        let mut value = value.to_owned();
+        if let Some(placeholder) = placeholder_value.as_ref() {
+            value = value.replace("{}", placeholder);
+        }
+        return value;
+    }
     let replace = |s: &&str| {
         let mut s = s.to_string();
         if let Some(value) = placeholder_value.as_ref() {
@@ -195,6 +202,109 @@ fn translate_with_lang(name: String, lang: &str) -> String {
     replace(&name.as_str())
 }
 
+fn kq_timeout_translation(name: &str, lang: &str) -> Option<&'static str> {
+    let value = match name {
+        "Automatic disconnect range: 10-65535 minutes" => match lang {
+            "ar" => "نطاق قطع الاتصال التلقائي: 10-65535 دقيقة",
+            "bn" => "স্বয়ংক্রিয় সংযোগ বিচ্ছিন্নতার পরিসর: 10-65535 মিনিট",
+            "de" => "Bereich für automatische Trennung: 10-65535 Minuten",
+            "en" => "Automatic disconnect range: 10-65535 minutes",
+            "es" => "Rango de desconexión automática: 10-65535 minutos",
+            "fa" => "محدوده قطع خودکار اتصال: ۱۰ تا ۶۵۵۳۵ دقیقه",
+            "fr" => "Plage de déconnexion automatique : 10-65535 minutes",
+            "he" => "טווח ניתוק אוטומטי: 10-65535 דקות",
+            "hi" => "स्वचालित डिस्कनेक्ट सीमा: 10-65535 मिनट",
+            "id" => "Rentang pemutusan otomatis: 10-65535 menit",
+            "it" => "Intervallo di disconnessione automatica: 10-65535 minuti",
+            "ja" => "自動切断の範囲: 10-65535 分",
+            "ko" => "자동 연결 해제 범위: 10-65535분",
+            "ms" => "Julat pemutusan automatik: 10-65535 minit",
+            "nl" => "Bereik voor automatische verbreking: 10-65535 minuten",
+            "pl" => "Zakres automatycznego rozłączania: 10-65535 minut",
+            "pt" => "Intervalo de desligamento automático: 10-65535 minutos",
+            "pt-br" => "Faixa de desconexão automática: 10-65535 minutos",
+            "ru" => "Диапазон автоматического отключения: 10-65535 минут",
+            "sw" => "Masafa ya kukata muunganisho kiotomatiki: dakika 10-65535",
+            "ta" => "தானியங்கி துண்டிப்பு வரம்பு: 10-65535 நிமிடங்கள்",
+            "th" => "ช่วงเวลาตัดการเชื่อมต่ออัตโนมัติ: 10-65535 นาที",
+            "tl" => "Saklaw ng awtomatikong pagdiskonekta: 10-65535 minuto",
+            "tr" => "Otomatik bağlantı kesme aralığı: 10-65535 dakika",
+            "uk" => "Діапазон автоматичного відключення: 10-65535 хвилин",
+            "ur" => "خودکار ڈس کنکشن کی حد: 10-65535 منٹ",
+            "vi" => "Phạm vi tự động ngắt kết nối: 10-65535 phút",
+            "zh-cn" => "自动断开范围：10-65535 分钟",
+            "zh-tw" => "自動中斷範圍：10-65535 分鐘",
+            _ => "Automatic disconnect range: 10-65535 minutes",
+        },
+        "Enter a value from 10 to 65535 minutes" => match lang {
+            "ar" => "أدخل قيمة من 10 إلى 65535 دقيقة",
+            "bn" => "10 থেকে 65535 মিনিটের মধ্যে একটি মান লিখুন",
+            "de" => "Geben Sie einen Wert zwischen 10 und 65535 Minuten ein",
+            "en" => "Enter a value from 10 to 65535 minutes",
+            "es" => "Introduce un valor entre 10 y 65535 minutos",
+            "fa" => "مقداری بین ۱۰ تا ۶۵۵۳۵ دقیقه وارد کنید",
+            "fr" => "Saisissez une valeur entre 10 et 65535 minutes",
+            "he" => "הזן ערך בין 10 ל-65535 דקות",
+            "hi" => "10 से 65535 मिनट के बीच मान दर्ज करें",
+            "id" => "Masukkan nilai dari 10 hingga 65535 menit",
+            "it" => "Inserisci un valore da 10 a 65535 minuti",
+            "ja" => "10～65535 分の値を入力してください",
+            "ko" => "10~65535분 사이의 값을 입력하세요",
+            "ms" => "Masukkan nilai antara 10 hingga 65535 minit",
+            "nl" => "Voer een waarde van 10 tot 65535 minuten in",
+            "pl" => "Wprowadź wartość od 10 do 65535 minut",
+            "pt" => "Introduza um valor entre 10 e 65535 minutos",
+            "pt-br" => "Digite um valor entre 10 e 65535 minutos",
+            "ru" => "Введите значение от 10 до 65535 минут",
+            "sw" => "Weka thamani kutoka dakika 10 hadi 65535",
+            "ta" => "10 முதல் 65535 நிமிடங்களுக்குள் மதிப்பை உள்ளிடவும்",
+            "th" => "กรอกค่าระหว่าง 10-65535 นาที",
+            "tl" => "Maglagay ng halagang 10 hanggang 65535 minuto",
+            "tr" => "10 ile 65535 dakika arasında bir değer girin",
+            "uk" => "Введіть значення від 10 до 65535 хвилин",
+            "ur" => "10 سے 65535 منٹ کے درمیان قدر درج کریں",
+            "vi" => "Nhập giá trị từ 10 đến 65535 phút",
+            "zh-cn" => "请输入 10 到 65535 分钟",
+            "zh-tw" => "請輸入 10 到 65535 分鐘",
+            _ => "Enter a value from 10 to 65535 minutes",
+        },
+        "Auto disconnect: {} minutes (range 10-65535)" => match lang {
+            "ar" => "{} دقيقة (10-65535)",
+            "bn" => "{} মিনিট (10-65535)",
+            "de" => "{} Min. (10-65535)",
+            "en" => "{} min (10-65535)",
+            "es" => "{} min (10-65535)",
+            "fa" => "{} دقیقه (۱۰-۶۵۵۳۵)",
+            "fr" => "{} min (10-65535)",
+            "he" => "{} דק׳ (10-65535)",
+            "hi" => "{} मिनट (10-65535)",
+            "id" => "{} menit (10-65535)",
+            "it" => "{} min (10-65535)",
+            "ja" => "{} 分 (10-65535)",
+            "ko" => "{}분 (10-65535)",
+            "ms" => "{} minit (10-65535)",
+            "nl" => "{} min (10-65535)",
+            "pl" => "{} min (10-65535)",
+            "pt" => "{} min (10-65535)",
+            "pt-br" => "{} min (10-65535)",
+            "ru" => "{} мин. (10-65535)",
+            "sw" => "Dakika {} (10-65535)",
+            "ta" => "{} நிமிடங்கள் (10-65535)",
+            "th" => "{} นาที (10-65535)",
+            "tl" => "{} minuto (10-65535)",
+            "tr" => "{} dk. (10-65535)",
+            "uk" => "{} хв. (10-65535)",
+            "ur" => "{} منٹ (10-65535)",
+            "vi" => "{} phút (10-65535)",
+            "zh-cn" => "{} 分钟（10-65535）",
+            "zh-tw" => "{} 分鐘（10-65535）",
+            _ => "{} min (10-65535)",
+        },
+        _ => return None,
+    };
+    Some(value)
+}
+
 // Matching pattern is {}
 // Write {value} in the UI and {} in the translation file
 //
@@ -216,8 +326,13 @@ fn extract_placeholder(input: &str) -> (String, Option<String>) {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use super::{
+        ar, bn, cn, de, en, es, fa, fr, he, hi, id, it, ja, ko, ms, nl, pl, pt, ptbr, ru, sw, ta,
+        th, tl, tr, tw, uk, ur, vi,
+    };
     use hbb_common::config::LocalConfig;
+    use std::collections::HashMap;
+    use std::ops::Deref;
 
     fn supported_tables() -> Vec<(&'static str, &'static HashMap<&'static str, &'static str>)> {
         vec![
@@ -277,9 +392,9 @@ mod test {
                 );
             }
             for (key, english_value) in english {
-                let value = table.get(key).unwrap_or_else(|| {
-                    panic!("locale {locale} is missing canonical key {key:?}")
-                });
+                let value = table
+                    .get(key)
+                    .unwrap_or_else(|| panic!("locale {locale} is missing canonical key {key:?}"));
                 assert!(!value.is_empty(), "locale {locale} has empty key {key:?}");
                 assert_eq!(
                     placeholders(english_value),
@@ -329,5 +444,32 @@ mod test {
         assert_eq!(super::lang_from_locale("pt"), "pt");
         assert_eq!(super::lang_from_locale("pt-PT"), "pt");
         assert_eq!(super::lang_from_locale("pt_BR"), "pt-br");
+    }
+
+    #[test]
+    fn auto_disconnect_strings_cover_every_supported_locale() {
+        let keys = [
+            "Automatic disconnect range: 10-65535 minutes",
+            "Enter a value from 10 to 65535 minutes",
+            "Auto disconnect: {} minutes (range 10-65535)",
+        ];
+
+        for (locale, _) in supported_tables() {
+            for key in keys {
+                assert!(
+                    super::kq_timeout_translation(key, locale).is_some(),
+                    "locale {locale} is missing {key:?}",
+                );
+            }
+
+            let summary = super::translate_with_lang(
+                "Auto disconnect: {10} minutes (range 10-65535)".to_owned(),
+                locale,
+            );
+            assert!(
+                !summary.contains("{}"),
+                "locale {locale} did not substitute the timeout value",
+            );
+        }
     }
 }

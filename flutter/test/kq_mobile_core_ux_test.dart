@@ -44,6 +44,115 @@ void main() {
     expect(source, isNot(contains('floating_mouse_widgets.dart')));
   });
 
+  test(
+      'mobile keyboard keeps a right-side hide action above the system keyboard',
+      () {
+    final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+
+    expect(source, contains('void _hideSoftKeyboard()'));
+    expect(source, contains('if (_softKeyboardActive) {'));
+    expect(source, contains('icon: Icons.keyboard_hide'));
+    expect(source,
+        contains("label: kqLocaleText(zhCn: '收起键盘', en: 'Hide keyboard')"));
+    expect(source, contains('bottom: keyboardInset + 12'));
+    expect(source, contains('onPressed: _hideSoftKeyboard'));
+    expect(
+        source,
+        contains(
+            "SystemChannels.textInput.invokeMethod<void>('TextInput.hide')"));
+  });
+
+  test('auto disconnect settings explain the ten-minute minimum', () {
+    final mobile =
+        File('lib/mobile/pages/settings_page.dart').readAsStringSync();
+    final desktop =
+        File('lib/desktop/pages/desktop_setting_page.dart').readAsStringSync();
+    final common = File('lib/common.dart').readAsStringSync();
+    final dialog = File('lib/common/widgets/dialog.dart').readAsStringSync();
+
+    expect(mobile, contains('autoDisconnectTimeoutSummaryText'));
+    expect(mobile, contains('BoxFit.scaleDown'));
+    expect(mobile, isNot(contains("} min'")));
+    expect(desktop, contains('autoDisconnectTimeoutRangeText'));
+    expect(common, contains('kAutoDisconnectTimeoutMinimumMinutes'));
+    expect(common, contains('kAutoDisconnectTimeoutMaximumMinutes'));
+    expect(common, contains('isAutoDisconnectTimeoutInRange'));
+    expect(common, contains('normalizeAutoDisconnectTimeout'));
+    expect(dialog, contains('isAutoDisconnectTimeoutInRange'));
+    expect(dialog, contains('autoDisconnectTimeoutBoundsText'));
+    expect(desktop, contains('isAutoDisconnectTimeoutInRange'));
+    expect(desktop, contains('LengthLimitingTextInputFormatter(5)'));
+  });
+
+  test('visible action affordances do not use empty callbacks', () {
+    final popupMenu =
+        File('lib/desktop/widgets/popup_menu.dart').readAsStringSync();
+    final peerCard =
+        File('lib/common/widgets/peer_card.dart').readAsStringSync();
+    final addressBook =
+        File('lib/common/widgets/address_book.dart').readAsStringSync();
+    final settings =
+        File('lib/desktop/pages/desktop_setting_page.dart').readAsStringSync();
+
+    expect(popupMenu, isNot(contains('onPressed: () {}')));
+    expect(peerCard, contains('onTap: onTap'));
+    expect(peerCard, contains('onTapDown: onTapDown'));
+    expect(addressBook, contains('onTap: () => _showMenu(menuPos)'));
+    expect(peerCard, contains('onTap: () => _showPeerMenu(peer.id)'));
+    expect(settings, isNot(contains("keys: const ['auto']")));
+  });
+
+  test('desktop consumer assistance shares do not include credentials', () {
+    String shareBody(String source, String nextMethod) {
+      final start = source.indexOf('Future<void> _copyRemoteAssistShare');
+      final end = source.indexOf(nextMethod, start);
+      expect(start, greaterThanOrEqualTo(0));
+      expect(end, greaterThan(start));
+      return source.substring(start, end);
+    }
+
+    final home =
+        File('lib/desktop/pages/desktop_home_page.dart').readAsStringSync();
+    final settings =
+        File('lib/desktop/pages/desktop_setting_page.dart').readAsStringSync();
+    final homeShare = shareBody(home, 'String _kqPasswordKindLabel');
+    final settingsShare =
+        shareBody(settings, 'String _settingsPasswordKindLabel');
+
+    for (final share in [homeShare, settingsShare]) {
+      expect(share, contains('Device ID'));
+      expect(share, contains('separately through a trusted channel'));
+      expect(share, isNot(contains(r'$password')));
+      expect(share, isNot(contains('base64UrlEncode')));
+      expect(share, isNot(contains('_buildKqInviteLink')));
+    }
+  });
+
+  test('desktop consumer settings exclude administrator-only controls', () {
+    final settings =
+        File('lib/desktop/pages/desktop_setting_page.dart').readAsStringSync();
+    final permissionsStart = settings.indexOf('Widget permissions(context)');
+    final permissionsEnd =
+        settings.indexOf('Widget more(BuildContext context)', permissionsStart);
+    final advancedStart =
+        settings.indexOf('Widget _advancedNetworkReferenceCard');
+    final advancedEnd =
+        settings.indexOf('Widget network(BuildContext context)', advancedStart);
+
+    expect(permissionsStart, greaterThanOrEqualTo(0));
+    expect(permissionsEnd, greaterThan(permissionsStart));
+    expect(advancedStart, greaterThanOrEqualTo(0));
+    expect(advancedEnd, greaterThan(advancedStart));
+
+    final permissions = settings.substring(permissionsStart, permissionsEnd);
+    final advancedNetwork = settings.substring(advancedStart, advancedEnd);
+    expect(permissions, isNot(contains('Enable terminal')));
+    expect(permissions, isNot(contains('Enable TCP tunneling')));
+    expect(permissions,
+        isNot(contains('Enable remote configuration modification')));
+    expect(advancedNetwork, contains('kOptionHideWebSocketSetting'));
+  });
+
   test('mobile virtual mouse does not paint a duplicate local cursor', () {
     final remotePage =
         File('lib/mobile/pages/remote_page.dart').readAsStringSync();
@@ -126,55 +235,31 @@ void main() {
     expect(page, contains('设备接入服务超时'));
   });
 
-  test('mobile zero-fps video stall requests a stream refresh', () {
+  test('idle remote video does not force a remote capture restart', () {
     final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
-    final videoService = File('../src/server/video_service.rs').readAsStringSync();
-    expect(ioLoop, contains('KQ_STALLED_VIDEO_REFRESH_TICKS'));
-    expect(ioLoop, contains('kq_refresh_stalled_zero_fps_displays'));
-    expect(ioLoop, contains('last_frame_instant'));
-    expect(ioLoop, contains('last_seen_frame_instant'));
-    expect(ioLoop, isNot(contains('KQ_STALLED_VIDEO_REFRESH_MAX_TIMES')));
-    expect(ioLoop, contains('KQ video idle/stalled; refreshing display'));
-    expect(ioLoop, contains('KQ_STALLED_VIDEO_CODEC_RENEGOTIATE_EVERY'));
-    expect(ioLoop,
-        contains('KQ video idle/stalled; renegotiating supported decodings'));
-    expect(ioLoop, contains('self.kq_refresh_stalled_zero_fps_displays()'));
-    expect(ioLoop, contains('v.video_sender.send(MediaData::Reset).ok();'));
-    expect(videoService,
-        contains('KQ video refresh recovery: forcing fresh GDI capture'));
-    expect(videoService, contains('let refresh_requested = sp.is_option_true(OPTION_REFRESH);'));
+    expect(ioLoop, isNot(contains('KQ_STALLED_VIDEO_REFRESH_TICKS')));
+    expect(ioLoop, isNot(contains('kq_refresh_stalled_zero_fps_displays')));
+    expect(
+        ioLoop, isNot(contains('KQ video idle/stalled; refreshing display')));
   });
 
-  test('stalled video recovery keeps the current remote session open', () {
-    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
-    final recoveryStart =
-        ioLoop.indexOf('fn kq_refresh_stalled_zero_fps_displays(&mut self)');
-    final recoveryEnd =
-        ioLoop.indexOf('fn check_view_camera_support', recoveryStart);
-    final recovery = ioLoop.substring(recoveryStart, recoveryEnd);
+  test('iOS viewport changes repaint locally without restarting remote capture',
+      () {
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final refreshStart = remotePage.indexOf('void _refreshIOSRemoteVideo');
+    final refreshEnd =
+        remotePage.indexOf('void _scheduleOrientationRefresh', refreshStart);
+    final refresh = remotePage.substring(refreshStart, refreshEnd);
 
-    expect(recoveryStart, greaterThanOrEqualTo(0));
-    expect(recoveryEnd, greaterThan(recoveryStart));
-    expect(recovery, isNot(contains('reconnect(')));
-    expect(recovery,
-        isNot(contains('KQ_STALLED_VIDEO_RECONNECT_AFTER_REFRESHES')));
+    expect(refreshStart, greaterThanOrEqualTo(0));
+    expect(refreshEnd, greaterThan(refreshStart));
+    expect(refresh, contains('gFFI.imageModel.requestRepaint()'));
+    expect(refresh, isNot(contains('sessionRefreshVideo')));
   });
 
-  test('stalled video recovery falls back to legacy full-stream refresh', () {
-    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
-    final recoveryStart =
-        ioLoop.indexOf('fn kq_refresh_stalled_zero_fps_displays(&mut self)');
-    final recoveryEnd = ioLoop.indexOf('fn check_view_camera_support', recoveryStart);
-    final recovery = ioLoop.substring(recoveryStart, recoveryEnd);
-
-    expect(recoveryStart, greaterThanOrEqualTo(0));
-    expect(recoveryEnd, greaterThan(recoveryStart));
-    expect(recovery, contains('client::LoginConfigHandler::refresh()'));
-    expect(recovery,
-        contains('KQ video idle/stalled; issuing legacy full-stream refresh'));
-  });
-
-  test('Windows portable capture refresh forces the service to recreate with GDI',
+  test(
+      'Windows portable capture refresh forces the service to recreate with GDI',
       () {
     final portable =
         File('../src/server/portable_service.rs').readAsStringSync();
@@ -206,6 +291,23 @@ void main() {
     expect(tabbar,
         contains('mainWindowClose() async => await windowManager.hide()'));
     expect(connection, isNot(contains('bind.mainOnMainWindowClose();')));
+  });
+
+  test('Windows video recovery logs every refresh boundary', () {
+    final connection = File('../src/server/connection.rs').readAsStringSync();
+    final videoService =
+        File('../src/server/video_service.rs').readAsStringSync();
+    final portable =
+        File('../src/server/portable_service.rs').readAsStringSync();
+
+    expect(connection, contains('KQ video refresh command received'));
+    expect(videoService, contains('KQ video refresh requested:'));
+    expect(videoService, contains('KQ video refresh recovery:'));
+    expect(portable, contains('KQ portable capture: forcing GDI recreation'));
+    expect(
+        portable,
+        contains(
+            'KQ portable capture: forced recreation produced first frame'));
   });
 
   test('quality monitor does not show fake zero delay for stalled video', () {

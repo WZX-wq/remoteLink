@@ -116,8 +116,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         bind.mainGetLocalOption(key: kOptionAllowAutoRecordOutgoing));
     _allowAutoDisconnect = option2bool(kOptionAllowAutoDisconnect,
         bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
-    _autoDisconnectTimeout =
-        bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
+    _autoDisconnectTimeout = normalizeAutoDisconnectTimeout(
+        bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout));
     _preventSleepWhileConnected =
         mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
     _showTerminalExtraKeys =
@@ -328,11 +328,20 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                         children: [
                       Text(_settingsText("auto_disconnect_option_tip")),
                       Offstage(
-                          offstage: !_allowAutoDisconnect,
+                        offstage: !_allowAutoDisconnect,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
                           child: Text(
-                            '${_autoDisconnectTimeout.isEmpty ? '10' : _autoDisconnectTimeout} min',
+                            autoDisconnectTimeoutSummaryText(
+                                _autoDisconnectTimeout.isEmpty
+                                    ? kAutoDisconnectTimeoutMinimumMinutes
+                                        .toString()
+                                    : _autoDisconnectTimeout),
                             style: Theme.of(context).textTheme.bodySmall,
-                          )),
+                          ),
+                        ),
+                      ),
                     ])),
                 Offstage(
                     offstage: !_allowAutoDisconnect,
