@@ -178,16 +178,27 @@ test('public privacy policy route is available for App Store metadata', () => {
     path.resolve(__dirname, '../src/index.js'),
     'utf8',
   );
+  const privacyPolicy = fs.readFileSync(
+    path.resolve(__dirname, '../src/privacy-policy.js'),
+    'utf8',
+  );
+
   for (const value of [
-    'function privacyPolicyPage()',
+    "import { privacyPolicyPage } from './privacy-policy.js';",
     "app.get(['/privacy', '/api/privacy']",
+  ]) {
+    assert.equal(server.includes(value), true);
+  }
+
+  for (const value of [
+    'export function privacyPolicyPage(platform)',
     '鲲穹远程桌面隐私政策',
     'Data we collect',
     '应用声音',
     'application audio',
     'Membership and payments',
   ]) {
-    assert.equal(server.includes(value), true);
+    assert.equal(privacyPolicy.includes(value), true);
   }
 });
 
