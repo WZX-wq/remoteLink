@@ -28,17 +28,9 @@ void main() {
 
   test('mobile more actions do not expose block user input', () {
     final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
-    final start = toolbar.indexOf('// blockUserInput');
-    final end = toolbar.indexOf('// switchSides', start);
 
-    expect(start, greaterThanOrEqualTo(0));
-    expect(end, greaterThan(start));
-    final blockInputMenu = toolbar.substring(start, end);
-
-    expect(blockInputMenu, contains('!isMobile'));
-    expect(blockInputMenu, contains('pi.sasEnabled'));
-    expect(blockInputMenu,
-        isNot(contains('blockInput.value = !blockInput.value')));
+    expect(toolbar, isNot(contains("Text(translate('Block user input'))")));
+    expect(toolbar, isNot(contains('blockInput.value = !blockInput.value')));
   });
 
   test('block input access denied uses user-facing guidance', () {

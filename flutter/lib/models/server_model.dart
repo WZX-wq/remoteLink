@@ -1300,18 +1300,13 @@ class ServerModel with ChangeNotifier {
     }
   }
 
-  void androidUpdatekeepScreenOn() async {
+  void androidUpdatekeepScreenOn() {
     if (!isAndroid) return;
-    var floatingWindowDisabled =
-        bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) == "Y" ||
-            !await AndroidPermissionManager.check(kSystemAlertWindow);
-    final keepScreenOn = floatingWindowDisabled
-        ? KeepScreenOn.never
-        : optionToKeepScreenOn(
-            bind.mainGetLocalOption(key: kOptionKeepScreenOn));
+    final keepScreenOn =
+        optionToKeepScreenOn(bind.mainGetLocalOption(key: kOptionKeepScreenOn));
     final on = ((keepScreenOn == KeepScreenOn.serviceOn) && _isStart) ||
         (keepScreenOn == KeepScreenOn.duringControlled &&
-            _clients.map((e) => !e.disconnected).isNotEmpty);
+            _clients.any((client) => !client.disconnected));
     if (on) {
       WakelockManager.enable(_wakelockKey, isServer: true);
     } else {

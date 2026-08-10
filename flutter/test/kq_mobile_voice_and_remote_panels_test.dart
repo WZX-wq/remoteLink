@@ -109,12 +109,12 @@ void main() {
       'bind.sessionCtrlAltDel',
       'showRestartRemoteDevice',
       'bind.sessionLockScreen',
-      'bind.sessionToggleOption',
       'sessionRefreshVideo(sessionId, pi)',
       'ffi.recordingModel.toggle()',
     ]) {
       expect(controls, contains(call));
     }
+    expect(toolbar, contains('bind.sessionToggleOption'));
 
     final optionsStart = page.indexOf('void showOptions(');
     final optionsEnd = page.indexOf('class _RemoteOptionSection', optionsStart);

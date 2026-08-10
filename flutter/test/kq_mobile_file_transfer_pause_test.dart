@@ -10,8 +10,9 @@ void main() {
         File('lib/mobile/pages/file_manager_page.dart').readAsStringSync();
 
     expect(source, contains('case JobState.paused:'));
-    expect(source, contains('title: translate("Paused")'));
-    expect(source, contains('tooltip: translate("Resume")'));
+    expect(source, contains("title: translate('Paused')"));
+    expect(source, contains("primaryLabel: translate('Resume')"));
+    expect(source, contains("tooltip: translate('Cancel')"));
     expect(source, contains('model.jobController.resumeJob(activeJob.id)'));
     expect(source, contains('model.jobController.cancelJob(activeJob.id)'));
     expect(source, isNot(contains('// TODO: Handle this case.')));
