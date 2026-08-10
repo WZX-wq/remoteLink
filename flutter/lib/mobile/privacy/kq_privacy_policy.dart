@@ -18,8 +18,9 @@ class KqPrivacyPolicySection {
   String titleForCurrentLanguage() =>
       kqUiPrefersChinese() ? titleZh : translate(titleEn);
 
-  List<String> paragraphsForCurrentLanguage() =>
-      kqUiPrefersChinese() ? paragraphsZh : paragraphsEn.map(translate).toList();
+  List<String> paragraphsForCurrentLanguage() => kqUiPrefersChinese()
+      ? paragraphsZh
+      : paragraphsEn.map(translate).toList();
 }
 
 /// The public URL must host the same text shown in the app before App Store
@@ -30,7 +31,7 @@ class KqPrivacyPolicy {
     defaultValue: 'https://remotelink.kunqiongai.com/kq-api/privacy',
   );
 
-  static const sections = <KqPrivacyPolicySection>[
+  static const _nonPaymentSections = <KqPrivacyPolicySection>[
     KqPrivacyPolicySection(
       id: 'data-collection',
       titleZh: '我们收集的数据',
@@ -83,37 +84,73 @@ class KqPrivacyPolicy {
         'You can initiate account deletion from Personal center. Deletion removes the account and related data that we do not need to retain; data required by law is removed after the applicable retention period.',
       ],
     ),
-    KqPrivacyPolicySection(
-      id: 'membership',
-      titleZh: '会员与支付',
-      titleEn: 'Membership and payments',
-      paragraphsZh: [
-        'App Store 版本的会员购买和恢复购买由 Apple 的应用内购买完成。我们仅处理验证会员权益所需的交易信息。',
-        '删除账号不会自动取消 Apple 订阅；如有自动续订订阅，请先在 Apple 订阅管理中取消。',
-      ],
-      paragraphsEn: [
-        'Membership purchase and purchase restoration in the App Store build are handled by Apple In-App Purchase. We process only the transaction information needed to verify membership entitlements.',
-        'Deleting an account does not automatically cancel an Apple subscription. Cancel any auto-renewing subscription in Apple subscription management first.',
-      ],
-    ),
-    KqPrivacyPolicySection(
-      id: 'contact',
-      titleZh: '联系我们',
-      titleEn: 'Contact us',
-      paragraphsZh: [
-        '如需咨询隐私、数据访问、更正或删除，请通过应用内“联系我们”渠道提交请求。',
-        '本政策会在功能或数据处理方式发生重大变化时更新。',
-      ],
-      paragraphsEn: [
-        'For privacy, data-access, correction, or deletion requests, use the Contact us channel in the app.',
-        'We update this policy when there are material changes to features or data handling.',
-      ],
-    ),
   ];
 
-  static String titleForCurrentLanguage() => kqUiPrefersChinese()
-      ? '隐私政策'
-      : translate('Privacy policy');
+  static const _iosMembershipSection = KqPrivacyPolicySection(
+    id: 'membership',
+    titleZh: '会员与支付',
+    titleEn: 'Membership and payments',
+    paragraphsZh: [
+      'App Store 版本的会员购买和恢复购买由 Apple 的应用内购买完成。我们仅处理验证会员权益所需的交易信息。',
+      '删除账号不会自动取消 Apple 订阅；如有自动续订订阅，请先在 Apple 订阅管理中取消。',
+    ],
+    paragraphsEn: [
+      'Membership purchase and purchase restoration in the App Store build are handled by Apple In-App Purchase. We process only the transaction information needed to verify membership entitlements.',
+      'Deleting an account does not automatically cancel an Apple subscription. Cancel any auto-renewing subscription in Apple subscription management first.',
+    ],
+  );
+
+  static const _genericMembershipSection = KqPrivacyPolicySection(
+    id: 'membership',
+    titleZh: '会员与支付',
+    titleEn: 'Membership and payments',
+    paragraphsZh: [
+      '会员购买、恢复与权益验证由适用的支付渠道和服务完成。我们仅处理验证会员权益所需的交易信息。',
+      '删除账号不会自动取消已在其他渠道开通的自动续订服务，请在对应渠道中管理。',
+    ],
+    paragraphsEn: [
+      'Membership purchase, restoration, and entitlement verification are handled by the applicable payment channel and service. We process only transaction information needed to verify membership entitlements.',
+      'Deleting an account does not automatically cancel an auto-renewing service started through another channel; manage it in that channel.',
+    ],
+  );
+
+  static const _contactSection = KqPrivacyPolicySection(
+    id: 'contact',
+    titleZh: '联系我们',
+    titleEn: 'Contact us',
+    paragraphsZh: [
+      '如需咨询隐私、数据访问、更正或删除，请通过应用内“联系我们”渠道提交请求。',
+      '本政策会在功能或数据处理方式发生重大变化时更新。',
+    ],
+    paragraphsEn: [
+      'For privacy, data-access, correction, or deletion requests, use the Contact us channel in the app.',
+      'We update this policy when there are material changes to features or data handling.',
+    ],
+  );
+
+  static List<KqPrivacyPolicySection> sectionsFor({required bool isIOS}) {
+    return List<KqPrivacyPolicySection>.unmodifiable(<KqPrivacyPolicySection>[
+      ..._nonPaymentSections,
+      isIOS ? _iosMembershipSection : _genericMembershipSection,
+      _contactSection,
+    ]);
+  }
+
+  static List<KqPrivacyPolicySection> get sections => sectionsFor(isIOS: isIOS);
+
+  static Uri? publicUriFor({required bool isIOS, String? baseUrl}) {
+    final uri = Uri.tryParse(baseUrl ?? publicUrl);
+    if (uri == null || !uri.hasScheme) return null;
+    return uri.replace(
+      queryParameters: <String, dynamic>{
+        ...uri.queryParametersAll,
+        'platform': <String>[isIOS ? 'ios' : 'android'],
+      },
+    );
+  }
+
+  static String titleForCurrentLanguage() =>
+      kqUiPrefersChinese() ? '隐私政策' : translate('Privacy policy');
 
   static String summaryForCurrentLanguage() => kqUiPrefersChinese()
       ? '了解我们如何处理账号、远程协助和会员服务相关的数据。'

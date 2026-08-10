@@ -124,11 +124,42 @@ void main() {
     expect(source, contains('Delete account'));
   });
 
-  test('account deletion warns that all Kunqiong account data will be removed', () {
+  test('account deletion warns that all Kunqiong account data will be removed',
+      () {
     final page =
         File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();
 
     expect(page, contains('注销账号会清理鲲穹账户的所有数据，请您谨慎注销。'));
+  });
+
+  test('account deletion warning keeps Apple wording in the iOS branch only',
+      () {
+    final page =
+        File('lib/mobile/pages/account_deletion_page.dart').readAsStringSync();
+    final warningStart = page.indexOf('_DeletionWarningCard(');
+    final warningEnd = page.indexOf('const SizedBox(height: 14)', warningStart);
+
+    expect(warningStart, greaterThanOrEqualTo(0));
+    expect(warningEnd, greaterThan(warningStart));
+    final warning = page.substring(warningStart, warningEnd);
+    final platformConditional = RegExp(
+      r'isIOS\s*\?\s*_text\(([\s\S]*?)\)\s*:\s*_text\(',
+    ).firstMatch(warning);
+
+    expect(warning, contains('注销账号会清理鲲穹账户的所有数据，请您谨慎注销。'));
+    expect(
+      warning,
+      contains('提交后将删除账号及不再需要保留的相关数据。'),
+    );
+    expect(warning,
+        contains('Deleting the account clears all Kunqiong account data.'));
+    expect(platformConditional, isNotNull);
+    if (platformConditional == null) return;
+    expect(platformConditional.group(1), contains('Apple 自动续订'));
+    expect(
+      warning.substring(platformConditional.end),
+      isNot(contains('Apple')),
+    );
   });
 
   test('successful deletion clears all account-scoped local data', () {

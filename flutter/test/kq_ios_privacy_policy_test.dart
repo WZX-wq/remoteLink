@@ -28,16 +28,65 @@ void main() {
     expect(policyText, contains('application audio'));
   });
 
-  test('public privacy policy is hosted by the Remote Link API', () {
-    final server = File('../server/src/index.js').readAsStringSync();
+  test('membership policy and public URI select the current platform', () {
+    final androidText = KqPrivacyPolicy.sectionsFor(isIOS: false)
+        .expand((section) =>
+            <String>[...section.paragraphsZh, ...section.paragraphsEn])
+        .join('\n');
+    final iosMembership = KqPrivacyPolicy.sectionsFor(isIOS: true)
+        .singleWhere((section) => section.id == 'membership');
 
+    expect(androidText, contains('适用的支付渠道'));
+    expect(androidText, isNot(contains('Apple')));
+    expect(iosMembership.paragraphsZh, <String>[
+      'App Store 版本的会员购买和恢复购买由 Apple 的应用内购买完成。我们仅处理验证会员权益所需的交易信息。',
+      '删除账号不会自动取消 Apple 订阅；如有自动续订订阅，请先在 Apple 订阅管理中取消。',
+    ]);
+    expect(iosMembership.paragraphsEn, <String>[
+      'Membership purchase and purchase restoration in the App Store build are handled by Apple In-App Purchase. We process only the transaction information needed to verify membership entitlements.',
+      'Deleting an account does not automatically cancel an Apple subscription. Cancel any auto-renewing subscription in Apple subscription management first.',
+    ]);
+    expect(
+      KqPrivacyPolicy.publicUriFor(isIOS: false)?.queryParameters['platform'],
+      'android',
+    );
+    expect(
+      KqPrivacyPolicy.publicUriFor(isIOS: true)?.queryParameters['platform'],
+      'ios',
+    );
+    final androidUriWithRepeatedQuery = KqPrivacyPolicy.publicUriFor(
+      isIOS: false,
+      baseUrl: 'https://example.test/privacy?tag=one&tag=two&platform=old',
+    );
+    expect(
+      androidUriWithRepeatedQuery?.queryParametersAll['tag'],
+      <String>['one', 'two'],
+    );
+    expect(
+      androidUriWithRepeatedQuery?.queryParametersAll['platform'],
+      <String>['android'],
+    );
+    expect(
+      KqPrivacyPolicy.publicUriFor(
+        isIOS: false,
+        baseUrl: 'https://[invalid',
+      ),
+      isNull,
+    );
+    expect(
+      KqPrivacyPolicy.publicUriFor(
+        isIOS: false,
+        baseUrl: '/privacy',
+      ),
+      isNull,
+    );
+  });
+
+  test('public privacy policy targets the Remote Link API', () {
     expect(
       KqPrivacyPolicy.publicUrl,
       contains('remotelink.kunqiongai.com/kq-api/privacy'),
     );
-    expect(server, contains('function privacyPolicyPage()'));
-    expect(server, contains("app.get(['/privacy', '/api/privacy']"));
-    expect(server, contains('鲲穹远程桌面隐私政策'));
   });
 
   test('personal center exposes the internal privacy policy page', () {
@@ -45,6 +94,13 @@ void main() {
 
     expect(page, contains('PrivacyPolicyPage'));
     expect(page, contains('Privacy policy'));
+  });
+
+  test('privacy page skips launch when the public policy URI is invalid', () {
+    final page =
+        File('lib/mobile/pages/privacy_policy_page.dart').readAsStringSync();
+
+    expect(page, contains('if (uri == null) return;'));
   });
 
   test('Runner privacy manifest declares app-owned collected data', () {

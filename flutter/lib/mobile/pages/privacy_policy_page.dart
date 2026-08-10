@@ -9,8 +9,8 @@ class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
 
   Future<void> _openPublicPolicy() async {
-    final uri = Uri.tryParse(KqPrivacyPolicy.publicUrl);
-    if (uri == null || !uri.hasScheme) return;
+    final uri = KqPrivacyPolicy.publicUriFor(isIOS: isIOS);
+    if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
