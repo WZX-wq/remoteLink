@@ -29,6 +29,7 @@ import {
   resolveAppleProjectMembershipExpiry,
   withAppleTransactionRetry,
 } from './apple-entitlement.js';
+import { resolveAndroidDownloadMetadata } from './android-download.js';
 import { privacyPolicyPage } from './privacy-policy.js';
 import { createRequestGate } from './request-gate.js';
 
@@ -43,8 +44,8 @@ const defaultAndroidApkPath = path.resolve(
   __dirname,
   '../public/downloads/Kunqiong-Remote-Desktop.apk',
 );
-const defaultAndroidApkSha256 =
-  '1158207394F9E5A875CDDDBB45A01BE7A3789557157888C6B3A9700095165C8B';
+const configuredAndroidApkPath =
+  process.env.KQ_ANDROID_DOWNLOAD_FILE_PATH || defaultAndroidApkPath;
 const defaultRequestGateStateFile = path.resolve(
   __dirname,
   '../data/request-gate.json',
@@ -104,7 +105,10 @@ const config = {
     maxGlobalConcurrent: envInt('KQ_DOWNLOAD_MAX_GLOBAL_CONCURRENT', 8, 1, 128),
   },
   androidDownload: {
-    filePath: process.env.KQ_ANDROID_DOWNLOAD_FILE_PATH || defaultAndroidApkPath,
+    filePath: configuredAndroidApkPath,
+    metadataPath:
+      process.env.KQ_ANDROID_DOWNLOAD_METADATA_PATH ||
+      `${configuredAndroidApkPath}.json`,
     fileName:
       process.env.KQ_ANDROID_DOWNLOAD_FILE_NAME ||
       'Kunqiong-Remote-Desktop.apk',
@@ -112,7 +116,6 @@ const config = {
       process.env.KQ_ANDROID_DOWNLOAD_VERSION ||
       process.env.KQ_DOWNLOAD_VERSION ||
       '1.4.6+4067',
-    sha256: process.env.KQ_ANDROID_DOWNLOAD_SHA256 || defaultAndroidApkSha256,
   },
   wechatPay: {
     appId: process.env.KQ_WECHAT_PAY_APPID || '',
@@ -1981,7 +1984,7 @@ function parseRangeHeader(rangeHeader, size) {
   return { start, end: Math.min(end, size - 1) };
 }
 
-async function sendDownloadFile(req, res, download, contentType) {
+async function sendDownloadFile(req, res, download, contentType, resolveMetadata) {
   const releaseDownload = req.method !== 'HEAD' ? acquireDownloadSlot(req, res) : () => {};
   if (!releaseDownload) return;
   try {
@@ -1991,6 +1994,10 @@ async function sendDownloadFile(req, res, download, contentType) {
       textError(res, 404, '安装包暂时不可用，请稍后再试。');
       return;
     }
+
+    const currentDownload = resolveMetadata
+      ? { ...download, ...resolveMetadata() }
+      : download;
 
     const range = parseRangeHeader(req.get('range'), stat.size);
     if (range?.invalid) {
@@ -2003,17 +2010,17 @@ async function sendDownloadFile(req, res, download, contentType) {
     const start = range ? range.start : 0;
     const end = range ? range.end : stat.size - 1;
     const contentLength = end - start + 1;
-    const dispositionName = download.fileName.replace(/["\\]/g, '');
+    const dispositionName = currentDownload.fileName.replace(/["\\]/g, '');
     const headers = {
       'accept-ranges': 'bytes',
       'cache-control': 'private, max-age=300',
       'content-type': contentType,
-      'content-disposition': `attachment; filename="${dispositionName}"; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+      'content-disposition': `attachment; filename="${dispositionName}"; filename*=UTF-8''${encodeURIComponent(currentDownload.fileName)}`,
       'content-length': String(contentLength),
-      'x-kq-download-version': download.version,
+      'x-kq-download-version': currentDownload.version,
     };
-    if (download.sha256) {
-      headers['x-kq-download-sha256'] = download.sha256;
+    if (currentDownload.sha256) {
+      headers['x-kq-download-sha256'] = currentDownload.sha256;
     }
     if (range) {
       headers['content-range'] = `bytes ${start}-${end}/${stat.size}`;
@@ -2064,6 +2071,12 @@ async function sendAndroidApk(req, res) {
     res,
     config.androidDownload,
     'application/vnd.android.package-archive',
+    () =>
+      resolveAndroidDownloadMetadata({
+        apkPath: config.androidDownload.filePath,
+        metadataPath: config.androidDownload.metadataPath,
+        fallbackVersion: config.androidDownload.version,
+      }),
   );
 }
 

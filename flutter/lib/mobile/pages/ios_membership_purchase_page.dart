@@ -256,7 +256,10 @@ class _KqIosMembershipPurchasePageState
                   _IosMembershipLegalFooter(
                     text: _text,
                     onPrivacy: () => unawaited(
-                      _openLegalUrl(KqPrivacyPolicy.publicUrl),
+                      _openLegalUrl(
+                        KqPrivacyPolicy.publicUriFor(isIOS: true)?.toString() ??
+                            '',
+                      ),
                     ),
                     onTerms: () => unawaited(
                       _openLegalUrl(_kqTermsOfServiceUrl),

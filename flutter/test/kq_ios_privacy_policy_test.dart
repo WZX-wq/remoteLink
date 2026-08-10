@@ -131,4 +131,19 @@ void main() {
       contains('NSPrivacyCollectedDataTypeAudioData'),
     );
   });
+
+  test('iOS membership purchase footer uses the iOS public policy URI', () {
+    final source = File(
+      'lib/mobile/pages/ios_membership_purchase_page.dart',
+    ).readAsStringSync();
+
+    expect(
+      source,
+      contains('KqPrivacyPolicy.publicUriFor(isIOS: true)'),
+    );
+    expect(
+      source,
+      isNot(contains('_openLegalUrl(KqPrivacyPolicy.publicUrl)')),
+    );
+  });
 }

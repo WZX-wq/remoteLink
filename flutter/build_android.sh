@@ -5,6 +5,9 @@ set -euo pipefail
 MODE="${MODE:-release}"
 ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-21}"
+ANDROID_BUILD_NUMBER="${ANDROID_BUILD_NUMBER:-4068}"
+ANDROID_RELEASE_MIN_VERSION_CODE="${KQ_ANDROID_MIN_VERSION_CODE:-4067}"
+ANDROID_RELEASE_EXPECTED_SIGNER_SHA256="${KQ_ANDROID_EXPECTED_CERT_SHA256:-f9111b87482946b01d90f433b8b00dcf94cec08728891a7d9b5d08150c6caf17}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "${ROOT_DIR}/flutter/android_release_publish.sh"
 FLUTTER_DIR="${ROOT_DIR}/flutter"
@@ -106,13 +109,21 @@ test -s "${JNI_DIR}/libc++_shared.so"
 
 cd "${FLUTTER_DIR}"
 
+flutter_pubspec_version="$(awk '$1 == "version:" { print $2; exit }' pubspec.yaml)"
+ANDROID_BUILD_NAME="${ANDROID_BUILD_NAME:-${flutter_pubspec_version%%+*}}"
+if [[ -z "${ANDROID_BUILD_NAME}" || ! "${ANDROID_BUILD_NUMBER}" =~ ^[0-9]+$ ]]; then
+  echo 'ANDROID_BUILD_NAME and ANDROID_BUILD_NUMBER must define a valid Android version' >&2
+  exit 1
+fi
+ANDROID_RELEASE_VERSION="${ANDROID_BUILD_NAME}+${ANDROID_BUILD_NUMBER}"
+
 extra_args=()
 if [[ "${MODE}" == "release" ]]; then
   extra_args+=(--obfuscate --split-debug-info ./split-debug-info)
 fi
 
-flutter build apk --target-platform "${FLUTTER_TARGET}" "--${MODE}" "${extra_args[@]}"
-flutter build appbundle --target-platform "${FLUTTER_TARGET}" "--${MODE}" "${extra_args[@]}"
+flutter build apk --target-platform "${FLUTTER_TARGET}" "--${MODE}" --build-name "${ANDROID_BUILD_NAME}" --build-number "${ANDROID_BUILD_NUMBER}" "${extra_args[@]}"
+flutter build appbundle --target-platform "${FLUTTER_TARGET}" "--${MODE}" --build-name "${ANDROID_BUILD_NAME}" --build-number "${ANDROID_BUILD_NUMBER}" "${extra_args[@]}"
 
 apk_path="build/app/outputs/flutter-apk/app-${MODE}.apk"
 aab_path="$(find build/app/outputs -name '*.aab' | sort | tail -n 1)"
@@ -126,4 +137,4 @@ echo "Built ${apk_path}"
 echo "Built ${aab_path}"
 
 published_apk_path="${ROOT_DIR}/server/public/downloads/Kunqiong-Remote-Desktop.apk"
-publish_android_apk_if_release "${MODE}" "${apk_path}" "${published_apk_path}"
+publish_verified_android_apk_if_release "${MODE}" "${apk_path}" "${published_apk_path}" "${ANDROID_RELEASE_VERSION}" "${ANDROID_RELEASE_MIN_VERSION_CODE}" "${ANDROID_RELEASE_EXPECTED_SIGNER_SHA256}"
