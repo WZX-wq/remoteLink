@@ -237,9 +237,9 @@ class _ServerPageState extends State<ServerPage> with WidgetsBindingObserver {
                   padding: const EdgeInsets.fromLTRB(14, 4, 14, 22),
                   children: [
                     buildPresetPasswordWarningMobile(),
-                    gFFI.serverModel.isStart
+                    serverModel.isStart
                         ? ServerInfo()
-                        : ServiceNotRunningNotification(),
+                        : const ScreenShareSetupCard(),
                     const ConnectionManager(),
                     const PermissionChecker(),
                   ],
@@ -930,8 +930,8 @@ String _iosShareText({
   return kqUiPrefersSimplifiedChinese() ? zhCn : zhTw;
 }
 
-class ServiceNotRunningNotification extends StatelessWidget {
-  ServiceNotRunningNotification({Key? key}) : super(key: key);
+class ScreenShareSetupCard extends StatelessWidget {
+  const ScreenShareSetupCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -939,63 +939,39 @@ class ServiceNotRunningNotification extends StatelessWidget {
     final q = KqTheme.of(context);
 
     return PaddingCard(
+        title: kqLocaleText(zhCn: '共享屏幕', en: 'Share screen'),
+        titleIcon: Icon(Icons.mobile_screen_share_rounded, color: q.primary),
         child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: q.warning.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(16),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              translate('kq_mobile_screen_capture_permission_tip'),
+              style: TextStyle(
+                color: q.muted,
+                fontSize: 13,
+                height: 1.35,
+              ),
             ),
-            child: Icon(Icons.play_circle_outline_rounded,
-                color: q.warning, size: 28),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  translate("Service is not running"),
-                  style: TextStyle(
-                    color: q.ink,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  translate("android_start_service_tip"),
-                  style: TextStyle(
-                    color: q.muted,
-                    fontSize: 12,
-                    height: 1.28,
-                  ),
-                ),
-              ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text(
+                    kqLocaleText(zhCn: '开始共享屏幕', en: 'Start screen sharing')),
+                onPressed: () {
+                  if (gFFI.userModel.userName.value.isEmpty &&
+                      bind.mainGetLocalOption(key: "show-scam-warning") !=
+                          "N") {
+                    showScamWarning(context, serverModel);
+                  } else {
+                    serverModel.toggleService();
+                  }
+                },
+              ),
             ),
-          ),
-        ]),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-              icon: const Icon(Icons.play_arrow_rounded),
-              onPressed: () {
-                if (gFFI.userModel.userName.value.isEmpty &&
-                    bind.mainGetLocalOption(key: "show-scam-warning") != "N") {
-                  showScamWarning(context, serverModel);
-                } else {
-                  serverModel.toggleService();
-                }
-              },
-              label: Text(translate("Start service"))),
-        )
-      ],
-    ));
+          ],
+        ));
   }
 }
 
@@ -1981,8 +1957,7 @@ class PermissionChecker extends StatefulWidget {
 }
 
 class _PermissionCheckerState extends State<PermissionChecker> {
-  bool _isCheckingAll = false;
-  bool _showAllPermissions = false;
+  bool _showOptionalFeatures = false;
 
   Future<void> _toggleInputControl(ServerModel serverModel) async {
     await serverModel.toggleInput();
@@ -1991,52 +1966,11 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     }
   }
 
-  Future<void> _runAllPermissionSteps({
-    required ServerModel serverModel,
-    required bool hasAudioPermission,
-    required bool hideStopService,
-    required bool permissionChangeLocked,
-  }) async {
-    if (_isCheckingAll) return;
-    setState(() => _isCheckingAll = true);
-    try {
-      if (!serverModel.mediaOk && !hideStopService) {
-        final needsScamWarning = gFFI.userModel.userName.value.isEmpty &&
-            bind.mainGetLocalOption(key: "show-scam-warning") != "N";
-        if (needsScamWarning) {
-          showScamWarning(context, serverModel);
-          return;
-        }
-        await serverModel.toggleService();
-      }
-      if (!serverModel.inputOk) {
-        await _toggleInputControl(serverModel);
-      }
-      if (!permissionChangeLocked && !serverModel.fileOk) {
-        await serverModel.toggleFile();
-      }
-      if (!permissionChangeLocked &&
-          hasAudioPermission &&
-          !serverModel.audioOk) {
-        await serverModel.toggleAudio();
-      }
-      if (!serverModel.clipboardOk) {
-        await serverModel.toggleClipboard();
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isCheckingAll = false);
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final q = KqTheme.of(context);
     final hasAudioPermission = androidVersion >= 30;
-    final hideStopService = isAndroid &&
-        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
     final allowPermChangeInAcceptWindow = option2bool(
         kOptionEnablePermChangeInAcceptWindow,
         bind.mainGetBuildinOption(
@@ -2045,34 +1979,17 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     final permissionChangeLocked = isAndroid &&
         serverModel.clients.any((c) => !c.disconnected) &&
         !allowPermChangeInAcceptWindow;
-    final permissionItems = [
-      _PermissionGuideData(
-        title: translate("Screen Capture"),
-        description: translate('kq_mobile_screen_capture_permission_tip'),
-        icon: Icons.mobile_screen_share_rounded,
-        color: q.primary,
-        isOk: serverModel.mediaOk,
-        enabled: !hideStopService || !serverModel.mediaOk,
-        actionLabel: serverModel.mediaOk
-            ? translate('Stop service')
-            : translate('Enable'),
-        enabledActionLabel: translate('Turn off this permission'),
-        onPressed: !serverModel.mediaOk &&
-                gFFI.userModel.userName.value.isEmpty &&
-                bind.mainGetLocalOption(key: "show-scam-warning") != "N"
-            ? () => showScamWarning(context, serverModel)
-            : serverModel.toggleService,
-      ),
-      _PermissionGuideData(
-        title: translate("Input Control"),
-        description: translate('kq_mobile_input_permission_tip'),
-        icon: Icons.touch_app_rounded,
-        color: q.warning,
-        isOk: serverModel.inputOk,
-        actionLabel: translate('Enable'),
-        enabledActionLabel: translate('Disable this permission'),
-        onPressed: () => unawaited(_toggleInputControl(serverModel)),
-      ),
+    final inputControl = _PermissionGuideData(
+      title: kqLocaleText(zhCn: '远程控制', en: 'Remote control'),
+      description: translate('kq_mobile_input_permission_tip'),
+      icon: Icons.touch_app_rounded,
+      color: q.warning,
+      isOk: serverModel.inputOk,
+      actionLabel: translate('Enable'),
+      enabledActionLabel: translate('Disable this permission'),
+      onPressed: () => unawaited(_toggleInputControl(serverModel)),
+    );
+    final optionalFeatures = [
       _PermissionGuideData(
         title: translate("Transfer file"),
         description: translate('kq_mobile_file_permission_tip'),
@@ -2108,57 +2025,43 @@ class _PermissionCheckerState extends State<PermissionChecker> {
         onPressed: serverModel.toggleClipboard,
       ),
     ];
-    final actionableItems =
-        permissionItems.where((item) => item.enabled).toList(growable: false);
-    final doneCount = actionableItems.where((item) => item.isOk).length;
-    final totalCount = actionableItems.length;
-    final progress = totalCount == 0 ? 1.0 : doneCount / totalCount;
-    final allReady = totalCount > 0 && doneCount == totalCount;
-    final pendingItems = permissionItems
-        .where((item) => item.enabled && !item.isOk)
-        .toList(growable: false);
-    final visibleItems = _showAllPermissions
-        ? permissionItems
-        : pendingItems.take(3).toList(growable: false);
-    final hasHiddenItems = _showAllPermissions ||
-        pendingItems.length > visibleItems.length ||
-        pendingItems.length < permissionItems.length;
     return PaddingCard(
-        title: translate("Permissions"),
+        title: kqLocaleText(zhCn: '远程控制', en: 'Remote control'),
+        titleIcon: Icon(Icons.touch_app_rounded, color: q.warning),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _PermissionProgressHeader(
-            progress: progress,
-            doneCount: doneCount,
-            totalCount: totalCount,
-            allReady: allReady,
-            isChecking: _isCheckingAll,
-            onPressed: allReady
-                ? null
-                : () => _runAllPermissionSteps(
-                      serverModel: serverModel,
-                      hasAudioPermission: hasAudioPermission,
-                      hideStopService: hideStopService,
-                      permissionChangeLocked: permissionChangeLocked,
-                    ),
-          ),
-          if (permissionChangeLocked)
-            _PermissionNotice(
-              icon: Icons.lock_outline_rounded,
-              text: translate("android_permission_may_not_change_tip"),
-            ).marginOnly(top: 12),
-          if (visibleItems.isNotEmpty)
-            ...visibleItems.map(
+          _PermissionGuideItem(item: inputControl),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () {
+                setState(() => _showOptionalFeatures = !_showOptionalFeatures);
+              },
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: Icon(
+                _showOptionalFeatures
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                size: 18,
+              ),
+              label: Text(
+                kqLocaleText(zhCn: '更多共享功能', en: 'More sharing features'),
+              ),
+            ),
+          ).marginOnly(top: 8),
+          if (_showOptionalFeatures) ...[
+            ...optionalFeatures.map(
               (item) => _PermissionGuideItem(item: item).marginOnly(top: 10),
             ),
-          if (hasHiddenItems)
-            _PermissionDetailsToggle(
-              expanded: _showAllPermissions,
-              pendingCount: pendingItems.length,
-              totalCount: permissionItems.length,
-              onPressed: () {
-                setState(() => _showAllPermissions = !_showAllPermissions);
-              },
-            ).marginOnly(top: 8),
+            if (permissionChangeLocked)
+              _PermissionNotice(
+                icon: Icons.lock_outline_rounded,
+                text: translate("android_permission_may_not_change_tip"),
+              ).marginOnly(top: 12),
+          ],
         ]));
   }
 }
@@ -2185,171 +2088,6 @@ class _PermissionGuideData {
   final String? enabledActionLabel;
   final VoidCallback onPressed;
   final bool enabled;
-}
-
-class _PermissionProgressHeader extends StatelessWidget {
-  const _PermissionProgressHeader({
-    required this.progress,
-    required this.doneCount,
-    required this.totalCount,
-    required this.allReady,
-    required this.isChecking,
-    required this.onPressed,
-  });
-
-  final double progress;
-  final int doneCount;
-  final int totalCount;
-  final bool allReady;
-  final bool isChecking;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: q.workSurfaceGradient,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: q.line),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: (allReady ? q.online : q.primary).withOpacity(0.12),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              allReady
-                  ? Icons.verified_rounded
-                  : Icons.admin_panel_settings_rounded,
-              color: allReady ? q.online : q.primary,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  allReady
-                      ? translate('kq_mobile_permissions_ready')
-                      : translate('kq_mobile_permissions_need_setup'),
-                  style: TextStyle(
-                    color: q.ink,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  translate('kq_mobile_permissions_summary')
-                      .replaceAll('%done%', '$doneCount')
-                      .replaceAll('%total%', '$totalCount'),
-                  style: TextStyle(
-                    color: q.muted,
-                    fontSize: 12,
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ]),
-        const SizedBox(height: 11),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: progress.clamp(0.0, 1.0),
-            minHeight: 7,
-            backgroundColor: q.line.withOpacity(0.55),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              allReady ? q.online : q.primary,
-            ),
-          ),
-        ),
-        if (!allReady) const SizedBox(height: 12),
-        if (!allReady)
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: isChecking ? null : onPressed,
-              icon: isChecking
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: q.muted,
-                      ),
-                    )
-                  : const Icon(Icons.playlist_add_check_circle_rounded),
-              label: Text(translate('kq_mobile_enable_missing_permissions')),
-            ),
-          ),
-      ]),
-    );
-  }
-}
-
-class _PermissionDetailsToggle extends StatelessWidget {
-  const _PermissionDetailsToggle({
-    required this.expanded,
-    required this.pendingCount,
-    required this.totalCount,
-    required this.onPressed,
-  });
-
-  final bool expanded;
-  final int pendingCount;
-  final int totalCount;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final q = KqTheme.of(context);
-    final label = expanded ? translate('Hide') : translate('More');
-    final countText = pendingCount == 0
-        ? translate('Ready')
-        : translate('kq_mobile_permissions_summary')
-            .replaceAll('%done%', '${totalCount - pendingCount}')
-            .replaceAll('%total%', '$totalCount');
-    return Row(children: [
-      Expanded(
-        child: Text(
-          countText,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: q.muted,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      TextButton.icon(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        icon: Icon(
-          expanded ? Icons.keyboard_arrow_up_rounded : Icons.tune_rounded,
-          size: 18,
-        ),
-        label: Text(label),
-      ),
-    ]);
-  }
 }
 
 class _PermissionNotice extends StatelessWidget {
