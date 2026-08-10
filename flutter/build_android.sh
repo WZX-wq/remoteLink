@@ -6,6 +6,7 @@ MODE="${MODE:-release}"
 ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-21}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "${ROOT_DIR}/flutter/android_release_publish.sh"
 FLUTTER_DIR="${ROOT_DIR}/flutter"
 JNI_DIR="${FLUTTER_DIR}/android/app/src/main/jniLibs/${ANDROID_ABI}"
 
@@ -110,10 +111,10 @@ if [[ "${MODE}" == "release" ]]; then
   extra_args+=(--obfuscate --split-debug-info ./split-debug-info)
 fi
 
-flutter build apk --split-per-abi --target-platform "${FLUTTER_TARGET}" "--${MODE}" "${extra_args[@]}"
+flutter build apk --target-platform "${FLUTTER_TARGET}" "--${MODE}" "${extra_args[@]}"
 flutter build appbundle --target-platform "${FLUTTER_TARGET}" "--${MODE}" "${extra_args[@]}"
 
-apk_path="build/app/outputs/flutter-apk/app-arm64-v8a-${MODE}.apk"
+apk_path="build/app/outputs/flutter-apk/app-${MODE}.apk"
 aab_path="$(find build/app/outputs -name '*.aab' | sort | tail -n 1)"
 
 jar tf "${apk_path}" | grep -q '^lib/arm64-v8a/librustdesk\.so$'
@@ -123,3 +124,6 @@ jar tf "${aab_path}" | grep -q '^base/lib/arm64-v8a/libc++_shared\.so$'
 
 echo "Built ${apk_path}"
 echo "Built ${aab_path}"
+
+published_apk_path="${ROOT_DIR}/server/public/downloads/Kunqiong-Remote-Desktop.apk"
+publish_android_apk_if_release "${MODE}" "${apk_path}" "${published_apk_path}"

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,39 @@ function configuredValue(text, key) {
 function normalizeLineEndings(text) {
   return text.replace(/\r\n/g, '\n');
 }
+
+test('advertised Android APK checksum matches the fixed public APK', () => {
+  const serverSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/index.js'),
+    'utf8',
+  );
+  const advertisedChecksum = serverSource.match(
+    /const defaultAndroidApkSha256 =\s*\n\s*'([A-F0-9]{64})';/,
+  );
+  const apkPath = path.resolve(
+    __dirname,
+    '../public/downloads/Kunqiong-Remote-Desktop.apk',
+  );
+  const apkChecksum = crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(apkPath))
+    .digest('hex')
+    .toUpperCase();
+
+  assert.notEqual(advertisedChecksum, null);
+  assert.equal(advertisedChecksum[1], apkChecksum);
+
+  for (const relativePath of [
+    '../../env.prod',
+    '../../docs/kq-production.env.example',
+  ]) {
+    const configuredChecksum = configuredValue(
+      fs.readFileSync(path.resolve(__dirname, relativePath), 'utf8'),
+      'KQ_ANDROID_DOWNLOAD_SHA256',
+    );
+    assert.equal(configuredChecksum, apkChecksum);
+  }
+});
 
 test('production environment template contains placeholders instead of live credentials', () => {
   for (const relativePath of [
