@@ -53,6 +53,38 @@ use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 
+#[inline]
+fn reverse_scroll_delta(xy: (i32, i32), reverse: bool) -> (i32, i32) {
+    if reverse {
+        (-xy.0, -xy.1)
+    } else {
+        xy
+    }
+}
+
+#[inline]
+fn scroll_delta_for_option(xy: (i32, i32), reverse_mouse_wheel: &str) -> (i32, i32) {
+    reverse_scroll_delta(xy, reverse_mouse_wheel == "Y")
+}
+
+#[cfg(test)]
+mod scroll_direction_tests {
+    use super::{reverse_scroll_delta, scroll_delta_for_option};
+
+    #[test]
+    fn reverse_scroll_delta_flips_both_axes_only_when_enabled() {
+        assert_eq!(reverse_scroll_delta((4, -9), false), (4, -9));
+        assert_eq!(reverse_scroll_delta((4, -9), true), (-4, 9));
+    }
+
+    #[test]
+    fn live_session_option_controls_outgoing_scroll_delta() {
+        assert_eq!(scroll_delta_for_option((4, -9), "Y"), (-4, 9));
+        assert_eq!(scroll_delta_for_option((4, -9), "N"), (4, -9));
+        assert_eq!(scroll_delta_for_option((4, -9), ""), (4, -9));
+    }
+}
+
 #[cfg(target_os = "ios")]
 fn create_ios_text_clipboard_msg(text: String) -> Message {
     let compressed = hbb_common::compress::compress(text.as_bytes());
@@ -1274,16 +1306,14 @@ impl<T: InvokeUiSession> Session<T> {
 
     #[inline]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    fn is_scroll_reverse_mode(&self) -> bool {
-        self.lc.read().unwrap().reverse_mouse_wheel.eq("Y")
+    fn get_scroll_xy(&self, xy: (i32, i32)) -> (i32, i32) {
+        let reverse_mouse_wheel = self.lc.read().unwrap().reverse_mouse_wheel.clone();
+        scroll_delta_for_option(xy, &reverse_mouse_wheel)
     }
 
     #[inline]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     fn get_scroll_xy(&self, xy: (i32, i32)) -> (i32, i32) {
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        if self.is_scroll_reverse_mode() {
-            return (-xy.0, -xy.1);
-        }
         xy
     }
 
@@ -1821,6 +1851,7 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     #[cfg(feature = "flutter")]
     fn is_multi_ui_session(&self) -> bool;
     fn update_record_status(&self, start: bool);
+    fn update_recording_transition_complete(&self, _start: bool) {}
     fn update_empty_dirs(&self, _res: ReadEmptyDirsResponse) {}
     fn printer_request(&self, id: i32, path: String);
     fn handle_screenshot_resp(&self, sid: String, msg: String);

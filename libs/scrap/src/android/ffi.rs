@@ -441,10 +441,10 @@ pub fn call_main_service_set_by_name(
 }
 
 // Difference between MainService, MainActivity, JNI_OnLoad:
-//  jvm is the same, ctx is differen and ctx of JNI_OnLoad is null.
+//  jvm is the same, and JNI_OnLoad has no Android context.
 //  cpal: all three works
 //  Service(GetByName, ...): only ctx from MainService works, so use 2 init context functions
-// On app start: JNI_OnLoad or MainActivity init context
+// On app start: MainApplication initializes the context.
 // On service start first time: MainService replace the context
 
 fn init_ndk_context(java_vm: *mut c_void, context_jobject: *mut c_void) {
@@ -482,11 +482,10 @@ fn try_init_rustls_platform_verifier(env: &mut JNIEnv, context_jobject: *mut c_v
 
 // https://cjycode.com/flutter_rust_bridge/guides/how-to/ndk-init
 #[no_mangle]
-pub extern "C" fn JNI_OnLoad(vm: jni::JavaVM, res: *mut std::os::raw::c_void) -> jni::sys::jint {
-    if let Ok(env) = vm.get_env() {
-        let vm = vm.get_java_vm_pointer() as *mut std::os::raw::c_void;
-        init_ndk_context(vm, res);
-    }
+pub extern "C" fn JNI_OnLoad(
+    _vm: jni::JavaVM,
+    _reserved: *mut std::os::raw::c_void,
+) -> jni::sys::jint {
     jni::JNIVersion::V6.into()
 }
 
@@ -505,6 +504,7 @@ pub extern "system" fn Java_ffi_FFI_onAppStart(mut env: JNIEnv, _class: JClass, 
             let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
             let context_jobject = context.as_obj().as_raw() as *mut c_void;
             *APPLICATION_CONTEXT.write().unwrap() = Some(context);
+            init_ndk_context(java_vm, context_jobject);
             try_init_rustls_platform_verifier(&mut env, context_jobject);
         }
     }

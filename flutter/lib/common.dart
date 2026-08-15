@@ -6,8 +6,10 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
+import 'package:flutter_hbb/common/kq_theme.dart';
 import 'package:flutter_hbb/common/kq_network_risk.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
@@ -29,6 +31,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
+import 'common/android_transient_notice_coordinator.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
@@ -49,6 +52,7 @@ import 'package:flutter_hbb/utils/http_service.dart' as http;
 
 final globalKey = GlobalKey<NavigatorState>();
 final navigationBarKey = GlobalKey();
+final _androidTransientNoticeCoordinator = AndroidTransientNoticeCoordinator();
 
 final isAndroid = isAndroid_;
 final isIOS = isIOS_;
@@ -956,19 +960,30 @@ class OverlayDialogManager {
                   Center(
                       child: Text(translate(text),
                           style: const TextStyle(fontSize: 15))),
-                  const SizedBox(height: 20),
-                  Offstage(
-                      offstage: !showCancel,
-                      child: Center(
-                          child: (isDesktop || isWebDesktop)
-                              ? dialogButton('Cancel', onPressed: cancel)
-                              : TextButton(
-                                  style: flatButtonStyle,
-                                  onPressed: cancel,
-                                  child: Text(translate('Cancel'),
-                                      style: const TextStyle(
-                                          color: MyTheme.accent)))))
+                  if (!isAndroid) ...[
+                    const SizedBox(height: 20),
+                    Offstage(
+                        offstage: !showCancel,
+                        child: Center(
+                            child: (isDesktop || isWebDesktop)
+                                ? dialogButton('Cancel', onPressed: cancel)
+                                : TextButton(
+                                    style: flatButtonStyle,
+                                    onPressed: cancel,
+                                    child: Text(translate('Cancel'),
+                                        style: const TextStyle(
+                                            color: MyTheme.accent)))))
+                  ],
                 ])),
+        actions: isAndroid && showCancel
+            ? [
+                dialogButton(
+                  'Cancel',
+                  onPressed: cancel,
+                  androidRole: AndroidDialogActionRole.cancel,
+                ),
+              ]
+            : null,
         onCancel: showCancel ? cancel : null,
       );
     }, tag: tag);
@@ -1104,15 +1119,185 @@ void showToast(String text,
                 ))));
   });
   overlayState.insert(entry);
-  Future.delayed(timeout, () {
-    entry.remove();
-  });
+  void dismiss() {
+    if (entry.mounted) entry.remove();
+  }
+
+  if (isAndroid) {
+    _androidTransientNoticeCoordinator.replace(
+      dismiss: dismiss,
+      timeout: timeout,
+    );
+  } else {
+    Future.delayed(timeout, dismiss);
+  }
 }
 
 // TODO
 // - Remove argument "contentPadding", no need for it, all should look the same.
 // - Remove "required" for argument "content". See simple confirm dialog "delete peer", only title and actions are used. No need to "content: SizedBox.shrink()".
 // - Make dead code alive, transform arguments "onSubmit" and "onCancel" into correspondenting buttons "ConfirmOkButton", "CancelButton".
+enum AndroidDialogActionRole {
+  primary,
+  secondary,
+  cancel,
+  destructive,
+}
+
+class _AndroidDialogActionRoleScope extends InheritedWidget {
+  const _AndroidDialogActionRoleScope({
+    required this.role,
+    required super.child,
+  });
+
+  final AndroidDialogActionRole role;
+
+  static AndroidDialogActionRole? roleOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_AndroidDialogActionRoleScope>()
+        ?.role;
+  }
+
+  @override
+  bool updateShouldNotify(_AndroidDialogActionRoleScope oldWidget) {
+    return role != oldWidget.role;
+  }
+}
+
+class AndroidDialogAction extends StatelessWidget {
+  const AndroidDialogAction({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.role,
+    this.icon,
+    this.style,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final AndroidDialogActionRole? role;
+  final Widget? icon;
+  final TextStyle? style;
+
+  AndroidDialogAction copyWithRole(AndroidDialogActionRole resolvedRole) {
+    return AndroidDialogAction(
+      key: key,
+      label: label,
+      onPressed: onPressed,
+      role: resolvedRole,
+      icon: icon,
+      style: style,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final effectiveRole = role ??
+        _AndroidDialogActionRoleScope.roleOf(context) ??
+        AndroidDialogActionRole.primary;
+    final child = Text(
+      label,
+      maxLines: 2,
+      textAlign: TextAlign.center,
+      overflow: TextOverflow.visible,
+      style: const TextStyle(
+        fontSize: 14,
+        height: 1.15,
+        fontWeight: FontWeight.w800,
+      ).merge(style),
+    );
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+    );
+    final minimumSize = const Size(0, 44);
+
+    switch (effectiveRole) {
+      case AndroidDialogActionRole.primary:
+        final buttonStyle = FilledButton.styleFrom(
+          minimumSize: minimumSize,
+          backgroundColor: q.primary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: q.line,
+          disabledForegroundColor: q.muted,
+          shape: shape,
+        );
+        return icon == null
+            ? FilledButton(
+                onPressed: onPressed,
+                style: buttonStyle,
+                child: child,
+              )
+            : FilledButton.icon(
+                onPressed: onPressed,
+                icon: icon!,
+                label: child,
+                style: buttonStyle,
+              );
+      case AndroidDialogActionRole.destructive:
+        final buttonStyle = FilledButton.styleFrom(
+          minimumSize: minimumSize,
+          backgroundColor: q.offline,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: q.line,
+          disabledForegroundColor: q.muted,
+          shape: shape,
+        );
+        return icon == null
+            ? FilledButton(
+                onPressed: onPressed,
+                style: buttonStyle,
+                child: child,
+              )
+            : FilledButton.icon(
+                onPressed: onPressed,
+                icon: icon!,
+                label: child,
+                style: buttonStyle,
+              );
+      case AndroidDialogActionRole.secondary:
+        final buttonStyle = OutlinedButton.styleFrom(
+          minimumSize: minimumSize,
+          foregroundColor: q.primaryDeep,
+          backgroundColor: q.surfaceSoft,
+          side: BorderSide(color: q.iconBorder),
+          shape: shape,
+        );
+        return icon == null
+            ? OutlinedButton(
+                onPressed: onPressed,
+                style: buttonStyle,
+                child: child,
+              )
+            : OutlinedButton.icon(
+                onPressed: onPressed,
+                icon: icon!,
+                label: child,
+                style: buttonStyle,
+              );
+      case AndroidDialogActionRole.cancel:
+        final buttonStyle = TextButton.styleFrom(
+          minimumSize: minimumSize,
+          foregroundColor: q.muted,
+          shape: shape,
+        );
+        return icon == null
+            ? TextButton(
+                onPressed: onPressed,
+                style: buttonStyle,
+                child: child,
+              )
+            : TextButton.icon(
+                onPressed: onPressed,
+                icon: icon!,
+                label: child,
+                style: buttonStyle,
+              );
+    }
+  }
+}
+
 class CustomAlertDialog extends StatelessWidget {
   const CustomAlertDialog(
       {Key? key,
@@ -1122,6 +1307,8 @@ class CustomAlertDialog extends StatelessWidget {
       this.actions,
       this.contentPadding,
       this.contentBoxConstraints = const BoxConstraints(maxWidth: 500),
+      this.androidTitleIcon,
+      this.androidSubtitle,
       this.onSubmit,
       this.onCancel})
       : super(key: key);
@@ -1132,6 +1319,8 @@ class CustomAlertDialog extends StatelessWidget {
   final List<Widget>? actions;
   final double? contentPadding;
   final BoxConstraints contentBoxConstraints;
+  final Widget? androidTitleIcon;
+  final Widget? androidSubtitle;
   final Function()? onSubmit;
   final Function()? onCancel;
 
@@ -1169,30 +1358,290 @@ class CustomAlertDialog extends StatelessWidget {
         }
         return KeyEventResult.ignored;
       },
-      child: AlertDialog(
-          scrollable: true,
-          title: title,
-          content: ConstrainedBox(
-            constraints: contentBoxConstraints,
-            child: content,
-          ),
-          actions: actions,
-          titlePadding: titlePadding ?? MyTheme.dialogTitlePadding(),
-          contentPadding:
-              MyTheme.dialogContentPadding(actions: actions is List),
-          actionsPadding: MyTheme.dialogActionsPadding(),
-          buttonPadding: MyTheme.dialogButtonPadding),
+      child: isAndroid
+          ? _AndroidFocusedDialog(
+              title: title,
+              titleIcon: androidTitleIcon,
+              subtitle: androidSubtitle,
+              content: content,
+              actions: actions,
+              contentBoxConstraints: contentBoxConstraints,
+            )
+          : AlertDialog(
+              scrollable: true,
+              title: title,
+              content: ConstrainedBox(
+                constraints: contentBoxConstraints,
+                child: content,
+              ),
+              actions: actions,
+              titlePadding: titlePadding ?? MyTheme.dialogTitlePadding(),
+              contentPadding:
+                  MyTheme.dialogContentPadding(actions: actions is List),
+              actionsPadding: MyTheme.dialogActionsPadding(),
+              buttonPadding: MyTheme.dialogButtonPadding),
     );
   }
 }
 
-Widget createDialogContent(String text) {
+class _AndroidFocusedDialog extends StatelessWidget {
+  const _AndroidFocusedDialog({
+    required this.title,
+    required this.titleIcon,
+    required this.subtitle,
+    required this.content,
+    required this.actions,
+    required this.contentBoxConstraints,
+  });
+
+  final Widget? title;
+  final Widget? titleIcon;
+  final Widget? subtitle;
+  final Widget content;
+  final List<Widget>? actions;
+  final BoxConstraints contentBoxConstraints;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    final screen = MediaQuery.sizeOf(context);
+    final maxWidth = (screen.width - 32).clamp(280.0, 520.0).toDouble();
+    final maxHeight = (screen.height * 0.82).clamp(320.0, 720.0).toDouble();
+    final hasTitle = title != null || titleIcon != null || subtitle != null;
+    final hasActions = actions?.isNotEmpty == true;
+
+    return material.Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: maxWidth,
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        decoration: BoxDecoration(
+          color: q.panelStrong,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: q.line),
+          boxShadow: [
+            BoxShadow(
+              color: q.shadow,
+              blurRadius: 28,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  18,
+                  hasTitle ? 18 : 16,
+                  18,
+                  hasActions ? 14 : 18,
+                ),
+                child: ConstrainedBox(
+                  constraints: contentBoxConstraints,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasTitle) ...[
+                        _AndroidDialogTitle(
+                          title: title,
+                          icon: titleIcon,
+                          subtitle: subtitle,
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      content,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (hasActions) ...[
+              Divider(height: 1, thickness: 1, color: q.line),
+              _AndroidDialogActions(actions: actions!),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AndroidDialogTitle extends StatelessWidget {
+  const _AndroidDialogTitle({
+    required this.title,
+    required this.icon,
+    required this.subtitle,
+  });
+
+  final Widget? title;
+  final Widget? icon;
+  final Widget? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (icon != null) ...[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: q.iconTile,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: q.iconBorder),
+            ),
+            child: Center(child: icon),
+          ),
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (title != null)
+                DefaultTextStyle.merge(
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 20,
+                    height: 1.22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  child: title!,
+                ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                DefaultTextStyle.merge(
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  child: subtitle!,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AndroidDialogActions extends StatelessWidget {
+  const _AndroidDialogActions({required this.actions});
+
+  final List<Widget> actions;
+
+  AndroidDialogAction _resolveAndroidDialogAction(
+    AndroidDialogAction action,
+    int index,
+    int lastImplicitAction,
+  ) {
+    final role = action.role ??
+        (index == lastImplicitAction
+            ? AndroidDialogActionRole.primary
+            : AndroidDialogActionRole.secondary);
+    return action.copyWithRole(role);
+  }
+
+  List<Widget> get _resolvedAndroidDialogActions {
+    final typedActions = actions.cast<AndroidDialogAction>();
+    final hasExplicitEmphasis = typedActions.any((action) =>
+        action.role == AndroidDialogActionRole.primary ||
+        action.role == AndroidDialogActionRole.destructive);
+    final lastImplicitAction = hasExplicitEmphasis
+        ? -1
+        : typedActions.lastIndexWhere((action) => action.role == null);
+
+    return [
+      for (var i = 0; i < typedActions.length; i++)
+        _resolveAndroidDialogAction(
+          typedActions[i],
+          i,
+          lastImplicitAction,
+        ),
+    ];
+  }
+
+  List<Widget> get _scopedAndroidDialogActions {
+    final lastAction = actions.length - 1;
+    return [
+      for (var i = 0; i < actions.length; i++)
+        _AndroidDialogActionRoleScope(
+          role: i == lastAction
+              ? AndroidDialogActionRole.primary
+              : AndroidDialogActionRole.secondary,
+          child: actions[i],
+        ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recognized = actions.every((action) => action is AndroidDialogAction);
+    if (!recognized) {
+      final scopedActions = _scopedAndroidDialogActions;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: scopedActions,
+          ),
+        ),
+      );
+    }
+
+    final resolvedActions = _resolvedAndroidDialogActions;
+
+    if (resolvedActions.length == 2) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Row(
+          children: [
+            Expanded(child: resolvedActions[0]),
+            const SizedBox(width: 8),
+            Expanded(child: resolvedActions[1]),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < resolvedActions.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            resolvedActions[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+Widget createDialogContent(String text, {TextStyle? style}) {
   final RegExp linkRegExp = RegExp(r'(https?://[^\s]+)');
   bool hasLink = linkRegExp.hasMatch(text);
+  final effectiveStyle = style ?? const TextStyle(fontSize: 15);
 
   // Early return: no link, use default theme color
   if (!hasLink) {
-    return SelectableText(text, style: const TextStyle(fontSize: 15));
+    return SelectableText(text, style: effectiveStyle);
   }
 
   final List<TextSpan> spans = [];
@@ -1204,7 +1653,7 @@ Widget createDialogContent(String text) {
     }
     spans.add(TextSpan(
       text: match.group(0) ?? '',
-      style: const TextStyle(
+      style: effectiveStyle.copyWith(
         color: Colors.blue,
         decoration: TextDecoration.underline,
       ),
@@ -1224,7 +1673,7 @@ Widget createDialogContent(String text) {
 
   return SelectableText.rich(
     TextSpan(
-      style: const TextStyle(fontSize: 15),
+      style: effectiveStyle,
       children: spans,
     ),
   );
@@ -1273,7 +1722,8 @@ void msgBox(SessionID sessionId, String type, String title, String text,
         submitOnTimeout: true,
       );
     } else {
-      btn = dialogButton('OK', onPressed: submit);
+      btn = dialogButton('OK',
+          onPressed: submit, androidRole: AndroidDialogActionRole.primary);
     }
     buttons.insert(0, btn);
   }
@@ -1282,14 +1732,18 @@ void msgBox(SessionID sessionId, String type, String title, String text,
       type != "restarting";
   if (hasCancel) {
     buttons.insert(
-        0, dialogButton('Cancel', onPressed: cancel, isOutline: true));
+        0,
+        dialogButton('Cancel',
+            onPressed: cancel,
+            isOutline: true,
+            androidRole: AndroidDialogActionRole.cancel));
   }
   if (type.contains("hasclose")) {
     buttons.insert(
         0,
         dialogButton('Close', onPressed: () {
           dialogManager.dismissAll();
-        }));
+        }, androidRole: AndroidDialogActionRole.cancel));
   }
   if (reconnect != null &&
       title == "Connection Error" &&
@@ -1310,12 +1764,21 @@ void msgBox(SessionID sessionId, String type, String title, String text,
     buttons.insert(0, button);
   }
   if (link.isNotEmpty) {
-    buttons.insert(0, dialogButton('JumpLink', onPressed: jumplink));
+    buttons.insert(
+        0,
+        dialogButton('JumpLink',
+            onPressed: jumplink,
+            androidRole: AndroidDialogActionRole.secondary));
   }
   dialogManager.show(
     (setState, close, context) => CustomAlertDialog(
-      title: null,
-      content: SelectionArea(child: msgboxContent(type, title, text)),
+      title: isAndroid ? Text(translate(title)) : null,
+      androidTitleIcon: isAndroid ? msgboxIcon(type, compact: true) : null,
+      content: SelectionArea(
+        child: isAndroid
+            ? androidMsgboxContent(context, type, title, text)
+            : msgboxContent(type, title, text),
+      ),
       actions: buttons,
       onSubmit: hasOk ? submit : null,
       onCancel: hasCancel == true ? cancel : null,
@@ -1337,7 +1800,7 @@ Color? _msgboxColor(String type) {
   return Color(0xFF2C8CFF);
 }
 
-Widget msgboxIcon(String type) {
+Widget msgboxIcon(String type, {bool compact = false}) {
   IconData? iconData;
   if (type.contains("error") || type == "re-input-password") {
     iconData = Icons.cancel;
@@ -1355,8 +1818,12 @@ Widget msgboxIcon(String type) {
     iconData = Icons.info;
   }
   if (iconData != null) {
-    return Icon(iconData, size: 50, color: _msgboxColor(type))
-        .marginOnly(right: 16);
+    final icon = Icon(
+      iconData,
+      size: compact ? 22 : 50,
+      color: _msgboxColor(type),
+    );
+    return compact ? icon : icon.marginOnly(right: 16);
   }
 
   return Offstage();
@@ -1367,6 +1834,32 @@ String kqNormalizeMsgboxText(String title, String text) {
     return 'Remote desktop is offline';
   }
   return text;
+}
+
+Widget androidMsgboxContent(
+    BuildContext context, String type, String title, String text) {
+  String translateText(String value) {
+    if (value.indexOf('Failed') == 0 && value.indexOf(': ') > 0) {
+      return value.split(': ').map(translate).join(': ');
+    }
+    final words = value.split(' ');
+    if (words.length > 1 && words[0].endsWith('_tip')) {
+      final first = translate(words[0]);
+      return '$first ${translate(value.substring(words[0].length + 1))}';
+    }
+    return translate(value);
+  }
+
+  final normalized = translateText(kqNormalizeMsgboxText(title, text));
+  return createDialogContent(
+    normalized,
+    style: TextStyle(
+      color: KqTheme.of(context).muted,
+      fontSize: 14,
+      height: 1.48,
+      fontWeight: FontWeight.w600,
+    ),
+  );
 }
 
 // title should be null
@@ -1566,8 +2059,6 @@ class AndroidPermissionManager {
       return Future.value(true);
     }
 
-    gFFI.invokeMethod("request_permission", type);
-
     // clear last task
     if (_completer?.isCompleted == false) {
       _completer?.complete(false);
@@ -1575,9 +2066,10 @@ class AndroidPermissionManager {
     _timer?.cancel();
 
     _current = type;
-    _completer = Completer<bool>();
+    final completer = Completer<bool>();
+    _completer = completer;
 
-    _timer = Timer(Duration(seconds: 120), () {
+    _timer = Timer(Duration(seconds: 30), () {
       if (_completer == null) return;
       if (!_completer!.isCompleted) {
         _completer!.complete(false);
@@ -1585,15 +2077,23 @@ class AndroidPermissionManager {
       _completer = null;
       _current = "";
     });
-    return _completer!.future;
+
+    gFFI.invokeMethod("request_permission", type).then((started) {
+      if (!started) {
+        complete(type, false);
+      }
+    }).catchError((error) {
+      debugPrint('Android permission request failed for $type: $error');
+      complete(type, false);
+    });
+    return completer.future;
   }
 
   static complete(String type, bool res) {
-    if (type != _current) {
-      res = false;
-    }
+    if (type != _current || _completer?.isCompleted != false) return;
     _timer?.cancel();
-    _completer?.complete(res);
+    _completer!.complete(res);
+    _completer = null;
     _current = "";
   }
 }
@@ -3089,6 +3589,7 @@ class SimpleWrapper<T> {
 /// This manager handles multiple tabs within the same isolate.
 class WakelockManager {
   static final Set<UniqueKey> _enabledKeys = {};
+  static final Set<UniqueKey> _outgoingKeys = {};
   // Don't use WakelockPlus.enabled, it causes error on Android:
   // Unhandled Exception: FormatException: Message corrupted
   //
@@ -3098,9 +3599,20 @@ class WakelockManager {
   // See: https://github.com/fluttercommunity/wakelock_plus/blob/0c74e5bbc6aefac57b6c96bb7ef987705ed559ec/wakelock_plus/lib/src/wakelock_plus_linux_plugin.dart#L48
   static bool _enabled = false;
 
+  static void _setEnabled(bool enabled) {
+    if (isAndroid) {
+      unawaited(gFFI.invokeMethod("set_keep_screen_on", enabled));
+      return;
+    }
+    unawaited(WakelockPlus.toggle(enable: enabled));
+  }
+
   static void enable(UniqueKey key, {bool isServer = false}) {
     // Check if we should keep awake during outgoing sessions
     if (!isServer) {
+      if (isAndroid) {
+        _outgoingKeys.add(key);
+      }
       final keepAwake =
           mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
       if (!keepAwake) {
@@ -3112,11 +3624,14 @@ class WakelockManager {
     }
     if (!_enabled) {
       _enabled = true;
-      WakelockPlus.enable();
+      _setEnabled(true);
     }
   }
 
   static void disable(UniqueKey key) {
+    if (isAndroid) {
+      _outgoingKeys.remove(key);
+    }
     if (isDesktop || isAndroid) {
       _enabledKeys.remove(key);
       if (_enabledKeys.isNotEmpty) {
@@ -3124,8 +3639,24 @@ class WakelockManager {
       }
     }
     if (_enabled) {
-      WakelockPlus.disable();
+      _setEnabled(false);
       _enabled = false;
+    }
+  }
+
+  static void refreshOutgoingPreference() {
+    if (!isAndroid) return;
+    final keepAwake =
+        mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
+    if (keepAwake) {
+      _enabledKeys.addAll(_outgoingKeys);
+    } else {
+      _enabledKeys.removeAll(_outgoingKeys);
+    }
+    final shouldEnable = _enabledKeys.isNotEmpty;
+    if (_enabled != shouldEnable) {
+      _enabled = shouldEnable;
+      _setEnabled(shouldEnable);
     }
   }
 }
@@ -3321,7 +3852,8 @@ Widget dialogButton(String text,
     bool isOutline = false,
     Widget? icon,
     TextStyle? style,
-    ButtonStyle? buttonStyle}) {
+    ButtonStyle? buttonStyle,
+    AndroidDialogActionRole? androidRole}) {
   if (isDesktop || isWebDesktop) {
     if (isOutline) {
       return icon == null
@@ -3348,6 +3880,15 @@ Widget dialogButton(String text,
               label: Text(translate(text), style: style),
             );
     }
+  } else if (isAndroid) {
+    return AndroidDialogAction(
+      label: translate(text),
+      onPressed: onPressed,
+      role:
+          androidRole ?? (isOutline ? AndroidDialogActionRole.secondary : null),
+      icon: icon,
+      style: style,
+    );
   } else {
     return TextButton(
       onPressed: onPressed,

@@ -1322,7 +1322,7 @@ class _GeneralState extends State<_General> {
                               initialDirectory = userDir;
                             }
                             String? selectedDirectory =
-                                await FilePicker.platform.getDirectoryPath(
+                                await FilePicker.getDirectoryPath(
                                     initialDirectory: initialDirectory);
                             if (selectedDirectory != null) {
                               await bind.mainSetLocalOption(
@@ -1720,7 +1720,7 @@ class _GeneralState extends State<_General> {
                               initialDirectory = user_dir;
                             }
                             String? selectedDirectory =
-                                await FilePicker.platform.getDirectoryPath(
+                                await FilePicker.getDirectoryPath(
                                     initialDirectory: initialDirectory);
                             if (selectedDirectory != null) {
                               await bind.mainSetLocalOption(

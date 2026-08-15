@@ -1268,7 +1268,7 @@ abstract class Rustdesk {
 
   FlutterRustBridgeTaskConstMeta get kMainGetMouseTimeConstMeta;
 
-  Future<void> mainWol({required String id, dynamic hint});
+  Future<bool> mainWol({required String id, dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kMainWolConstMeta;
 
@@ -6246,11 +6246,11 @@ class RustdeskImpl implements Rustdesk {
         argNames: [],
       );
 
-  Future<void> mainWol({required String id, dynamic hint}) {
+  Future<bool> mainWol({required String id, dynamic hint}) {
     var arg0 = _platform.api2wire_String(id);
     return _platform.executeNormal(FlutterRustBridgeTask(
       callFfi: (port_) => _platform.inner.wire_main_wol(port_, arg0),
-      parseSuccessData: _wire2api_unit,
+      parseSuccessData: _wire2api_bool,
       constMeta: kMainWolConstMeta,
       argValues: [id],
       hint: hint,

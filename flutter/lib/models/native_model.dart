@@ -202,7 +202,10 @@ class PlatformFFI {
       try {
         if (isAndroid) {
           // only support for android
-          _homeDir = (await ExternalPath.getExternalStorageDirectories())[0];
+          final externalDirs = await ExternalPath.getExternalStorageDirectories();
+          if (externalDirs != null && externalDirs.isNotEmpty) {
+            _homeDir = externalDirs[0];
+          }
         } else if (isIOS) {
           final sharedConfigDir = await _toAndroidChannel.invokeMethod<String>(
             'prepare_broadcast_config_dir',

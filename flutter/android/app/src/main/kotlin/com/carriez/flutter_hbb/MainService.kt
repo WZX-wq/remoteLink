@@ -402,10 +402,13 @@ class MainService : Service() {
     }
 
     fun onVoiceCallStarted(): Boolean {
-        return audioRecordHandle.onVoiceCallStarted(mediaProjection)
+        val started = audioRecordHandle.onVoiceCallStarted(mediaProjection)
+        _isAudioStart = started
+        return started
     }
 
     fun onVoiceCallClosed(): Boolean {
+        _isAudioStart = false
         return audioRecordHandle.onVoiceCallClosed(mediaProjection)
     }
 
@@ -433,7 +436,7 @@ class MainService : Service() {
                 Log.d(logTag, "createAudioRecorder fail")
             } else {
                 Log.d(logTag, "audio recorder start")
-                audioRecordHandle.startAudioRecorder()
+                _isAudioStart = audioRecordHandle.startAudioRecorder()
             }
         }
         checkMediaPermission()

@@ -1304,6 +1304,15 @@ impl InvokeUiSession for FlutterHandler {
         self.push_event("record_status", &[("start", &start.to_string())], &[]);
     }
 
+    fn update_recording_transition_complete(&self, start: bool) {
+        #[cfg(target_os = "android")]
+        self.push_event(
+            "recording_transition_complete",
+            &[("start", &start.to_string())],
+            &[],
+        );
+    }
+
     fn printer_request(&self, id: i32, path: String) {
         self.push_event(
             "printer_request",
@@ -2269,7 +2278,6 @@ pub fn try_sync_peer_option(
     _value: Option<serde_json::Value>,
 ) {
     let mut event = Vec::new();
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if key == "view-only" {
         event = vec![
             ("k", json!(key.to_string())),

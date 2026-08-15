@@ -648,7 +648,6 @@ fn run(vs: VideoService) -> ResultType<()> {
             target_height
         );
     }
-    #[cfg(target_os = "ios")]
     if let Some(msg) = make_display_changed_msg(display_idx, None, vs.source) {
         // Existing subscribers must learn the encoded stream dimensions before
         // receiving frames. New subscribers receive the same snapshot below.
@@ -1433,7 +1432,6 @@ pub fn make_display_changed_msg(
                 .clone(),
         },
     };
-    #[cfg(target_os = "ios")]
     let (stream_width, stream_height) =
         if source.is_monitor() && display.width > 0 && display.height > 0 {
             let (width, height) = VIDEO_QOS
@@ -1444,8 +1442,6 @@ pub fn make_display_changed_msg(
         } else {
             (display.width, display.height)
         };
-    #[cfg(not(target_os = "ios"))]
-    let (stream_width, stream_height) = (display.width, display.height);
     let mut misc = Misc::new();
     misc.set_switch_display(SwitchDisplay {
         display: display_idx as _,

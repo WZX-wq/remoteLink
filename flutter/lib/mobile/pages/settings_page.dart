@@ -19,6 +19,7 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/mobile_platform_capability_policy.dart';
 import 'page_shape.dart';
+import 'privacy_policy_page.dart';
 import 'scan_page.dart';
 
 const kqMobileSettingsGroupAppearance = 'Appearance';
@@ -463,23 +464,26 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         );
       }
 
-      enhancementsTiles.add(
-        SettingsTile.switchTile(
-          initialValue: _showTerminalExtraKeys,
-          title:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_settingsText('Show terminal extra keys')),
-          ]),
-          onToggle: (bool v) async {
-            await mainSetLocalBoolOption(kOptionEnableShowTerminalExtraKeys, v);
-            final newValue =
-                mainGetLocalBoolOptionSync(kOptionEnableShowTerminalExtraKeys);
-            setState(() {
-              _showTerminalExtraKeys = newValue;
-            });
-          },
-        ),
-      );
+      if (!isAndroid) {
+        enhancementsTiles.add(
+          SettingsTile.switchTile(
+            initialValue: _showTerminalExtraKeys,
+            title:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_settingsText('Show terminal extra keys')),
+            ]),
+            onToggle: (bool v) async {
+              await mainSetLocalBoolOption(
+                  kOptionEnableShowTerminalExtraKeys, v);
+              final newValue = mainGetLocalBoolOptionSync(
+                  kOptionEnableShowTerminalExtraKeys);
+              setState(() {
+                _showTerminalExtraKeys = newValue;
+              });
+            },
+          ),
+        );
+      }
 
       onFloatingWindowChanged(bool toValue) async {
         if (toValue) {
@@ -597,6 +601,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   onToggle: (v) async {
                     await mainSetLocalBoolOption(
                         kOptionKeepAwakeDuringOutgoingSessions, v);
+                    WakelockManager.refreshOutgoingPreference();
                     setState(() {
                       _preventSleepWhileConnected = v;
                     });
@@ -733,8 +738,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   leading: Icon(Icons.fingerprint_rounded)),
             SettingsTile(
               title: Text(_settingsText("Privacy Statement")),
-              onPressed: (context) =>
-                  launchUrlString('https://kunqiongai.com/'),
+              onPressed: (context) {
+                if (isAndroid) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const PrivacyPolicyPage(),
+                    ),
+                  );
+                  return;
+                }
+                launchUrlString('https://kunqiongai.com/');
+              },
               leading: Icon(Icons.privacy_tip_rounded),
             )
           ],
@@ -805,8 +819,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   }
 
   Future<bool> canStartOnBoot() async {
-    // start on boot depends on ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS and SYSTEM_ALERT_WINDOW
-    if (_hasIgnoreBattery && !_ignoreBatteryOpt) {
+    if (!await AndroidPermissionManager.check(
+        kRequestIgnoreBatteryOptimizations)) {
       return false;
     }
     if (!await AndroidPermissionManager.check(kSystemAlertWindow)) {
@@ -1570,11 +1584,21 @@ class __DisplayPageState extends State<_DisplayPage> {
       _RadioEntry('Auto', 'auto'),
       _RadioEntry('VP8', 'vp8'),
       _RadioEntry('VP9', 'vp9'),
-      _RadioEntry('AV1', 'av1'),
+      if (!isAndroid) _RadioEntry('AV1', 'av1'),
       if (h264) _RadioEntry('H264', 'h264'),
       if (h265) _RadioEntry('H265', 'h265')
     ];
     RxBool showCustomImageQuality = false.obs;
+    String codecPreference() {
+      final value = bind.mainGetUserDefaultOption(key: kOptionCodecPreference);
+      if (isAndroid && value == 'av1') {
+        unawaited(bind.mainSetUserDefaultOption(
+            key: kOptionCodecPreference, value: 'auto'));
+        return 'auto';
+      }
+      return value;
+    }
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -1630,8 +1654,7 @@ class __DisplayPageState extends State<_DisplayPage> {
             _getPopupDialogRadioEntry(
               title: _settingsText('Default Codec'),
               list: codecList,
-              getter: () =>
-                  bind.mainGetUserDefaultOption(key: kOptionCodecPreference),
+              getter: codecPreference,
               asyncSetter: isOptionFixed(kOptionCodecPreference)
                   ? null
                   : (value) async {

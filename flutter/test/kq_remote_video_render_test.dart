@@ -178,6 +178,95 @@ void main() {
     expect(yuvHeader, contains('scale_argb.h'));
   });
 
+  test('KQ publishes encoded quality dimensions from every controlled platform',
+      () {
+    final videoService =
+        File('../src/server/video_service.rs').readAsStringSync();
+    final encoderStart = videoService.indexOf(
+      'if (target_width, target_height) != (c.width, c.height) {',
+    );
+    final encoderEnd =
+        videoService.indexOf('#[cfg(feature = "vram")]', encoderStart);
+    final displayStart =
+        videoService.indexOf('pub fn make_display_changed_msg(');
+    final displayEnd = videoService.indexOf('fn check_qos(', displayStart);
+
+    expect(encoderStart, greaterThanOrEqualTo(0));
+    expect(encoderEnd, greaterThan(encoderStart));
+    expect(displayStart, greaterThanOrEqualTo(0));
+    expect(displayEnd, greaterThan(displayStart));
+
+    final encoderUpdate = videoService.substring(encoderStart, encoderEnd);
+    final displayUpdate = videoService.substring(displayStart, displayEnd);
+    expect(
+        encoderUpdate, contains('if let Some(msg) = make_display_changed_msg'));
+    expect(
+      encoderUpdate,
+      isNot(contains('#[cfg(any(target_os = "ios", target_os = "android"))]')),
+      reason: 'The controlled computer usually encodes the resized stream. '
+          'The display metadata must not depend on the controlled OS.',
+    );
+    expect(
+      displayUpdate,
+      isNot(contains(
+          '#[cfg(not(any(target_os = "ios", target_os = "android")))')),
+      reason: 'Every receiver must be told the dimensions actually encoded.',
+    );
+    expect(
+        displayUpdate,
+        contains(
+            '.encoded_dimensions(display.width as usize, display.height as usize)'));
+  });
+
+  test('Android soft keyboard preserves the immersive remote session', () {
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final keyboardStart =
+        remotePage.indexOf('  void onSoftKeyboardChanged(bool visible)');
+    final keyboardEnd =
+        remotePage.indexOf('  void _handleIOSSoftKeyboardInput', keyboardStart);
+
+    expect(keyboardStart, greaterThanOrEqualTo(0));
+    expect(keyboardEnd, greaterThan(keyboardStart));
+
+    final keyboardHandler = remotePage.substring(keyboardStart, keyboardEnd);
+    expect(
+      keyboardHandler,
+      contains('if (!isAndroid) {'),
+      reason: 'Android must keep the status bar hidden while its IME is open.',
+    );
+
+    final openKeyboardStart =
+        remotePage.indexOf('  void openKeyboard()', keyboardEnd);
+    final openKeyboardEnd =
+        remotePage.indexOf('  void _hideSoftKeyboard()', openKeyboardStart);
+    expect(openKeyboardStart, greaterThanOrEqualTo(0));
+    expect(openKeyboardEnd, greaterThan(openKeyboardStart));
+
+    final openKeyboard =
+        remotePage.substring(openKeyboardStart, openKeyboardEnd);
+    expect(
+      openKeyboard,
+      contains('if (!isAndroid) {'),
+      reason: 'Opening Android IME must not reveal the status/navigation bars.',
+    );
+  });
+
+  test('Android requests a fresh frame after switching remote quality', () {
+    final userModel = File('lib/models/user_model.dart').readAsStringSync();
+    final setterStart =
+        userModel.indexOf('  Future<void> setRemotePerformanceProfile({');
+    final setterEnd =
+        userModel.indexOf('  Future<void> _setMemberStatus(', setterStart);
+
+    expect(setterStart, greaterThanOrEqualTo(0));
+    expect(setterEnd, greaterThan(setterStart));
+
+    final setter = userModel.substring(setterStart, setterEnd);
+    expect(setter, contains('if (isAndroid) {'));
+    expect(setter, contains('await sessionRefreshVideo(sessionId, pi);'));
+  });
+
   test('KQ video presentation does not add artificial blur', () {
     final desktop =
         File('lib/desktop/pages/remote_page.dart').readAsStringSync();
@@ -369,6 +458,38 @@ void main() {
     final disconnectIndex = railSource.indexOf("zhCn: '断开'");
     expect(collapseIndex, greaterThanOrEqualTo(0));
     expect(disconnectIndex, greaterThan(collapseIndex));
+  });
+
+  test('Android gesture help keeps its collapse control in the safe top area',
+      () {
+    expect(kMobileRemoteGestureHelpToggleTopInset, 12);
+    expect(
+      shouldAnchorMobileRemoteToggleAtSafeTop(
+        isAndroidPlatform: true,
+        showGestureHelp: true,
+      ),
+      isTrue,
+    );
+    expect(
+      shouldAnchorMobileRemoteToggleAtSafeTop(
+        isAndroidPlatform: true,
+        showGestureHelp: false,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldAnchorMobileRemoteToggleAtSafeTop(
+        isAndroidPlatform: false,
+        showGestureHelp: true,
+      ),
+      isFalse,
+      reason: 'The Android layout fix must not alter iOS positioning.',
+    );
+
+    final source = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    expect(source, contains('shouldAnchorMobileRemoteToggleAtSafeTop('));
+    expect(source, contains('FloatingActionButtonLocation.endTop'));
+    expect(source, contains('kMobileRemoteGestureHelpToggleTopInset'));
   });
 
   test('expanded toolbar avoids a physical Material surface', () {

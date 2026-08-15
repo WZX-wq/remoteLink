@@ -55,7 +55,7 @@ void main() {
         File('lib/mobile/pages/server_page.dart').readAsStringSync();
     final header = _section(
       serverPage,
-      'width: 46,',
+      'width: compact ? 40 : 46,',
       "_DeviceSecretTile(",
     );
     final sharingButton = _section(
@@ -65,7 +65,7 @@ void main() {
     );
 
     expect(header, contains('Icons.mobile_screen_share_rounded'));
-    expect(header, contains('height: 46'));
+    expect(header, contains('height: compact ? 40 : 46'));
     expect(header, isNot(contains("Image.asset('assets/logo.png'")));
     expect(sharingButton, contains('ElevatedButton.icon'));
     expect(sharingButton, contains('backgroundColor:'));

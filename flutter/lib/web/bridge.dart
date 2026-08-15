@@ -1356,7 +1356,7 @@ class RustdeskImpl {
     throw UnimplementedError("mainGetMouseTime");
   }
 
-  Future<void> mainWol({required String id, dynamic hint}) {
+  Future<bool> mainWol({required String id, dynamic hint}) {
     throw UnimplementedError("mainWol");
   }
 

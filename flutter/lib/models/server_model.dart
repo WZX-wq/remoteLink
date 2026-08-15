@@ -14,6 +14,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../common.dart';
 import '../common/formatter/id_formatter.dart';
+import '../common/kq_theme.dart';
 import '../desktop/pages/server_page.dart' as desktop;
 import '../desktop/widgets/tabbar_widget.dart';
 import '../mobile/pages/server_page.dart';
@@ -760,9 +761,6 @@ class ServerModel with ChangeNotifier {
   }
 
   toggleAudio() async {
-    if (clients.any((c) => !c.disconnected)) {
-      await showClientsMayNotBeChangedAlert(parent.target);
-    }
     if (!_audioOk && !await AndroidPermissionManager.check(kRecordAudio)) {
       final res = await AndroidPermissionManager.request(kRecordAudio);
       if (!res) {
@@ -778,9 +776,6 @@ class ServerModel with ChangeNotifier {
   }
 
   toggleFile() async {
-    if (clients.any((c) => !c.disconnected)) {
-      await showClientsMayNotBeChangedAlert(parent.target);
-    }
     if (!_fileOk &&
         !await AndroidPermissionManager.check(kManageExternalStorage)) {
       final res =
@@ -807,9 +802,6 @@ class ServerModel with ChangeNotifier {
   }
 
   toggleInput() async {
-    if (clients.any((c) => !c.disconnected)) {
-      await showClientsMayNotBeChangedAlert(parent.target);
-    }
     if (_inputOk) {
       parent.target?.invokeMethod("stop_input");
       _inputOk = false;
@@ -1435,21 +1427,47 @@ showInputWarnAlert(FFI ffi) {
 
     return CustomAlertDialog(
       title: Text(translate("How to get Android input permission?")),
+      androidTitleIcon: const Icon(
+        Icons.touch_app_rounded,
+        color: Color(0xFF1277D9),
+        size: 22,
+      ),
+      androidSubtitle: Text(translate("android_input_permission_tip1")),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(translate("android_input_permission_tip1")),
+          _AndroidPermissionStep(
+            number: 1,
+            title: translate("App settings"),
+            description: translate("android_input_restricted_settings_tip"),
+          ),
+          const SizedBox(height: 8),
+          _AndroidPermissionStep(
+            number: 2,
+            title: translate("Open System Setting"),
+            description: translate("android_input_permission_tip2"),
+          ),
           const SizedBox(height: 10),
-          Text(translate("android_input_restricted_settings_tip")),
-          const SizedBox(height: 10),
-          Text(translate("android_input_permission_tip2")),
+          _AndroidPermissionNotice(
+            text: kqLocaleText(
+              zhCn: '返回应用后，输入控制状态会自动更新。',
+              en: 'The input control status updates after you return to the app.',
+            ),
+          ),
         ],
       ),
       actions: [
-        dialogButton("Cancel", onPressed: close, isOutline: true),
-        dialogButton("App settings", onPressed: openAppSettings),
         dialogButton("Open System Setting",
-            onPressed: openAccessibilitySettings),
+            onPressed: openAccessibilitySettings,
+            androidRole: AndroidDialogActionRole.primary),
+        dialogButton("App settings",
+            onPressed: openAppSettings,
+            androidRole: AndroidDialogActionRole.secondary),
+        dialogButton("Cancel",
+            onPressed: close,
+            isOutline: true,
+            androidRole: AndroidDialogActionRole.cancel),
       ],
       onSubmit: openAccessibilitySettings,
       onCancel: close,
@@ -1457,21 +1475,116 @@ showInputWarnAlert(FFI ffi) {
   });
 }
 
-Future<void> showClientsMayNotBeChangedAlert(FFI? ffi) async {
-  await ffi?.dialogManager.show((setState, close, context) {
-    return CustomAlertDialog(
-      title: Text(translate("Permissions")),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
+class _AndroidPermissionStep extends StatelessWidget {
+  const _AndroidPermissionStep({
+    required this.number,
+    required this.title,
+    required this.description,
+  });
+
+  final int number;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: q.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: q.line),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(translate("android_permission_may_not_change_tip")),
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: q.primary,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '$number',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                height: 1,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: q.ink,
+                    fontSize: 13,
+                    height: 1.25,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: q.muted,
+                    fontSize: 12,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
-      actions: [
-        dialogButton("OK", onPressed: close),
-      ],
-      onSubmit: close,
-      onCancel: close,
     );
-  });
+  }
+}
+
+class _AndroidPermissionNotice extends StatelessWidget {
+  const _AndroidPermissionNotice({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = KqTheme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+      decoration: BoxDecoration(
+        color: q.warning.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: q.warning.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: q.warning, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: q.ink,
+                fontSize: 11,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

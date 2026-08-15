@@ -1992,6 +1992,7 @@ void deleteConfirmDialog(Function onSubmit, String title) async {
             "OK",
             icon: Icon(Icons.done_rounded),
             onPressed: submit,
+            androidRole: AndroidDialogActionRole.destructive,
           ),
         ],
         onSubmit: submit,
@@ -2600,6 +2601,7 @@ void setSharedAbPasswordDialog(String abName, Peer peer) {
             "Remove",
             icon: Icon(Icons.delete_outline_rounded),
             onPressed: () => change(''),
+            androidRole: AndroidDialogActionRole.destructive,
             buttonStyle: ButtonStyle(
                 backgroundColor: MaterialStatePropertyAll(Colors.red)),
           ),
@@ -2608,6 +2610,7 @@ void setSharedAbPasswordDialog(String abName, Peer peer) {
               icon: Icon(Icons.done_rounded),
               onPressed:
                   isInputEmpty.value ? null : () => change(controller.text),
+              androidRole: AndroidDialogActionRole.primary,
             )),
       ],
       onSubmit: isInputEmpty.value ? null : () => change(controller.text),
@@ -2616,8 +2619,12 @@ void setSharedAbPasswordDialog(String abName, Peer peer) {
   });
 }
 
-void CommonConfirmDialog(OverlayDialogManager dialogManager, String content,
-    VoidCallback onConfirm) {
+void CommonConfirmDialog(
+  OverlayDialogManager dialogManager,
+  String content,
+  VoidCallback onConfirm, {
+  AndroidDialogActionRole? androidConfirmRole,
+}) {
   dialogManager.show((setState, close, context) {
     submit() {
       close();
@@ -2636,7 +2643,11 @@ void CommonConfirmDialog(OverlayDialogManager dialogManager, String content,
       ).marginOnly(bottom: 12),
       actions: [
         dialogButton(translate("Cancel"), onPressed: close, isOutline: true),
-        dialogButton(translate("OK"), onPressed: submit),
+        dialogButton(
+          translate("OK"),
+          onPressed: submit,
+          androidRole: androidConfirmRole,
+        ),
       ],
       onSubmit: submit,
       onCancel: close,
@@ -2744,22 +2755,27 @@ void checkUnlockPinDialog(String correctPin, Function() passCallback) {
 
 void confrimDeleteTrustedDevicesDialog(
     RxList<TrustedDevice> trustedDevices, RxList<Uint8List> selectedDevices) {
-  CommonConfirmDialog(gFFI.dialogManager, '${translate('Confirm Delete')}?',
-      () async {
-    if (selectedDevices.isEmpty) return;
-    if (selectedDevices.length == trustedDevices.length) {
-      await bind.mainClearTrustedDevices();
-      trustedDevices.clear();
-      selectedDevices.clear();
-    } else {
-      final json = jsonEncode(selectedDevices.map((e) => e.toList()).toList());
-      await bind.mainRemoveTrustedDevices(json: json);
-      trustedDevices.removeWhere((element) {
-        return selectedDevices.contains(element.hwid);
-      });
-      selectedDevices.clear();
-    }
-  });
+  CommonConfirmDialog(
+    gFFI.dialogManager,
+    '${translate('Confirm Delete')}?',
+    () async {
+      if (selectedDevices.isEmpty) return;
+      if (selectedDevices.length == trustedDevices.length) {
+        await bind.mainClearTrustedDevices();
+        trustedDevices.clear();
+        selectedDevices.clear();
+      } else {
+        final json =
+            jsonEncode(selectedDevices.map((e) => e.toList()).toList());
+        await bind.mainRemoveTrustedDevices(json: json);
+        trustedDevices.removeWhere((element) {
+          return selectedDevices.contains(element.hwid);
+        });
+        selectedDevices.clear();
+      }
+    },
+    androidConfirmRole: AndroidDialogActionRole.destructive,
+  );
 }
 
 void manageTrustedDeviceDialog() async {

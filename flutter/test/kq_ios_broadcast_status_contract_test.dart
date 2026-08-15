@@ -147,12 +147,16 @@ void main() {
     );
     final iosMismatchStart = rendezvous.indexOf(
         '#[cfg(target_os = "ios")]\n    async fn handle_uuid_mismatch');
-    final nonIosMismatchStart = rendezvous.indexOf(
-        '#[cfg(not(target_os = "ios"))]\n    async fn handle_uuid_mismatch');
+    final androidMismatchStart = rendezvous.indexOf(
+        '#[cfg(target_os = "android")]\n    async fn handle_uuid_mismatch');
+    final otherPlatformMismatchStart = rendezvous.indexOf(
+        '#[cfg(not(any(target_os = "android", target_os = "ios")))]\n'
+        '    async fn handle_uuid_mismatch');
     expect(iosMismatchStart, greaterThanOrEqualTo(0));
-    expect(nonIosMismatchStart, greaterThan(iosMismatchStart));
+    expect(androidMismatchStart, greaterThan(iosMismatchStart));
+    expect(otherPlatformMismatchStart, greaterThan(androidMismatchStart));
     final iosMismatch =
-        rendezvous.substring(iosMismatchStart, nonIosMismatchStart);
+        rendezvous.substring(iosMismatchStart, androidMismatchStart);
     expect(iosMismatch, isNot(contains('Config::recover_ios_id_after_uuid_mismatch')));
     expect(iosMismatch, contains('Config::has_confirmed_ios_identity()'));
     expect(iosMismatch, contains('Config::rotate_unconfirmed_ios_id()'));

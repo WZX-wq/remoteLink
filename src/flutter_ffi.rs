@@ -1022,42 +1022,49 @@ pub fn main_show_option(_key: String) -> SyncReturn<bool> {
     SyncReturn(false)
 }
 
+#[cfg(target_os = "android")]
+fn android_live_permission_name(key: &str) -> Option<&'static str> {
+    if key.eq(config::keys::OPTION_ENABLE_KEYBOARD) {
+        Some("keyboard")
+    } else if key.eq(config::keys::OPTION_ENABLE_CLIPBOARD) {
+        Some("clipboard")
+    } else if key.eq(config::keys::OPTION_ENABLE_AUDIO) {
+        Some("audio")
+    } else if key.eq(config::keys::OPTION_ENABLE_FILE_TRANSFER) {
+        Some("file")
+    } else if key.eq(config::keys::OPTION_ENABLE_REMOTE_RESTART) {
+        Some("restart")
+    } else if key.eq(config::keys::OPTION_ENABLE_RECORD_SESSION) {
+        Some("recording")
+    } else if key.eq(config::keys::OPTION_ENABLE_BLOCK_INPUT) {
+        Some("block_input")
+    } else if key.eq(config::keys::OPTION_ENABLE_PRIVACY_MODE) {
+        Some("privacy_mode")
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "android")]
+fn broadcast_android_permission_change(key: &str, value: &str) {
+    if let Some(permission) = android_live_permission_name(key) {
+        crate::ui_cm_interface::switch_permission_all(
+            permission.to_owned(),
+            config::option2bool(key, value),
+        );
+    }
+}
+
+#[cfg(target_os = "android")]
+fn broadcast_android_permission_changes(options: &HashMap<String, String>) {
+    for (key, value) in options {
+        broadcast_android_permission_change(key, value);
+    }
+}
+
 pub fn main_set_option(key: String, value: String) {
     #[cfg(target_os = "android")]
-    {
-        let is_permission_option = key.eq(config::keys::OPTION_ENABLE_CLIPBOARD)
-            || key.eq(config::keys::OPTION_ENABLE_FILE_TRANSFER)
-            || key.eq(config::keys::OPTION_ENABLE_AUDIO);
-        let allow_perm_change_in_accept_window = config::option2bool(
-            config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW,
-            &crate::get_builtin_option(config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW),
-        );
-        if is_permission_option
-            && !allow_perm_change_in_accept_window
-            && crate::ui_cm_interface::has_active_clients()
-        {
-            log::info!(
-                "blocked main_set_option by policy, key={}, value={}",
-                key,
-                value
-            );
-            return;
-        }
-    }
-    #[cfg(target_os = "android")]
-    if key.eq(config::keys::OPTION_ENABLE_KEYBOARD) {
-        crate::ui_cm_interface::switch_permission_all(
-            "keyboard".to_owned(),
-            config::option2bool(&key, &value),
-        );
-    }
-    #[cfg(target_os = "android")]
-    if key.eq(config::keys::OPTION_ENABLE_CLIPBOARD) {
-        crate::ui_cm_interface::switch_permission_all(
-            "clipboard".to_owned(),
-            config::option2bool(&key, &value),
-        );
-    }
+    broadcast_android_permission_change(&key, &value);
 
     // If `is_allow_tls_fallback` and https proxy is used, we need to restart rendezvous mediator.
     // No need to check if https proxy is used, because this option does not change frequently
@@ -1091,29 +1098,9 @@ pub fn main_get_options_sync() -> SyncReturn<String> {
 }
 
 pub fn main_set_options(json: String) {
-    let mut map: HashMap<String, String> = serde_json::from_str(&json).unwrap_or(HashMap::new());
+    let map: HashMap<String, String> = serde_json::from_str(&json).unwrap_or(HashMap::new());
     #[cfg(target_os = "android")]
-    {
-        let allow_perm_change_in_accept_window = config::option2bool(
-            config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW,
-            &crate::get_builtin_option(config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW),
-        );
-        if !allow_perm_change_in_accept_window && crate::ui_cm_interface::has_active_clients() {
-            for key in [
-                config::keys::OPTION_ENABLE_CLIPBOARD,
-                config::keys::OPTION_ENABLE_FILE_TRANSFER,
-                config::keys::OPTION_ENABLE_AUDIO,
-            ] {
-                if let Some(value) = map.remove(key) {
-                    log::info!(
-                        "blocked main_set_options item by policy, key={}, value={}",
-                        key,
-                        value
-                    );
-                }
-            }
-        }
-    }
+    broadcast_android_permission_changes(&map);
     if !map.is_empty() {
         set_options(map)
     }
@@ -2258,9 +2245,7 @@ pub fn main_get_mouse_time() -> f64 {
     }
 }
 
-pub fn main_wol(id: String) {
-    // TODO: move send_wol outside.
-    #[cfg(not(any(target_os = "ios")))]
+pub fn main_wol(id: String) -> bool {
     crate::lan::send_wol(id)
 }
 

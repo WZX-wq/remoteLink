@@ -149,7 +149,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
 
     setState(() => _importingFiles = true);
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: true,
         withData: false,
       );

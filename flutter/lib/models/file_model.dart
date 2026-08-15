@@ -886,6 +886,7 @@ class FileController {
             "OK",
             icon: Icon(Icons.done_rounded),
             onPressed: submit,
+            androidRole: AndroidDialogActionRole.destructive,
           ),
         ],
         onSubmit: submit,

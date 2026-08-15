@@ -3819,7 +3819,7 @@ fn wire_main_get_mouse_time_impl(port_: MessagePort) {
     )
 }
 fn wire_main_wol_impl(port_: MessagePort, id: impl Wire2Api<String> + UnwindSafe) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, ()>(
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, bool>(
         WrapInfo {
             debug_name: "main_wol",
             port: Some(port_),

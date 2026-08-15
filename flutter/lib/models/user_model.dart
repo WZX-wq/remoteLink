@@ -510,6 +510,12 @@ class UserModel {
       await bind.sessionSetCustomImageQuality(
           sessionId: sessionId, value: customQuality);
       await bind.sessionSetCustomFps(sessionId: sessionId, fps: normalizedFps);
+      if (isAndroid) {
+        final pi = parent.target?.ffiModel.pi;
+        if (pi != null && pi.version.isNotEmpty) {
+          await sessionRefreshVideo(sessionId, pi);
+        }
+      }
     }
   }
 

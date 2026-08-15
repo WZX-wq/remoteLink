@@ -24,6 +24,49 @@ allprojects {
     }
 }
 
+def namespaceFromManifest(Project subproject) {
+    def manifestFile = subproject.file("src/main/AndroidManifest.xml")
+    if (!manifestFile.exists()) {
+        return null
+    }
+    def matcher = manifestFile.getText("UTF-8") =~ /package\s*=\s*["']([^"']+)["']/
+    return matcher.find() ? matcher.group(1) : null
+}
+
+subprojects { subproject ->
+    subproject.tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = JavaVersion.VERSION_1_8.toString()
+        targetCompatibility = JavaVersion.VERSION_1_8.toString()
+    }
+
+    def configureAndroidProject = {
+        def androidExtension = subproject.extensions.findByName("android")
+        if (androidExtension == null) {
+            return
+        }
+        if (androidExtension.hasProperty("namespace") &&
+                (androidExtension.namespace == null || !androidExtension.namespace.toString().trim())) {
+            def namespace = namespaceFromManifest(subproject)
+            if (namespace != null && namespace.trim()) {
+                androidExtension.namespace = namespace
+            }
+        }
+        androidExtension.compileOptions {
+            sourceCompatibility JavaVersion.VERSION_1_8
+            targetCompatibility JavaVersion.VERSION_1_8
+        }
+    }
+    subproject.plugins.withId("com.android.application") { configureAndroidProject() }
+    subproject.plugins.withId("com.android.library") { configureAndroidProject() }
+    subproject.plugins.withId("org.jetbrains.kotlin.android") {
+        subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            compilerOptions {
+                jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+            }
+        }
+    }
+}
+
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"

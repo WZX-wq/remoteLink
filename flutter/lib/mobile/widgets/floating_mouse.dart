@@ -509,8 +509,16 @@ class _FloatingMouseState extends State<FloatingMouse> {
   void _handlePointerDown(PointerDownEvent event) {
     _resetCollapseTimer();
     if (_isScrolling) return;
-    if (_containsPosition(_scrollWheelUpKey, event.position) ||
-        _containsPosition(_scrollWheelDownKey, event.position)) {
+    final isScrollArrow =
+        _containsPosition(_scrollWheelUpKey, event.position) ||
+            _containsPosition(_scrollWheelDownKey, event.position);
+    if (!isScrollArrow) return;
+    if (isAndroid) {
+      // The arrow listener sends the Android wheel step. Starting circular
+      // scrolling here would emit a second, often opposite, event sequence.
+      return;
+    }
+    if (isScrollArrow) {
       final contextMouse = _mouseWidgetKey.currentContext;
       if (contextMouse == null) return;
       final RenderBox? mouseBox = contextMouse.findRenderObject() as RenderBox?;
@@ -713,6 +721,8 @@ class _FloatingMouseState extends State<FloatingMouse> {
                   scrollWheelUpKey: _scrollWheelUpKey,
                   scrollWheelDownKey: _scrollWheelDownKey,
                   mouseWidgetKey: _mouseWidgetKey,
+                  onScrollUp: isAndroid ? () => _inputModel.scroll(1) : null,
+                  onScrollDown: isAndroid ? () => _inputModel.scroll(-1) : null,
                   onPointerMoveUpdate: _onBodyPointerMoveUpdate,
                   cancelCanvasScroll: _canvasScrollState.tryCancel,
                   setCanvasScrollPressed: _canvasScrollState.setPressedSpeed,
@@ -736,6 +746,8 @@ class MouseBody extends StatefulWidget {
   final Function()? cancelCanvasScroll;
   final Function()? setCanvasScrollPressed;
   final Function()? setCanvasScrollReleased;
+  final VoidCallback? onScrollUp;
+  final VoidCallback? onScrollDown;
   final InputModel? inputModel;
   final double scale;
   final Function()? resetCollapseTimer;
@@ -750,6 +762,8 @@ class MouseBody extends StatefulWidget {
     this.cancelCanvasScroll,
     this.setCanvasScrollPressed,
     this.setCanvasScrollReleased,
+    this.onScrollUp,
+    this.onScrollDown,
     this.resetCollapseTimer,
   });
 
@@ -780,14 +794,24 @@ class _MouseBodyState extends State<MouseBody> {
   bool _midDown = false;
   bool _dragDown = false;
 
-  Widget _buildScrollUpDown(GlobalKey key, IconData iconData, double s) {
-    return Container(
-      key: key,
-      height: 17 * s,
-      child: Icon(
-        iconData,
-        color: _kDefaultHighlightColor,
-        size: 14 * s,
+  Widget _buildScrollUpDown(
+      GlobalKey key, IconData iconData, double s, VoidCallback? onScrollStep) {
+    return Listener(
+      onPointerDown: onScrollStep == null
+          ? null
+          : (event) {
+              widget.resetCollapseTimer?.call();
+              onScrollStep.call();
+            },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        key: key,
+        height: 17 * s,
+        child: Icon(
+          iconData,
+          color: _kDefaultHighlightColor,
+          size: 14 * s,
+        ),
       ),
     );
   }
@@ -993,11 +1017,17 @@ class _MouseBodyState extends State<MouseBody> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              _buildScrollUpDown(widget.scrollWheelUpKey,
-                                  Icons.keyboard_arrow_up, midScale.scale),
+                              _buildScrollUpDown(
+                                  widget.scrollWheelUpKey,
+                                  Icons.keyboard_arrow_up,
+                                  midScale.scale,
+                                  widget.onScrollUp),
                               _buildScrollMidButton(midScale.scale),
-                              _buildScrollUpDown(widget.scrollWheelDownKey,
-                                  Icons.keyboard_arrow_down, midScale.scale),
+                              _buildScrollUpDown(
+                                  widget.scrollWheelDownKey,
+                                  Icons.keyboard_arrow_down,
+                                  midScale.scale,
+                                  widget.onScrollDown),
                             ],
                           ),
                         ),

@@ -293,7 +293,21 @@ class _ConnectionPageState extends State<ConnectionPage> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () async {
-          await launchUrl(Uri.parse('https://kunqiongai.com/'));
+          var uri = Uri.parse('https://kunqiongai.com/');
+          if (isAndroid) {
+            final serviceUri = Uri.tryParse(updateUrl.trim());
+            if (serviceUri == null ||
+                !serviceUri.hasScheme ||
+                (serviceUri.scheme != 'https' && serviceUri.scheme != 'http')) {
+              showToast(translate('Invalid URL'));
+              return;
+            }
+            uri = serviceUri;
+          }
+          final opened = await launchUrl(uri);
+          if (!opened) {
+            showToast(translate('Failed'));
+          }
         },
         child: Container(
           width: double.infinity,

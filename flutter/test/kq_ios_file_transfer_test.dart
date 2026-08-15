@@ -10,7 +10,7 @@ void main() {
 
     expect(page, contains("package:file_picker/file_picker.dart"));
     expect(page, contains('_pickFilesAndSend'));
-    expect(page, contains('FilePicker.platform.pickFiles'));
+    expect(page, contains('FilePicker.pickFiles'));
     expect(page, contains('withData: false'));
     expect(page, contains('SelectedItems(isLocal: true)'));
     expect(

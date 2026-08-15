@@ -20,6 +20,7 @@ import '../ios_membership_payment_policy.dart';
 import 'ios_membership_purchase_page.dart';
 import '../privacy/kq_privacy_policy.dart';
 import 'account_deletion_page.dart';
+import 'android_notification_center_page.dart';
 import 'page_shape.dart';
 import 'privacy_policy_page.dart';
 import 'settings_page.dart';
@@ -177,6 +178,14 @@ class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         builder: (_) => const _PersonalCenterPage(),
+      ),
+    );
+  }
+
+  void _openNotifications() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const AndroidNotificationCenterPage(),
       ),
     );
   }
@@ -789,7 +798,10 @@ class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
         padding: const EdgeInsets.fromLTRB(22, 10, 22, 24),
         children: [
           _MineToolbar(
-            onNotificationTap: () => showToast(_mineText('No notifications')),
+            unreadCount: gFFI.chatModel.mobileUnreadSum,
+            onNotificationTap: isAndroid
+                ? _openNotifications
+                : () => showToast(_mineText('No notifications')),
           ),
           const SizedBox(height: 22),
           _ProfileHeader(
@@ -849,8 +861,12 @@ class _AccountPageState extends State<AccountPage> with WidgetsBindingObserver {
 }
 
 class _MineToolbar extends StatelessWidget {
-  const _MineToolbar({required this.onNotificationTap});
+  const _MineToolbar({
+    required this.unreadCount,
+    required this.onNotificationTap,
+  });
 
+  final RxInt unreadCount;
   final VoidCallback onNotificationTap;
 
   @override
@@ -862,7 +878,10 @@ class _MineToolbar extends StatelessWidget {
         IconButton(
           tooltip: _mineText('Notifications'),
           onPressed: onNotificationTap,
-          icon: Icon(Icons.notifications_none_rounded, color: q.muted),
+          icon: unreadTopRightBuilder(
+            unreadCount,
+            icon: Icon(Icons.notifications_none_rounded, color: q.muted),
+          ),
         ),
       ],
     );

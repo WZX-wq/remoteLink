@@ -184,6 +184,266 @@ void main() {
     expect(toolbar, isNot(contains('codec_format == "AV1"')));
   });
 
+  test('Android codec selection preserves the user preferred codec', () {
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+    final client = File('../src/client.rs').readAsStringSync();
+    final start = client.indexOf('pub fn get_supported_decoding(&self)');
+    final end =
+        client.indexOf('fn kq_force_h264_recording_supported_decoding', start);
+
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final supportedDecoding = client.substring(start, end);
+
+    expect(toolbar, contains('name: kOptionCodecPreference, value: value'));
+    expect(toolbar, contains('bind.sessionChangePreferCodec'));
+    expect(supportedDecoding, contains('Some(&self.id)'));
+    expect(supportedDecoding, contains('decoding.ability_av1 = 0;'));
+    expect(
+      supportedDecoding,
+      contains('Self::apply_kq_default_codec_preference(&mut decoding);'),
+    );
+    expect(
+      client,
+      contains('#[cfg(target_os = "android")]\n'
+          '    fn apply_kq_default_codec_preference'),
+    );
+    expect(
+      client,
+      contains('#[cfg(not(target_os = "android"))]\n'
+          '    fn apply_kq_default_codec_preference'),
+    );
+  });
+
+  test('Android hides AV1 while preserving it for other platforms', () {
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+    final settings =
+        File('lib/mobile/pages/settings_page.dart').readAsStringSync();
+
+    expect(
+      toolbar,
+      contains("if (!isAndroid && codecs[1]) radio('AV1', 'av1', codecs[1])"),
+    );
+    expect(
+      settings,
+      contains("if (!isAndroid) _RadioEntry('AV1', 'av1')"),
+    );
+    expect(toolbar, contains("if (isAndroid && groupValue == 'av1')"));
+    expect(
+      toolbar,
+      contains("name: kOptionCodecPreference, value: 'auto'"),
+    );
+    expect(settings, contains("if (isAndroid && value == 'av1')"));
+  });
+
+  test('Android hides the unreachable terminal extra keys setting', () {
+    final settings =
+        File('lib/mobile/pages/settings_page.dart').readAsStringSync();
+    final labelIndex = settings.indexOf("'Show terminal extra keys'");
+
+    expect(labelIndex, greaterThanOrEqualTo(0));
+    final conditionStart = settings.lastIndexOf('if (', labelIndex);
+    expect(conditionStart, greaterThanOrEqualTo(0));
+    expect(
+      settings.substring(conditionStart, labelIndex),
+      contains('!isAndroid'),
+    );
+    expect(
+      RegExp(
+        r'mainSetLocalBoolOption\(\s*kOptionEnableShowTerminalExtraKeys, v\)',
+      ).hasMatch(settings),
+      isTrue,
+      reason: 'Other platforms must retain the working terminal preference',
+    );
+  });
+
+  test('Android view mode blocks every remote input sender', () {
+    final inputModel = File('lib/models/input_model.dart').readAsStringSync();
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+
+    expect(inputModel, contains('bool get _isAndroidInputBlocked'));
+    for (final signature in [
+      'void newKeyboardMode(',
+      'void inputRawKey(',
+      'void inputKey(',
+      'Future<void> scroll(',
+      'Future<void> _sendScrollMouseEvent(',
+      'Future<void> sendMouse(',
+      'Future<void> moveMouse(',
+      'Future<void> sendMobileRelativeMouseMove(',
+      'void handlePointerEvent(',
+      'void onPointHoverImage(',
+      'void onPointDownImage(',
+      'void onPointUpImage(',
+      'void onPointMoveImage(',
+    ]) {
+      final start = inputModel.indexOf(signature);
+      expect(start, greaterThanOrEqualTo(0), reason: 'Missing $signature');
+      final body = inputModel.substring(start, start + 500);
+      expect(body, contains('if (_isAndroidInputBlocked) return;'),
+          reason: '$signature must enforce Android view mode');
+    }
+    final handleMouseStart =
+        inputModel.indexOf('Map<String, dynamic>? handleMouse(');
+    expect(handleMouseStart, greaterThanOrEqualTo(0));
+    expect(
+      inputModel.substring(handleMouseStart, handleMouseStart + 500),
+      contains('if (_isAndroidInputBlocked) return null;'),
+    );
+    expect(
+      remotePage,
+      contains('if (isAndroid && gFFI.ffiModel.viewOnly) return;'),
+    );
+    final panZoomEndStart = inputModel.indexOf('void onPointerPanZoomEnd(');
+    expect(panZoomEndStart, greaterThanOrEqualTo(0));
+    expect(
+      inputModel.substring(panZoomEndStart, panZoomEndStart + 300),
+      contains('if (_isAndroidInputBlocked) return;'),
+    );
+    expect(toolbar, contains('(!isAndroid || !ffiModel.viewOnly)'));
+  });
+
+  test('Android view mode hides remote system action entry points', () {
+    final inputModel = File('lib/models/input_model.dart').readAsStringSync();
+    final remotePage =
+        File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+
+    expect(
+      toolbar,
+      contains('final androidViewOnly = isAndroid && ffiModel.viewOnly;'),
+    );
+    for (final action in [
+      "translate('Request Elevation')",
+      "translate(pi.isHeadless ? 'OS Account' : 'OS Password')",
+      "translate('Restart remote device')",
+    ]) {
+      final actionIndex = toolbar.indexOf(action);
+      expect(actionIndex, greaterThanOrEqualTo(0), reason: 'Missing $action');
+      final conditionStart = toolbar.lastIndexOf('if (', actionIndex);
+      expect(conditionStart, greaterThanOrEqualTo(0));
+      expect(
+        toolbar.substring(conditionStart, actionIndex),
+        contains('!androidViewOnly'),
+        reason: '$action must be hidden in Android view mode',
+      );
+    }
+
+    final mobileActionsStart =
+        remotePage.indexOf('List<TTextMenu> _getMobileActionMenus()');
+    expect(mobileActionsStart, greaterThanOrEqualTo(0));
+    expect(
+      remotePage.substring(mobileActionsStart, mobileActionsStart + 400),
+      contains('if (isAndroid && gFFI.ffiModel.viewOnly) return [];'),
+    );
+    final openKeyboardStart = remotePage.indexOf('void openKeyboard()');
+    expect(openKeyboardStart, greaterThanOrEqualTo(0));
+    expect(
+      remotePage.substring(openKeyboardStart, openKeyboardStart + 250),
+      contains('if (isAndroid && gFFI.ffiModel.viewOnly) return;'),
+    );
+    expect(inputModel, contains('bool get _isAndroidInputBlocked'));
+  });
+
+  test('Android applies the effective reverse mouse wheel preference once', () {
+    final session = File('../src/ui_session_interface.rs').readAsStringSync();
+    final inputModel = File('lib/models/input_model.dart').readAsStringSync();
+
+    expect(inputModel, contains('_sendScrollMouseEvent('));
+    expect(inputModel, isNot(contains('_kqAndroidReverseMouseWheel')));
+    expect(inputModel,
+        contains('bind.sessionGetReverseMouseWheelSync(sessionId: sessionId)'));
+    expect(inputModel,
+        contains('bind.mainGetUserDefaultOption(key: kKeyReverseMouseWheel)'));
+    expect(
+      session,
+      contains('#[cfg(not(any(target_os = "android", target_os = "ios")))]\n'
+          '    fn get_scroll_xy'),
+    );
+  });
+
+  test('Android resumes remote audio playback when mute is disabled', () {
+    final client = File('../src/client.rs').readAsStringSync();
+    final formatStart = client.indexOf('pub fn handle_format(&mut self');
+    final frameStart = client.indexOf('pub fn handle_frame(&mut self');
+    final ioLoop = File('../src/client/io_loop.rs').readAsStringSync();
+
+    expect(formatStart, greaterThanOrEqualTo(0));
+    expect(frameStart, greaterThan(formatStart));
+    final handleFormat = client.substring(formatStart, frameStart);
+    expect(handleFormat, contains('AudioDecoder::new'));
+    expect(handleFormat, contains('allow_err!(self.start_audio(f));'));
+    expect(handleFormat,
+        isNot(contains('KQ Android skips remote audio playback')));
+    expect(
+        ioLoop, contains('!self.handler.lc.read().unwrap().disable_audio.v'));
+  });
+
+  test('mobile view-only changes synchronize through the shared session path',
+      () {
+    final flutter = File('../src/flutter.rs').readAsStringSync();
+    final syncStart = flutter.indexOf('pub fn try_sync_peer_option(');
+    final syncEnd = flutter.indexOf(
+        'pub(super) fn session_update_virtual_display', syncStart);
+
+    expect(syncStart, greaterThanOrEqualTo(0));
+    expect(syncEnd, greaterThan(syncStart));
+    final sync = flutter.substring(syncStart, syncEnd);
+    expect(sync, contains('if key == "view-only" {'));
+    expect(
+        sync,
+        isNot(contains(
+            '#[cfg(not(any(target_os = "android", target_os = "ios")))]')));
+    expect(sync, contains('session.push_event("sync_peer_option"'));
+  });
+
+  test('mobile display options refresh after changing view-only mode', () {
+    final page = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+    final optionsStart = page.indexOf('void showOptions(');
+    final optionsEnd = page.indexOf('class _RemoteOptionSection', optionsStart);
+
+    expect(optionsStart, greaterThanOrEqualTo(0));
+    expect(optionsEnd, greaterThan(optionsStart));
+    final options = page.substring(optionsStart, optionsEnd);
+    expect(options, contains('Future<void> refreshToggleMenus() async {'));
+    expect(options, contains('await refreshToggleMenus();'));
+    expect(toolbar, contains('ffiModel.setViewOnly(id, value);'));
+    expect(toolbar, contains('await bind.sessionToggleOption('));
+  });
+
+  test('mobile display switches wait for their native action before reloading',
+      () {
+    final page = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final optionsStart = page.indexOf('void showOptions(');
+    final optionsEnd = page.indexOf('class _RemoteOptionSection', optionsStart);
+
+    expect(optionsStart, greaterThanOrEqualTo(0));
+    expect(optionsEnd, greaterThan(optionsStart));
+    final options = page.substring(optionsStart, optionsEnd);
+    expect(options, contains('await onChanged?.call(value);'));
+    expect(
+        options,
+        isNot(contains(
+            'onChanged?.call(value);\n                                      unawaited(refreshToggleMenus());')));
+  });
+
+  test('mobile screen settings initialize and identify cursor switches', () {
+    final page = File('lib/mobile/pages/remote_page.dart').readAsStringSync();
+    final toolbar = File('lib/common/widgets/toolbar.dart').readAsStringSync();
+
+    expect(page, contains("arg: 'show-remote-cursor'"));
+    expect(page, contains('ShowRemoteCursorState.find(widget.id).value ='));
+    expect(page, contains("ValueKey('cursor-\${cursorToggles[index].id}')"));
+    expect(page, contains("'display-\${displayToggles[index].id}'"));
+    expect(
+        toolbar, contains('final FutureOr<void> Function(bool?)? onChanged;'));
+    expect(toolbar, contains("id: 'show-remote-cursor'"));
+    expect(toolbar, contains("id: 'show-quality-monitor'"));
+  });
+
   test('mobile long labels use adaptive navigation and membership layout', () {
     final home = File('lib/mobile/pages/home_page.dart').readAsStringSync();
     final account =

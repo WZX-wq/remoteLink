@@ -1,5 +1,7 @@
 #[cfg(target_os = "ios")]
 use std::sync::atomic::AtomicU32;
+#[cfg(target_os = "android")]
+use std::sync::atomic::AtomicU8;
 use std::{
     net::SocketAddr,
     sync::{
@@ -44,6 +46,12 @@ static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 static MANUAL_RESTARTED: AtomicBool = AtomicBool::new(false);
 static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
 pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "android")]
+static ANDROID_UUID_MISMATCH_STATE: AtomicU8 = AtomicU8::new(0);
+#[cfg(target_os = "android")]
+const ANDROID_UUID_MISMATCH_RETRIED: u8 = 1;
+#[cfg(target_os = "android")]
+const ANDROID_UUID_MISMATCH_REJECTED: u8 = 2;
 #[cfg(target_os = "ios")]
 pub(crate) static IOS_RENDEZVOUS_LAST_RESPONSE_MS: AtomicI64 = AtomicI64::new(0);
 #[cfg(target_os = "ios")]
@@ -71,6 +79,11 @@ lazy_static::lazy_static! {
     static ref LAST_NOT_DEPLOYED_REGISTER: Mutex<Option<Instant>> = Mutex::new(None);
 }
 
+#[cfg(any(target_os = "android", test))]
+fn should_retry_android_stable_identity(already_retried: bool) -> bool {
+    !already_retried
+}
+
 // Single source of truth for the "awaiting deployment" backoff. The server has
 // already told us this device is not in its db; until the operator runs
 // `rustdesk --deploy --token <api_token>` there is no point re-running the
@@ -78,8 +91,12 @@ lazy_static::lazy_static! {
 // loops (rather than only inside register_pk) also avoids the
 // last_register_sent / fails / latency / UDP-rebind churn the loop would
 // otherwise spin on while no response ever comes back.
-async fn deploy_register_throttled() -> bool {
-    if !NEEDS_DEPLOY.load(Ordering::SeqCst) {
+async fn registration_retry_throttled() -> bool {
+    let needs_backoff = NEEDS_DEPLOY.load(Ordering::SeqCst);
+    #[cfg(target_os = "android")]
+    let needs_backoff = needs_backoff
+        || ANDROID_UUID_MISMATCH_STATE.load(Ordering::Acquire) == ANDROID_UUID_MISMATCH_REJECTED;
+    if !needs_backoff {
         return false;
     }
     LAST_NOT_DEPLOYED_REGISTER
@@ -280,7 +297,7 @@ impl RendezvousMediator {
                     // DEPLOY_RETRY_INTERVAL elapses, otherwise the loop spins every
                     // few seconds (log spam + misapplied network-recovery rebind)
                     // until the operator runs `rustdesk --deploy`.
-                    if deploy_register_throttled().await {
+                    if registration_retry_throttled().await {
                         continue;
                     }
                     let now = Some(Instant::now());
@@ -365,6 +382,9 @@ impl RendezvousMediator {
                         Config::set_host_key_confirmed(&self.host_prefix, true);
                         *SOLVING_PK_MISMATCH.lock().await = "".to_owned();
                         NEEDS_DEPLOY.store(false, Ordering::SeqCst);
+                        #[cfg(target_os = "android")]
+                        ANDROID_UUID_MISMATCH_STATE.store(0, Ordering::Release);
+                        *LAST_NOT_DEPLOYED_REGISTER.lock().await = None;
                         // A key-confirmation response does not register the device as
                         // online. Publish the ID in the same exchange so clients cannot
                         // see it as ready before the next registration heartbeat.
@@ -378,6 +398,8 @@ impl RendezvousMediator {
                             log::warn!("Server requires deployment. Run `rustdesk --deploy --token <api_token>` on this device.");
                         }
                         NEEDS_DEPLOY.store(true, Ordering::SeqCst);
+                        #[cfg(target_os = "android")]
+                        ANDROID_UUID_MISMATCH_STATE.store(0, Ordering::Release);
                         #[cfg(target_os = "ios")]
                         IOS_REGISTRATION_REJECTION
                             .store(IOS_REGISTRATION_REJECTION_NOT_DEPLOYED, Ordering::Release);
@@ -783,7 +805,12 @@ impl RendezvousMediator {
         // already told us we're not in its db; sending more often than every
         // DEPLOY_RETRY_INTERVAL ms is wasted traffic until the operator runs
         // `rustdesk --deploy --token <api_token>`.
-        if NEEDS_DEPLOY.load(Ordering::SeqCst) {
+        let needs_backoff = NEEDS_DEPLOY.load(Ordering::SeqCst);
+        #[cfg(target_os = "android")]
+        let needs_backoff = needs_backoff
+            || ANDROID_UUID_MISMATCH_STATE.load(Ordering::Acquire)
+                == ANDROID_UUID_MISMATCH_REJECTED;
+        if needs_backoff {
             let mut last = LAST_NOT_DEPLOYED_REGISTER.lock().await;
             if let Some(t) = *last {
                 if (t.elapsed().as_millis() as i64) < DEPLOY_RETRY_INTERVAL {
@@ -846,7 +873,45 @@ impl RendezvousMediator {
         Ok(())
     }
 
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    async fn handle_uuid_mismatch(&mut self, socket: Sink<'_>) -> ResultType<()> {
+        let id = Config::get_id();
+        let already_retried = ANDROID_UUID_MISMATCH_STATE.load(Ordering::Acquire) != 0;
+        {
+            let mut solving = SOLVING_PK_MISMATCH.lock().await;
+            if !solving.is_empty() && *solving != self.host {
+                return Ok(());
+            }
+            Config::set_key_confirmed(false);
+            Config::set_host_key_confirmed(&self.host_prefix, false);
+            *solving = self.host.clone();
+
+            if should_retry_android_stable_identity(already_retried) {
+                ANDROID_UUID_MISMATCH_STATE.store(ANDROID_UUID_MISMATCH_RETRIED, Ordering::Release);
+                NEEDS_DEPLOY.store(false, Ordering::SeqCst);
+                log::warn!(
+                    "Android ID {} was rejected by {}; retrying the same stable identity once",
+                    id,
+                    self.host
+                );
+            } else {
+                ANDROID_UUID_MISMATCH_STATE
+                    .store(ANDROID_UUID_MISMATCH_REJECTED, Ordering::Release);
+            }
+        }
+        if already_retried {
+            *LAST_NOT_DEPLOYED_REGISTER.lock().await = Some(Instant::now());
+            log::error!(
+                "Android stable ID {} was repeatedly rejected by {}; preserving the ID and backing off registration for server repair",
+                id,
+                self.host
+            );
+            return Ok(());
+        }
+        self.register_pk(socket).await
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     async fn handle_uuid_mismatch(&mut self, socket: Sink<'_>) -> ResultType<()> {
         {
             let mut solving = SOLVING_PK_MISMATCH.lock().await;
@@ -1082,5 +1147,16 @@ impl Drop for CheckIfResendPk {
             Config::set_key_confirmed(false);
             log::info!("Set key_confirmed to false due to pk changed, will resend register_pk");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn android_uuid_mismatch_retries_same_identity_once_then_stops() {
+        assert!(should_retry_android_stable_identity(false));
+        assert!(!should_retry_android_stable_identity(true));
     }
 }

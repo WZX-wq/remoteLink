@@ -24,6 +24,10 @@ import '../consts.dart';
 /// Mouse button enum.
 enum MouseButtons { left, right, wheel, back, forward }
 
+Point<int> applyReverseMouseWheelDelta(int x, int y, bool reverse) {
+  return reverse ? Point<int>(-x, -y) : Point<int>(x, y);
+}
+
 const _kMouseEventDown = 'mousedown';
 const _kMouseEventUp = 'mouseup';
 const _kMouseEventMove = 'mousemove';
@@ -366,8 +370,10 @@ class InputModel {
               !model.isViewCamera) {
             _sideButtonDownModels[mb] = model;
             // Fire-and-forget to avoid blocking the platform channel handler.
-            unawaited(model._sendMouseUnchecked(type, mb).catchError((Object e) {
-              debugPrint('[InputModel] failed to send side button $type for $mb: $e');
+            unawaited(
+                model._sendMouseUnchecked(type, mb).catchError((Object e) {
+              debugPrint(
+                  '[InputModel] failed to send side button $type for $mb: $e');
             }));
           }
         } else {
@@ -377,8 +383,10 @@ class InputModel {
           // release always goes through even if permissions changed.
           final model = _sideButtonDownModels.remove(mb);
           if (model != null) {
-            unawaited(model._sendMouseUnchecked(type, mb).catchError((Object e) {
-              debugPrint('[InputModel] failed to send side button $type for $mb: $e');
+            unawaited(
+                model._sendMouseUnchecked(type, mb).catchError((Object e) {
+              debugPrint(
+                  '[InputModel] failed to send side button $type for $mb: $e');
             }));
           }
         }
@@ -479,6 +487,7 @@ class InputModel {
   String? get peerPlatform => parent.target?.ffiModel.pi.platform;
   String get peerVersion => parent.target?.ffiModel.pi.version ?? '';
   bool get isViewOnly => parent.target!.ffiModel.viewOnly;
+  bool get _isAndroidInputBlocked => isAndroid && isViewOnly;
   bool get showMyCursor => parent.target!.ffiModel.showMyCursor;
   double get devicePixelRatio => parent.target!.canvasModel.devicePixelRatio;
   bool get isViewCamera => parent.target!.connType == ConnType.viewCamera;
@@ -923,6 +932,7 @@ class InputModel {
   /// Send Key Event
   void newKeyboardMode(
       String character, int usbHid, bool down, bool iosCapsLock) {
+    if (_isAndroidInputBlocked) return;
     final lockModes = _buildLockModes(iosCapsLock);
     bind.sessionHandleFlutterKeyEvent(
         sessionId: sessionId,
@@ -970,6 +980,7 @@ class InputModel {
   /// Send raw Key Event
   void inputRawKey(String name, int platformCode, int positionCode, bool down,
       bool iosCapsLock) {
+    if (_isAndroidInputBlocked) return;
     final lockModes = _buildLockModes(iosCapsLock);
     bind.sessionHandleFlutterRawKeyEvent(
         sessionId: sessionId,
@@ -1023,6 +1034,7 @@ class InputModel {
   /// [down] indicates the key's state(down or up).
   /// [press] indicates a click event(down and up).
   void inputKey(String name, {bool? down, bool? press}) {
+    if (_isAndroidInputBlocked) return;
     if (!keyboardPerm) return;
     if (isViewCamera) return;
     bind.sessionInputKey(
@@ -1094,11 +1106,38 @@ class InputModel {
 
   /// Send scroll event with scroll distance [y].
   Future<void> scroll(int y) async {
+    if (_isAndroidInputBlocked) return;
     if (isViewCamera) return;
+    await _sendScrollMouseEvent('wheel', 0, y, includeId: true);
+  }
+
+  Future<void> _sendScrollMouseEvent(String type, int x, int y,
+      {bool includeId = false}) async {
+    if (_isAndroidInputBlocked) return;
+    if (isAndroid) {
+      var option =
+          bind.sessionGetReverseMouseWheelSync(sessionId: sessionId) ?? '';
+      if (option.isEmpty) {
+        option = bind.mainGetUserDefaultOption(key: kKeyReverseMouseWheel);
+      }
+      final adjusted = applyReverseMouseWheelDelta(x, y, option == 'Y');
+      debugPrint(
+        '[KQ Android scroll] type=$type raw=($x,$y) option=$option '
+        'sent=(${adjusted.x},${adjusted.y})',
+      );
+      x = adjusted.x;
+      y = adjusted.y;
+    }
+    final event = <String, dynamic>{
+      'type': type,
+      'x': x.toString(),
+      'y': y.toString(),
+    };
+    if (includeId) {
+      event['id'] = id;
+    }
     await bind.sessionSendMouse(
-        sessionId: sessionId,
-        msg: json
-            .encode(modify({'id': id, 'type': 'wheel', 'y': y.toString()})));
+        sessionId: sessionId, msg: json.encode(modify(event)));
   }
 
   /// Reset key modifiers to false, including [shift], [ctrl], [alt] and [command].
@@ -1126,6 +1165,7 @@ class InputModel {
 
   /// Send mouse press event.
   Future<void> sendMouse(String type, MouseButtons button) async {
+    if (_isAndroidInputBlocked) return;
     if (!keyboardPerm) return;
     if (isViewCamera) return;
     await _sendMouseUnchecked(type, button);
@@ -1161,6 +1201,7 @@ class InputModel {
 
   /// Send mouse movement event with distance in [x] and [y].
   Future<void> moveMouse(double x, double y) async {
+    if (_isAndroidInputBlocked) return;
     if (!keyboardPerm) return;
     if (isViewCamera) return;
     var x2 = x.toInt();
@@ -1177,6 +1218,7 @@ class InputModel {
   /// Accumulates fractional deltas to avoid losing slow/fine movements.
   /// Only sends events when relative mouse mode is enabled and supported.
   Future<void> sendMobileRelativeMouseMove(double dx, double dy) async {
+    if (_isAndroidInputBlocked) return;
     if (!keyboardPerm) return;
     if (isViewCamera) return;
     // Only send relative mouse events when relative mode is enabled and supported.
@@ -1281,6 +1323,7 @@ class InputModel {
 
   void onPointHoverImage(PointerHoverEvent e) {
     _stopFling = true;
+    if (_isAndroidInputBlocked) return;
     if (isViewOnly && !showMyCursor) return;
     if (e.kind != ui.PointerDeviceKind.mouse) return;
 
@@ -1367,9 +1410,7 @@ class InputModel {
             Offset(x.toDouble(), y.toDouble()));
       } else {
         if (isViewCamera) return;
-        bind.sessionSendMouse(
-            sessionId: sessionId,
-            msg: '{"type": "trackpad", "x": "$x", "y": "$y"}');
+        unawaited(_sendScrollMouseEvent('trackpad', x, y));
       }
     }
   }
@@ -1393,6 +1434,7 @@ class InputModel {
   }
 
   void _scheduleFling(double x, double y, int delay) {
+    if (_isAndroidInputBlocked) return;
     if (isViewCamera) return;
     if ((x == 0 && y == 0) || _stopFling) {
       _fling = false;
@@ -1400,7 +1442,7 @@ class InputModel {
     }
 
     _flingTimer = Timer(Duration(milliseconds: delay), () {
-      if (_stopFling) {
+      if (_isAndroidInputBlocked || _stopFling) {
         _fling = false;
         return;
       }
@@ -1424,9 +1466,7 @@ class InputModel {
         return;
       }
 
-      bind.sessionSendMouse(
-          sessionId: sessionId,
-          msg: '{"type": "trackpad", "x": "$dx", "y": "$dy"}');
+      unawaited(_sendScrollMouseEvent('trackpad', dx, dy));
       _scheduleFling(x, y, delay);
     });
   }
@@ -1445,6 +1485,7 @@ class InputModel {
   }
 
   void onPointerPanZoomEnd(PointerPanZoomEndEvent e) {
+    if (_isAndroidInputBlocked) return;
     if (isViewCamera) return;
     if (peerPlatform == kPeerPlatformAndroid) {
       handlePointerEvent('touch', kMouseEventTypePanEnd, e.position);
@@ -1508,6 +1549,7 @@ class InputModel {
   void onPointDownImage(PointerDownEvent e) {
     debugPrint("onPointDownImage ${e.kind}");
     _stopFling = true;
+    if (_isAndroidInputBlocked) return;
     if (isDesktop) _queryOtherWindowCoords = true;
     _remoteWindowCoords = [];
     _windowRect = null;
@@ -1550,6 +1592,7 @@ class InputModel {
   }
 
   void onPointUpImage(PointerUpEvent e) {
+    if (_isAndroidInputBlocked) return;
     if (isDesktop) _queryOtherWindowCoords = false;
     if (isViewOnly && !showMyCursor) return;
     if (isViewCamera) return;
@@ -1572,6 +1615,7 @@ class InputModel {
   }
 
   void onPointMoveImage(PointerMoveEvent e) {
+    if (_isAndroidInputBlocked) return;
     if (isViewOnly && !showMyCursor) return;
     if (isViewCamera) return;
     if (e.kind != ui.PointerDeviceKind.mouse) return;
@@ -1625,7 +1669,8 @@ class InputModel {
     if (e is PointerScrollEvent) {
       final rawDx = e.scrollDelta.dx;
       final rawDy = e.scrollDelta.dy;
-      final dominantDelta = rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
+      final dominantDelta =
+          rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
       final isSmooth = dominantDelta < 1;
       final nowUs = DateTime.now().microsecondsSinceEpoch;
       final dtUs = _lastWheelTsUs == 0 ? 0 : nowUs - _lastWheelTsUs;
@@ -1662,9 +1707,7 @@ class InputModel {
       } else if (dy < 0) {
         dy = accel;
       }
-      bind.sessionSendMouse(
-          sessionId: sessionId,
-          msg: '{"type": "wheel", "x": "$dx", "y": "$dy"}');
+      unawaited(_sendScrollMouseEvent('wheel', dx, dy));
     }
   }
 
@@ -1713,6 +1756,7 @@ class InputModel {
   }
 
   void handlePointerEvent(String kind, String type, Offset offset) {
+    if (_isAndroidInputBlocked) return;
     double x = offset.dx;
     double y = offset.dy;
     if (_checkPeerControlProtected(x, y)) {
@@ -1855,6 +1899,7 @@ class InputModel {
     bool moveCanvas = true,
     bool edgeScroll = false,
   }) {
+    if (_isAndroidInputBlocked) return null;
     final evtToPeer = processEventToPeer(evt, offset,
         onExit: onExit, moveCanvas: moveCanvas, edgeScroll: edgeScroll);
     if (evtToPeer != null) {

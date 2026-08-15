@@ -71,10 +71,14 @@ class TRadioMenu<T> {
 
 class TToggleMenu {
   final Widget child;
+  final String id;
   final bool value;
-  final ValueChanged<bool?>? onChanged;
+  final FutureOr<void> Function(bool?)? onChanged;
   TToggleMenu(
-      {required this.child, required this.value, required this.onChanged});
+      {required this.child,
+      required this.value,
+      required this.onChanged,
+      this.id = ''});
 }
 
 handleOsPasswordEditIcon(
@@ -102,16 +106,19 @@ handleOsPasswordAction(
 }
 
 List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
-    {bool includeFingerprint = true}) {
+    {bool includeFingerprint = true, bool androidPhoneToPhone = false}) {
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
   final perms = ffiModel.permissions;
   final sessionId = ffi.sessionId;
   final isDefaultConn = ffi.connType == ConnType.defaultConn;
+  final androidViewOnly = isAndroid && ffiModel.viewOnly;
 
   List<TTextMenu> v = [];
   // elevation
-  if (isDefaultConn &&
+  if (!androidViewOnly &&
+      !androidPhoneToPhone &&
+      isDefaultConn &&
       perms['keyboard'] != false &&
       ffi.elevationModel.showRequestMenu) {
     v.add(
@@ -122,7 +129,10 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
     );
   }
   // osAccount / osPassword
-  if (isDefaultConn && perms['keyboard'] != false) {
+  if (!androidViewOnly &&
+      !androidPhoneToPhone &&
+      isDefaultConn &&
+      perms['keyboard'] != false) {
     v.add(
       TTextMenu(
         child: Row(children: [
@@ -153,6 +163,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
   // paste
   if (isDefaultConn &&
       pi.platform != kPeerPlatformAndroid &&
+      (!isAndroid || !ffiModel.viewOnly) &&
       perms['keyboard'] != false) {
     v.add(TTextMenu(
         child: Text(translate('Send clipboard keystrokes')),
@@ -245,7 +256,8 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
     );
   }
   // restart
-  if (isDefaultConn &&
+  if (!androidViewOnly &&
+      isDefaultConn &&
       perms['restart'] != false &&
       (pi.platform == kPeerPlatformLinux ||
           pi.platform == kPeerPlatformWindows ||
@@ -258,7 +270,10 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
     );
   }
   // insertLock
-  if (isDefaultConn && !ffiModel.viewOnly && ffi.ffiModel.keyboard) {
+  if (!androidPhoneToPhone &&
+      isDefaultConn &&
+      !ffiModel.viewOnly &&
+      ffi.ffiModel.keyboard) {
     v.add(
       TTextMenu(
           child: Text(translate('Insert Lock')),
@@ -456,9 +471,15 @@ Future<List<TRadioMenu<String>>> toolbarCodec(
   final sessionId = ffi.sessionId;
   final alternativeCodecs =
       await bind.sessionAlternativeCodecs(sessionId: sessionId);
-  final groupValue = await bind.sessionGetOption(
+  var groupValue = await bind.sessionGetOption(
           sessionId: sessionId, arg: kOptionCodecPreference) ??
       '';
+  if (isAndroid && groupValue == 'av1') {
+    await bind.sessionPeerOption(
+        sessionId: sessionId, name: kOptionCodecPreference, value: 'auto');
+    bind.sessionChangePreferCodec(sessionId: sessionId);
+    groupValue = 'auto';
+  }
   final List<bool> codecs = [];
   try {
     final Map codecsJson = jsonDecode(alternativeCodecs);
@@ -500,7 +521,7 @@ Future<List<TRadioMenu<String>>> toolbarCodec(
     radio(autoLabel, 'auto', true),
     if (codecs[0]) radio('VP8', 'vp8', codecs[0]),
     radio('VP9', 'vp9', true),
-    if (codecs[1]) radio('AV1', 'av1', codecs[1]),
+    if (!isAndroid && codecs[1]) radio('AV1', 'av1', codecs[1]),
     if (codecs[2]) radio('H264', 'h264', codecs[2]),
     if (codecs[3]) radio('H265', 'h265', codecs[3]),
   ];
@@ -526,6 +547,7 @@ Future<List<TToggleMenu>> toolbarCursor(
       lockState.value = false;
     }
     v.add(TToggleMenu(
+        id: 'show-remote-cursor',
         child: Text(translate('Show remote cursor')),
         value: state.value,
         onChanged: enabled && !lockState.value
@@ -562,6 +584,7 @@ Future<List<TToggleMenu>> toolbarCursor(
           sessionId: sessionId, arg: showCursorOption);
     }
     v.add(TToggleMenu(
+        id: 'follow-remote-cursor',
         child: Text(translate('Follow remote cursor')),
         value: value,
         onChanged: (value) async {
@@ -590,6 +613,7 @@ Future<List<TToggleMenu>> toolbarCursor(
     final value =
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);
     v.add(TToggleMenu(
+        id: 'follow-remote-window',
         child: Text(translate('Follow remote window focus')),
         value: value,
         onChanged: (value) async {
@@ -607,6 +631,7 @@ Future<List<TToggleMenu>> toolbarCursor(
     final option = 'zoom-cursor';
     final peerState = PeerBoolOption.find(id, option);
     v.add(TToggleMenu(
+      id: 'zoom-cursor',
       child: Text(translate('Zoom cursor')),
       value: peerState.value,
       onChanged: (value) async {
@@ -621,7 +646,8 @@ Future<List<TToggleMenu>> toolbarCursor(
 }
 
 Future<List<TToggleMenu>> toolbarDisplayToggle(
-    BuildContext context, String id, FFI ffi) async {
+    BuildContext context, String id, FFI ffi,
+    {bool androidPhoneToPhone = false}) async {
   List<TToggleMenu> v = [];
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
@@ -632,11 +658,12 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
   // show quality monitor
   final option = 'show-quality-monitor';
   v.add(TToggleMenu(
+      id: 'show-quality-monitor',
       value: bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option),
       onChanged: (value) async {
         if (value == null) return;
         await bind.sessionToggleOption(sessionId: sessionId, value: option);
-        ffi.qualityMonitorModel.checkShowQualityMonitor(sessionId);
+        await ffi.qualityMonitorModel.checkShowQualityMonitor(sessionId);
       },
       child: Text(translate('Show quality monitor'))));
   // mute
@@ -645,10 +672,11 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
     final value =
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);
     v.add(TToggleMenu(
+        id: 'disable-audio',
         value: value,
-        onChanged: (value) {
+        onChanged: (value) async {
           if (value == null) return;
-          bind.sessionToggleOption(sessionId: sessionId, value: option);
+          await bind.sessionToggleOption(sessionId: sessionId, value: option);
         },
         child: Text(translate('Mute'))));
   }
@@ -661,7 +689,8 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
   final isSupportIfPeer_1_2_4 = versionCmp(pi.version, '1.2.4') >= 0 &&
       bind.mainHasFileClipboard() &&
       pi.platformAdditions.containsKey(kPlatformAdditionsHasFileClipboard);
-  if (isDefaultConn &&
+  if (!androidPhoneToPhone &&
+      isDefaultConn &&
       ffiModel.keyboard &&
       perms['file'] != false &&
       (isSupportIfPeer_1_2_3 || isSupportIfPeer_1_2_4)) {
@@ -669,11 +698,12 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
     final value = bind.sessionGetToggleOptionSync(
         sessionId: sessionId, arg: kOptionEnableFileCopyPaste);
     v.add(TToggleMenu(
+        id: 'enable-file-copy-paste',
         value: value,
         onChanged: enabled
-            ? (value) {
+            ? (value) async {
                 if (value == null) return;
-                bind.sessionToggleOption(
+                await bind.sessionToggleOption(
                     sessionId: sessionId, value: kOptionEnableFileCopyPaste);
               }
             : null,
@@ -687,11 +717,13 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);
     if (ffiModel.viewOnly) value = true;
     v.add(TToggleMenu(
+        id: 'disable-clipboard',
         value: value,
         onChanged: enabled
-            ? (value) {
+            ? (value) async {
                 if (value == null) return;
-                bind.sessionToggleOption(sessionId: sessionId, value: option);
+                await bind.sessionToggleOption(
+                    sessionId: sessionId, value: option);
               }
             : null,
         child: Text(translate('Disable clipboard'))));
@@ -703,18 +735,21 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
     final value =
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);
     v.add(TToggleMenu(
+        id: 'lock-after-session-end',
         value: value,
         onChanged: enabled
-            ? (value) {
+            ? (value) async {
                 if (value == null) return;
-                bind.sessionToggleOption(sessionId: sessionId, value: option);
+                await bind.sessionToggleOption(
+                    sessionId: sessionId, value: option);
               }
             : null,
         child: Text(translate('Lock after session end'))));
   }
 
   final privacyModeState = PrivacyModeState.find(id);
-  if (pi.isSupportMultiDisplay &&
+  if (!androidPhoneToPhone &&
+      pi.isSupportMultiDisplay &&
       (privacyModeState.isEmpty || allowDisplaySwitchInPrivacyMode(pi)) &&
       pi.displaysCount.value > 1 &&
       bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar) == 'Y') {
@@ -722,25 +757,27 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         bind.sessionGetDisplaysAsIndividualWindows(sessionId: ffi.sessionId) ==
             'Y';
     v.add(TToggleMenu(
+        id: 'displays-as-individual-windows',
         value: value,
-        onChanged: (value) {
+        onChanged: (value) async {
           if (value == null) return;
-          bind.sessionSetDisplaysAsIndividualWindows(
+          await bind.sessionSetDisplaysAsIndividualWindows(
               sessionId: sessionId, value: value ? 'Y' : 'N');
         },
         child: Text(translate('Show displays as individual windows'))));
   }
 
   final isMultiScreens = !isWeb && (await getScreenRectList()).length > 1;
-  if (pi.isSupportMultiDisplay && isMultiScreens) {
+  if (!androidPhoneToPhone && pi.isSupportMultiDisplay && isMultiScreens) {
     final value = bind.sessionGetUseAllMyDisplaysForTheRemoteSession(
             sessionId: ffi.sessionId) ==
         'Y';
     v.add(TToggleMenu(
+        id: 'use-all-my-displays',
         value: value,
-        onChanged: (value) {
+        onChanged: (value) async {
           if (value == null) return;
-          bind.sessionSetUseAllMyDisplaysForTheRemoteSession(
+          await bind.sessionSetUseAllMyDisplaysForTheRemoteSession(
               sessionId: sessionId, value: value ? 'Y' : 'N');
         },
         child: Text(translate('Use all my displays for the remote session'))));
@@ -753,6 +790,7 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
     final value =
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);
     v.add(TToggleMenu(
+        id: 'i444',
         value: value,
         onChanged: (value) async {
           if (value == null) return;
@@ -763,18 +801,21 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
   }
 
   if (isDefaultConn && isMobile) {
-    v.addAll(toolbarKeyboardToggles(ffi));
+    v.addAll([
+      if (!androidPhoneToPhone) ...toolbarKeyboardToggles(ffi),
+    ]);
   }
 
   // view mode (mobile only, desktop is in keyboard menu)
   if (isDefaultConn && isMobile && versionCmp(pi.version, '1.2.0') >= 0) {
     v.add(TToggleMenu(
+        id: 'view-only',
         value: ffiModel.viewOnly,
         onChanged: (value) async {
           if (value == null) return;
+          ffiModel.setViewOnly(id, value);
           await bind.sessionToggleOption(
               sessionId: ffi.sessionId, value: kOptionToggleViewOnly);
-          ffiModel.setViewOnly(id, value);
         },
         child: Text(translate('View Mode'))));
   }
@@ -918,6 +959,7 @@ List<TToggleMenu> toolbarKeyboardToggles(FFI ffi) {
 
     final enabled = !ffi.ffiModel.viewOnly;
     v.add(TToggleMenu(
+        id: 'allow-swap-key',
         value: value,
         onChanged: enabled ? onChanged : null,
         child: Text(translate('Swap control-command key'))));
@@ -962,10 +1004,16 @@ List<TToggleMenu> toolbarKeyboardToggles(FFI ffi) {
       if (value == null) return;
       await bind.sessionSetReverseMouseWheel(
           sessionId: sessionId, value: value ? 'Y' : 'N');
+      if (isAndroid) {
+        final saved =
+            bind.sessionGetReverseMouseWheelSync(sessionId: sessionId);
+        debugPrint('[KQ Android scroll] switch requested=$value saved=$saved');
+      }
     }
 
     final enabled = !ffi.ffiModel.viewOnly;
     v.add(TToggleMenu(
+        id: 'reverse-mouse-wheel',
         value: optionValue == 'Y',
         onChanged: enabled ? onChanged : null,
         child: Text(translate('Reverse mouse wheel'))));
@@ -983,6 +1031,7 @@ List<TToggleMenu> toolbarKeyboardToggles(FFI ffi) {
 
     final enabled = !ffi.ffiModel.viewOnly;
     v.add(TToggleMenu(
+        id: 'swap-left-right-mouse',
         value: value,
         onChanged: enabled ? onChanged : null,
         child: Text(translate('swap-left-right-mouse'))));

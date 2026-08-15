@@ -9,6 +9,7 @@ package com.carriez.flutter_hbb
 
 import ffi.FFI
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -37,6 +38,7 @@ import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
     companion object {
+        private const val PUBLISH_RECORDING_TO_GALLERY = "publish_recording_to_gallery"
         var flutterMethodChannel: MethodChannel? = null
         private var _rdClipboardManager: RdClipboardManager? = null
         val rdClipboardManager: RdClipboardManager?
@@ -114,6 +116,7 @@ class MainActivity : FlutterActivity() {
         mainService?.let {
             unbindService(serviceConnection)
         }
+        audioRecordHandle.destroy()
         super.onDestroy()
     }
 
@@ -222,6 +225,7 @@ class MainActivity : FlutterActivity() {
                     if (call.arguments is Int) {
                         val id = call.arguments as Int
                         mainService?.cancelNotification(id)
+                        result.success(true)
                     } else {
                         result.success(true)
                     }
@@ -236,9 +240,36 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
 
                 }
+                "set_keep_screen_on" -> {
+                    if (call.arguments is Boolean) {
+                        if (call.arguments as Boolean) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
                 "try_sync_clipboard" -> {
                     rdClipboardManager?.syncClipboard(true)
                     result.success(true)
+                }
+                PUBLISH_RECORDING_TO_GALLERY -> {
+                    val sourcePath = call.arguments as? String
+                    if (sourcePath.isNullOrBlank()) {
+                        result.success(
+                            mapOf(
+                                "status" to "failure",
+                                "sourcePath" to "",
+                                "galleryUri" to "",
+                                "errorCode" to "invalid_source_path",
+                            )
+                        )
+                    } else {
+                        publishRecordingToGallery(sourcePath, result)
+                    }
                 }
                 GET_START_ON_BOOT_OPT -> {
                     val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
@@ -312,8 +343,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "on_voice_call_started" -> {
-                    onVoiceCallStarted()
-                    result.success(true)
+                    onVoiceCallStarted(result)
                 }
                 "on_voice_call_closed" -> {
                     onVoiceCallClosed()
@@ -324,6 +354,45 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    private fun publishRecordingToGallery(
+        sourcePath: String,
+        result: MethodChannel.Result,
+    ) {
+        val publish = {
+            thread {
+                RecordingMediaStorePublisher(applicationContext).publish(sourcePath) { publishResult ->
+                    runOnUiThread {
+                        result.success(publishResult.toMap())
+                    }
+                }
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+            XXPermissions.isGranted(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        ) {
+            publish()
+            return
+        }
+
+        XXPermissions.with(this)
+            .permission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            .request { _, allGranted ->
+                runOnUiThread {
+                    if (allGranted) {
+                        publish()
+                    } else {
+                        result.success(
+                            RecordingPublishResult.failure(
+                                java.io.File(sourcePath),
+                                "permission_denied",
+                            ).toMap()
+                        )
+                    }
+                }
+            }
     }
 
     private fun setCodecInfo() {
@@ -412,9 +481,9 @@ class MainActivity : FlutterActivity() {
             "text" to text))
     }
 
-    private fun ensureRecordAudioPermission(onGranted: () -> Unit) {
+    private fun ensureRecordAudioPermission(onResult: (Boolean) -> Unit) {
         if (XXPermissions.isGranted(this, android.Manifest.permission.RECORD_AUDIO)) {
-            onGranted()
+            onResult(true)
             return
         }
         XXPermissions.with(this)
@@ -422,28 +491,29 @@ class MainActivity : FlutterActivity() {
             .request { _, all ->
                 runOnUiThread {
                     if (all) {
-                        onGranted()
+                        onResult(true)
                     } else {
                         Log.e(logTag, "voice call failed, no RECORD_AUDIO permission")
                         showVoiceCallError("config_microphone")
+                        onResult(false)
                     }
                 }
             }
     }
 
-    private fun onVoiceCallStarted() {
-        ensureRecordAudioPermission {
-            startVoiceCallAudio()
+    private fun onVoiceCallStarted(result: MethodChannel.Result) {
+        ensureRecordAudioPermission { granted ->
+            result.success(if (granted) startVoiceCallAudio() else false)
         }
     }
 
-    private fun startVoiceCallAudio() {
+    private fun startVoiceCallAudio(): Boolean {
         var ok = false
         mainService?.let {
             ok = it.onVoiceCallStarted()
         } ?: let {
-            isAudioStart = true
             ok = audioRecordHandle.onVoiceCallStarted(null)
+            isAudioStart = ok
         }
         if (!ok) {
             // Rarely happens, So we just add log and msgbox here.
@@ -453,6 +523,7 @@ class MainActivity : FlutterActivity() {
         } else {
             Log.d(logTag, "onVoiceCallStarted success")
         }
+        return ok
     }
 
     private fun onVoiceCallClosed() {

@@ -84,8 +84,9 @@ pub async fn discover() -> ResultType<()> {
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub fn send_wol(id: String) {
+pub fn send_wol(id: String) -> bool {
     let interfaces = default_net::get_interfaces();
+    let mut sent = false;
     for peer in &config::LanPeers::load().peers {
         if peer.id == id {
             for (_, mac) in peer.ip_mac.iter() {
@@ -95,7 +96,10 @@ pub fn send_wol(id: String) {
                             // remove below mask check to avoid unexpected bug
                             // if (u32::from(ipv4.addr) & u32::from(ipv4.netmask)) == (u32::from(peer_ip) & u32::from(ipv4.netmask))
                             log::info!("Send wol to {mac_addr} of {}", ipv4.addr);
-                            allow_err!(wol::send_wol(mac_addr, None, Some(IpAddr::V4(ipv4.addr))));
+                            match wol::send_wol(mac_addr, None, Some(IpAddr::V4(ipv4.addr))) {
+                                Ok(()) => sent = true,
+                                Err(err) => log::error!("Failed to send WOL packet: {err}"),
+                            }
                         }
                     }
                 }
@@ -103,10 +107,50 @@ pub fn send_wol(id: String) {
             break;
         }
     }
+    sent
 }
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn send_wol(_id: String) {}
+#[cfg(target_os = "android")]
+fn send_wol_android(id: &str) -> bool {
+    let Some(peer) = config::LanPeers::load()
+        .peers
+        .into_iter()
+        .find(|peer| peer.id == id)
+    else {
+        log::warn!("Cannot send WOL: LAN peer {id} was not found");
+        return false;
+    };
+
+    let mut sent = false;
+    let mut visited = HashSet::new();
+    for mac in peer.ip_mac.into_values() {
+        if mac.is_empty() || !visited.insert(mac.clone()) {
+            continue;
+        }
+        let Ok(mac_addr) = mac.parse() else {
+            log::warn!("Cannot send WOL: invalid MAC address {mac}");
+            continue;
+        };
+        match wol::send_wol(mac_addr, None, None) {
+            Ok(()) => {
+                sent = true;
+                log::info!("Sent Android WOL packet to {mac_addr}");
+            }
+            Err(err) => log::error!("Failed to send Android WOL packet: {err}"),
+        }
+    }
+    sent
+}
+
+#[cfg(target_os = "android")]
+pub fn send_wol(id: String) -> bool {
+    send_wol_android(&id)
+}
+
+#[cfg(target_os = "ios")]
+pub fn send_wol(_id: String) -> bool {
+    false
+}
 
 #[inline]
 fn get_broadcast_port() -> u16 {

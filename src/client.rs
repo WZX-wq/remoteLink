@@ -2319,17 +2319,7 @@ impl AudioHandler {
     }
 
     /// Handle audio format and create an audio decoder.
-    #[cfg_attr(target_os = "android", allow(unused_variables))]
     pub fn handle_format(&mut self, f: AudioFormat) {
-        #[cfg(target_os = "android")]
-        {
-            log::warn!(
-                "KQ Android skips remote audio playback because MuMu/Houdini can crash inside Oboe open_stream"
-            );
-            return;
-        }
-
-        #[cfg_attr(target_os = "android", allow(unreachable_code))]
         match AudioDecoder::new(f.sample_rate, if f.channels > 1 { Stereo } else { Mono }) {
             Ok(d) => {
                 let buffer = vec![0.; f.sample_rate as usize * f.channels as usize];
@@ -3312,6 +3302,22 @@ impl LoginConfigHandler {
         Some(msg)
     }
 
+    #[cfg(target_os = "android")]
+    fn apply_kq_default_codec_preference(_decoding: &mut SupportedDecoding) {}
+
+    #[cfg(not(target_os = "android"))]
+    fn apply_kq_default_codec_preference(decoding: &mut SupportedDecoding) {
+        decoding.prefer = if decoding.ability_h265 > 0 {
+            supported_decoding::PreferCodec::H265.into()
+        } else if decoding.ability_h264 > 0 {
+            supported_decoding::PreferCodec::H264.into()
+        } else if decoding.ability_vp9 > 0 {
+            supported_decoding::PreferCodec::VP9.into()
+        } else {
+            supported_decoding::PreferCodec::Auto.into()
+        };
+    }
+
     pub fn get_supported_decoding(&self) -> SupportedDecoding {
         let mut decoding = Decoder::supported_decodings(
             Some(&self.id),
@@ -3321,15 +3327,7 @@ impl LoginConfigHandler {
         );
         if crate::get_app_name() == crate::common::KQ_APP_NAME {
             decoding.ability_av1 = 0;
-            decoding.prefer = if decoding.ability_h265 > 0 {
-                supported_decoding::PreferCodec::H265.into()
-            } else if decoding.ability_h264 > 0 {
-                supported_decoding::PreferCodec::H264.into()
-            } else if decoding.ability_vp9 > 0 {
-                supported_decoding::PreferCodec::VP9.into()
-            } else {
-                supported_decoding::PreferCodec::Auto.into()
-            };
+            Self::apply_kq_default_codec_preference(&mut decoding);
             if let Some(i444) = decoding.i444.as_mut() {
                 i444.av1 = false;
             }
@@ -3874,7 +3872,39 @@ pub enum MediaData {
     AudioFrame(Box<AudioFrame>),
     AudioFormat(AudioFormat),
     Reset,
-    RecordScreen(bool),
+    RecordScreen(bool, Option<RecordingTransitionBarrier>),
+}
+
+#[derive(Clone)]
+pub struct RecordingTransitionBarrier {
+    remaining: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl RecordingTransitionBarrier {
+    pub fn new(count: usize) -> Option<Self> {
+        (count > 0).then(|| Self {
+            remaining: Arc::new(std::sync::atomic::AtomicUsize::new(count)),
+        })
+    }
+
+    pub fn signal(&self) -> bool {
+        self.remaining
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
+            == 1
+    }
+}
+
+#[cfg(test)]
+mod recording_transition_barrier_tests {
+    use super::RecordingTransitionBarrier;
+
+    #[test]
+    fn reports_completion_only_after_every_video_thread_finishes() {
+        let barrier = RecordingTransitionBarrier::new(2).expect("barrier");
+
+        assert!(!barrier.signal());
+        assert!(barrier.signal());
+    }
 }
 
 pub type MediaSender = mpsc::Sender<MediaData>;
@@ -4020,10 +4050,16 @@ pub fn start_video_thread<F, T>(
                             handler.reset(None);
                         }
                     }
-                    MediaData::RecordScreen(start) => {
+                    MediaData::RecordScreen(start, transition_barrier) => {
                         let id = session.lc.read().unwrap().id.clone();
                         if let Some(handler) = video_handler.as_mut() {
                             handler.record_screen(start, id, display, is_view_camera);
+                        }
+                        if transition_barrier
+                            .as_ref()
+                            .is_some_and(RecordingTransitionBarrier::signal)
+                        {
+                            session.update_recording_transition_complete(start);
                         }
                     }
                     _ => {}

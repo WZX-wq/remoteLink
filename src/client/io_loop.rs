@@ -13,6 +13,60 @@ use crate::{
 
 const KQ_MOBILE_PEER_TIMEOUT: Duration = Duration::from_secs(5);
 const KQ_MOBILE_INITIAL_PEER_TIMEOUT: Duration = SEC30;
+#[cfg(any(target_os = "android", test))]
+const KQ_ANDROID_VIDEO_RECOVERY_GRACE: Duration = Duration::from_millis(1500);
+#[cfg(any(target_os = "android", test))]
+const KQ_ANDROID_VIDEO_RECOVERY_COOLDOWN: Duration = Duration::from_secs(8);
+
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AndroidVideoRecoveryDecision {
+    Wait,
+    Clear,
+    RefreshStream,
+    ResetDecoderAndRefresh,
+}
+
+#[cfg(any(target_os = "android", test))]
+fn decide_android_video_recovery(
+    armed: bool,
+    grace_elapsed: bool,
+    cooldown_elapsed: bool,
+    received_at_input: usize,
+    received_now: usize,
+    decoded_at_input: usize,
+    decoded_now: usize,
+) -> AndroidVideoRecoveryDecision {
+    if !armed {
+        return AndroidVideoRecoveryDecision::Wait;
+    }
+    if decoded_now != decoded_at_input {
+        return AndroidVideoRecoveryDecision::Clear;
+    }
+    if !grace_elapsed {
+        return AndroidVideoRecoveryDecision::Wait;
+    }
+    if !cooldown_elapsed {
+        return AndroidVideoRecoveryDecision::Clear;
+    }
+    if received_now == received_at_input {
+        AndroidVideoRecoveryDecision::RefreshStream
+    } else {
+        AndroidVideoRecoveryDecision::ResetDecoderAndRefresh
+    }
+}
+
+#[inline]
+fn should_reset_decoder_before_video_refresh(is_android: bool) -> bool {
+    !is_android
+}
+
+#[cfg(target_os = "android")]
+struct AndroidVideoRecoveryProbe {
+    armed_at: Instant,
+    received_frame_seq: usize,
+    decoded_frame_seq: usize,
+}
 
 #[inline]
 fn kq_mobile_peer_timed_out(received: bool, elapsed: Duration) -> bool {
@@ -95,6 +149,10 @@ pub struct Remote<T: InvokeUiSession> {
     chroma: Arc<RwLock<Option<Chroma>>>,
     last_record_state: bool,
     sent_close_reason: bool,
+    #[cfg(target_os = "android")]
+    android_video_recovery_probes: HashMap<usize, AndroidVideoRecoveryProbe>,
+    #[cfg(target_os = "android")]
+    last_android_video_recovery: Option<Instant>,
     #[cfg(target_os = "ios")]
     ios_voice_call_encoder: Option<Encoder>,
     #[cfg(target_os = "ios")]
@@ -149,6 +207,10 @@ impl<T: InvokeUiSession> Remote<T> {
             chroma: Default::default(),
             last_record_state: false,
             sent_close_reason: false,
+            #[cfg(target_os = "android")]
+            android_video_recovery_probes: Default::default(),
+            #[cfg(target_os = "android")]
+            last_android_video_recovery: None,
             #[cfg(target_os = "ios")]
             ios_voice_call_encoder: None,
             #[cfg(target_os = "ios")]
@@ -329,6 +391,8 @@ impl<T: InvokeUiSession> Remote<T> {
                                 *v.frame_count.write().unwrap() = 0;
                             });
                             self.fps_control(direct, fps.clone());
+                            #[cfg(target_os = "android")]
+                            self.check_android_video_recovery();
                             let chroma = self.chroma.read().unwrap().clone();
                             let chroma = match chroma {
                                 Some(Chroma::I444) => "4:4:4",
@@ -660,18 +724,26 @@ impl<T: InvokeUiSession> Remote<T> {
                 self.check_clipboard_file_context();
             }
             Data::Message(msg) => {
+                #[cfg(target_os = "android")]
+                let arm_video_recovery = Self::is_android_video_recovery_input(&msg);
+                let reset_decoder =
+                    should_reset_decoder_before_video_refresh(cfg!(target_os = "android"));
                 match &msg.union {
                     Some(message::Union::Misc(misc)) => match misc.union {
                         Some(misc::Union::RefreshVideo(_)) => {
-                            self.video_threads.iter_mut().for_each(|(_, v)| {
-                                *v.discard_queue.write().unwrap() = true;
-                                v.video_sender.send(MediaData::Reset).ok();
-                            });
+                            if reset_decoder {
+                                self.video_threads.iter_mut().for_each(|(_, v)| {
+                                    *v.discard_queue.write().unwrap() = true;
+                                    v.video_sender.send(MediaData::Reset).ok();
+                                });
+                            }
                         }
                         Some(misc::Union::RefreshVideoDisplay(display)) => {
-                            if let Some(v) = self.video_threads.get_mut(&(display as usize)) {
-                                *v.discard_queue.write().unwrap() = true;
-                                v.video_sender.send(MediaData::Reset).ok();
+                            if reset_decoder {
+                                if let Some(v) = self.video_threads.get_mut(&(display as usize)) {
+                                    *v.discard_queue.write().unwrap() = true;
+                                    v.video_sender.send(MediaData::Reset).ok();
+                                }
                             }
                         }
                         _ => {}
@@ -679,6 +751,10 @@ impl<T: InvokeUiSession> Remote<T> {
                     _ => {}
                 }
                 allow_err!(peer.send(&msg).await);
+                #[cfg(target_os = "android")]
+                if arm_video_recovery {
+                    self.arm_android_video_recovery();
+                }
             }
             Data::SendFiles((id, r#type, path, to, file_num, include_hidden, is_remote)) => {
                 log::info!("send files, is remote {}", is_remote);
@@ -1249,6 +1325,99 @@ impl<T: InvokeUiSession> Remote<T> {
         }
     }
 
+    #[cfg(target_os = "android")]
+    fn is_android_video_recovery_input(msg: &Message) -> bool {
+        match msg.union.as_ref() {
+            Some(message::Union::MouseEvent(event)) => {
+                let event_type = event.mask & crate::input::MOUSE_TYPE_MASK;
+                event_type != crate::input::MOUSE_TYPE_MOVE
+                    && event_type != crate::input::MOUSE_TYPE_MOVE_RELATIVE
+            }
+            Some(message::Union::KeyEvent(_) | message::Union::PointerDeviceEvent(_)) => true,
+            _ => false,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn arm_android_video_recovery(&mut self) {
+        if !self.first_decoded_frame.load(Ordering::SeqCst) {
+            return;
+        }
+        for (display, thread) in self.video_threads.iter() {
+            self.android_video_recovery_probes
+                .entry(*display)
+                .or_insert_with(|| AndroidVideoRecoveryProbe {
+                    armed_at: Instant::now(),
+                    received_frame_seq: thread.received_frame_seq.load(Ordering::Relaxed),
+                    decoded_frame_seq: thread.decoded_frame_seq.load(Ordering::Relaxed),
+                });
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn restart_android_video_thread(&mut self, display: usize) {
+        if self.video_threads.remove(&display).is_some() {
+            self.new_video_thread(display);
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn check_android_video_recovery(&mut self) {
+        let now = Instant::now();
+        let cooldown_elapsed = self
+            .last_android_video_recovery
+            .map(|last| now.duration_since(last) >= KQ_ANDROID_VIDEO_RECOVERY_COOLDOWN)
+            .unwrap_or(true);
+        let video_threads = &self.video_threads;
+        let mut recoveries = Vec::new();
+
+        self.android_video_recovery_probes.retain(|display, probe| {
+            let Some(thread) = video_threads.get(display) else {
+                return false;
+            };
+            let decision = decide_android_video_recovery(
+                true,
+                now.duration_since(probe.armed_at) >= KQ_ANDROID_VIDEO_RECOVERY_GRACE,
+                cooldown_elapsed,
+                probe.received_frame_seq,
+                thread.received_frame_seq.load(Ordering::Relaxed),
+                probe.decoded_frame_seq,
+                thread.decoded_frame_seq.load(Ordering::Relaxed),
+            );
+            match decision {
+                AndroidVideoRecoveryDecision::Wait => true,
+                AndroidVideoRecoveryDecision::Clear => false,
+                AndroidVideoRecoveryDecision::RefreshStream
+                | AndroidVideoRecoveryDecision::ResetDecoderAndRefresh => {
+                    recoveries.push((*display, decision));
+                    false
+                }
+            }
+        });
+
+        if recoveries.is_empty() {
+            return;
+        }
+        self.last_android_video_recovery = Some(now);
+        for (display, decision) in recoveries {
+            match decision {
+                AndroidVideoRecoveryDecision::RefreshStream => log::warn!(
+                    "KQ Android video recovery requested a fresh stream after remote input: display={}, reason=no encoded frame",
+                    display
+                ),
+                AndroidVideoRecoveryDecision::ResetDecoderAndRefresh => log::warn!(
+                    "KQ Android video recovery reset the decoder and requested a fresh stream after remote input: display={}, reason=encoded frames were not decoded",
+                    display
+                ),
+                AndroidVideoRecoveryDecision::Wait | AndroidVideoRecoveryDecision::Clear => {}
+            }
+            if decision == AndroidVideoRecoveryDecision::ResetDecoderAndRefresh {
+                self.restart_android_video_thread(display);
+            }
+            self.handler.refresh_video(display as _);
+        }
+    }
+
     // Currently, this function only considers decoding speed and queue length, not network delay.
     // The controlled end can consider auto fps as the maximum decoding fps.
     #[inline]
@@ -1442,6 +1611,8 @@ impl<T: InvokeUiSession> Remote<T> {
                     let Some(thread) = self.video_threads.get_mut(&display) else {
                         return true;
                     };
+                    #[cfg(target_os = "android")]
+                    thread.received_frame_seq.fetch_add(1, Ordering::Relaxed);
                     if Self::contains_key_frame(&vf) {
                         thread
                             .video_sender
@@ -2577,12 +2748,24 @@ impl<T: InvokeUiSession> Remote<T> {
         let (video_sender, video_receiver) = std::sync::mpsc::channel::<MediaData>();
         let decode_fps = Arc::new(RwLock::new(None));
         let frame_count = Arc::new(RwLock::new(0));
+        #[cfg(target_os = "android")]
+        let received_frame_seq = Arc::new(AtomicUsize::new(0));
+        #[cfg(target_os = "android")]
+        let decoded_frame_seq = Arc::new(AtomicUsize::new(0));
+        #[cfg(target_os = "android")]
+        let active = Arc::new(AtomicBool::new(true));
         let discard_queue = Arc::new(RwLock::new(false));
         let video_thread = VideoThread {
             video_queue: video_queue.clone(),
             video_sender,
             decode_fps: decode_fps.clone(),
             frame_count: frame_count.clone(),
+            #[cfg(target_os = "android")]
+            received_frame_seq: received_frame_seq.clone(),
+            #[cfg(target_os = "android")]
+            decoded_frame_seq: decoded_frame_seq.clone(),
+            #[cfg(target_os = "android")]
+            active: active.clone(),
             fps_control: Default::default(),
             discard_queue: discard_queue.clone(),
         };
@@ -2600,7 +2783,13 @@ impl<T: InvokeUiSession> Remote<T> {
                   data: &mut scrap::ImageRgb,
                   _texture: *mut c_void,
                   pixelbuffer: bool| {
+                #[cfg(target_os = "android")]
+                if !active.load(Ordering::SeqCst) {
+                    return;
+                }
                 *frame_count.write().unwrap() += 1;
+                #[cfg(target_os = "android")]
+                decoded_frame_seq.fetch_add(1, Ordering::Relaxed);
                 if pixelbuffer {
                     handler.on_rgba(display, data);
                 } else {
@@ -2648,8 +2837,25 @@ impl<T: InvokeUiSession> Remote<T> {
             ))
             .ok();
         // update local
+        #[cfg(target_os = "android")]
+        let transition_barrier = client::RecordingTransitionBarrier::new(self.video_threads.len());
+        #[cfg(not(target_os = "android"))]
+        let transition_barrier = None;
+
+        #[cfg(target_os = "android")]
+        if transition_barrier.is_none() {
+            self.handler.update_recording_transition_complete(start);
+        }
         for (_, v) in self.video_threads.iter_mut() {
-            v.video_sender.send(MediaData::RecordScreen(start)).ok();
+            if v.video_sender
+                .send(MediaData::RecordScreen(start, transition_barrier.clone()))
+                .is_err()
+                && transition_barrier
+                    .as_ref()
+                    .is_some_and(client::RecordingTransitionBarrier::signal)
+            {
+                self.handler.update_recording_transition_complete(start);
+            }
         }
         self.handler.update_record_status(start);
         // update remote
@@ -2704,6 +2910,12 @@ struct VideoThread {
     video_sender: MediaSender,
     decode_fps: Arc<RwLock<Option<usize>>>,
     frame_count: Arc<RwLock<usize>>,
+    #[cfg(target_os = "android")]
+    received_frame_seq: Arc<AtomicUsize>,
+    #[cfg(target_os = "android")]
+    decoded_frame_seq: Arc<AtomicUsize>,
+    #[cfg(target_os = "android")]
+    active: Arc<AtomicBool>,
     discard_queue: Arc<RwLock<bool>>,
     fps_control: FpsControl,
 }
@@ -2711,6 +2923,66 @@ struct VideoThread {
 impl Drop for VideoThread {
     fn drop(&mut self) {
         // since channels are buffered, messages sent before the disconnect will still be properly received.
+        #[cfg(target_os = "android")]
+        self.active.store(false, Ordering::SeqCst);
         *self.discard_queue.write().unwrap() = true;
+    }
+}
+
+#[cfg(test)]
+mod android_video_recovery_tests {
+    use super::{
+        decide_android_video_recovery, should_reset_decoder_before_video_refresh,
+        AndroidVideoRecoveryDecision,
+    };
+
+    #[test]
+    fn android_refresh_keeps_the_active_decoder() {
+        assert!(!should_reset_decoder_before_video_refresh(true));
+        assert!(should_reset_decoder_before_video_refresh(false));
+    }
+
+    #[test]
+    fn idle_video_without_remote_input_is_not_refreshed() {
+        assert_eq!(
+            decide_android_video_recovery(false, true, true, 10, 10, 10, 10),
+            AndroidVideoRecoveryDecision::Wait,
+        );
+    }
+
+    #[test]
+    fn decoded_progress_clears_an_armed_recovery_probe() {
+        assert_eq!(
+            decide_android_video_recovery(true, true, true, 10, 20, 10, 11),
+            AndroidVideoRecoveryDecision::Clear,
+        );
+    }
+
+    #[test]
+    fn input_without_a_new_encoded_frame_requests_a_stream_refresh() {
+        assert_eq!(
+            decide_android_video_recovery(true, true, true, 10, 10, 10, 10),
+            AndroidVideoRecoveryDecision::RefreshStream,
+        );
+    }
+
+    #[test]
+    fn input_with_encoded_but_not_decoded_progress_resets_the_decoder() {
+        assert_eq!(
+            decide_android_video_recovery(true, true, true, 10, 11, 10, 10),
+            AndroidVideoRecoveryDecision::ResetDecoderAndRefresh,
+        );
+    }
+
+    #[test]
+    fn recovery_waits_for_grace_period_and_cooldown() {
+        assert_eq!(
+            decide_android_video_recovery(true, false, true, 10, 10, 10, 10),
+            AndroidVideoRecoveryDecision::Wait,
+        );
+        assert_eq!(
+            decide_android_video_recovery(true, true, false, 10, 10, 10, 10),
+            AndroidVideoRecoveryDecision::Clear,
+        );
     }
 }

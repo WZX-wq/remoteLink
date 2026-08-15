@@ -13,6 +13,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
+import 'package:flutter_hbb/models/android_recording_gallery.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_hbb/models/cm_file_model.dart';
 import 'package:flutter_hbb/models/connection_failure_presentation.dart';
@@ -477,6 +478,11 @@ class FfiModel with ChangeNotifier {
             isMobile) {
           parent.target?.recordingModel.updateStatus(evt['start'] == 'true');
         }
+      } else if (name == 'recording_transition_complete') {
+        if (isAndroid) {
+          parent.target?.recordingModel
+              .updateTransitionStatus(evt['start'] == 'true');
+        }
       } else if (name == "printer_request") {
         _handlePrinterRequest(evt, sessionId, peerId);
       } else if (name == 'screenshot') {
@@ -511,7 +517,7 @@ class FfiModel with ChangeNotifier {
         close();
         Future.delayed(Duration.zero, () async {
           final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-          String? outputFile = await FilePicker.platform.saveFile(
+          String? outputFile = await FilePicker.saveFile(
             dialogTitle: '${translate('Save as')}...',
             fileName: 'screenshot_$ts.png',
             allowedExtensions: ['png'],
@@ -543,7 +549,11 @@ class FfiModel with ChangeNotifier {
       final List<Widget> buttons = [
         dialogButton('${translate('Save as')}...', onPressed: saveAs),
         dialogButton('Copy to clipboard', onPressed: copyToClipboard),
-        dialogButton('Cancel', onPressed: cancel),
+        dialogButton(
+          'Cancel',
+          onPressed: cancel,
+          androidRole: AndroidDialogActionRole.cancel,
+        ),
       ];
       dialogManager.dismissAll();
       dialogManager.show(
@@ -722,7 +732,11 @@ class FfiModel with ChangeNotifier {
         content: content,
         actions: [
           dialogButton('OK', onPressed: onSubmit),
-          dialogButton('Cancel', onPressed: onCancel),
+          dialogButton(
+            'Cancel',
+            onPressed: onCancel,
+            androidRole: AndroidDialogActionRole.cancel,
+          ),
         ],
         onSubmit: onSubmit,
         onCancel: onCancel,
@@ -4306,35 +4320,192 @@ class RecordingModel with ChangeNotifier {
   WeakReference<FFI> parent;
   RecordingModel(this.parent);
   bool _start = false;
+  bool _publishing = false;
+  bool _transitioning = false;
+  Completer<bool>? _recordStatusCompleter;
+  Completer<bool>? _recordTransitionCompleter;
+  bool? _expectedRecordTransition;
+  bool? _expectedRecordStatus;
+  AndroidRecordingGallerySession? _androidGallerySession;
+  Future<void>? _androidGallerySessionFuture;
   bool get start => _start;
 
   toggle() async {
     if (isIOS) return;
+    if (_publishing || _transitioning) return;
     final sessionId = parent.target?.sessionId;
     if (sessionId == null) return;
     final pi = parent.target?.ffiModel.pi;
     if (pi == null) return;
-    final wasRecording = _start;
-    bool value = !_start;
-    if (value) {
-      await sessionRefreshVideo(sessionId, pi);
+    _transitioning = true;
+    try {
+      final wasRecording = _start;
+      bool value = !_start;
+      if (value) {
+        await _ensureAndroidGallerySession();
+      }
+      final statusFuture = isAndroid ? _waitForRecordStatus(value) : null;
+      final transitionFuture =
+          isAndroid ? _waitForRecordingTransition(value) : null;
+      final bool statusConfirmed;
+      if (isAndroid && value) {
+        statusConfirmed = await startAndroidRecordingWithFreshFrame(
+          statusFuture: statusFuture!,
+          transitionFuture: transitionFuture!,
+          startRecording: () => bind.sessionRecordScreen(
+            sessionId: sessionId,
+            start: true,
+          ),
+          refreshVideo: () => sessionRefreshVideo(sessionId, pi),
+        );
+      } else {
+        if (value) {
+          await sessionRefreshVideo(sessionId, pi);
+        }
+        await bind.sessionRecordScreen(sessionId: sessionId, start: value);
+        statusConfirmed = statusFuture == null || await statusFuture;
+      }
+      if (isAndroid && value && !statusConfirmed) {
+        _androidGallerySession = null;
+        _androidGallerySessionFuture = null;
+      }
+      if (isAndroid && value && statusConfirmed) {
+        final language = kqUiPrefersSimplifiedChinese()
+            ? RecordingGalleryLanguage.simplifiedChinese
+            : (kqUiPrefersChinese()
+                ? RecordingGalleryLanguage.traditionalChinese
+                : RecordingGalleryLanguage.english);
+        showToast(androidRecordingStartedFeedback(language));
+      }
+      if (wasRecording && !value) {
+        final recordingSaveDirectory = bind.mainVideoSaveDirectory(root: false);
+        if (isAndroid) {
+          _publishing = true;
+          try {
+            await _androidGallerySessionFuture;
+            final gallerySession = _androidGallerySession;
+            _androidGallerySession = null;
+            _androidGallerySessionFuture = null;
+            final transitioned =
+                transitionFuture == null || await transitionFuture;
+            if (!statusConfirmed || !transitioned || gallerySession == null) {
+              _showAndroidRecordingDiscoveryFailure(recordingSaveDirectory);
+              return;
+            }
+            final discovery = await gallerySession.discoverSettled();
+            if (!discovery.isSafe) {
+              _showAndroidRecordingDiscoveryFailure(recordingSaveDirectory);
+              return;
+            }
+            if (discovery.files.isEmpty) {
+              final message = kqUiPrefersSimplifiedChinese()
+                  ? '录屏已结束，但没有生成可用的录屏文件。'
+                  : (kqUiPrefersChinese()
+                      ? '錄屏已結束，但沒有產生可用的錄屏檔案。'
+                      : 'Recording ended, but no usable recording file was generated.');
+              showToast(message, timeout: const Duration(seconds: 6));
+              return;
+            }
+            final summary = await publishAndroidRecordings(
+              discovery.files,
+              publishRecordingThroughAndroidChannel,
+            );
+            final language = kqUiPrefersSimplifiedChinese()
+                ? RecordingGalleryLanguage.simplifiedChinese
+                : (kqUiPrefersChinese()
+                    ? RecordingGalleryLanguage.traditionalChinese
+                    : RecordingGalleryLanguage.english);
+            showToast(
+              androidRecordingGalleryFeedback(summary, language: language),
+              timeout: const Duration(seconds: 8),
+            );
+            return;
+          } finally {
+            _publishing = false;
+          }
+        }
+        final message = kqUiPrefersSimplifiedChinese()
+            ? '录屏已结束，文件保存位置：'
+            : (kqUiPrefersChinese()
+                ? '錄屏已結束，檔案儲存位置：'
+                : 'Recording ended. Saved location:');
+        showToast('$message\n$recordingSaveDirectory',
+            timeout: const Duration(seconds: 6));
+      }
+    } finally {
+      _recordStatusCompleter = null;
+      _recordTransitionCompleter = null;
+      _expectedRecordTransition = null;
+      _expectedRecordStatus = null;
+      _transitioning = false;
     }
-    await bind.sessionRecordScreen(sessionId: sessionId, start: value);
-    if (wasRecording && !value) {
-      final recordingSaveDirectory = bind.mainVideoSaveDirectory(root: false);
-      final message = kqUiPrefersSimplifiedChinese()
-          ? '录屏已结束，文件保存位置：'
-          : (kqUiPrefersChinese()
-              ? '錄屏已結束，檔案儲存位置：'
-              : 'Recording ended. Saved location:');
-      showToast('$message\n$recordingSaveDirectory',
-          timeout: const Duration(seconds: 6));
-    }
+  }
+
+  Future<void> _ensureAndroidGallerySession() async {
+    if (!isAndroid || _androidGallerySession != null) return;
+    final existing = _androidGallerySessionFuture;
+    if (existing != null) return existing;
+    final capture = () async {
+      _androidGallerySession = await AndroidRecordingGallerySession.capture(
+        bind.mainVideoSaveDirectory(root: false),
+      );
+    }();
+    _androidGallerySessionFuture = capture;
+    await capture;
+  }
+
+  void _ensureAndroidGallerySessionForAutomaticRecording() {
+    if (!isAndroid || _androidGallerySession != null) return;
+    unawaited(_ensureAndroidGallerySession());
+  }
+
+  Future<bool> _waitForRecordStatus(bool expected) {
+    final completer = Completer<bool>();
+    _recordStatusCompleter = completer;
+    _expectedRecordStatus = expected;
+    return completer.future.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => false,
+    );
+  }
+
+  Future<bool> _waitForRecordingTransition(bool expected) {
+    final completer = Completer<bool>();
+    _recordTransitionCompleter = completer;
+    _expectedRecordTransition = expected;
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+  }
+
+  void _showAndroidRecordingDiscoveryFailure(String sourceDirectory) {
+    final message = kqUiPrefersSimplifiedChinese()
+        ? '无法确认本次录屏文件，原文件已安全保留：'
+        : (kqUiPrefersChinese()
+            ? '無法確認本次錄屏檔案，原檔案已安全保留：'
+            : 'Could not identify this recording safely. Source files were retained at:');
+    showToast('$message\n$sourceDirectory',
+        timeout: const Duration(seconds: 8));
   }
 
   updateStatus(bool status) {
     _start = status;
+    if (isAndroid && status) {
+      _ensureAndroidGallerySessionForAutomaticRecording();
+    }
+    if (_expectedRecordStatus == status &&
+        !(_recordStatusCompleter?.isCompleted ?? true)) {
+      _recordStatusCompleter?.complete(true);
+    }
     notifyListeners();
+  }
+
+  void updateTransitionStatus(bool status) {
+    if (_expectedRecordTransition == status &&
+        !(_recordTransitionCompleter?.isCompleted ?? true)) {
+      _recordTransitionCompleter?.complete(true);
+    }
   }
 }
 

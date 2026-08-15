@@ -32,7 +32,7 @@ class PrivacyPolicyPage extends StatelessWidget {
             children: [
               _PrivacyHeader(
                 title: KqPrivacyPolicy.titleForCurrentLanguage(),
-                onOpenPublicPolicy: _openPublicPolicy,
+                onOpenPublicPolicy: isIOS ? _openPublicPolicy : null,
               ),
               Expanded(
                 child: SelectionArea(
@@ -67,7 +67,7 @@ class _PrivacyHeader extends StatelessWidget {
   });
 
   final String title;
-  final Future<void> Function() onOpenPublicPolicy;
+  final Future<void> Function()? onOpenPublicPolicy;
 
   @override
   Widget build(BuildContext context) {
@@ -93,11 +93,12 @@ class _PrivacyHeader extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            onPressed: () => onOpenPublicPolicy(),
-            tooltip: translate('Open public policy'),
-            icon: Icon(Icons.open_in_new_rounded, color: q.primary),
-          ),
+          if (onOpenPublicPolicy != null)
+            IconButton(
+              onPressed: () => onOpenPublicPolicy!(),
+              tooltip: translate('Open public policy'),
+              icon: Icon(Icons.open_in_new_rounded, color: q.primary),
+            ),
         ],
       ),
     );

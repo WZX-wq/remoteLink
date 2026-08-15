@@ -45,4 +45,29 @@ void main() {
       contains('BoxConstraints.tightFor(width: 40, height: 40)'),
     );
   });
+
+  test('Android password actions compact without truncating the type label',
+      () {
+    final page = File('lib/mobile/pages/server_page.dart').readAsStringSync();
+    final passwordTile = _section(
+      page,
+      'class _DevicePasswordTileState',
+      'String _mobileKqPasswordKindLabel',
+    );
+    final actionGrid = _section(
+      page,
+      'class _MobilePasswordActionGrid',
+      'String _mobileKqPasswordKindLabel',
+    );
+
+    expect(passwordTile, contains('compact: isAndroid'));
+    expect(passwordTile, contains('minWidth: 108'));
+    expect(passwordTile, contains('FittedBox('));
+    expect(actionGrid, contains('compact'));
+    expect(
+      actionGrid,
+      contains('BoxConstraints.tightFor(width: 32, height: 32)'),
+    );
+    expect(actionGrid, contains('const SizedBox(width: 4)'));
+  });
 }

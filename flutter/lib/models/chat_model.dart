@@ -542,11 +542,26 @@ class ChatModel with ChangeNotifier {
     _voiceCallStatus.value = VoiceCallStatus.waitingForResponse;
   }
 
-  void onVoiceCallStarted() {
-    _voiceCallStatus.value = VoiceCallStatus.connected;
+  Future<void> onVoiceCallStarted() async {
     if (isAndroid) {
-      parent.target?.invokeMethod("on_voice_call_started");
+      try {
+        final started = await parent.target?.invokeMethod(
+              'on_voice_call_started',
+            ) ??
+            false;
+        if (!started) {
+          bind.sessionCloseVoiceCall(sessionId: sessionId);
+          onVoiceCallClosed('Failed to start voice call');
+          return;
+        }
+      } catch (error) {
+        debugPrint('Unable to start Android voice capture: $error');
+        bind.sessionCloseVoiceCall(sessionId: sessionId);
+        onVoiceCallClosed('Failed to start voice call');
+        return;
+      }
     }
+    _voiceCallStatus.value = VoiceCallStatus.connected;
     if (isIOS) {
       unawaited(_startIOSVoiceCapture());
     }

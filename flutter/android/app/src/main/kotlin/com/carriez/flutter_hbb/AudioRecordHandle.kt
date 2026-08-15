@@ -93,12 +93,19 @@ class AudioRecordHandle(private var context: Context, private var isVideoStart: 
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
-    fun startAudioRecorder() {
+    fun startAudioRecorder(): Boolean {
         checkAudioReader()
         if (audioReader != null && audioRecorder != null && minBufferSize != 0) {
             try {
-                FFI.setFrameRawEnable("audio", true)
                 audioRecorder!!.startRecording()
+                if (audioRecorder!!.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                    Log.e(logTag, "startAudioRecorder failed, recorder did not enter recording state")
+                    audioRecorder?.release()
+                    audioRecorder = null
+                    minBufferSize = 0
+                    return false
+                }
+                FFI.setFrameRawEnable("audio", true)
                 audioRecordStat = true
                 audioThread = thread {
                     while (audioRecordStat) {
@@ -113,11 +120,19 @@ class AudioRecordHandle(private var context: Context, private var isVideoStart: 
                     FFI.setFrameRawEnable("audio", false)
                     Log.d(logTag, "Exit audio thread")
                 }
+                return true
             } catch (e: Exception) {
-                Log.d(logTag, "startAudioRecorder fail:$e")
+                audioRecordStat = false
+                audioRecorder?.release()
+                audioRecorder = null
+                minBufferSize = 0
+                FFI.setFrameRawEnable("audio", false)
+                Log.e(logTag, "startAudioRecorder fail", e)
+                return false
             }
         } else {
             Log.d(logTag, "startAudioRecorder fail")
+            return false
         }
     }
 
@@ -147,7 +162,8 @@ class AudioRecordHandle(private var context: Context, private var isVideoStart: 
     @RequiresApi(Build.VERSION_CODES.M)
     fun switchToVoiceCall(mediaProjection: MediaProjection?): Boolean {
         audioRecorder?.let {
-            if (it.getAudioSource() == MediaRecorder.AudioSource.VOICE_COMMUNICATION) {
+            if (it.getAudioSource() == MediaRecorder.AudioSource.VOICE_COMMUNICATION &&
+                it.recordingState == AudioRecord.RECORDSTATE_RECORDING && audioRecordStat) {
                 return true
             }
         }
@@ -159,8 +175,7 @@ class AudioRecordHandle(private var context: Context, private var isVideoStart: 
             Log.e(logTag, "createAudioRecorder fail")
             return false
         }
-        startAudioRecorder()
-        return true
+        return startAudioRecorder()
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
@@ -177,8 +192,7 @@ class AudioRecordHandle(private var context: Context, private var isVideoStart: 
             Log.e(logTag, "createAudioRecorder fail")
             return false
         }
-        startAudioRecorder()
-        return true
+        return startAudioRecorder()
     }
 
     fun tryReleaseAudio() {

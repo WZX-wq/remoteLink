@@ -1362,8 +1362,15 @@ abstract class BasePeerCard extends StatelessWidget {
         translate('WOL'),
         style: style,
       ),
-      proc: () {
-        bind.mainWol(id: id);
+      proc: () async {
+        if (isAndroid) {
+          final sent = await bind.mainWol(id: id);
+          showToast(
+            '${translate('WOL')}: ${translate(sent ? 'Successful' : 'Failed')}',
+          );
+        } else {
+          await bind.mainWol(id: id);
+        }
       },
       padding: menuPadding,
       dismissOnClicked: true,

@@ -80,6 +80,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   InputModel get inputModel => gFFI.inputModel;
   SessionID get sessionId => gFFI.sessionId;
+  bool get _isAndroidPhoneToPhoneSession => isAndroidPhoneToPhoneSession(
+        isAndroidController: isAndroid,
+        isAndroidPeer: gFFI.ffiModel.isPeerAndroid,
+      );
   bool get _softKeyboardActive =>
       keyboardVisibilityController.isVisible && _showEdit;
 
@@ -126,6 +130,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
+      if (isAndroid) {
+        ShowRemoteCursorState.find(widget.id).value =
+            bind.sessionGetToggleOptionSync(
+                sessionId: sessionId, arg: 'show-remote-cursor');
+      }
       gFFI.dialogManager
           .showLoading(translate('Connecting...'), onCancel: closeConnection);
     });
@@ -304,8 +313,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       _iosKeyboardWorkaroundTimer = null;
       _timer?.cancel();
       _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-            overlays: SystemUiOverlay.values);
+        if (!isAndroid) {
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+              overlays: SystemUiOverlay.values);
+        }
         _mobileFocusNode.requestFocus();
       });
     }
@@ -406,6 +417,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   // handle mobile virtual keyboard
   void handleSoftKeyboardInput(String newValue) {
+    if (isAndroid && gFFI.ffiModel.viewOnly) return;
     if (isIOS) {
       _handleIOSSoftKeyboardInput(newValue);
     } else {
@@ -423,6 +435,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   void openKeyboard() {
+    if (isAndroid && gFFI.ffiModel.viewOnly) return;
+    if (_isAndroidPhoneToPhoneSession) return;
     gFFI.invokeMethod("enable_soft_keyboard", true);
     // destroy first, so that our _value trick can work
     _value = initText;
@@ -435,8 +449,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       setState(() => _showEdit = true);
       _timer?.cancel();
       _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-            overlays: SystemUiOverlay.values);
+        if (!isAndroid) {
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+              overlays: SystemUiOverlay.values);
+        }
         _mobileFocusNode.requestFocus();
       });
     });
@@ -458,6 +474,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final keyboardIsVisible = _softKeyboardActive;
     final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
+    final anchorToggleAtSafeTop = shouldAnchorMobileRemoteToggleAtSafeTop(
+      isAndroidPlatform: isAndroid,
+      showGestureHelp: _showGestureHelp,
+    );
 
     return PopScope(
       canPop: false,
@@ -471,9 +491,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           resizeToAvoidBottomInset: false,
           // workaround for https://github.com/rustdesk/rustdesk/issues/3131
           floatingActionButtonLocation: FABLocation(
-            FloatingActionButtonLocation.endFloat,
+            anchorToggleAtSafeTop
+                ? FloatingActionButtonLocation.endTop
+                : FloatingActionButtonLocation.endFloat,
             0,
-            kMobileRemoteToggleButtonYOffset,
+            anchorToggleAtSafeTop
+                ? kMobileRemoteGestureHelpToggleTopInset
+                : kMobileRemoteToggleButtonYOffset,
           ),
           floatingActionButton: !showActionButton
               ? null
@@ -546,6 +570,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   Widget getRawPointerAndKeyBody(Widget child) {
+    if (_isAndroidPhoneToPhoneSession) return child;
     final ffiModel = Provider.of<FfiModel>(context);
     return RawPointerMouseRegion(
       cursor: ffiModel.keyboard ? SystemMouseCursors.none : MouseCursor.defer,
@@ -602,11 +627,12 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         },
       ),
       if (!isWebDesktop && !ffiModel.viewOnly && ffiModel.keyboard) ...[
-        _remoteSideActionButton(
-          icon: Icons.keyboard,
-          label: kqLocaleText(zhCn: '键盘', en: 'Keys'),
-          onPressed: openKeyboard,
-        ),
+        if (!_isAndroidPhoneToPhoneSession)
+          _remoteSideActionButton(
+            icon: Icons.keyboard,
+            label: kqLocaleText(zhCn: '键盘', en: 'Keys'),
+            onPressed: openKeyboard,
+          ),
         if (gFFI.ffiModel.isPeerAndroid)
           _remoteSideActionButton(
             icon: Icons.build,
@@ -786,6 +812,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   bool get showCursorPaint =>
+      !_isAndroidPhoneToPhoneSession &&
       supportsRemoteCursorBroadcast(gFFI.ffiModel.pi) &&
       !gFFI.canvasModel.cursorEmbedded &&
       !gFFI.inputModel.relativeMouseMode.value;
@@ -805,48 +832,53 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               right: 10,
               child: QualityMonitor(gFFI.qualityMonitorModel),
             ),
-            KeyHelpTools(
+            if (!_isAndroidPhoneToPhoneSession)
+              KeyHelpTools(
                 keyboardIsVisible: keyboardIsVisible,
-                showGestureHelp: _showGestureHelp),
-            SizedBox(
-              width: 0,
-              height: 0,
-              child: !_showEdit
-                  ? Container()
-                  : TextFormField(
-                      textInputAction: TextInputAction.newline,
-                      autocorrect: false,
-                      // Flutter 3.16.9 Android.
-                      // `enableSuggestions` causes secure keyboard to be shown.
-                      // https://github.com/flutter/flutter/issues/139143
-                      // https://github.com/flutter/flutter/issues/146540
-                      // enableSuggestions: false,
-                      autofocus: true,
-                      focusNode: _mobileFocusNode,
-                      maxLines: null,
-                      controller: _textController,
-                      // trick way to make backspace work always
-                      keyboardType: TextInputType.multiline,
-                      // `onChanged` may be called depending on the input method if this widget is wrapped in
-                      // `Focus(onKeyEvent: ..., child: ...)`
-                      // For `Backspace` button in the soft keyboard:
-                      // en/fr input method:
-                      //      1. The button will not trigger `onKeyEvent` if the text field is not empty.
-                      //      2. The button will trigger `onKeyEvent` if the text field is empty.
-                      // ko/zh/ja input method: the button will trigger `onKeyEvent`
-                      //                     and the event will not popup if `KeyEventResult.handled` is returned.
-                      onChanged: handleSoftKeyboardInput,
-                    ).workaroundFreezeLinuxMint(),
-            ),
+                showGestureHelp: _showGestureHelp,
+              ),
+            if (!_isAndroidPhoneToPhoneSession)
+              SizedBox(
+                width: 0,
+                height: 0,
+                child: !_showEdit
+                    ? Container()
+                    : TextFormField(
+                        textInputAction: TextInputAction.newline,
+                        autocorrect: false,
+                        // Flutter 3.16.9 Android.
+                        // `enableSuggestions` causes secure keyboard to be shown.
+                        // https://github.com/flutter/flutter/issues/139143
+                        // https://github.com/flutter/flutter/issues/146540
+                        // enableSuggestions: false,
+                        autofocus: true,
+                        focusNode: _mobileFocusNode,
+                        maxLines: null,
+                        controller: _textController,
+                        // trick way to make backspace work always
+                        keyboardType: TextInputType.multiline,
+                        // `onChanged` may be called depending on the input method if this widget is wrapped in
+                        // `Focus(onKeyEvent: ..., child: ...)`
+                        // For `Backspace` button in the soft keyboard:
+                        // en/fr input method:
+                        //      1. The button will not trigger `onKeyEvent` if the text field is not empty.
+                        //      2. The button will trigger `onKeyEvent` if the text field is empty.
+                        // ko/zh/ja input method: the button will trigger `onKeyEvent`
+                        //                     and the event will not popup if `KeyEventResult.handled` is returned.
+                        onChanged: handleSoftKeyboardInput,
+                      ).workaroundFreezeLinuxMint(),
+              ),
           ];
           if (showCursorPaint) {
             paints.add(Obx(() => ShowRemoteCursorState.find(widget.id).value
                 ? CursorPaint(widget.id)
                 : const SizedBox.shrink()));
           }
-          paints.add(FloatingMouse(
-            ffi: gFFI,
-          ));
+          if (!_isAndroidPhoneToPhoneSession) {
+            paints.add(FloatingMouse(
+              ffi: gFFI,
+            ));
+          }
           paints.add(_remoteSideActionRail());
           return paints;
         }()));
@@ -867,28 +899,30 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   List<TTextMenu> _getMobileActionMenus() {
-    if (gFFI.ffiModel.pi.platform != kPeerPlatformAndroid ||
-        !gFFI.ffiModel.keyboard) {
+    if (isAndroid && gFFI.ffiModel.viewOnly) return [];
+    if (!gFFI.ffiModel.isPeerAndroid || !gFFI.ffiModel.keyboard) {
       return [];
     }
     final enabled = versionCmp(gFFI.ffiModel.pi.version, '1.2.7') >= 0;
     if (!enabled) return [];
     return [
-      TTextMenu(
-        child: Text(translate('Back')),
-        mobileIcon: Icons.arrow_back_rounded,
-        onPressed: () => gFFI.inputModel.onMobileBack(),
-      ),
-      TTextMenu(
-        child: Text(translate('Home')),
-        mobileIcon: Icons.home_rounded,
-        onPressed: () => gFFI.inputModel.onMobileHome(),
-      ),
-      TTextMenu(
-        child: Text(translate('Apps')),
-        mobileIcon: Icons.apps_rounded,
-        onPressed: () => gFFI.inputModel.onMobileApps(),
-      ),
+      if (!_isAndroidPhoneToPhoneSession) ...[
+        TTextMenu(
+          child: Text(translate('Back')),
+          mobileIcon: Icons.arrow_back_rounded,
+          onPressed: () => gFFI.inputModel.onMobileBack(),
+        ),
+        TTextMenu(
+          child: Text(translate('Home')),
+          mobileIcon: Icons.home_rounded,
+          onPressed: () => gFFI.inputModel.onMobileHome(),
+        ),
+        TTextMenu(
+          child: Text(translate('Apps')),
+          mobileIcon: Icons.apps_rounded,
+          onPressed: () => gFFI.inputModel.onMobileApps(),
+        ),
+      ],
       TTextMenu(
         child: Text(translate('Volume up')),
         mobileIcon: Icons.volume_up_rounded,
@@ -909,9 +943,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   void showActions(String id) async {
     final mobileActionMenus = _getMobileActionMenus();
-    final menus = toolbarControls(context, id, gFFI, includeFingerprint: false)
-        .where((menu) => !menu.divider)
-        .toList();
+    final menus = toolbarControls(
+      context,
+      id,
+      gFFI,
+      includeFingerprint: false,
+      androidPhoneToPhone: _isAndroidPhoneToPhoneSession,
+    ).where((menu) => !menu.divider).toList();
     final allMenus = <TTextMenu>[...mobileActionMenus, ...menus];
     final selected = await showModalBottomSheet<int>(
       context: context,
@@ -1443,19 +1481,30 @@ class CursorPaint extends StatelessWidget {
 void showOptions(
     BuildContext context, String id, OverlayDialogManager dialogManager) async {
   final pi = gFFI.ffiModel.pi;
+  final androidPhoneToPhone = isAndroidPhoneToPhoneSession(
+    isAndroidController: isAndroid,
+    isAndroidPeer: gFFI.ffiModel.isPeerAndroid,
+  );
   final viewStyleRadios = await toolbarViewStyle(context, id, gFFI);
   final imageQualityRadios = await toolbarImageQuality(context, id, gFFI);
   final codecRadios = await toolbarCodec(context, id, gFFI);
-  final cursorToggles = await toolbarCursor(context, id, gFFI);
-  final displayToggles = await toolbarDisplayToggle(context, id, gFFI);
+  var cursorToggles = androidPhoneToPhone
+      ? <TToggleMenu>[]
+      : await toolbarCursor(context, id, gFFI);
+  var displayToggles = await toolbarDisplayToggle(
+    context,
+    id,
+    gFFI,
+    androidPhoneToPhone: androidPhoneToPhone,
+  );
 
   var viewStyle =
       viewStyleRadios.isNotEmpty ? viewStyleRadios.first.groupValue : '';
   var imageQuality =
       imageQualityRadios.isNotEmpty ? imageQualityRadios.first.groupValue : '';
   var codec = codecRadios.isNotEmpty ? codecRadios.first.groupValue : '';
-  final cursorValues = cursorToggles.map((toggle) => toggle.value).toList();
-  final displayValues = displayToggles.map((toggle) => toggle.value).toList();
+  var cursorValues = cursorToggles.map((toggle) => toggle.value).toList();
+  var displayValues = displayToggles.map((toggle) => toggle.value).toList();
 
   await showModalBottomSheet<void>(
     context: context,
@@ -1472,8 +1521,31 @@ void showOptions(
           }
         }
 
-        final resolution = getResolutionMenu(gFFI, id);
-        final virtualDisplayMenu = getVirtualDisplayMenu(gFFI, id);
+        Future<void> refreshToggleMenus() async {
+          final refreshedCursor = androidPhoneToPhone
+              ? <TToggleMenu>[]
+              : await toolbarCursor(sheetContext, id, gFFI);
+          final refreshedDisplay = await toolbarDisplayToggle(
+            sheetContext,
+            id,
+            gFFI,
+            androidPhoneToPhone: androidPhoneToPhone,
+          );
+          if (!sheetContext.mounted) return;
+          setSheetState(() {
+            cursorToggles = refreshedCursor;
+            displayToggles = refreshedDisplay;
+            cursorValues =
+                refreshedCursor.map((toggle) => toggle.value).toList();
+            displayValues =
+                refreshedDisplay.map((toggle) => toggle.value).toList();
+          });
+        }
+
+        final resolution =
+            androidPhoneToPhone ? null : getResolutionMenu(gFFI, id);
+        final virtualDisplayMenu =
+            androidPhoneToPhone ? null : getVirtualDisplayMenu(gFFI, id);
         return Container(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(sheetContext).size.height * 0.84,
@@ -1511,7 +1583,8 @@ void showOptions(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (pi.displays.length > 1 &&
+                    if (!androidPhoneToPhone &&
+                        pi.displays.length > 1 &&
                         pi.currentDisplay != kAllDisplayValue)
                       _RemoteOptionSection(
                         title: kqLocaleText(zhCn: '显示器', en: 'Monitor'),
@@ -1586,32 +1659,46 @@ void showOptions(
                               index < cursorToggles.length;
                               index++)
                             _RemoteOptionToggle(
+                              key:
+                                  ValueKey('cursor-${cursorToggles[index].id}'),
                               label: cursorToggles[index].child,
                               value: cursorValues[index],
                               onChanged: cursorToggles[index].onChanged == null
                                   ? null
-                                  : (value) {
-                                      cursorToggles[index]
-                                          .onChanged
-                                          ?.call(value);
+                                  : (value) async {
+                                      final onChanged =
+                                          cursorToggles[index].onChanged;
                                       setSheetState(
                                           () => cursorValues[index] = value);
+                                      if (isAndroid) {
+                                        await onChanged?.call(value);
+                                        await refreshToggleMenus();
+                                      } else {
+                                        onChanged?.call(value);
+                                      }
                                     },
                             ),
                           for (var index = 0;
                               index < displayToggles.length;
                               index++)
                             _RemoteOptionToggle(
+                              key: ValueKey(
+                                  'display-${displayToggles[index].id}'),
                               label: displayToggles[index].child,
                               value: displayValues[index],
                               onChanged: displayToggles[index].onChanged == null
                                   ? null
-                                  : (value) {
-                                      displayToggles[index]
-                                          .onChanged
-                                          ?.call(value);
+                                  : (value) async {
+                                      final onChanged =
+                                          displayToggles[index].onChanged;
                                       setSheetState(
                                           () => displayValues[index] = value);
+                                      if (isAndroid) {
+                                        await onChanged?.call(value);
+                                        await refreshToggleMenus();
+                                      } else {
+                                        onChanged?.call(value);
+                                      }
                                     },
                             ),
                         ]),
@@ -1790,6 +1877,7 @@ class _RemoteMonitorButton extends StatelessWidget {
 
 class _RemoteOptionToggle extends StatelessWidget {
   const _RemoteOptionToggle({
+    super.key,
     required this.label,
     required this.value,
     required this.onChanged,
